@@ -76,6 +76,37 @@ describe("edit_file tool", () => {
     expect(result.output).toContain("Could not find");
   });
 
+  it("should include the actual file content when old_content is not found (verbose error)", async () => {
+    // Verbose error: when the model's old_content doesn't match, the
+    // tool returns the actual file content so the model can self-correct
+    // on the next turn instead of looping. See HALLUCINATION_MITIGATION.md.
+    const mockDoc = {
+      getText: () => "function add(a, b) {\n  return a + b;\n}\n",
+      uri: vscode.Uri.file("/test-workspace/math.ts"),
+    };
+    (
+      vscode.workspace.openTextDocument as ReturnType<typeof vi.fn>
+    ).mockResolvedValue(mockDoc);
+
+    const result = await editFileTool.execute(
+      {
+        path: "math.ts",
+        old_content: "return a - b;",
+        new_content: "return a * b;",
+      },
+      context,
+    );
+
+    expect(result.success).toBe(false);
+    // Original error string preserved
+    expect(result.output).toContain("Could not find");
+    // The actual file content is included with line numbers
+    expect(result.output).toContain("function add");
+    expect(result.output).toContain("return a + b;");
+    // Helpful suggestion is included
+    expect(result.output.toLowerCase()).toContain("re-read");
+  });
+
   it("should handle file open errors", async () => {
     (
       vscode.workspace.openTextDocument as ReturnType<typeof vi.fn>

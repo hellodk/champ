@@ -5,6 +5,88 @@ All notable changes to AIDev will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] — 2026-04-06
+
+The "anti-hallucination + close the gap" release. Adds documentation
+about what's currently shipped vs aspirational, and closes the highest-
+priority integration gaps from `docs/GAP_ANALYSIS.md` plus the
+P0 hallucination mitigations from `docs/HALLUCINATION_MITIGATION.md`.
+
+### Documentation
+
+- **`docs/GAP_ANALYSIS.md`** — honest assessment of which Cursor-parity
+  features are wired vs built-but-unwired vs missing. 22-item table
+  with priority order for closure.
+- **`docs/MODEL_GUIDE.md`** — practical guide to picking open models
+  for AIDev's local agent workflow. Tier 1 / Tier 2 / Tier 0 (autocomplete)
+  recommendations with Apple Silicon hardware notes.
+- **`docs/HALLUCINATION_MITIGATION.md`** — deep analysis of why coding
+  agents hallucinate and how Cursor, Aider, Continue.dev, Cline, and
+  Codeium address it. Maps each pattern to AIDev's implementation
+  priority.
+
+### Added — anti-hallucination
+
+- **Hardened system prompt** with explicit verify-before-claim and
+  no-fabrication rules, plus few-shot examples showing wrong vs correct
+  responses for the canonical "create a hello world file" task. Applies
+  to both prompt-based and native tool-calling providers.
+- **Repo map injection** (`src/indexing/repo-map-builder.ts`) — produces
+  a compact tree-sitter-style outline of the workspace's top-level
+  files and symbols (function/class names, no bodies) and prepends it
+  to every chat session as a grounding preamble. Cached per session,
+  re-fetched on `reset()`. Aider's most effective hallucination defense.
+- **Verbose `edit_file` errors** — when `old_content` doesn't match,
+  the tool returns the actual file content (numbered, capped at 80
+  lines) so the model can self-correct on the next turn instead of
+  retrying with the same wrong snippet.
+
+### Added — gap closure
+
+- **Mode enforcement.** `AgentController` now accepts a mode (`agent`,
+  `ask`, `manual`, `plan`, `composer`) and:
+  - Restricts the tool list per mode (`ask` and `plan` block all
+    write/exec tools).
+  - Appends mode-specific instructions to the system prompt.
+  - Mode is set via `setMode()` and pushed through from both the
+    chat view dropdown and the `AIDev: Toggle Mode` command.
+- **`@-symbol` resolution in chat input.** `ChatViewProvider.setContextResolver()`
+  attaches a `ContextResolver`. Every user message is scanned for
+  `@Files(...)`, `@Folders(...)`, `@Codebase`, `@Web`, `@Git`, `@Docs(...)`,
+  `@Code`, `@Symbols(...)` references and the resolved content is
+  appended to the message before sending to the agent.
+- **Real approval flow piped through the webview.** `ChatViewProvider`
+  builds a `requestApproval` callback that posts an `approvalRequest`
+  message to the webview and waits for the matching `approvalResponse`.
+  The agent passes this callback to `processMessage`, which threads it
+  into the tool execution context. Pending approvals are tracked by id
+  in a Map so concurrent requests resolve independently.
+- **Secret redaction.** `AgentController` calls `SecretScanner.scan()`
+  on every tool output before storing it in conversation history. API
+  keys, passwords, PEM blocks, and other secrets are replaced with
+  `[REDACTED]` so they never reach the LLM on the next turn. The
+  user-visible result preserves the original output for display.
+- **Repo map auto-population** in `extension.ts`. The activation flow
+  walks the workspace (top 200 TS/JS files, excluding `node_modules`,
+  `dist`, `out`, `.git`, `test-reports`) and feeds them to
+  `RepoMapBuilder` on demand. Errors are silently swallowed so a
+  file-system permission issue doesn't break chat.
+- **`ContextResolver` wired** in `extension.ts` and attached to the
+  chat view at activation.
+
+### Tests
+
+- 340 tests passing (up from 313). 27 new tests covering:
+  - 4 RepoMapBuilder tests (was 8 already, total 8)
+  - 5 mode enforcement tests
+  - 4 repo map grounding tests
+  - 3 anti-hallucination directive tests
+  - 3 @-symbol resolution tests
+  - 3 approval flow tests
+  - 2 secret redaction tests
+  - 1 verbose edit_file error test
+  - 2 RepoMapBuilder size cap and stability tests
+
 ## [0.1.2] — 2026-04-06
 
 ### Fixed

@@ -22,10 +22,30 @@ import {
   isNewChat,
   isCancelRequest,
   isRequestHistory,
+  isApprovalResponse,
   type ExtensionToWebviewMessage,
   type WebviewToExtensionMessage,
 } from "./messages";
 import type { StreamDelta } from "../providers/types";
+
+/**
+ * Minimal interface that ChatViewProvider needs from a context resolver.
+ * Mirrors the public surface of ContextResolver from src/agent/. We
+ * accept this narrow shape (rather than importing ContextResolver
+ * directly) so tests can supply a fake without setting up the indexing
+ * service / web search tool dependencies.
+ */
+export interface ChatContextResolver {
+  parseReferences(text: string): Array<{
+    type: string;
+    value: string;
+    start: number;
+    end: number;
+  }>;
+  resolve(
+    refs: Array<{ type: string; value: string }>,
+  ): Promise<Array<{ type: string; label: string; content: string }>>;
+}
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "aidev.chatView";
@@ -33,11 +53,28 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | undefined;
   private activeAbortController: AbortController | null = null;
   private streamListenerDispose: (() => void) | null = null;
+  private contextResolver: ChatContextResolver | undefined;
+  /**
+   * Pending approval requests keyed by id. Each entry is the
+   * resolve callback of the promise the agent is awaiting. When the
+   * webview sends back an approvalResponse, we look up the id and
+   * resolve the matching promise.
+   */
+  private pendingApprovals = new Map<string, (approved: boolean) => void>();
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly agent: AgentController,
   ) {}
+
+  /**
+   * Attach a context resolver. When set, every user message is scanned
+   * for @-symbol references and the resolved content is appended to
+   * the message before it goes to the agent.
+   */
+  setContextResolver(resolver: ChatContextResolver): void {
+    this.contextResolver = resolver;
+  }
 
   resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -83,16 +120,43 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       } else if (isCancelRequest(msg)) {
         this.handleCancel();
       } else if (isSetMode(msg)) {
-        // Mode switching is persisted by the caller that owns the
-        // system prompt builder. The chat view only relays the event.
+        // Push the mode through to the agent so it picks the right
+        // tool restrictions and system prompt on the next turn.
+        this.agent.setMode(msg.mode);
         this.postMessage({ type: "modeChanged", mode: msg.mode });
       } else if (isRequestHistory(msg)) {
         this.postMessage(createConversationHistory(this.agent.getHistory()));
+      } else if (isApprovalResponse(msg)) {
+        const resolve = this.pendingApprovals.get(msg.id);
+        if (resolve) {
+          this.pendingApprovals.delete(msg.id);
+          resolve(msg.approved);
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.postMessage(createError(message));
     }
+  }
+
+  /**
+   * Build a requestApproval callback that posts an approvalRequest to
+   * the webview and waits for the matching approvalResponse. The
+   * callback shape matches AgentController's ProcessMessageOptions.
+   */
+  private buildApprovalCallback(): (description: string) => Promise<boolean> {
+    return (description: string) =>
+      new Promise<boolean>((resolve) => {
+        const id = `approval_${Date.now().toString(36)}_${Math.random()
+          .toString(36)
+          .slice(2, 9)}`;
+        this.pendingApprovals.set(id, resolve);
+        this.postMessage({
+          type: "approvalRequest",
+          id,
+          description,
+        });
+      });
   }
 
   private async handleUserMessage(text: string): Promise<void> {
@@ -101,6 +165,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     const controller = new AbortController();
     this.activeAbortController = controller;
+
+    // Resolve any @-symbol references and append the resolved content
+    // to the message. The user's literal text is preserved verbatim
+    // at the top so the model still sees the original phrasing.
+    const enrichedText = await this.resolveContextReferences(text);
 
     // Wire the agent's stream events to the webview for live rendering.
     // Dispose the prior listener first so we don't leak subscriptions.
@@ -112,8 +181,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     );
 
     try {
-      const result = await this.agent.processMessage(text, {
+      const result = await this.agent.processMessage(enrichedText, {
         abortSignal: controller.signal,
+        requestApproval: this.buildApprovalCallback(),
       });
       this.postMessage(createStreamEnd());
       // Emit any trailing text that the listener may have missed
@@ -144,6 +214,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.activeAbortController.abort();
       this.activeAbortController = null;
     }
+  }
+
+  /**
+   * Scan the user's message for @-symbol references and append the
+   * resolved content. The original text is preserved at the top of
+   * the returned string so the model still sees the user's phrasing.
+   * Returns the original text unchanged if no resolver is attached or
+   * no references are found.
+   */
+  private async resolveContextReferences(text: string): Promise<string> {
+    if (!this.contextResolver) return text;
+
+    const refs = this.contextResolver.parseReferences(text);
+    if (refs.length === 0) return text;
+
+    let resolved: Array<{ type: string; label: string; content: string }>;
+    try {
+      resolved = await this.contextResolver.resolve(refs);
+    } catch {
+      // If resolution fails (network error, missing file, etc.), fall
+      // back to the original text rather than blocking the user.
+      return text;
+    }
+
+    if (resolved.length === 0) return text;
+
+    const sections = resolved
+      .map((r) => `--- ${r.label} ---\n${r.content}`)
+      .join("\n\n");
+
+    return `${text}\n\n# Referenced context\n\n${sections}`;
   }
 
   /**

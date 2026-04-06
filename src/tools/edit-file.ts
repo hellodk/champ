@@ -56,9 +56,12 @@ export const editFileTool: Tool = {
 
       const firstIdx = text.indexOf(oldContent);
       if (firstIdx === -1) {
+        // Verbose error: include the actual file content (capped) so the
+        // model can self-correct on the next turn rather than retrying
+        // with the same wrong snippet. See HALLUCINATION_MITIGATION.md.
         return {
           success: false,
-          output: `Could not find the specified old_content in ${relativePath}`,
+          output: formatNotFoundError(relativePath, text, oldContent),
         };
       }
 
@@ -67,7 +70,7 @@ export const editFileTool: Tool = {
       if (secondIdx !== -1) {
         return {
           success: false,
-          output: `Ambiguous match: old_content appears multiple times in ${relativePath}. Provide a longer, unique snippet.`,
+          output: `Ambiguous match: old_content appears multiple times in ${relativePath}. Provide a longer, unique snippet that includes more surrounding context (e.g. the full enclosing function).`,
         };
       }
 
@@ -100,3 +103,37 @@ export const editFileTool: Tool = {
     }
   },
 };
+
+/**
+ * Format the "old_content not found" error with the actual file content
+ * (capped) so the model can self-correct without burning another turn.
+ * See docs/HALLUCINATION_MITIGATION.md for the rationale.
+ */
+function formatNotFoundError(
+  relativePath: string,
+  fileText: string,
+  oldContent: string,
+): string {
+  const lines = fileText.split("\n");
+  const MAX_LINES = 80;
+  const truncated = lines.length > MAX_LINES;
+  const shown = truncated ? lines.slice(0, MAX_LINES) : lines;
+  const numbered = shown.map((line, i) => `  ${i + 1}: ${line}`).join("\n");
+
+  const oldPreview =
+    oldContent.length > 200 ? oldContent.slice(0, 200) + "…" : oldContent;
+
+  const tail = truncated
+    ? `\n  [... ${lines.length - MAX_LINES} more lines]`
+    : "";
+
+  return `Could not find the specified old_content in ${relativePath}.
+
+The old_content you provided:
+${oldPreview}
+
+The actual current content of ${relativePath}:
+${numbered}${tail}
+
+Suggested fix: re-read the file with read_file, then construct your edit using the actual content shown above. Make sure your old_content matches the file character-for-character (including whitespace and indentation).`;
+}

@@ -23,10 +23,13 @@ import { listDirectoryTool } from "./tools/list-directory";
 import { runTerminalTool } from "./tools/run-terminal";
 import { grepSearchTool } from "./tools/grep-search";
 import { fileSearchTool } from "./tools/file-search";
-import { AgentController } from "./agent/agent-controller";
+import { AgentController, type AgentMode } from "./agent/agent-controller";
 import { ChatViewProvider } from "./ui/chat-view-provider";
 import { AidevInlineCompletionProvider } from "./completion/inline-provider";
 import { MetricsCollector } from "./observability/metrics-collector";
+import { ChunkingService } from "./indexing/chunking-service";
+import { RepoMapBuilder } from "./indexing/repo-map-builder";
+import { ContextResolver } from "./agent/context-resolver";
 import type { LLMProvider } from "./providers/types";
 
 /**
@@ -97,11 +100,58 @@ export async function activate(
     }
   });
 
+  // ---- Indexing services for grounding -------------------------------
+  // Repo map: built lazily on first chat turn from the workspace's
+  // top-level files. The cached result is invalidated when the user
+  // starts a new chat. See docs/HALLUCINATION_MITIGATION.md.
+  const chunkingService = new ChunkingService();
+  const repoMapBuilder = new RepoMapBuilder(chunkingService);
+  agentController.setRepoMapProvider({
+    async getRepoMap(): Promise<string> {
+      try {
+        const uris = await vscode.workspace.findFiles(
+          "**/*.{ts,tsx,js,jsx,mjs,cjs}",
+          "**/{node_modules,dist,out,.git,test-reports}/**",
+          200,
+        );
+        const files = await Promise.all(
+          uris.map(async (uri) => ({
+            path: vscode.workspace.asRelativePath(uri),
+            content: new TextDecoder().decode(
+              await vscode.workspace.fs.readFile(uri),
+            ),
+          })),
+        );
+        return repoMapBuilder.buildFromFiles(files);
+      } catch {
+        return "";
+      }
+    },
+  });
+
+  // ---- @-symbol context resolver -------------------------------------
+  // Wire ContextResolver so chat input can use @Files, @Folders,
+  // @Codebase, etc. The codebase indexing service is a stub for now;
+  // @Codebase will return empty results until Round 4.
+  const contextResolver = new ContextResolver({
+    workspaceRoot,
+    indexingService: {
+      search: async () => [],
+    },
+    webSearchTool: {
+      execute: async () => ({
+        success: false,
+        output: "Web search not yet wired",
+      }),
+    },
+  });
+
   // ---- Chat view ------------------------------------------------------
   chatViewProvider = new ChatViewProvider(
     context.extensionUri,
     agentController,
   );
+  chatViewProvider.setContextResolver(contextResolver);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       ChatViewProvider.viewType,
@@ -175,6 +225,7 @@ export async function activate(
         { placeHolder: "Select agent mode" },
       );
       if (pick) {
+        agentController.setMode(pick as AgentMode);
         chatViewProvider?.postMessage({
           type: "modeChanged",
           mode: pick as never,
