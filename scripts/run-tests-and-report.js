@@ -37,32 +37,32 @@ function main() {
   console.log(`\n--- Running test suite for ${branch}@${commitShort} ---\n`);
 
   const startTime = Date.now();
-  let testResult;
+  // Run vitest. It writes its JSON output to test-reports/latest.json
+  // (configured in vitest.config.ts via outputFile.json) so we read that
+  // file directly rather than trying to parse stdout, which is mixed
+  // with deprecation warnings and other noise.
   let exitCode = 0;
-
   try {
-    // Run vitest with JSON reporter
-    testResult = execSync('npx vitest run --reporter=json 2>&1', {
+    execSync('npx vitest run', {
       encoding: 'utf-8',
       cwd: path.join(__dirname, '..'),
+      stdio: 'inherit',
     });
   } catch (err) {
-    testResult = err.stdout || err.stderr || '';
     exitCode = err.status || 1;
   }
 
   const durationMs = Date.now() - startTime;
 
-  // Parse vitest JSON output
+  // Read vitest's JSON report file.
+  const vitestReportPath = path.join(REPORTS_DIR, 'latest.json');
   let parsed = null;
   try {
-    // vitest JSON output may have non-JSON lines before it
-    const jsonStart = testResult.indexOf('{');
-    if (jsonStart >= 0) {
-      parsed = JSON.parse(testResult.slice(jsonStart));
+    if (fs.existsSync(vitestReportPath)) {
+      parsed = JSON.parse(fs.readFileSync(vitestReportPath, 'utf-8'));
     }
   } catch {
-    // JSON parse failed
+    // JSON parse failed; report stays empty.
   }
 
   // Build report
@@ -73,30 +73,29 @@ function main() {
     timestamp: timestamp,
     duration_ms: durationMs,
     summary: {
-      total: 0,
-      passed: 0,
-      failed: 0,
-      skipped: 0,
+      total: parsed?.numTotalTests ?? 0,
+      passed: parsed?.numPassedTests ?? 0,
+      failed: parsed?.numFailedTests ?? 0,
+      skipped: parsed?.numPendingTests ?? 0,
     },
-    suites: {},
+    suites: {
+      total_files: parsed?.numTotalTestSuites ?? 0,
+      passed_files: parsed?.numPassedTestSuites ?? 0,
+      failed_files: parsed?.numFailedTestSuites ?? 0,
+    },
     failures: [],
   };
 
   if (parsed && parsed.testResults) {
     for (const suite of parsed.testResults) {
       for (const test of suite.assertionResults || []) {
-        report.summary.total++;
-        if (test.status === 'passed') report.summary.passed++;
-        else if (test.status === 'failed') {
-          report.summary.failed++;
+        if (test.status === 'failed') {
           report.failures.push({
             suite: path.basename(suite.name),
             test: test.fullName || test.title,
             file: suite.name,
             error: (test.failureMessages || []).join('\n').slice(0, 500),
           });
-        } else {
-          report.summary.skipped++;
         }
       }
     }
