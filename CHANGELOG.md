@@ -5,6 +5,38 @@ All notable changes to AIDev will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] — 2026-04-06
+
+### Fixed
+
+- **Local models can now actually use tools.** AgentController now wires
+  the prompt-based-tools fallback designed in Phase 1: when the active
+  provider returns `supportsToolUse() === false` (Ollama, llama.cpp,
+  vLLM, or any OpenAI-compatible endpoint without native tool calling),
+  the agent injects the tool catalog as XML into a system message and
+  parses `<tool_call>` blocks from the response text. Tool results are
+  fed back as `<tool_result>` blocks on the next user turn. Previously
+  the model would just describe what to do — never actually creating
+  files or running commands.
+- **Agent now has system prompt instructions.** AgentController prepends
+  base instructions telling the model it is "AIDev, an autonomous AI
+  coding assistant" and that it MUST use tools instead of describing
+  actions. Without this the model would helpfully explain the steps
+  but never take them.
+- **`<tool_call>` XML stripped from user-visible chat output.** The
+  buffered text is parsed for tool calls, then the cleaned prose (with
+  XML removed) is emitted to the chat panel as a single delta.
+
+### Added
+
+- **`requestApproval` callback in `ProcessMessageOptions`** so the chat
+  view can pipe approval prompts through the webview instead of using
+  the default auto-approve.
+- 4 new regression tests covering the prompt-based-tool flow:
+  parsing tool calls from XML, sending tool results back, system prompt
+  injection, and clean fallthrough when no tool is called.
+- 313 tests passing (up from 309).
+
 ## [0.1.1] — 2026-04-06
 
 ### Fixed

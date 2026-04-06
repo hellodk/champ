@@ -6,9 +6,18 @@
  * repeats until the LLM produces a text-only response or an iteration
  * limit is hit.
  *
- * This is the building block that each multi-agent role (Planner, Code,
- * Reviewer, etc.) uses internally. The orchestrator layer on top of it
- * handles inter-agent workflows.
+ * Supports two tool-calling modes transparently:
+ *   - **Native**: providers with supportsToolUse() === true receive
+ *     ToolDefinition[] in the chat options and emit tool_call_start
+ *     deltas in their stream.
+ *   - **Prompt-based**: providers without native tool calling get
+ *     XML tool definitions injected into a system prompt; the agent
+ *     parses <tool_call> blocks from the response text and executes
+ *     them. Tool results are formatted as <tool_result> blocks in
+ *     the next user message.
+ *
+ * The mode is selected automatically based on the provider's capability
+ * report — callers don't need to know which path is in use.
  */
 import type {
   LLMProvider,
@@ -17,14 +26,35 @@ import type {
   ToolCall,
   ContentBlock,
 } from "../providers/types";
+import {
+  injectToolsIntoPrompt,
+  parseToolCallsFromText,
+  extractTextContent,
+} from "../providers/prompt-based-tools";
 import type { ToolRegistry } from "../tools/registry";
 import type { ToolExecutionContext, ToolResult } from "../tools/types";
 
 const DEFAULT_MAX_ITERATIONS = 25;
 
+/**
+ * Base instructions injected at the top of every prompt-based system
+ * message. Tells the model it has tools and explains the response shape
+ * expected. The injectToolsIntoPrompt helper appends the tool catalog
+ * and the <tool_call> format spec.
+ */
+const PROMPT_BASED_BASE_INSTRUCTIONS = `You are AIDev, an autonomous AI coding assistant integrated into the user's code editor. You have access to tools that let you read files, edit files, search the codebase, and run commands in the user's workspace.
+
+When the user asks you to do something that requires modifying files, running commands, or inspecting the workspace, you MUST use the tools provided. Do NOT just describe what to do — actually call the tools.
+
+For example, if the user says "create a hello world Python file", do not just print the code. Instead, call the create_file tool with path="hello_world.py" and the content. Then briefly confirm what you did.
+
+Always explain your reasoning briefly before calling a tool, then call the tool, then summarize the result after.`;
+
 export interface ProcessMessageOptions {
   abortSignal?: AbortSignal;
   maxIterations?: number;
+  /** Approval callback invoked before destructive tool calls. */
+  requestApproval?: (description: string) => Promise<boolean>;
 }
 
 export interface ProcessMessageResult {
@@ -96,45 +126,84 @@ export class AgentController {
     const collectedToolCalls: Array<{ call: ToolCall; result: ToolResult }> =
       [];
 
+    const usePromptBased = !this.provider.supportsToolUse();
+    const allTools = this.toolRegistry.getDefinitions();
+
     for (let iteration = 0; iteration < maxIterations; iteration++) {
       if (options.abortSignal?.aborted) break;
 
       const pendingToolCalls: ToolCall[] = [];
       let assistantText = "";
 
-      // Only pass tool definitions to providers that support native tool
-      // calling. For local/small models that don't, the agent loop falls
-      // back to plain text responses (the prompt-based-tools wrapper can
-      // be added at the provider layer for richer behavior).
-      const tools = this.provider.supportsToolUse()
-        ? this.toolRegistry.getDefinitions()
-        : undefined;
+      // Build the message list to send. In prompt-based mode we prepend
+      // (or merge into) a system message with the tool catalog as XML.
+      const messagesToSend = usePromptBased
+        ? this.withInjectedToolPrompt(this.history, allTools)
+        : this.history;
 
-      const stream = this.provider.chat(this.history, {
-        tools,
+      const stream = this.provider.chat(messagesToSend, {
+        // Native tool defs only when the provider says it supports them.
+        tools: usePromptBased ? undefined : allTools,
         abortSignal: options.abortSignal,
       });
 
+      let errorOccurred = false;
       for await (const delta of stream) {
-        this.emit(delta);
-
         if (delta.type === "text" && delta.text) {
           assistantText += delta.text;
-          collectedText.push(delta.text);
+          if (!usePromptBased) {
+            // Native mode: stream text directly to the UI for live render.
+            this.emit(delta);
+            collectedText.push(delta.text);
+          }
+          // In prompt-based mode we buffer the text so we can strip out
+          // the <tool_call> XML before showing it to the user.
         } else if (delta.type === "tool_call_start" && delta.toolCall) {
           pendingToolCalls.push(delta.toolCall);
+          this.emit(delta);
+        } else if (delta.type === "tool_call_end") {
+          this.emit(delta);
         } else if (delta.type === "done") {
+          this.emit(delta);
           break;
         } else if (delta.type === "error") {
-          // Record the error but don't crash the loop; stop iterating.
-          return {
-            text: collectedText.join(""),
-            toolCalls: collectedToolCalls,
-          };
+          this.emit(delta);
+          errorOccurred = true;
+          break;
+        } else {
+          this.emit(delta);
         }
       }
 
-      // Persist the assistant turn to history.
+      if (errorOccurred) {
+        return {
+          text: collectedText.join(""),
+          toolCalls: collectedToolCalls,
+        };
+      }
+
+      // Prompt-based mode: parse <tool_call> blocks out of the buffered
+      // response text, then emit a cleaned text delta to the UI so the
+      // user sees prose without the XML noise.
+      if (usePromptBased && assistantText) {
+        const parsed = parseToolCallsFromText(assistantText);
+        for (const call of parsed) {
+          pendingToolCalls.push(call);
+        }
+        const cleaned = extractTextContent(assistantText);
+        if (cleaned) {
+          this.emit({ type: "text", text: cleaned });
+          collectedText.push(cleaned);
+        }
+        for (const call of parsed) {
+          this.emit({ type: "tool_call_start", toolCall: call });
+        }
+      }
+
+      // Persist the assistant turn to history. We store the original
+      // unfiltered text in prompt-based mode so the model sees its own
+      // <tool_call> blocks on the next turn — that helps it stay
+      // consistent with its own format.
       const assistantMessage: LLMMessage = {
         role: "assistant",
         content: assistantText,
@@ -147,7 +216,9 @@ export class AgentController {
         break;
       }
 
-      // Execute each tool call and append results as tool messages.
+      // Execute each tool call and append results to history. Native and
+      // prompt-based modes use slightly different result formats so the
+      // model parses them correctly on the next turn.
       for (const call of pendingToolCalls) {
         if (options.abortSignal?.aborted) break;
 
@@ -157,9 +228,7 @@ export class AgentController {
           reportProgress: () => {
             // Progress is streamed via listeners if needed.
           },
-          // Approval is granted by default here; the UI layer overrides this
-          // when the controller is used inside a real chat view.
-          requestApproval: async () => true,
+          requestApproval: options.requestApproval ?? (async () => true),
         };
 
         const result = await this.toolRegistry.execute(
@@ -169,17 +238,30 @@ export class AgentController {
         );
         collectedToolCalls.push({ call, result });
 
-        const toolResultBlock: ContentBlock = {
-          type: "tool_result",
-          toolUseId: call.id,
-          content: result.output,
-          isError: !result.success,
-        };
-        this.history.push({
-          role: "tool",
-          content: [toolResultBlock],
-          toolCallId: call.id,
-        });
+        // Emit a synthetic tool_call_end + result for the UI.
+        this.emit({ type: "tool_call_end", toolCallId: call.id });
+
+        if (usePromptBased) {
+          // For prompt-based providers, the next user message contains
+          // the tool result wrapped in <tool_result> so the model can
+          // see it as part of the conversation.
+          this.history.push({
+            role: "user",
+            content: this.formatToolResultForPromptBased(call, result),
+          });
+        } else {
+          const toolResultBlock: ContentBlock = {
+            type: "tool_result",
+            toolUseId: call.id,
+            content: result.output,
+            isError: !result.success,
+          };
+          this.history.push({
+            role: "tool",
+            content: [toolResultBlock],
+            toolCallId: call.id,
+          });
+        }
       }
     }
 
@@ -187,6 +269,72 @@ export class AgentController {
       text: collectedText.join(""),
       toolCalls: collectedToolCalls,
     };
+  }
+
+  /**
+   * Build a copy of the conversation history with a system message
+   * containing tool-injection instructions. If the history already has a
+   * system message at index 0, the tool prompt is appended to it; otherwise
+   * a new system message is prepended.
+   */
+  private withInjectedToolPrompt(
+    history: LLMMessage[],
+    tools: Array<{
+      name: string;
+      description: string;
+      parameters: unknown;
+    }>,
+  ): LLMMessage[] {
+    if (tools.length === 0) {
+      // Nothing to inject — still want the base instructions so the
+      // model knows it's an autonomous coding assistant.
+      const systemMsg: LLMMessage = {
+        role: "system",
+        content: PROMPT_BASED_BASE_INSTRUCTIONS,
+      };
+      return this.prependOrMergeSystem(history, systemMsg);
+    }
+
+    const fullPrompt = injectToolsIntoPrompt(
+      PROMPT_BASED_BASE_INSTRUCTIONS,
+      tools as never,
+    );
+    const systemMsg: LLMMessage = {
+      role: "system",
+      content: fullPrompt,
+    };
+    return this.prependOrMergeSystem(history, systemMsg);
+  }
+
+  private prependOrMergeSystem(
+    history: LLMMessage[],
+    systemMsg: LLMMessage,
+  ): LLMMessage[] {
+    if (history.length > 0 && history[0].role === "system") {
+      const existing = history[0];
+      const existingText =
+        typeof existing.content === "string" ? existing.content : "";
+      const merged: LLMMessage = {
+        role: "system",
+        content: `${systemMsg.content as string}\n\n${existingText}`,
+      };
+      return [merged, ...history.slice(1)];
+    }
+    return [systemMsg, ...history];
+  }
+
+  /**
+   * Format a tool result as plain text wrapped in a <tool_result> block,
+   * suitable for sending back to a prompt-based-tools model.
+   */
+  private formatToolResultForPromptBased(
+    call: ToolCall,
+    result: ToolResult,
+  ): string {
+    const status = result.success ? "success" : "error";
+    return `<tool_result tool="${call.name}" status="${status}">
+${result.output}
+</tool_result>`;
   }
 
   private emit(delta: StreamDelta): void {

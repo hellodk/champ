@@ -207,4 +207,164 @@ describe("AgentController", () => {
     await controller.processMessage("Hi");
     expect(textChunks).toContain("Hello");
   });
+
+  describe("prompt-based tool calling fallback", () => {
+    /**
+     * Build a provider that mimics a non-tool-calling local model:
+     * - supportsToolUse() returns false
+     * - chat() yields text containing <tool_call> XML blocks
+     * The agent loop should parse those blocks, execute the tools, and
+     * feed results back as <tool_result> messages on the next turn.
+     */
+    function createPromptBasedProvider(textChunks: string[]): LLMProvider {
+      let callIdx = 0;
+      return {
+        name: "mock-local",
+        config: {
+          provider: "mock-local",
+          model: "test",
+          maxTokens: 1024,
+          temperature: 0.7,
+        },
+        chat: vi.fn().mockImplementation(async function* () {
+          const text = textChunks[callIdx] ?? textChunks[textChunks.length - 1];
+          callIdx++;
+          yield { type: "text", text };
+          yield {
+            type: "done",
+            usage: { inputTokens: 10, outputTokens: 5 },
+          };
+        }),
+        complete: vi.fn(),
+        supportsToolUse: () => false,
+        supportsStreaming: () => true,
+        countTokens: () => 10,
+        modelInfo: () => ({
+          id: "test",
+          name: "Test",
+          provider: "mock-local",
+          contextWindow: 4096,
+          maxOutputTokens: 1024,
+          supportsToolUse: false,
+          supportsImages: false,
+          supportsStreaming: true,
+        }),
+        dispose: vi.fn(),
+      } as unknown as LLMProvider;
+    }
+
+    function createToolRegistryWithReadFile(): ToolRegistry {
+      return {
+        getAll: vi.fn().mockReturnValue([]),
+        getDefinitions: vi.fn().mockReturnValue([
+          {
+            name: "read_file",
+            description: "Read a file",
+            parameters: {
+              type: "object",
+              properties: { path: { type: "string", description: "Path" } },
+              required: ["path"],
+            },
+          },
+        ]),
+        get: vi.fn(),
+        register: vi.fn(),
+        unregister: vi.fn(),
+        execute: vi.fn().mockResolvedValue({
+          success: true,
+          output: "file contents: hello world",
+        }),
+      } as unknown as ToolRegistry;
+    }
+
+    it("should parse <tool_call> XML blocks from non-tool-calling provider", async () => {
+      const provider = createPromptBasedProvider([
+        // First response: a tool_call wrapped in some prose.
+        `Sure, I'll read that file.
+<tool_call>
+<name>read_file</name>
+<arguments>{"path":"main.ts"}</arguments>
+</tool_call>`,
+        // Second response: final text after the tool result is fed back.
+        `The file says hello world.`,
+      ]);
+      const registry = createToolRegistryWithReadFile();
+      const controller = new AgentController(provider, registry);
+
+      const result = await controller.processMessage("Read main.ts");
+
+      // The tool was actually executed.
+      expect(registry.execute).toHaveBeenCalledWith(
+        "read_file",
+        { path: "main.ts" },
+        expect.any(Object),
+      );
+      expect(result.toolCalls.length).toBe(1);
+      expect(result.toolCalls[0].call.name).toBe("read_file");
+      // The XML noise was stripped from the user-visible text.
+      expect(result.text).not.toContain("<tool_call>");
+      expect(result.text).toContain("hello world");
+    });
+
+    it("should send tool result back as user <tool_result> on next turn", async () => {
+      const provider = createPromptBasedProvider([
+        `<tool_call>
+<name>read_file</name>
+<arguments>{"path":"a.ts"}</arguments>
+</tool_call>`,
+        `Done.`,
+      ]);
+      const registry = createToolRegistryWithReadFile();
+      const controller = new AgentController(provider, registry);
+
+      await controller.processMessage("Read a.ts");
+
+      // The history should now contain: user → assistant(with tool_call)
+      // → user(with <tool_result>) → assistant(final text).
+      const history = controller.getHistory();
+      const toolResultUser = history.find(
+        (m) =>
+          m.role === "user" &&
+          typeof m.content === "string" &&
+          m.content.includes("<tool_result"),
+      );
+      expect(toolResultUser).toBeDefined();
+    });
+
+    it("should inject tool definitions into a system message", async () => {
+      const provider = createPromptBasedProvider([`No tool needed.`]);
+      const registry = createToolRegistryWithReadFile();
+      const controller = new AgentController(provider, registry);
+
+      await controller.processMessage("Hi");
+
+      // Inspect what was sent to provider.chat() — first arg is messages.
+      const chatCalls = (provider.chat as ReturnType<typeof vi.fn>).mock.calls;
+      expect(chatCalls.length).toBeGreaterThan(0);
+      const sentMessages = chatCalls[0][0] as LLMMessage[];
+      const systemMsg = sentMessages.find((m) => m.role === "system");
+      expect(systemMsg).toBeDefined();
+      const sysContent =
+        typeof systemMsg!.content === "string" ? systemMsg!.content : "";
+      // The base instructions should be present.
+      expect(sysContent).toContain("AIDev");
+      // The tool catalog should be in there.
+      expect(sysContent).toContain("read_file");
+      // The XML format spec should be there.
+      expect(sysContent).toContain("<tool_call>");
+    });
+
+    it("should fall through cleanly when the model does not call any tools", async () => {
+      const provider = createPromptBasedProvider([
+        `Hello! How can I help you today?`,
+      ]);
+      const registry = createToolRegistryWithReadFile();
+      const controller = new AgentController(provider, registry);
+
+      const result = await controller.processMessage("Hi");
+      expect(result.toolCalls).toHaveLength(0);
+      expect(result.text).toContain("Hello");
+      expect(registry.execute).not.toHaveBeenCalled();
+    });
+  });
 });
