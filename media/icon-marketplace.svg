@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- AIDev marketplace icon: stylized "A" with code brackets on a rounded-square background -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e1e2e"/>
+      <stop offset="1" stop-color="#2d2d44"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#89b4fa"/>
+      <stop offset="1" stop-color="#b4befe"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="128" height="128" rx="22" fill="url(#bg)"/>
+  <!-- Left bracket: < -->
+  <path d="M 28 52 L 18 64 L 28 76" fill="none" stroke="url(#accent)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Right bracket: > -->
+  <path d="M 100 52 L 110 64 L 100 76" fill="none" stroke="url(#accent)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Stylized "A" in the middle -->
+  <path d="M 64 30 L 42 98 L 52 98 L 57 84 L 71 84 L 76 98 L 86 98 L 64 30 z M 60 74 L 64 62 L 68 74 L 60 74 z" fill="url(#accent)"/>
+</svg>

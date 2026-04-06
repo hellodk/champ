@@ -1,0 +1,13 @@
+node_modules/
+/dist/
+out/
+.vscode-test/
+*.vsix
+.aidev/
+test-reports/
+.DS_Store
+.env
+.env.*
+
+# webview-ui/dist/ is hand-written vanilla JS source, not a build artifact,
+# so it is intentionally tracked (not ignored).

@@ -1,0 +1,358 @@
+You are a senior VS Code extension architect and TypeScript engineer. Your task is to design and implement a production-grade VS Code extension that delivers a Cursor-like AI coding experience using LOCAL LLMs (llama.cpp / Ollama), with multi-agent orchestration, file upload support, and strong safety controls.
+
+The system must be modular, extensible, and optimized for constrained hardware (Apple Silicon 16GB RAM).
+
+---
+
+# 🎯 OBJECTIVES
+
+1. Fully local-first (no mandatory cloud dependency)
+2. Cursor-like experience:
+
+   * Chat with codebase
+   * Multi-file composer
+   * Inline autocomplete
+   * Autonomous agent workflows
+3. Multi-agent system with coordination
+4. File upload + RAG support
+5. Safe, observable, and controllable
+
+---
+
+# 🧠 CORE FEATURES
+
+## 1) Chat with Codebase Context
+
+* Sidebar chat UI
+* Context sources:
+
+  * current file
+  * selected code
+  * open tabs
+  * repository-wide semantic + lexical search
+* Streaming responses
+* Show citations (files/snippets used)
+* Commands:
+
+  * explain
+  * refactor
+  * generate tests
+  * debug
+
+---
+
+## 2) Composer (Multi-file Edits)
+
+* Plan → Diff → Apply workflow:
+
+  * Agent generates plan
+  * Generates diffs across multiple files
+  * Show unified diff viewer
+  * Allow approval per file / per hunk
+* Git integration:
+
+  * auto branch
+  * commit
+  * rollback
+
+---
+
+## 3) Inline Autocomplete
+
+* Ghost text suggestions
+* Trigger on pause or keystroke
+* Low-latency small model
+* Context-aware suggestions
+
+---
+
+## 4) Agent Mode (Autonomous Execution)
+
+* Multi-step execution engine:
+
+  * read files
+  * write files
+  * search repo (ripgrep)
+  * run terminal commands (sandboxed)
+  * git operations
+* Step-by-step execution logs
+* User approval checkpoints
+
+---
+
+# 🤖 MULTI-AGENT ARCHITECTURE
+
+Design a coordinated multi-agent system with clear responsibilities.
+
+## Agents:
+
+### 1. Planner Agent
+
+* Breaks user request into steps
+* Outputs structured execution plan
+
+### 2. Code Agent
+
+* Performs code generation/modification
+* Produces diffs
+
+### 3. Reviewer Agent
+
+* Reviews generated changes
+* Checks correctness, style, and safety
+
+### 4. Validator Agent
+
+* Runs:
+
+  * lint
+  * typecheck
+  * tests (if available)
+* Can reject or request fixes
+
+### 5. Context Agent
+
+* Retrieves relevant code via:
+
+  * embeddings (vector search)
+  * lexical search (ripgrep)
+
+### 6. File Agent
+
+* Handles uploaded files
+* Parses, chunks, and indexes content
+
+---
+
+## Agent Coordination Layer
+
+Implement an orchestration engine:
+
+* Central controller (Agent Orchestrator)
+* Supports:
+
+  * sequential workflows
+  * conditional branching
+  * retries with modified parameters
+* Shared memory:
+
+  * task state
+  * intermediate outputs
+* Message passing between agents
+* Execution graph (DAG-like)
+
+---
+
+## Example Flow
+
+User Query
+→ Planner Agent (create plan)
+→ Context Agent (fetch context)
+→ Code Agent (generate changes)
+→ Reviewer Agent (review)
+→ Validator Agent (validate)
+→ User Approval
+→ Apply changes
+
+---
+
+# 📂 FILE UPLOAD & INGESTION
+
+## Features:
+
+* Drag & drop files into chat
+* File picker (multi-file)
+* Clipboard paste support
+
+## Supported types:
+
+* Code files
+* Logs (.log, .txt)
+* JSON / YAML
+* Markdown
+* Optional: PDF → text
+
+## Processing:
+
+* Chunk large files (token-aware)
+* Preview before sending
+* Allow selecting sections
+
+## Integration:
+
+* Temporary session memory
+* Optional indexing into vector store
+* Reference in chat:
+
+  * “analyze uploaded log”
+  * “compare with repo code”
+
+## UI:
+
+* Sidebar showing uploaded files
+* Remove / re-upload
+* Show usage in responses
+
+---
+
+# 🧩 LLM INTEGRATION
+
+## Backends:
+
+* llama.cpp (HTTP / OpenAI-compatible)
+* Ollama
+* Optional compatibility with Continue.dev
+
+## Features:
+
+* Streaming tokens
+* Configurable parameters:
+
+  * temperature
+  * top_p
+  * repeat_penalty
+
+## Model Routing:
+
+* Small model → autocomplete
+* Large model → chat/composer/agents
+
+---
+
+# 🔍 RAG (RETRIEVAL AUGMENTED GENERATION)
+
+## Embeddings:
+
+* Local embedding model
+* Incremental indexing of repo
+
+## Retrieval:
+
+* Hybrid:
+
+  * vector search
+  * ripgrep
+
+## Context Management:
+
+* Token budget aware packing
+* Prioritize relevance
+
+---
+
+# 🛡️ SAFETY & VALIDATION
+
+* Require approval before:
+
+  * file writes
+  * terminal commands
+* Sandbox terminal execution
+* Secret redaction
+* Confidence scoring
+
+## Validation:
+
+* Lint/typecheck before apply
+* Optional LLM validation pass
+* Reject low-confidence outputs
+
+---
+
+# ⚙️ ARCHITECTURE
+
+## VS Code Extension (TypeScript)
+
+* Commands
+* Views
+* Webview UI
+
+## Backend Service (Node.js)
+
+* LLM adapters
+* Agent orchestrator
+* Embeddings + vector store
+
+## Interfaces:
+
+* LLMProvider
+* Agent
+* Tool
+* ContextProvider
+* DiffEngine
+
+---
+
+# 🔄 REUSE OSS (IMPORTANT)
+
+Leverage patterns/code (respect licenses):
+
+* Continue.dev → chat + context
+* Cline → agent workflows
+* Aider → diff application
+* Codeium → autocomplete UX
+
+Abstract into reusable modules.
+
+---
+
+# 🎨 UX REQUIREMENTS
+
+* Keyboard-first workflow
+* Minimal latency
+* Diff viewer with syntax highlighting
+* Status indicators:
+
+  * model
+  * tokens
+  * latency
+
+---
+
+# 📊 OBSERVABILITY
+
+Track:
+
+* latency
+* token usage
+* agent execution steps
+* failures / retries
+
+Expose metrics for monitoring.
+
+---
+
+# 📦 DELIVERABLES
+
+1. Full VS Code extension scaffold
+2. Multi-agent orchestration engine
+3. LLM adapters (llama.cpp + Ollama)
+4. File upload system
+5. Embedding + retrieval system
+6. Diff engine
+7. Inline completion provider
+8. Config schema
+9. Example prompts/templates
+
+---
+
+# ⚡ PERFORMANCE OPTIMIZATION
+
+* Use mmap for GGUF models
+* Streaming responses
+* Batch embeddings
+* Avoid large context loads
+* Optimize for Apple Silicon
+
+---
+
+# 🧾 OUTPUT REQUIREMENTS
+
+* Provide complete modular TypeScript code
+* Include architecture diagrams (text-based)
+* Provide setup instructions:
+
+  * llama.cpp server
+  * Ollama
+* Include sample configurations
+
+Start with architecture design, then implement modules step by step.
