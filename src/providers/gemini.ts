@@ -29,11 +29,24 @@ const DEFAULT_CONTEXT_WINDOW = 1_048_576;
 export class GeminiProvider implements LLMProvider {
   readonly name = "gemini";
   readonly config: LLMProviderConfig;
-  private client: GoogleGenerativeAI;
+  private _client: GoogleGenerativeAI | undefined;
 
   constructor(config: LLMProviderConfig) {
     this.config = config;
-    this.client = new GoogleGenerativeAI(config.apiKey ?? "");
+    // Client construction is deferred — see ClaudeProvider for the same
+    // rationale.
+  }
+
+  private get client(): GoogleGenerativeAI {
+    if (!this._client) {
+      if (!this.config.apiKey) {
+        throw new Error(
+          "Gemini API key is not configured. Set it via the SecretStorage key 'aidev.gemini.apiKey'.",
+        );
+      }
+      this._client = new GoogleGenerativeAI(this.config.apiKey);
+    }
+    return this._client;
   }
 
   supportsToolUse(): boolean {

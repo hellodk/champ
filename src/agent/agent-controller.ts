@@ -38,13 +38,24 @@ export class AgentController {
   private history: LLMMessage[] = [];
   private streamListeners = new Set<StreamDeltaListener>();
   private workspaceRoot: string;
+  private provider: LLMProvider;
 
   constructor(
-    private readonly provider: LLMProvider,
+    provider: LLMProvider,
     private readonly toolRegistry: ToolRegistry,
     workspaceRoot = process.cwd(),
   ) {
+    this.provider = provider;
     this.workspaceRoot = workspaceRoot;
+  }
+
+  /**
+   * Hot-swap the active LLM provider. Used when the user changes the
+   * provider setting at runtime — the agent picks up the new provider
+   * on the next call to processMessage() without needing a re-init.
+   */
+  setProvider(provider: LLMProvider): void {
+    this.provider = provider;
   }
 
   /**
@@ -91,8 +102,16 @@ export class AgentController {
       const pendingToolCalls: ToolCall[] = [];
       let assistantText = "";
 
+      // Only pass tool definitions to providers that support native tool
+      // calling. For local/small models that don't, the agent loop falls
+      // back to plain text responses (the prompt-based-tools wrapper can
+      // be added at the provider layer for richer behavior).
+      const tools = this.provider.supportsToolUse()
+        ? this.toolRegistry.getDefinitions()
+        : undefined;
+
       const stream = this.provider.chat(this.history, {
-        tools: this.toolRegistry.getDefinitions(),
+        tools,
         abortSignal: options.abortSignal,
       });
 

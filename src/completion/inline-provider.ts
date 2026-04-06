@@ -60,8 +60,20 @@ export class AidevInlineCompletionProvider {
   private microtaskScheduled = false;
   /** Currently running LLM call, so we can abort it when a new request arrives. */
   private runningController: AbortController | null = null;
+  private llm: LLMProvider;
 
-  constructor(private readonly llm: LLMProvider) {}
+  constructor(llm: LLMProvider) {
+    this.llm = llm;
+  }
+
+  /**
+   * Hot-swap the active LLM provider. Used when the user changes the
+   * provider setting at runtime.
+   */
+  setProvider(llm: LLMProvider): void {
+    this.cancel();
+    this.llm = llm;
+  }
 
   /**
    * Provide completions for the given prefix.

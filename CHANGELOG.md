@@ -5,6 +5,50 @@ All notable changes to AIDev will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] — 2026-04-06
+
+### Fixed
+
+- **Activation no longer crashes when an API key is missing.** Previously,
+  if the user installed the extension and tried to configure llama.cpp,
+  Ollama, or another provider, activation would fail because the default
+  `aidev.provider` was `claude` and `new Anthropic({apiKey: undefined})`
+  throws synchronously. The chat view, commands, and inline completion
+  weren't registered as a result, leaving the user with no UI to fix the
+  problem. ClaudeProvider, OpenAIProvider, and GeminiProvider now lazy-init
+  their SDK clients on first use.
+- **Extension activation never returns early on provider failure.** The
+  chat view, commands, status bar, and inline completion are always
+  registered. Provider load failures now appear inside the chat panel as
+  an actionable error instead of silently breaking everything.
+- **Tools are no longer sent to providers that don't support tool calling.**
+  AgentController now checks `provider.supportsToolUse()` and only passes
+  tool definitions when the provider can actually use them — fixes confusing
+  outputs from local models like Qwen2.5-Coder base.
+- **`/v1/completions` endpoint used for autocomplete.** OpenAICompatibleProvider
+  (and llama.cpp / vLLM) now hit the legacy `/v1/completions` endpoint for
+  inline completion instead of wrapping the prompt in `/v1/chat/completions`.
+  This matters for completion-only base models where the chat template
+  produces awkward output. Falls back to chat if `/v1/completions` returns 404.
+- **SSE parser handles both chat and legacy completions response shapes**
+  (`choices[0].delta.content` and `choices[0].text`).
+
+### Added
+
+- **Status bar item** showing the active provider, click to open settings.
+- **`AIDev: Set API Key` command** for storing API keys in SecretStorage
+  without editing JSON.
+- **Hot-swap provider on settings change** — `AgentController` and
+  `AidevInlineCompletionProvider` now expose `setProvider()` so the
+  extension can swap providers at runtime without re-initializing.
+- **Stub provider** used as a placeholder during activation; emits a
+  clear "no provider configured" error in the chat instead of crashing.
+
+### Tests
+
+- 309 tests passing (up from 306) — added 3 regression tests for
+  ClaudeProvider lazy initialization.
+
 ## [0.1.0] — 2026-04-06
 
 ### Added

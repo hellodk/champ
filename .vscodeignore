@@ -21,6 +21,7 @@ GROUND_RULES.md
 .gitattributes
 tsconfig.json
 esbuild.mjs
+eslint.config.mjs
 vitest.config.ts
 vitest.integration.config.ts
 package-lock.json

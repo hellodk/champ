@@ -34,15 +34,29 @@ const DEFAULT_CONTEXT_WINDOW = 128_000;
 export class OpenAIProvider implements LLMProvider {
   readonly name = "openai";
   readonly config: LLMProviderConfig;
-  private client: OpenAI;
+  private _client: OpenAI | undefined;
 
   constructor(config: LLMProviderConfig) {
     this.config = config;
-    this.client = new OpenAI({
-      apiKey: config.apiKey,
-      baseURL: config.baseUrl,
-      defaultHeaders: config.customHeaders,
-    });
+    // Client construction is deferred — see ClaudeProvider for the same
+    // rationale. The OpenAI SDK can also throw synchronously when no
+    // apiKey is set.
+  }
+
+  private get client(): OpenAI {
+    if (!this._client) {
+      if (!this.config.apiKey) {
+        throw new Error(
+          "OpenAI API key is not configured. Set it via the SecretStorage key 'aidev.openai.apiKey'.",
+        );
+      }
+      this._client = new OpenAI({
+        apiKey: this.config.apiKey,
+        baseURL: this.config.baseUrl,
+        defaultHeaders: this.config.customHeaders,
+      });
+    }
+    return this._client;
   }
 
   supportsToolUse(): boolean {

@@ -116,11 +116,62 @@ export class OpenAICompatibleProvider implements LLMProvider {
     prompt: string,
     options?: CompleteOptions,
   ): AsyncIterable<StreamDelta> {
-    yield* this.chat([{ role: "user", content: prompt }], {
-      abortSignal: options?.abortSignal,
-      temperature: options?.temperature,
-      maxTokens: options?.maxTokens,
-    });
+    if (options?.abortSignal?.aborted) {
+      yield { type: "error", error: "Request aborted before send" };
+      yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
+      return;
+    }
+
+    // Hit /v1/completions directly. This matters for completion-only
+    // base models (e.g. Qwen2.5-Coder GGUFs) where /v1/chat/completions
+    // wraps the prompt in a chat template the base model wasn't trained
+    // on, producing weird output. The legacy /v1/completions endpoint
+    // sends the prompt verbatim, which is what FIM-aware completion
+    // models expect.
+    const url = this.joinUrl("/completions");
+    const body = {
+      model: this.config.model,
+      prompt,
+      stream: true,
+      temperature: options?.temperature ?? this.config.temperature,
+      max_tokens: options?.maxTokens ?? this.config.maxTokens,
+      stop: options?.stop,
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: this.buildHeaders(),
+        body: JSON.stringify(body),
+        signal: options?.abortSignal,
+      });
+
+      // Some servers don't expose /v1/completions; fall back to /v1/chat
+      // so the autocomplete still produces something.
+      if (response.status === 404) {
+        yield* this.chat([{ role: "user", content: prompt }], {
+          abortSignal: options?.abortSignal,
+          temperature: options?.temperature,
+          maxTokens: options?.maxTokens,
+        });
+        return;
+      }
+
+      if (!response.ok || !response.body) {
+        yield {
+          type: "error",
+          error: `Completion request failed: ${response.status} ${response.statusText}`,
+        };
+        yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
+        return;
+      }
+
+      yield* this.parseSseStream(response.body, options?.abortSignal);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      yield { type: "error", error: message };
+      yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
+    }
   }
 
   dispose(): void {
@@ -184,14 +235,21 @@ export class OpenAICompatibleProvider implements LLMProvider {
             try {
               const json = JSON.parse(payload) as {
                 choices?: Array<{
+                  // /v1/chat/completions shape:
                   delta?: { content?: string };
+                  // /v1/completions shape:
+                  text?: string;
                   finish_reason?: string | null;
                 }>;
                 usage?: { prompt_tokens?: number; completion_tokens?: number };
               };
-              const delta = json.choices?.[0]?.delta;
-              if (delta?.content) {
-                yield { type: "text", text: delta.content };
+              const choice = json.choices?.[0];
+              // Handle both shapes so this parser works for chat and
+              // legacy completions responses without branching at the
+              // call site.
+              const text = choice?.delta?.content ?? choice?.text;
+              if (text) {
+                yield { type: "text", text };
               }
               if (json.usage) {
                 inputTokens = json.usage.prompt_tokens ?? inputTokens;

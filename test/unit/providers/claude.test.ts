@@ -122,4 +122,48 @@ describe("ClaudeProvider", () => {
   it("should dispose cleanly", () => {
     expect(() => provider.dispose()).not.toThrow();
   });
+
+  describe("lazy client initialization", () => {
+    it("should not throw at construction when apiKey is undefined", () => {
+      // Regression: prior versions called `new Anthropic({apiKey: undefined})`
+      // in the constructor, which threw synchronously and crashed extension
+      // activation when claude was the default provider but the user was
+      // configuring something else.
+      expect(
+        () =>
+          new ClaudeProvider({
+            provider: "claude",
+            model: "claude-sonnet-4-20250514",
+            maxTokens: 4096,
+            temperature: 0.7,
+          }),
+      ).not.toThrow();
+    });
+
+    it("should still expose name and modelInfo without an apiKey", () => {
+      const noKey = new ClaudeProvider({
+        provider: "claude",
+        model: "claude-sonnet-4-20250514",
+        maxTokens: 4096,
+        temperature: 0.7,
+      });
+      expect(noKey.name).toBe("claude");
+      expect(noKey.modelInfo().provider).toBe("claude");
+      expect(noKey.supportsToolUse()).toBe(true);
+    });
+
+    it("should yield an error delta when chat is called without apiKey", async () => {
+      const noKey = new ClaudeProvider({
+        provider: "claude",
+        model: "claude-sonnet-4-20250514",
+        maxTokens: 4096,
+        temperature: 0.7,
+      });
+      const deltas: StreamDelta[] = [];
+      for await (const delta of noKey.chat([{ role: "user", content: "hi" }])) {
+        deltas.push(delta);
+      }
+      expect(deltas.some((d) => d.type === "error")).toBe(true);
+    });
+  });
 });

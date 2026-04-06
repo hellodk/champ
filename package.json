@@ -2,7 +2,7 @@
   "name": "aidev",
   "displayName": "AIDev - AI Coding Agent",
   "description": "Cursor-like AI coding experience with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "aidev-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -75,6 +75,10 @@
       {
         "command": "aidev.openSettings",
         "title": "AIDev: Settings"
+      },
+      {
+        "command": "aidev.setApiKey",
+        "title": "AIDev: Set API Key"
       }
     ],
     "configuration": {

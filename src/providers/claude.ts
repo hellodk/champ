@@ -30,15 +30,35 @@ const DEFAULT_CONTEXT_WINDOW = 200_000;
 export class ClaudeProvider implements LLMProvider {
   readonly name = "claude";
   readonly config: LLMProviderConfig;
-  private client: Anthropic;
+  private _client: Anthropic | undefined;
 
   constructor(config: LLMProviderConfig) {
     this.config = config;
-    this.client = new Anthropic({
-      apiKey: config.apiKey,
-      baseURL: config.baseUrl,
-      defaultHeaders: config.customHeaders,
-    });
+    // Client construction is deferred until first use. The Anthropic SDK
+    // throws synchronously if no apiKey is provided, and we don't want
+    // that to crash extension activation when the user has Claude as the
+    // default provider but is actually configuring something else.
+  }
+
+  /**
+   * Lazy-initialized Anthropic client. Throws a clear error if the API
+   * key is missing — but only when the provider is actually called,
+   * never during construction.
+   */
+  private get client(): Anthropic {
+    if (!this._client) {
+      if (!this.config.apiKey) {
+        throw new Error(
+          "Claude API key is not configured. Set it via the command palette: 'AIDev: Set Claude API Key', or store it under the SecretStorage key 'aidev.claude.apiKey'.",
+        );
+      }
+      this._client = new Anthropic({
+        apiKey: this.config.apiKey,
+        baseURL: this.config.baseUrl,
+        defaultHeaders: this.config.customHeaders,
+      });
+    }
+    return this._client;
   }
 
   supportsToolUse(): boolean {
