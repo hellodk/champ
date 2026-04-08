@@ -472,4 +472,112 @@ describe("ChatViewProvider", () => {
       expect(processCalls[0][0]).toBe("/explain something");
     });
   });
+
+  describe("skill autocomplete handler", () => {
+    function createSkillRegistry(skills: string[]) {
+      return {
+        get: vi.fn(),
+        list: vi.fn().mockReturnValue(
+          skills.map((n) => ({
+            metadata: { name: n, description: `${n} desc`, trigger: `/${n}` },
+          })),
+        ),
+        matchPrefix: vi.fn((prefix: string) =>
+          skills
+            .filter((n) => n.startsWith(prefix.toLowerCase()))
+            .sort()
+            .map((n) => ({
+              metadata: { name: n, description: `${n} desc`, trigger: `/${n}` },
+            })),
+        ),
+      };
+    }
+
+    it("responds with matching skills when the webview asks for autocomplete", async () => {
+      const skillStub = createSkillRegistry(["explain", "examine", "test"]);
+      provider = new ChatViewProvider(
+        {
+          fsPath: "/ext",
+          scheme: "file",
+          path: "/ext",
+          toString: () => "/ext",
+        } as never,
+        agent,
+      );
+      provider.setSkillRegistry(skillStub as never);
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({ type: "skillAutocompleteRequest", prefix: "ex" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // Registry was queried with the correct prefix.
+      expect(skillStub.matchPrefix).toHaveBeenCalledWith("ex");
+
+      // The webview received a skillAutocompleteResponse with the matches.
+      const responses = postMessage.mock.calls.filter(
+        (args) =>
+          (args[0] as { type: string }).type === "skillAutocompleteResponse",
+      );
+      expect(responses).toHaveLength(1);
+      const msg = responses[0][0] as {
+        prefix: string;
+        suggestions: Array<{ name: string; description: string }>;
+      };
+      expect(msg.prefix).toBe("ex");
+      expect(msg.suggestions.map((s) => s.name).sort()).toEqual([
+        "examine",
+        "explain",
+      ]);
+      expect(msg.suggestions[0].description).toContain("desc");
+    });
+
+    it("returns empty suggestions when no skill registry is attached", async () => {
+      // No setSkillRegistry call.
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({ type: "skillAutocompleteRequest", prefix: "ex" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const responses = postMessage.mock.calls.filter(
+        (args) =>
+          (args[0] as { type: string }).type === "skillAutocompleteResponse",
+      );
+      expect(responses).toHaveLength(1);
+      const msg = responses[0][0] as { suggestions: unknown[] };
+      expect(msg.suggestions).toEqual([]);
+    });
+
+    it("returns all skills for empty prefix", async () => {
+      const skillStub = createSkillRegistry(["explain", "test", "commit"]);
+      provider = new ChatViewProvider(
+        {
+          fsPath: "/ext",
+          scheme: "file",
+          path: "/ext",
+          toString: () => "/ext",
+        } as never,
+        agent,
+      );
+      provider.setSkillRegistry(skillStub as never);
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({ type: "skillAutocompleteRequest", prefix: "" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(skillStub.matchPrefix).toHaveBeenCalledWith("");
+      const responses = postMessage.mock.calls.filter(
+        (args) =>
+          (args[0] as { type: string }).type === "skillAutocompleteResponse",
+      );
+      const msg = responses[0][0] as {
+        suggestions: Array<{ name: string }>;
+      };
+      expect(msg.suggestions).toHaveLength(3);
+    });
+  });
 });

@@ -17,6 +17,12 @@
     messages: /** @type {Array<{role: string, text: string, toolCalls?: Array<any>}>} */ ([]),
     streaming: false,
     currentAssistantMessage: /** @type {HTMLElement|null} */ (null),
+    /** @type {Array<{name: string, description: string}>} */
+    skillSuggestions: [],
+    /** Index of the highlighted dropdown row, -1 when closed. */
+    skillHighlight: -1,
+    /** Last prefix we asked the host for, used to ignore stale responses. */
+    lastSkillPrefix: null,
   };
 
   // -------------------------------------------------------------------
@@ -51,8 +57,11 @@
 
   const inputArea = el('div', { class: 'input-area' });
   const textarea = el('textarea', {
-    placeholder: 'Ask AIDev anything... (Cmd/Ctrl+Enter to send)',
+    placeholder: 'Ask AIDev anything... (/ for slash commands, Cmd/Ctrl+Enter to send)',
   });
+  // Slash-command autocomplete dropdown — hidden until the user types
+  // a / at the start of the input.
+  const skillDropdown = el('div', { class: 'skill-dropdown', hidden: 'true' });
   const actions = el('div', { class: 'actions' });
   const cancelBtn = el('button', { class: 'secondary', disabled: 'true' }, ['Cancel']);
   const sendBtn = el('button', {}, ['Send']);
@@ -63,7 +72,34 @@
     setStreaming(false);
   });
 
+  textarea.addEventListener('input', () => {
+    handleSkillInput();
+  });
+
   textarea.addEventListener('keydown', (ev) => {
+    // Dropdown navigation takes priority over send-on-enter when open.
+    if (state.skillSuggestions.length > 0 && !skillDropdown.hidden) {
+      if (ev.key === 'ArrowDown') {
+        ev.preventDefault();
+        setSkillHighlight(state.skillHighlight + 1);
+        return;
+      }
+      if (ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        setSkillHighlight(state.skillHighlight - 1);
+        return;
+      }
+      if (ev.key === 'Tab' || (ev.key === 'Enter' && !ev.metaKey && !ev.ctrlKey)) {
+        ev.preventDefault();
+        acceptSkillCompletion();
+        return;
+      }
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        closeSkillDropdown();
+        return;
+      }
+    }
     if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
       ev.preventDefault();
       sendCurrentInput();
@@ -71,7 +107,7 @@
   });
 
   actions.append(cancelBtn, sendBtn);
-  inputArea.append(textarea, actions);
+  inputArea.append(skillDropdown, textarea, actions);
 
   root.append(toolbar, messagesContainer, inputArea);
 
@@ -82,11 +118,98 @@
   function sendCurrentInput() {
     const text = textarea.value.trim();
     if (!text || state.streaming) return;
+    closeSkillDropdown();
     vscode.postMessage({ type: 'userMessage', text });
     appendMessage('user', text);
     state.currentAssistantMessage = appendMessage('assistant', '');
     textarea.value = '';
     setStreaming(true);
+  }
+
+  // -------------------------------------------------------------------
+  // Skill autocomplete (slash commands)
+  // -------------------------------------------------------------------
+
+  /**
+   * Called on every textarea input event. If the user has typed a /
+   * at the very beginning of the input (and hasn't typed a space yet),
+   * we send a skillAutocompleteRequest to the host. Otherwise we
+   * close any open dropdown.
+   */
+  function handleSkillInput() {
+    const value = textarea.value;
+    // Only trigger when the FIRST character is / and there's no space
+    // yet (i.e. we're still typing the command name).
+    const match = value.match(/^\/([A-Za-z][\w-]*)?$/);
+    if (!match) {
+      closeSkillDropdown();
+      return;
+    }
+    const prefix = match[1] || '';
+    state.lastSkillPrefix = prefix;
+    vscode.postMessage({ type: 'skillAutocompleteRequest', prefix });
+  }
+
+  function renderSkillDropdown(suggestions, prefix) {
+    // Ignore stale responses.
+    if (state.lastSkillPrefix !== prefix) return;
+    state.skillSuggestions = suggestions;
+    if (suggestions.length === 0) {
+      closeSkillDropdown();
+      return;
+    }
+    skillDropdown.innerHTML = '';
+    suggestions.forEach((s, idx) => {
+      const row = el('div', { class: 'skill-row' });
+      const name = el('div', { class: 'skill-name' }, [`/${s.name}`]);
+      const desc = el('div', { class: 'skill-desc' }, [s.description]);
+      row.append(name, desc);
+      row.addEventListener('mouseenter', () => setSkillHighlight(idx));
+      row.addEventListener('mousedown', (ev) => {
+        ev.preventDefault();
+        setSkillHighlight(idx);
+        acceptSkillCompletion();
+      });
+      skillDropdown.append(row);
+    });
+    state.skillHighlight = 0;
+    skillDropdown.removeAttribute('hidden');
+    refreshHighlight();
+  }
+
+  function setSkillHighlight(idx) {
+    if (state.skillSuggestions.length === 0) return;
+    const n = state.skillSuggestions.length;
+    state.skillHighlight = ((idx % n) + n) % n;
+    refreshHighlight();
+  }
+
+  function refreshHighlight() {
+    const rows = skillDropdown.querySelectorAll('.skill-row');
+    rows.forEach((row, i) => {
+      if (i === state.skillHighlight) row.classList.add('highlighted');
+      else row.classList.remove('highlighted');
+    });
+  }
+
+  function acceptSkillCompletion() {
+    const pick = state.skillSuggestions[state.skillHighlight];
+    if (!pick) return;
+    // Replace the in-progress /<prefix> with /<full-name> + a trailing
+    // space so the user can immediately type their argument.
+    textarea.value = `/${pick.name} `;
+    textarea.focus();
+    // Move the caret to end.
+    textarea.selectionStart = textarea.selectionEnd = textarea.value.length;
+    closeSkillDropdown();
+  }
+
+  function closeSkillDropdown() {
+    state.skillSuggestions = [];
+    state.skillHighlight = -1;
+    state.lastSkillPrefix = null;
+    skillDropdown.innerHTML = '';
+    skillDropdown.setAttribute('hidden', 'true');
   }
 
   function setStreaming(streaming) {
@@ -212,6 +335,9 @@
         break;
       case 'ready':
         // Initial handshake; could populate model info.
+        break;
+      case 'skillAutocompleteResponse':
+        renderSkillDropdown(msg.suggestions || [], msg.prefix || '');
         break;
     }
   });

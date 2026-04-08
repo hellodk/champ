@@ -64,6 +64,24 @@ export interface ReadyMessage {
   modelName: string;
 }
 
+/**
+ * Skill suggestion entry sent to the webview for the slash-command
+ * autocomplete dropdown. Kept minimal — just enough to render the
+ * dropdown row.
+ */
+export interface SkillSuggestion {
+  name: string;
+  description: string;
+}
+
+export interface SkillAutocompleteResponseMessage {
+  type: "skillAutocompleteResponse";
+  /** The prefix the suggestions were generated for, so the webview
+   *  can ignore stale responses if the user has typed more since. */
+  prefix: string;
+  suggestions: SkillSuggestion[];
+}
+
 export type ExtensionToWebviewMessage =
   | StreamDeltaMessage
   | StreamEndMessage
@@ -73,7 +91,8 @@ export type ExtensionToWebviewMessage =
   | ErrorMessage
   | ModeChangedMessage
   | ConversationHistoryMessage
-  | ReadyMessage;
+  | ReadyMessage
+  | SkillAutocompleteResponseMessage;
 
 // ---------------------------------------------------------------------------
 // Webview -> Extension Host
@@ -107,13 +126,20 @@ export interface RequestHistoryRequest {
   type: "requestHistory";
 }
 
+export interface SkillAutocompleteRequest {
+  type: "skillAutocompleteRequest";
+  /** Text after the leading slash, e.g. "ex" for "/ex". */
+  prefix: string;
+}
+
 export type WebviewToExtensionMessage =
   | UserMessageRequest
   | SetModeRequest
   | NewChatRequest
   | CancelRequest
   | ApprovalResponseRequest
-  | RequestHistoryRequest;
+  | RequestHistoryRequest
+  | SkillAutocompleteRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)
@@ -155,6 +181,13 @@ export function createConversationHistory(
   return { type: "conversationHistory", messages };
 }
 
+export function createSkillAutocompleteResponse(
+  suggestions: SkillSuggestion[],
+  prefix = "",
+): SkillAutocompleteResponseMessage {
+  return { type: "skillAutocompleteResponse", prefix, suggestions };
+}
+
 // ---------------------------------------------------------------------------
 // Type guards (Webview -> Extension)
 // ---------------------------------------------------------------------------
@@ -193,4 +226,10 @@ export function isRequestHistory(
   msg: WebviewToExtensionMessage,
 ): msg is RequestHistoryRequest {
   return msg.type === "requestHistory";
+}
+
+export function isSkillAutocompleteRequest(
+  msg: WebviewToExtensionMessage,
+): msg is SkillAutocompleteRequest {
+  return msg.type === "skillAutocompleteRequest";
 }

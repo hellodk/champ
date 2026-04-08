@@ -91,4 +91,32 @@ describe("Webview Message Protocol", () => {
       }
     });
   });
+
+  describe("skill autocomplete protocol", () => {
+    it("creates a skillAutocompleteResponse with a list of suggestions", async () => {
+      const { createSkillAutocompleteResponse } = await import("@/ui/messages");
+      const msg = createSkillAutocompleteResponse([
+        { name: "explain", description: "Explain code" },
+        { name: "test", description: "Generate tests" },
+      ]);
+      expect(msg.type).toBe("skillAutocompleteResponse");
+      expect(msg.suggestions).toHaveLength(2);
+      expect(msg.suggestions[0].name).toBe("explain");
+    });
+
+    it("identifies a skillAutocompleteRequest from the webview", async () => {
+      const { isSkillAutocompleteRequest } = await import("@/ui/messages");
+      const msg: WebviewToExtensionMessage = {
+        type: "skillAutocompleteRequest",
+        prefix: "ex",
+      };
+      expect(isSkillAutocompleteRequest(msg)).toBe(true);
+    });
+
+    it("rejects unrelated messages from the skillAutocomplete guard", async () => {
+      const { isSkillAutocompleteRequest } = await import("@/ui/messages");
+      const msg: WebviewToExtensionMessage = { type: "cancelRequest" };
+      expect(isSkillAutocompleteRequest(msg)).toBe(false);
+    });
+  });
 });

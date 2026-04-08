@@ -133,6 +133,62 @@ html, body {
   padding: 8px;
   flex-shrink: 0;
   background-color: var(--vscode-input-background);
+  position: relative;
+}
+
+/*
+ * Slash-command autocomplete dropdown.
+ * Sits above the textarea inside the input area. Hidden by default;
+ * the JS removes the [hidden] attribute when there are matches.
+ */
+.skill-dropdown {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+  margin-bottom: 6px;
+  border: 1px solid var(--vscode-dropdown-border);
+  border-radius: 4px;
+  background-color: var(--vscode-dropdown-background);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.skill-dropdown[hidden] {
+  display: none;
+}
+
+.skill-row {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.skill-row:last-child {
+  border-bottom: none;
+}
+
+.skill-row.highlighted {
+  background-color: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+.skill-name {
+  font-family: var(--vscode-editor-font-family);
+  font-weight: 600;
+  font-size: var(--vscode-font-size);
+}
+
+.skill-desc {
+  font-size: calc(var(--vscode-font-size) - 1px);
+  color: var(--vscode-descriptionForeground);
+  margin-top: 2px;
+}
+
+.skill-row.highlighted .skill-desc {
+  color: var(--vscode-list-activeSelectionForeground);
+  opacity: 0.85;
 }
 
 .input-area textarea {

@@ -5,6 +5,52 @@ All notable changes to AIDev will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] — 2026-04-08
+
+Skills Phase D — slash-command autocomplete dropdown in the chat
+input. The Skills feature is now complete.
+
+### Added
+
+- **Webview message protocol**: `skillAutocompleteRequest`
+  (webview→extension) and `skillAutocompleteResponse`
+  (extension→webview), with type guards and factory helpers.
+- **ChatViewProvider handler** for `skillAutocompleteRequest`. Looks
+  up matches in the SkillRegistry via `matchPrefix()` and replies with
+  a `skillAutocompleteResponse` carrying the prefix (so the webview
+  can ignore stale responses) and the suggestion list. Returns empty
+  when no registry is attached.
+- **Webview UI dropdown** (`webview-ui/dist/main.js`):
+  - Triggers on input when the user has typed `/<word>` at the very
+    start of the input area
+  - Posts an autocomplete request on every keystroke, ignores stale
+    responses via the `lastSkillPrefix` guard
+  - Renders a dropdown above the textarea with skill name + description
+  - **Keyboard navigation**: Arrow Up/Down to highlight, Tab/Enter
+    to accept, Esc to dismiss
+  - Mouse hover highlights, mousedown selects
+  - Accepting a completion writes \`/<name> \` into the textarea (with
+    trailing space) and moves the caret to the end so the user can
+    immediately type their argument
+- **CSS styling** (`webview-ui/dist/main.css`): dropdown sits above
+  the textarea, uses VS Code theme variables, highlighted row matches
+  the editor's active selection color.
+
+### Tests
+
+- 442 passing (up from 436, **+6 new**):
+  - 3 new message-protocol tests (factory helper + guard, including
+    rejection of unrelated messages)
+  - 3 new ChatViewProvider handler tests (matching response, no
+    registry returns empty, empty prefix returns all)
+
+### What this completes
+
+Skills Phases A, B, C, and D are now all shipped. The feature is
+end-to-end usable: 8 built-in slash commands plus user-defined skills
+loaded from `.aidev/skills/`, all discoverable via the autocomplete
+dropdown, all expandable in the chat input.
+
 ## [0.1.5] — 2026-04-08
 
 The "Skills" release. Adds reusable named prompt templates triggered

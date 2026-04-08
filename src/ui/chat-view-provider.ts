@@ -17,12 +17,14 @@ import {
   createToolCallResult,
   createError,
   createConversationHistory,
+  createSkillAutocompleteResponse,
   isUserMessage,
   isSetMode,
   isNewChat,
   isCancelRequest,
   isRequestHistory,
   isApprovalResponse,
+  isSkillAutocompleteRequest,
   type ExtensionToWebviewMessage,
   type WebviewToExtensionMessage,
 } from "./messages";
@@ -206,6 +208,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           this.pendingApprovals.delete(msg.id);
           resolve(msg.approved);
         }
+      } else if (isSkillAutocompleteRequest(msg)) {
+        this.handleSkillAutocompleteRequest(msg.prefix);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -293,6 +297,26 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.activeAbortController.abort();
       this.activeAbortController = null;
     }
+  }
+
+  /**
+   * Handle a slash-command autocomplete request from the webview.
+   * Queries the skill registry's matchPrefix and posts a
+   * skillAutocompleteResponse with the results. Returns an empty list
+   * when no registry is attached so the webview gets a clean response
+   * either way.
+   */
+  private handleSkillAutocompleteRequest(prefix: string): void {
+    if (!this.skillRegistry) {
+      this.postMessage(createSkillAutocompleteResponse([], prefix));
+      return;
+    }
+    const matches = this.skillRegistry.matchPrefix(prefix);
+    const suggestions = matches.map((s) => ({
+      name: s.metadata.name,
+      description: s.metadata.description,
+    }));
+    this.postMessage(createSkillAutocompleteResponse(suggestions, prefix));
   }
 
   /**
