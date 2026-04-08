@@ -1,0 +1,70 @@
+# AIDev — team-shared workspace config
+#
+# Place this at <repo>/.aidev/config.yaml and commit it. Every developer
+# on the team gets the same provider, same rules, same MCP servers.
+#
+# Personal preferences (e.g. your local llama.cpp endpoint URL) belong
+# in ~/.aidev/config.yaml — workspace overrides user, so you can keep
+# the team baseline and tweak per machine.
+
+# All developers use Ollama with the same model — predictable behaviour.
+provider: ollama
+
+providers:
+  ollama:
+    baseUrl: http://localhost:11434
+    model: qwen2.5-coder:14b-instruct
+
+agent:
+  defaultMode: agent
+  yoloMode: false
+  autoFix:
+    enabled: true
+    maxIterations: 3
+
+autocomplete:
+  enabled: true
+  debounceMs: 300
+  model: qwen2.5-coder:1.5b
+
+indexing:
+  enabled: true
+  embeddingProvider: ollama
+  ignore:
+    - node_modules/**
+    - dist/**
+    - build/**
+    - coverage/**
+    - .git/**
+    - .vscode/**
+    - "*.lock"
+    - "*.log"
+    - "**/*.snap"
+    - "**/__snapshots__/**"
+
+# Project-wide rules — applied to every chat in this workspace.
+userRules: |
+  This is a TypeScript monorepo with strict mode enabled.
+  - Always write tests using vitest, NOT jest.
+  - Use Prettier defaults (2-space indent, double quotes, trailing commas).
+  - Never use `any`. Use `unknown` and narrow with type guards.
+  - Prefer `const` arrays over enums.
+  - All HTTP calls go through src/api/client.ts — never use fetch directly.
+  - Database queries use Prisma. Raw SQL must be reviewed by a DBA.
+  - Public functions need JSDoc comments explaining the contract.
+  - Commit messages follow Conventional Commits (feat:, fix:, docs:, etc.)
+
+# MCP servers required for the project workflow.
+# Uncomment and configure as needed.
+# mcp:
+#   servers:
+#     - name: github
+#       command: npx
+#       args: ["-y", "@modelcontextprotocol/server-github"]
+#       env:
+#         GITHUB_TOKEN: ${env:GITHUB_TOKEN}
+#     - name: postgres
+#       command: npx
+#       args: ["-y", "@modelcontextprotocol/server-postgres"]
+#       env:
+#         POSTGRES_URL: ${env:DATABASE_URL}

@@ -1,0 +1,51 @@
+# AIDev — vLLM with two endpoints (chat + autocomplete)
+#
+# Run two vLLM servers on different ports — one big model for chat,
+# one small fast model for autocomplete. Best for multi-GPU setups
+# or when you want latency-optimised completions.
+#
+# Server 1 (chat, large model):
+#   CUDA_VISIBLE_DEVICES=0 vllm serve Qwen/Qwen2.5-Coder-32B-Instruct \
+#     --host 0.0.0.0 --port 8000 \
+#     --max-model-len 32768 \
+#     --gpu-memory-utilization 0.90
+#
+# Server 2 (autocomplete, small model):
+#   CUDA_VISIBLE_DEVICES=1 vllm serve Qwen/Qwen2.5-Coder-1.5B \
+#     --host 0.0.0.0 --port 8001 \
+#     --max-model-len 8192 \
+#     --gpu-memory-utilization 0.40
+#
+# AIDev only supports one vLLM provider entry, so the second endpoint
+# is registered as openai-compatible (vLLM speaks the OpenAI API).
+
+provider: vllm
+
+providers:
+  vllm:
+    baseUrl: http://localhost:8000/v1
+    model: Qwen/Qwen2.5-Coder-32B-Instruct
+  openai-compatible:
+    baseUrl: http://localhost:8001/v1
+    model: Qwen/Qwen2.5-Coder-1.5B
+
+agent:
+  defaultMode: agent
+  yoloMode: false
+  autoFix:
+    enabled: true
+    maxIterations: 3
+
+autocomplete:
+  enabled: true
+  debounceMs: 200
+  provider: openai-compatible
+  model: Qwen/Qwen2.5-Coder-1.5B
+
+indexing:
+  enabled: true
+  embeddingProvider: ollama   # most users still use Ollama for embeddings
+  ignore:
+    - node_modules/**
+    - dist/**
+    - .git/**

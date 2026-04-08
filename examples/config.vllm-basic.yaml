@@ -1,0 +1,36 @@
+# AIDev — basic vLLM configuration
+#
+# Single vLLM server hosting one model. Best for GPU workstations
+# (24GB+ VRAM) or shared inference servers on the LAN.
+#
+# Server start command (replace with your model + GPU):
+#   vllm serve Qwen/Qwen2.5-Coder-14B-Instruct \
+#     --host 0.0.0.0 \
+#     --port 8000 \
+#     --dtype auto \
+#     --max-model-len 32768 \
+#     --gpu-memory-utilization 0.90
+#
+# Verify before configuring AIDev:
+#   curl http://YOUR_HOST:8000/v1/models
+#
+# The `model` value below MUST match the `id` in the /v1/models
+# response (typically the full HuggingFace path).
+
+provider: vllm
+
+providers:
+  vllm:
+    baseUrl: http://localhost:8000/v1
+    model: Qwen/Qwen2.5-Coder-14B-Instruct
+
+agent:
+  defaultMode: agent
+  yoloMode: false
+  autoFix:
+    enabled: true
+    maxIterations: 3
+
+autocomplete:
+  enabled: true
+  debounceMs: 300

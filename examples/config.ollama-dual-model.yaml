@@ -1,0 +1,41 @@
+# AIDev — Ollama with separate models for chat and autocomplete
+#
+# Uses a larger model for agent chat (slower, smarter) and a small fast
+# model for inline ghost-text autocomplete (sub-300ms target).
+#
+# Prerequisites:
+#   ollama pull qwen2.5-coder:14b-instruct
+#   ollama pull qwen2.5-coder:1.5b
+#
+# VRAM budget: ~9-10GB total when both models are loaded.
+# Apple Silicon 16GB: works, leave 4GB headroom for the OS and editor.
+
+provider: ollama
+
+providers:
+  ollama:
+    baseUrl: http://localhost:11434
+    model: qwen2.5-coder:14b-instruct
+
+agent:
+  defaultMode: agent
+  yoloMode: false
+  autoFix:
+    enabled: true
+    maxIterations: 3
+
+autocomplete:
+  enabled: true
+  debounceMs: 250          # tighter debounce since the small model is faster
+  provider: ollama         # same Ollama instance, different model
+  model: qwen2.5-coder:1.5b
+
+indexing:
+  enabled: true
+  embeddingProvider: ollama
+  ignore:
+    - node_modules/**
+    - dist/**
+    - .git/**
+    - .vscode/**
+    - "*.lock"

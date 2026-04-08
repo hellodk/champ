@@ -1,0 +1,35 @@
+# AIDev — basic Ollama configuration
+#
+# The simplest local-first setup: one Ollama model for everything.
+# Best for: getting started, single-model machines, conservative VRAM.
+#
+# Prerequisites:
+#   1. Install Ollama from https://ollama.com
+#   2. Pull a model: `ollama pull qwen2.5-coder:7b-instruct`
+#   3. Verify: `ollama list` and `curl http://localhost:11434/api/tags`
+#
+# Recommended models (Apple Silicon 16GB or 16GB GPU):
+#   - qwen2.5-coder:7b-instruct          ~4.5GB  best price/quality
+#   - qwen2.5-coder:14b-instruct         ~8GB    much better reasoning
+#   - llama3.1:8b-instruct               ~5GB    solid generalist
+#   - deepseek-coder-v2:16b              ~10GB   MoE, fast inference
+
+provider: ollama
+
+providers:
+  ollama:
+    baseUrl: http://localhost:11434
+    model: qwen2.5-coder:7b-instruct
+
+agent:
+  defaultMode: agent
+  yoloMode: false
+  autoFix:
+    enabled: true
+    maxIterations: 3
+
+autocomplete:
+  enabled: true
+  debounceMs: 300
+  # Uses the same provider as chat by default. For better autocomplete
+  # latency see config.ollama-dual-model.yaml.

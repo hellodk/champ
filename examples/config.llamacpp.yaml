@@ -1,0 +1,46 @@
+# AIDev — llama.cpp configuration
+#
+# Best for Apple Silicon (Metal), CPU-only inference, or when you want
+# the lightest possible runtime. Hosted by `llama-server` from llama.cpp.
+#
+# Server start command:
+#   ./llama-server \
+#     -m ~/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf \
+#     --host 0.0.0.0 \
+#     --port 8080 \
+#     --n-gpu-layers 99 \
+#     --ctx-size 16384 \
+#     --threads 8
+#
+# On Apple Silicon, --n-gpu-layers 99 offloads everything to Metal.
+# On CPU, drop --n-gpu-layers and use --threads <cores>.
+#
+# The `model` value can be the GGUF file name OR `default` if your
+# server only has one model loaded.
+#
+# Verify: curl http://YOUR_HOST:8080/v1/models
+
+provider: llamacpp
+
+providers:
+  llamacpp:
+    baseUrl: http://localhost:8080/v1
+    # Replace with your actual file or use "default" for single-model servers
+    model: qwen2.5-coder-7b-instruct-q4_k_m.gguf
+
+agent:
+  defaultMode: agent
+  yoloMode: false
+  autoFix:
+    enabled: true
+    maxIterations: 3
+
+autocomplete:
+  enabled: true
+  debounceMs: 300
+
+# Example: remote llama.cpp server on the LAN (uncomment + edit)
+# providers:
+#   llamacpp:
+#     baseUrl: http://192.168.1.24:21434/v1
+#     model: qwen2.5-coder-7b-instruct-q4_k_m.gguf

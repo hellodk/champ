@@ -1,0 +1,44 @@
+# AIDev — cloud chat + local autocomplete
+#
+# Best of both worlds: top-tier cloud model (Claude) for agent chat,
+# fast local model for inline ghost-text completion. The local model
+# never sees the cloud API key.
+#
+# Prerequisites:
+#   1. Set the Claude API key: `AIDev: Set API Key` -> claude
+#   2. Pull the local autocomplete model: `ollama pull qwen2.5-coder:1.5b`
+
+provider: claude
+
+providers:
+  claude:
+    model: claude-sonnet-4-20250514
+    # apiKey is loaded from SecretStorage — never put it here
+
+  # Configured but not active. Used by the autocomplete block below.
+  ollama:
+    baseUrl: http://localhost:11434
+    model: qwen2.5-coder:1.5b
+
+agent:
+  defaultMode: agent
+  yoloMode: false
+  autoFix:
+    enabled: true
+    maxIterations: 3
+
+# Inline autocomplete uses Ollama instead of Claude — much faster and
+# costs nothing. Chat uses Claude for the heavy lifting.
+autocomplete:
+  enabled: true
+  debounceMs: 250
+  provider: ollama
+  model: qwen2.5-coder:1.5b
+
+indexing:
+  enabled: true
+  embeddingProvider: ollama
+  ignore:
+    - node_modules/**
+    - dist/**
+    - .git/**
