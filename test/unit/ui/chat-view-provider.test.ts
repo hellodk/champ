@@ -333,4 +333,143 @@ describe("ChatViewProvider", () => {
       expect(result).toBe(false);
     });
   });
+
+  describe("skill invocation (slash commands)", () => {
+    /**
+     * Helper that wires a minimal skill registry + context provider +
+     * resolver onto a fresh ChatViewProvider so each test can vary
+     * just the bits it cares about.
+     */
+    function withSkills(skill?: {
+      name: string;
+      template: string;
+    }): ChatViewProvider {
+      const skillStub = {
+        get: vi.fn((name: string) =>
+          skill && name === skill.name
+            ? {
+                metadata: {
+                  name: skill.name,
+                  description: `${skill.name} description`,
+                  trigger: `/${skill.name}`,
+                },
+                template: skill.template,
+              }
+            : undefined,
+        ),
+        list: vi.fn().mockReturnValue([]),
+        matchPrefix: vi.fn().mockReturnValue([]),
+      };
+      const p = new ChatViewProvider(
+        {
+          fsPath: "/ext",
+          scheme: "file",
+          path: "/ext",
+          toString: () => "/ext",
+        } as never,
+        agent,
+      );
+      p.setSkillRegistry(skillStub as never);
+      p.setSkillContext(
+        {
+          build: (userInput: string) => ({
+            workspaceRoot: "/work",
+            date: "2026-04-08",
+            userInput,
+          }),
+        },
+        (template, ctx) =>
+          template.replace(/\{\{userInput\}\}/g, ctx.userInput ?? ""),
+      );
+      // Expose the registry mock for test assertions.
+      (p as unknown as { __skillStub: typeof skillStub }).__skillStub =
+        skillStub;
+      return p;
+    }
+
+    it("expands /<name> input into the skill template before sending to the agent", async () => {
+      provider = withSkills({
+        name: "explain",
+        template: "Please explain:\n{{userInput}}",
+      });
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({
+        type: "userMessage",
+        text: "/explain how does this auth flow work",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // The agent should have been called with the resolved template,
+      // not the raw "/explain ..." text.
+      const processCalls = (agent.processMessage as ReturnType<typeof vi.fn>)
+        .mock.calls;
+      expect(processCalls.length).toBe(1);
+      const sentText = processCalls[0][0] as string;
+      expect(sentText).toContain("Please explain:");
+      expect(sentText).toContain("how does this auth flow work");
+      // The literal "/explain " should NOT have leaked into the prompt.
+      expect(sentText).not.toMatch(/^\/explain /);
+    });
+
+    it("falls through to the original text when the skill name is unknown", async () => {
+      provider = withSkills(); // no skills registered
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({
+        type: "userMessage",
+        text: "/nonsense some args",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const processCalls = (agent.processMessage as ReturnType<typeof vi.fn>)
+        .mock.calls;
+      expect(processCalls[0][0]).toBe("/nonsense some args");
+    });
+
+    it("does not interpret messages that don't start with /", async () => {
+      provider = withSkills();
+      const skillStub = (
+        provider as unknown as {
+          __skillStub: { get: ReturnType<typeof vi.fn> };
+        }
+      ).__skillStub;
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({
+        type: "userMessage",
+        text: "hello world (no slash)",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // Skill registry should NOT have been queried.
+      expect(skillStub.get).not.toHaveBeenCalled();
+      const processCalls = (agent.processMessage as ReturnType<typeof vi.fn>)
+        .mock.calls;
+      expect(processCalls[0][0]).toBe("hello world (no slash)");
+    });
+
+    it("works without any skill registry attached (no-op)", async () => {
+      // No setSkillRegistry call.
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({
+        type: "userMessage",
+        text: "/explain something",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // Should pass through verbatim.
+      const processCalls = (agent.processMessage as ReturnType<typeof vi.fn>)
+        .mock.calls;
+      expect(processCalls[0][0]).toBe("/explain something");
+    });
+  });
 });

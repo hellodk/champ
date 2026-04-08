@@ -5,6 +5,78 @@ All notable changes to AIDev will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] — 2026-04-08
+
+The "Skills" release. Adds reusable named prompt templates triggered
+with `/<name>` from the chat input. Modeled after Claude Skills and
+Continue.dev slash commands. Implements Phases A, B, and C of the
+plan in `docs/PLAN_SKILLS.md`. Phase D (slash autocomplete dropdown)
+is deferred to a follow-up.
+
+### Added — Skills system
+
+- **`src/skills/types.ts`** — `Skill`, `SkillFrontmatter`, `SkillSource`
+  type definitions.
+- **`src/skills/skill-loader.ts`** — parses markdown files with YAML
+  frontmatter into `Skill` objects. Strict schema validation. Throws
+  on missing `name`, missing `description`, invalid `mode`, or wrong
+  `allowedTools` shape.
+- **`src/skills/skill-registry.ts`** — central store. `register`,
+  `unregister`, `get`, `list`, `matchPrefix`, `clear`. Source
+  precedence (workspace > user > built-in) is enforced at registration
+  time so the user can always override a built-in by dropping a
+  same-named file in `.aidev/skills/`.
+- **`src/skills/variable-resolver.ts`** — substitutes `{{variable}}`
+  placeholders in skill templates. Supports `{{selection}}`,
+  `{{currentFile}}`, `{{language}}`, `{{userInput}}`, `{{cursorLine}}`,
+  `{{date}}`, `{{branch}}`, `{{workspaceRoot}}`. Unknown placeholders
+  are left intact so users notice typos rather than getting silent
+  empty output.
+- **`src/skills/built-in.ts`** — 8 built-in skills shipped inline:
+  - `/explain` — explains the current selection (Ask mode)
+  - `/test` — generates unit tests for the current file
+  - `/refactor` — refactors with a user-supplied goal
+  - `/review` — code review with severity-tagged checklist (Ask mode)
+  - `/commit` — generates Conventional Commits message from staged diff
+  - `/doc` — adds JSDoc/docstrings to the selection
+  - `/fix` — fixes the diagnostic at the current cursor line
+  - `/optimize` — performance review of the selection (Ask mode)
+- **ChatViewProvider integration**:
+  - `setSkillRegistry()` attaches a registry
+  - `setSkillContext()` attaches the editor-context provider + variable
+    resolver
+  - `expandSkill()` intercepts `/<name>` user messages, looks them up,
+    resolves variables, and replaces the literal `/<name> ...` text
+    with the resolved skill template before passing to the agent
+- **Extension activation**:
+  - Built-in skills loaded at activation
+  - Workspace skills loaded from `<workspace>/.aidev/skills/*.md`
+  - User skills loaded from `~/.aidev/skills/*.md`
+  - FileSystemWatcher on the workspace skills directory triggers a
+    reload on create/change/delete
+  - `buildSkillContext()` populates `selection`, `currentFile`,
+    `language`, `cursorLine` from the active editor
+
+### Tests
+
+- 436 tests passing (up from 364, **+72 new**):
+  - 11 SkillLoader tests
+  - 12 SkillRegistry tests (incl. source precedence)
+  - 9 VariableResolver tests
+  - 33 built-in skill spot checks (8 skills × 4 invariants + 1 inventory)
+  - 4 ChatViewProvider skill-invocation tests
+  - +3 ChatViewProvider helper-shape changes
+- Test count grows by 19.8% with no regressions in the existing 364 tests.
+
+### Notes
+
+- API keys still go through `AIDev: Set API Key` (SecretStorage). Skills
+  never need keys because they're prompt templates, not provider config.
+- User-defined skills can override any built-in by dropping a same-named
+  `.md` file in `.aidev/skills/` (workspace) or `~/.aidev/skills/` (user).
+- Phase D — slash-command autocomplete dropdown in the chat input — is
+  deferred to v0.1.6 to keep this release focused.
+
 ## [0.1.4] — 2026-04-06
 
 The "YAML config" release. Adds a hierarchical, version-controlled

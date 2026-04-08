@@ -47,6 +47,52 @@ export interface ChatContextResolver {
   ): Promise<Array<{ type: string; label: string; content: string }>>;
 }
 
+/**
+ * Minimal interface for a skill registry — narrowed so tests can supply
+ * a fake without importing the real one.
+ */
+export interface ChatSkillRegistry {
+  get(name: string):
+    | {
+        metadata: { name: string; description: string; trigger?: string };
+        template: string;
+      }
+    | undefined;
+  list(): Array<{
+    metadata: { name: string; description: string };
+  }>;
+  matchPrefix(prefix: string): Array<{
+    metadata: { name: string; description: string };
+  }>;
+}
+
+/**
+ * Provider of editor + workspace context used to resolve {{variables}}
+ * inside skill templates. The extension layer wires this to the active
+ * editor; tests can supply a fake.
+ */
+export interface SkillContextProvider {
+  build(userInput: string): {
+    workspaceRoot: string;
+    date: string;
+    selection?: string;
+    currentFile?: string;
+    language?: string;
+    userInput: string;
+    cursorLine?: number;
+    branch?: string;
+  };
+}
+
+/**
+ * Variable resolver function type. Decoupled from the concrete
+ * VariableResolver class so the chat view doesn't need to import it.
+ */
+export type SkillVariableResolver = (
+  template: string,
+  context: ReturnType<SkillContextProvider["build"]>,
+) => string;
+
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "aidev.chatView";
 
@@ -54,6 +100,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private activeAbortController: AbortController | null = null;
   private streamListenerDispose: (() => void) | null = null;
   private contextResolver: ChatContextResolver | undefined;
+  private skillRegistry: ChatSkillRegistry | undefined;
+  private skillContextProvider: SkillContextProvider | undefined;
+  private skillVariableResolver: SkillVariableResolver | undefined;
   /**
    * Pending approval requests keyed by id. Each entry is the
    * resolve callback of the promise the agent is awaiting. When the
@@ -74,6 +123,31 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
    */
   setContextResolver(resolver: ChatContextResolver): void {
     this.contextResolver = resolver;
+  }
+
+  /**
+   * Attach a skill registry. When set, user messages starting with
+   * `/<name>` are looked up in the registry and the matching skill's
+   * template is resolved into the actual prompt before going to the
+   * agent. The user-visible "/explain ..." text is replaced with the
+   * skill's prompt.
+   */
+  setSkillRegistry(registry: ChatSkillRegistry): void {
+    this.skillRegistry = registry;
+  }
+
+  /**
+   * Attach the helpers used to resolve {{variables}} inside skill
+   * templates. Both must be set together — without either, skill
+   * invocation falls back to passing the literal {{placeholders}}
+   * through.
+   */
+  setSkillContext(
+    provider: SkillContextProvider,
+    resolver: SkillVariableResolver,
+  ): void {
+    this.skillContextProvider = provider;
+    this.skillVariableResolver = resolver;
   }
 
   resolveWebviewView(
@@ -166,10 +240,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const controller = new AbortController();
     this.activeAbortController = controller;
 
-    // Resolve any @-symbol references and append the resolved content
-    // to the message. The user's literal text is preserved verbatim
-    // at the top so the model still sees the original phrasing.
-    const enrichedText = await this.resolveContextReferences(text);
+    // First, expand slash commands. /<name> at the start of the message
+    // is looked up in the skill registry; the matching skill's template
+    // (with {{variables}} resolved) replaces the user's literal text.
+    const skillExpanded = this.expandSkill(text);
+
+    // Then resolve any @-symbol references and append the resolved
+    // content to the message. The user's literal text is preserved
+    // verbatim at the top so the model still sees the original phrasing.
+    const enrichedText = await this.resolveContextReferences(skillExpanded);
 
     // Wire the agent's stream events to the webview for live rendering.
     // Dispose the prior listener first so we don't leak subscriptions.
@@ -214,6 +293,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.activeAbortController.abort();
       this.activeAbortController = null;
     }
+  }
+
+  /**
+   * If the user's text starts with `/<name>`, look up the skill in the
+   * registry, build a SkillContext from the active editor + the rest
+   * of the user input, resolve {{variables}} in the template, and
+   * return the resolved prompt. Falls through to the original text
+   * when:
+   *   - no skill registry is attached
+   *   - the message doesn't start with /
+   *   - the slash command is not a known skill
+   */
+  private expandSkill(text: string): string {
+    if (!this.skillRegistry) return text;
+    const match = text.match(/^\/([A-Za-z][\w-]*)\s*(.*)$/s);
+    if (!match) return text;
+    const name = match[1];
+    const userInput = match[2] ?? "";
+
+    const skill = this.skillRegistry.get(name);
+    if (!skill) return text;
+
+    // Without a context provider + resolver we can't substitute
+    // variables — fall back to the raw template so the model at least
+    // sees the prompt rather than the literal /<name>.
+    if (!this.skillContextProvider || !this.skillVariableResolver) {
+      return skill.template;
+    }
+
+    const context = this.skillContextProvider.build(userInput);
+    return this.skillVariableResolver(skill.template, context);
   }
 
   /**

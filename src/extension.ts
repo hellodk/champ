@@ -33,6 +33,10 @@ import { ChunkingService } from "./indexing/chunking-service";
 import { RepoMapBuilder } from "./indexing/repo-map-builder";
 import { ContextResolver } from "./agent/context-resolver";
 import { ConfigLoader, type AidevConfig } from "./config/config-loader";
+import { SkillRegistry } from "./skills/skill-registry";
+import { SkillLoader } from "./skills/skill-loader";
+import { VariableResolver } from "./skills/variable-resolver";
+import { BUILT_IN_SKILL_TEXTS } from "./skills/built-in";
 import type { LLMProvider } from "./providers/types";
 
 /**
@@ -149,12 +153,59 @@ export async function activate(
     },
   });
 
+  // ---- Skills registry ------------------------------------------------
+  // Built-in skills are inlined as TS constants and registered first.
+  // User and workspace skills are loaded from disk after — they have
+  // higher precedence so the user can override any built-in.
+  const skillRegistry = new SkillRegistry();
+  for (const { text } of BUILT_IN_SKILL_TEXTS) {
+    try {
+      skillRegistry.register(SkillLoader.parseFile(text, "built-in"));
+    } catch (err) {
+      console.error("AIDev: failed to load built-in skill:", err);
+    }
+  }
+  await loadSkillsFromDirectory(
+    skillRegistry,
+    workspaceRoot ? path.join(workspaceRoot, ".aidev", "skills") : null,
+    "workspace",
+  );
+  await loadSkillsFromDirectory(
+    skillRegistry,
+    path.join(os.homedir(), ".aidev", "skills"),
+    "user",
+  );
+
+  // Watch user/workspace skill directories for live reload.
+  if (workspaceRoot) {
+    const wsSkillsWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(workspaceRoot, ".aidev/skills/*.md"),
+    );
+    const reloadWorkspaceSkills = () =>
+      loadSkillsFromDirectory(
+        skillRegistry,
+        path.join(workspaceRoot, ".aidev", "skills"),
+        "workspace",
+      );
+    wsSkillsWatcher.onDidChange(() => void reloadWorkspaceSkills());
+    wsSkillsWatcher.onDidCreate(() => void reloadWorkspaceSkills());
+    wsSkillsWatcher.onDidDelete(() => void reloadWorkspaceSkills());
+    context.subscriptions.push(wsSkillsWatcher);
+  }
+
   // ---- Chat view ------------------------------------------------------
   chatViewProvider = new ChatViewProvider(
     context.extensionUri,
     agentController,
   );
   chatViewProvider.setContextResolver(contextResolver);
+  chatViewProvider.setSkillRegistry(skillRegistry);
+  chatViewProvider.setSkillContext(
+    {
+      build: (userInput: string) => buildSkillContext(workspaceRoot, userInput),
+    },
+    (template, ctx) => VariableResolver.resolve(template, ctx),
+  );
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       ChatViewProvider.viewType,
@@ -620,4 +671,90 @@ userRules: |
 #       env:
 #         GITHUB_TOKEN: \${env:GITHUB_TOKEN}
 `;
+}
+
+/**
+ * Read every .md file from the given directory and register it as a
+ * skill of the given source. Existing skills with the same name are
+ * compared via the registry's source-precedence rules. Errors during
+ * file read or skill parsing are logged but don't crash activation.
+ */
+async function loadSkillsFromDirectory(
+  registry: SkillRegistry,
+  dir: string | null,
+  source: "user" | "workspace",
+): Promise<void> {
+  if (!dir) return;
+  let entries: [string, vscode.FileType][];
+  try {
+    entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(dir));
+  } catch {
+    // Directory doesn't exist — that's fine, no skills to load.
+    return;
+  }
+  for (const [name, type] of entries) {
+    if ((type & vscode.FileType.File) === 0) continue;
+    if (!name.endsWith(".md")) continue;
+    const filePath = path.join(dir, name);
+    try {
+      const data = await vscode.workspace.fs.readFile(
+        vscode.Uri.file(filePath),
+      );
+      const text = new TextDecoder().decode(data);
+      const skill = SkillLoader.parseFile(text, source, filePath);
+      registry.register(skill);
+    } catch (err) {
+      console.error(
+        `AIDev: failed to load skill from ${filePath}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+}
+
+/**
+ * Build a SkillContext from the current editor state. Used by the chat
+ * view to resolve {{variables}} inside skill templates.
+ *
+ * Best-effort: any value that can't be determined (no active editor,
+ * no git repo, etc.) is left undefined and resolves to empty string in
+ * the variable resolver.
+ */
+function buildSkillContext(
+  workspaceRoot: string,
+  userInput: string,
+): {
+  workspaceRoot: string;
+  date: string;
+  selection?: string;
+  currentFile?: string;
+  language?: string;
+  userInput: string;
+  cursorLine?: number;
+  branch?: string;
+} {
+  const editor = vscode.window.activeTextEditor;
+  const date = new Date().toISOString().slice(0, 10);
+
+  if (!editor) {
+    return { workspaceRoot, date, userInput };
+  }
+
+  const doc = editor.document;
+  const selection = editor.selection.isEmpty
+    ? undefined
+    : doc.getText(editor.selection);
+  const currentFile = vscode.workspace.asRelativePath(doc.uri);
+  const language = doc.languageId;
+  const cursorLine = editor.selection.active.line + 1;
+
+  return {
+    workspaceRoot,
+    date,
+    selection,
+    currentFile,
+    language,
+    userInput,
+    cursorLine,
+  };
 }
