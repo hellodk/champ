@@ -5,6 +5,55 @@ All notable changes to AIDev will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] — 2026-04-06
+
+The "YAML config" release. Adds a hierarchical, version-controlled
+config file format that replaces the flat `aidev.*` keys in
+`settings.json`. Backward compatible — existing settings.json users
+keep working unchanged.
+
+### Added
+
+- **`.aidev/config.yaml` workspace config and `~/.aidev/config.yaml`
+  user config.** Both YAML files use the same schema (see
+  `docs/CONFIG.md`). The workspace file is committed and shared with
+  the team; the user file is personal. Workspace deep-merges over
+  user, then over legacy `aidev.*` settings, then over built-in
+  defaults.
+- **`ConfigLoader` module** (`src/config/config-loader.ts`) — pure
+  parser/validator/merger with no filesystem I/O. Hand-rolled
+  schema validation with clear error messages. Rejects any attempt
+  to put `apiKey` in YAML (secrets stay in SecretStorage).
+- **Environment variable substitution** — `${env:VAR_NAME}`
+  placeholders in any config string are resolved against
+  `process.env`. Unset variables are left as the literal placeholder
+  so misconfigurations are visible.
+- **`AIDev: Generate Config File` command** — writes a starter
+  `.aidev/config.yaml` to the workspace root with every option
+  documented and conservative defaults.
+- **Hot reload on YAML save.** A FileSystemWatcher on
+  `.aidev/config.yaml` triggers `loadProvider()` whenever the file
+  is created, modified, or deleted.
+- **`docs/CONFIG.md`** — full schema reference, migration guide
+  from `settings.json`, secret handling rules, validation error
+  table, workspace vs user split guidance.
+- **`ProviderFactory.createFromAidevConfig()`** — new YAML-driven
+  factory path alongside the existing `createFromConfig()`.
+- **`js-yaml` dependency** (~14kb).
+
+### Tests
+
+- 364 tests passing (up from 340). 24 new tests:
+  - 19 ConfigLoader tests covering parse, validate, merge,
+    substituteEnv, withDefaults, activeProviderConfig, and the
+    apiKey rejection rule
+  - 5 createFromAidevConfig tests covering each provider, default
+    fallthrough, and the no-provider-set case
+
+### Documentation
+
+- New `docs/CONFIG.md` (full schema reference)
+
 ## [0.1.3] — 2026-04-06
 
 The "anti-hallucination + close the gap" release. Adds documentation

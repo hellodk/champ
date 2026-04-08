@@ -14,6 +14,7 @@ import { OllamaProvider } from "./ollama";
 import { LlamaCppProvider } from "./llamacpp";
 import { VLLMProvider } from "./vllm";
 import { OpenAICompatibleProvider } from "./openai-compatible";
+import type { AidevConfig } from "../config/config-loader";
 
 /**
  * Narrow interface matching the subset of vscode.WorkspaceConfiguration
@@ -84,6 +85,74 @@ export class ProviderFactory {
     const value = config.get<T>(section);
     if (value !== undefined && value !== null && value !== "") return value;
     return DEFAULTS[section] as T | undefined;
+  }
+
+  /**
+   * Build a provider instance from a parsed AidevConfig (YAML-based).
+   *
+   * Unlike createFromConfig() which reads flat aidev.* keys from VS
+   * Code's settings.json, this path takes a structured AidevConfig
+   * (typically loaded from .aidev/config.yaml). API keys still come
+   * from SecretStorage — never from YAML.
+   */
+  async createFromAidevConfig(
+    config: AidevConfig,
+    secrets: SecretReader,
+  ): Promise<LLMProvider> {
+    const providerName = config.provider ?? "claude";
+    const providerEntry = config.providers?.[providerName] ?? {};
+
+    switch (providerName) {
+      case "claude":
+        return new ClaudeProvider({
+          ...this.baseConfig("claude"),
+          model: providerEntry.model ?? "claude-sonnet-4-20250514",
+          apiKey: await secrets.get("aidev.claude.apiKey"),
+        });
+      case "openai":
+        return new OpenAIProvider({
+          ...this.baseConfig("openai"),
+          model: providerEntry.model ?? "gpt-4o",
+          apiKey: await secrets.get("aidev.openai.apiKey"),
+        });
+      case "gemini":
+        return new GeminiProvider({
+          ...this.baseConfig("gemini"),
+          model: providerEntry.model ?? "gemini-2.0-flash",
+          apiKey: await secrets.get("aidev.gemini.apiKey"),
+        });
+      case "ollama":
+        return new OllamaProvider({
+          ...this.baseConfig("ollama"),
+          model: providerEntry.model ?? "llama3.1",
+          baseUrl: providerEntry.baseUrl ?? "http://localhost:11434",
+        });
+      case "llamacpp":
+        return new LlamaCppProvider({
+          ...this.baseConfig("llamacpp"),
+          model: providerEntry.model ?? "default",
+          baseUrl: providerEntry.baseUrl ?? "http://localhost:8080/v1",
+        });
+      case "vllm":
+        return new VLLMProvider({
+          ...this.baseConfig("vllm"),
+          model: providerEntry.model ?? "",
+          baseUrl: providerEntry.baseUrl ?? "http://localhost:8000/v1",
+          apiKey: await secrets.get("aidev.vllm.apiKey"),
+        });
+      case "openai-compatible":
+        return new OpenAICompatibleProvider({
+          ...this.baseConfig("openai-compatible"),
+          model: providerEntry.model ?? "default",
+          baseUrl: providerEntry.baseUrl ?? "",
+          apiKey: await secrets.get("aidev.openaiCompatible.apiKey"),
+        });
+      default: {
+        // Exhaustiveness check — TS will complain if a ProviderName is missed.
+        const _exhaustive: never = providerName as never;
+        throw new Error(`Unknown provider: "${_exhaustive as string}"`);
+      }
+    }
   }
 
   private baseConfig(provider: string): Omit<LLMProviderConfig, "model"> {

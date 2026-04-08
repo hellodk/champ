@@ -12,6 +12,8 @@
  *   - a one-time toast on activation
  */
 import * as vscode from "vscode";
+import * as path from "path";
+import * as os from "os";
 import { ProviderRegistry } from "./providers/registry";
 import { ProviderFactory } from "./providers/factory";
 import { ToolRegistry } from "./tools/registry";
@@ -30,6 +32,7 @@ import { MetricsCollector } from "./observability/metrics-collector";
 import { ChunkingService } from "./indexing/chunking-service";
 import { RepoMapBuilder } from "./indexing/repo-map-builder";
 import { ContextResolver } from "./agent/context-resolver";
+import { ConfigLoader, type AidevConfig } from "./config/config-loader";
 import type { LLMProvider } from "./providers/types";
 
 /**
@@ -273,7 +276,109 @@ export async function activate(
       );
       await loadProvider();
     }),
+    vscode.commands.registerCommand("aidev.generateConfig", async () => {
+      if (!workspaceRoot) {
+        void vscode.window.showErrorMessage(
+          "AIDev: open a workspace folder before generating a config file.",
+        );
+        return;
+      }
+      const targetUri = vscode.Uri.file(
+        path.join(workspaceRoot, ".aidev", "config.yaml"),
+      );
+      // Don't overwrite an existing file silently.
+      try {
+        await vscode.workspace.fs.stat(targetUri);
+        const choice = await vscode.window.showWarningMessage(
+          ".aidev/config.yaml already exists. Overwrite?",
+          { modal: true },
+          "Overwrite",
+          "Cancel",
+        );
+        if (choice !== "Overwrite") return;
+      } catch {
+        // File doesn't exist — fall through.
+      }
+      const template = generateDefaultConfigYaml();
+      try {
+        await vscode.workspace.fs.createDirectory(
+          vscode.Uri.file(path.join(workspaceRoot, ".aidev")),
+        );
+      } catch {
+        // Directory may already exist.
+      }
+      await vscode.workspace.fs.writeFile(
+        targetUri,
+        new TextEncoder().encode(template),
+      );
+      const doc = await vscode.workspace.openTextDocument(targetUri);
+      await vscode.window.showTextDocument(doc);
+      void vscode.window.showInformationMessage(
+        "AIDev: created .aidev/config.yaml. Edit it and save to apply.",
+      );
+    }),
   );
+
+  // ---- Config loader (YAML + VS Code settings fallback) -------------
+  /**
+   * Resolve the effective AidevConfig from (in order of precedence):
+   *   1. <workspace>/.aidev/config.yaml
+   *   2. ~/.aidev/config.yaml
+   *   3. VS Code aidev.* settings (legacy backward-compat)
+   *   4. built-in defaults
+   *
+   * Returns null when no source has a usable config — the loader path
+   * is then skipped and the caller falls back to createFromConfig().
+   * Errors during YAML parsing are surfaced to the user but do not
+   * crash activation.
+   */
+  const resolveConfig = async (): Promise<AidevConfig | null> => {
+    const workspacePath = workspaceRoot
+      ? path.join(workspaceRoot, ".aidev", "config.yaml")
+      : null;
+    const userPath = path.join(os.homedir(), ".aidev", "config.yaml");
+
+    let workspaceConfig: AidevConfig | null = null;
+    let userConfig: AidevConfig | null = null;
+
+    if (workspacePath) {
+      try {
+        const data = await vscode.workspace.fs.readFile(
+          vscode.Uri.file(workspacePath),
+        );
+        workspaceConfig = ConfigLoader.parseYaml(
+          new TextDecoder().decode(data),
+        );
+      } catch (err) {
+        // File doesn't exist OR contains invalid YAML. Distinguish by
+        // checking the error message — fs.readFile throws with a
+        // FileSystemError code for missing files which we ignore.
+        if (err instanceof Error && /Invalid YAML/.test(err.message)) {
+          void vscode.window.showErrorMessage(
+            `AIDev: ${workspacePath} has invalid YAML — ${err.message}`,
+          );
+        }
+      }
+    }
+
+    try {
+      const data = await vscode.workspace.fs.readFile(
+        vscode.Uri.file(userPath),
+      );
+      userConfig = ConfigLoader.parseYaml(new TextDecoder().decode(data));
+    } catch (err) {
+      if (err instanceof Error && /Invalid YAML/.test(err.message)) {
+        void vscode.window.showErrorMessage(
+          `AIDev: ${userPath} has invalid YAML — ${err.message}`,
+        );
+      }
+    }
+
+    if (!workspaceConfig && !userConfig) return null;
+
+    const merged = ConfigLoader.merge(userConfig ?? {}, workspaceConfig ?? {});
+    return ConfigLoader.withDefaults(ConfigLoader.substituteEnv(merged));
+  };
 
   // ---- Provider loader (callable on demand) ---------------------------
   /**
@@ -281,14 +386,24 @@ export async function activate(
    * the agent controller, inline completion provider, and status bar.
    * On failure, leaves the stub in place and surfaces the error in the
    * chat panel + status bar.
+   *
+   * Tries the YAML config path first, falling back to legacy
+   * VS Code settings if no YAML config is present.
    */
   const loadProvider = async (): Promise<void> => {
     setStatusLoading();
     try {
-      const newProvider = await factory.createFromConfig(
-        vscode.workspace.getConfiguration("aidev"),
-        context.secrets,
-      );
+      const yamlConfig = await resolveConfig();
+      const newProvider = yamlConfig
+        ? await factory.createFromAidevConfig(yamlConfig, context.secrets)
+        : await factory.createFromConfig(
+            vscode.workspace.getConfiguration("aidev"),
+            context.secrets,
+          );
+      // Apply mode and userRules from YAML if present.
+      if (yamlConfig?.agent?.defaultMode) {
+        agentController.setMode(yamlConfig.agent.defaultMode);
+      }
       // Replace any prior real provider in the registry.
       try {
         providerRegistry?.unregister(inlineProviderRef.current.name);
@@ -309,7 +424,7 @@ export async function activate(
       setStatusError(message);
       chatViewProvider?.postMessage({
         type: "error",
-        message: `AIDev provider not ready: ${message}\n\nOpen settings (gear icon in the status bar) to configure the active provider.`,
+        message: `AIDev provider not ready: ${message}\n\nOpen settings (gear icon in the status bar) to configure the active provider, or create a .aidev/config.yaml file.`,
       });
       console.error("AIDev: provider load failed:", err);
     }
@@ -341,13 +456,27 @@ export async function activate(
   // show the error and the user can fix it from settings.
   await loadProvider();
 
-  // ---- Config change watcher ------------------------------------------
+  // ---- Config change watchers -----------------------------------------
+  // Watch VS Code aidev.* settings (legacy path).
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async (event) => {
       if (!event.affectsConfiguration("aidev")) return;
       await loadProvider();
     }),
   );
+
+  // Watch .aidev/config.yaml in the workspace for live reload. Created,
+  // changed, or deleted — any of those should trigger a provider reload
+  // since the file is the source of truth when it exists.
+  if (workspaceRoot) {
+    const yamlWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(workspaceRoot, ".aidev/config.yaml"),
+    );
+    yamlWatcher.onDidChange(() => void loadProvider());
+    yamlWatcher.onDidCreate(() => void loadProvider());
+    yamlWatcher.onDidDelete(() => void loadProvider());
+    context.subscriptions.push(yamlWatcher);
+  }
 
   console.log("AIDev extension activated");
 }
@@ -406,4 +535,89 @@ function createStubProvider(name: string): LLMProvider {
     }),
     dispose: () => {},
   };
+}
+
+/**
+ * Build a starter .aidev/config.yaml that the user can edit. Defaults
+ * are conservative — Ollama at localhost since that's the most common
+ * local-first setup. Uncommented blocks show every available knob.
+ */
+function generateDefaultConfigYaml(): string {
+  return `# AIDev configuration — committed to git, shared with the team.
+# User-level overrides live in ~/.aidev/config.yaml.
+# API keys are NEVER stored here — use the 'AIDev: Set API Key' command.
+# See docs/CONFIG.md for the full schema reference.
+
+# Active provider — must match a key under 'providers:' below.
+provider: ollama
+
+providers:
+  claude:
+    model: claude-sonnet-4-20250514
+
+  openai:
+    model: gpt-4o
+
+  gemini:
+    model: gemini-2.0-flash
+
+  ollama:
+    baseUrl: http://localhost:11434
+    model: llama3.1
+
+  llamacpp:
+    baseUrl: http://localhost:8080/v1
+    model: default
+
+  vllm:
+    baseUrl: http://localhost:8000/v1
+    model: meta-llama/Llama-3.1-8B
+
+  openai-compatible:
+    baseUrl: http://localhost:9000/v1
+    model: custom-model
+
+# Inline ghost-text autocomplete settings.
+autocomplete:
+  enabled: true
+  debounceMs: 300
+  # Optional: use a different (smaller) provider for autocomplete.
+  # provider: ollama
+  # model: qwen2.5-coder:1.5b
+
+agent:
+  # Skip approval prompts for destructive tools (use with caution).
+  yoloMode: false
+  # Default mode when a chat session starts.
+  defaultMode: agent
+  # Auto-fix loop after edits — re-prompts the model with LSP errors.
+  autoFix:
+    enabled: true
+    maxIterations: 3
+
+indexing:
+  enabled: true
+  embeddingProvider: ollama
+  ignore:
+    - node_modules/**
+    - dist/**
+    - .git/**
+    - test-reports/**
+
+# User-level rules — always injected into the system prompt.
+userRules: |
+  Always write tests first.
+  Use TypeScript strict mode where applicable.
+  Prefer composition over inheritance.
+
+# MCP server connections — extend the agent with external tools.
+# Uncomment to enable.
+# mcp:
+#   servers:
+#     - name: github
+#       command: npx
+#       args: ["-y", "@modelcontextprotocol/server-github"]
+#       env:
+#         GITHUB_TOKEN: \${env:GITHUB_TOKEN}
+`;
 }

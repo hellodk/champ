@@ -131,4 +131,90 @@ describe("ProviderFactory", () => {
 
     await expect(factory.createFromConfig(config, secrets)).rejects.toThrow();
   });
+
+  describe("createFromAidevConfig (YAML path)", () => {
+    it("creates a llamacpp provider from a parsed AidevConfig", async () => {
+      const provider = await factory.createFromAidevConfig(
+        {
+          provider: "llamacpp",
+          providers: {
+            llamacpp: {
+              baseUrl: "http://192.168.1.24:21434/v1",
+              model: "Qwen2.5-Coder-7B-Instruct.gguf",
+            },
+          },
+        },
+        createFakeSecrets({}) as never,
+      );
+      expect(provider.name).toBe("llamacpp");
+      expect(provider.config.baseUrl).toBe("http://192.168.1.24:21434/v1");
+      expect(provider.config.model).toBe("Qwen2.5-Coder-7B-Instruct.gguf");
+    });
+
+    it("creates a claude provider with the api key from SecretStorage", async () => {
+      const provider = await factory.createFromAidevConfig(
+        {
+          provider: "claude",
+          providers: { claude: { model: "claude-sonnet-4-20250514" } },
+        },
+        createFakeSecrets({ "aidev.claude.apiKey": "sk-ant-test" }) as never,
+      );
+      expect(provider.name).toBe("claude");
+      expect(provider.config.apiKey).toBe("sk-ant-test");
+    });
+
+    it("falls back to per-provider defaults when fields are unset", async () => {
+      const provider = await factory.createFromAidevConfig(
+        { provider: "ollama", providers: { ollama: {} } },
+        createFakeSecrets({}) as never,
+      );
+      expect(provider.name).toBe("ollama");
+      expect(provider.config.baseUrl).toBe("http://localhost:11434");
+      expect(provider.config.model).toBe("llama3.1");
+    });
+
+    it("defaults to claude when no provider is specified", async () => {
+      const provider = await factory.createFromAidevConfig(
+        {},
+        createFakeSecrets({ "aidev.claude.apiKey": "k" }) as never,
+      );
+      expect(provider.name).toBe("claude");
+    });
+
+    it("works for every supported provider name", async () => {
+      const cases = [
+        { name: "claude", entry: { model: "claude-sonnet-4-20250514" } },
+        { name: "openai", entry: { model: "gpt-4o" } },
+        { name: "gemini", entry: { model: "gemini-2.0-flash" } },
+        {
+          name: "ollama",
+          entry: { baseUrl: "http://localhost:11434", model: "llama3.1" },
+        },
+        {
+          name: "llamacpp",
+          entry: { baseUrl: "http://localhost:8080/v1", model: "default" },
+        },
+        {
+          name: "vllm",
+          entry: { baseUrl: "http://localhost:8000/v1", model: "x" },
+        },
+        {
+          name: "openai-compatible",
+          entry: { baseUrl: "http://localhost:9000/v1", model: "x" },
+        },
+      ] as const;
+
+      for (const c of cases) {
+        const provider = await factory.createFromAidevConfig(
+          { provider: c.name, providers: { [c.name]: c.entry } },
+          createFakeSecrets({
+            "aidev.claude.apiKey": "k",
+            "aidev.openai.apiKey": "k",
+            "aidev.gemini.apiKey": "k",
+          }) as never,
+        );
+        expect(provider.name).toBe(c.name);
+      }
+    });
+  });
 });

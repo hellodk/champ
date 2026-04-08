@@ -2,7 +2,7 @@
   "name": "aidev",
   "displayName": "AIDev - AI Coding Agent",
   "description": "Cursor-like AI coding experience with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "publisher": "aidev-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -79,6 +79,10 @@
       {
         "command": "aidev.setApiKey",
         "title": "AIDev: Set API Key"
+      },
+      {
+        "command": "aidev.generateConfig",
+        "title": "AIDev: Generate Config File"
       }
     ],
     "configuration": {
@@ -255,6 +259,7 @@
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@google/generative-ai": "^0.21.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.93.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
@@ -271,6 +276,7 @@
     "vitest": "^2.1.0"
   },
   "dependencies": {
+    "js-yaml": "^4.1.1",
     "tiktoken": "^1.0.0"
   },
   "lint-staged": {
