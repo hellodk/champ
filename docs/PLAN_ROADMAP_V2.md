@@ -1,17 +1,17 @@
 # PLAN: v0.2 Roadmap (post-YAML config)
 
-Status: **planning** — concrete proposals for what comes after v0.1.4.
+Status: **planning** — concrete proposals for what comes after v0.1.6.
 
 ## Where we are
 
-- **v0.1.4 shipped** (current): YAML config, anti-hallucination, mode enforcement, @-symbol resolution, approval flow, secret redaction, repo map injection.
-- **GAP_ANALYSIS score**: 11/22 features wired and working in the runtime.
-- **364 tests passing**, TypeScript clean, ESLint clean.
-- **Open gaps**: 11 still on the table — see GAP_ANALYSIS.md for the full inventory.
+- **v0.1.6 shipped** (current): Skills system with autocomplete dropdown (Phases A–D), built on top of v0.1.5's slash commands and v0.1.4's YAML config.
+- **GAP_ANALYSIS score**: 12/22 features wired and working in the runtime.
+- **442 tests passing** across 50 test files. TypeScript clean, ESLint clean.
+- **Open gaps**: 10 from the original GAP_ANALYSIS.md plus 7 new chat UI items from direct user feedback (see `PLAN_CHAT_UI_V2.md`).
 
 ## v0.2 themes
 
-Three big themes for the next milestone, in priority order:
+Four themes for the next milestone, in priority order:
 
 ### Theme 1 — Workflow ergonomics (Skills + Agent Manager)
 
@@ -19,10 +19,26 @@ The features that change *how* you use AIDev day-to-day. Highest impact-per-effo
 
 | Feature | Status | Plan doc | Estimated effort |
 |---------|--------|----------|-------------------|
-| **Skills system** (`/explain`, `/test`, `/commit`, custom skills) | designed | [`PLAN_SKILLS.md`](PLAN_SKILLS.md) | ~2.5 days |
+| **Skills system** (`/explain`, `/test`, `/commit`, custom skills) | ✅ **shipped v0.1.5–v0.1.6** | [`PLAN_SKILLS.md`](PLAN_SKILLS.md) | done |
 | **Agent Manager** (parallel sessions, persistence, switcher) | designed | [`PLAN_AGENT_MANAGER.md`](PLAN_AGENT_MANAGER.md) | ~3 days |
 
-### Theme 2 — Closing the verification gaps
+### Theme 2 — Chat UI refinements (Cursor-style layout + onboarding)
+
+User-feedback-driven UX refinements. Direct response to "settings button on the extension page", "sample settings file", "Agent options should be below similar to Cursor", plus four other related items.
+
+| Feature | Plan doc | Estimated effort |
+|---------|----------|-------------------|
+| **Settings button in chat header** | [`PLAN_CHAT_UI_V2.md`](PLAN_CHAT_UI_V2.md) §1 | ½ day |
+| **Onboarding config picker** (first-run sample settings) | `PLAN_CHAT_UI_V2.md` §2 | 1 day |
+| **Mode switcher relocated below input** (Cursor layout) | `PLAN_CHAT_UI_V2.md` §3 | 1 day |
+| **Active model indicator in chat header** | `PLAN_CHAT_UI_V2.md` §4 | 2 hours |
+| **Per-message copy + retry actions** | `PLAN_CHAT_UI_V2.md` §5 | 2 hours |
+| **Attach-file button** (scaffold for image input) | `PLAN_CHAT_UI_V2.md` §6 | ½ day |
+| **Scroll-to-bottom affordance during streaming** | `PLAN_CHAT_UI_V2.md` §7 | 2 hours |
+
+Total Theme 2: ~3.5 days for the full chat UI refresh, broken into 3 sub-phases.
+
+### Theme 3 — Closing the verification gaps
 
 The features that exist as built-but-unwired modules. Cheap to wire because the modules already have full unit-test coverage.
 
@@ -34,7 +50,7 @@ The features that exist as built-but-unwired modules. Cheap to wire because the 
 | **Rules engine loads `.aidev/rules/*.md`** | ½ day | Per-file glob-attached project rules |
 | **Codebase indexing on activation** | 2 days | `@Codebase` actually works; needs an embedding service |
 
-### Theme 3 — New capabilities
+### Theme 4 — New capabilities
 
 Features that need new code (not just wiring), but unlock big workflows.
 
@@ -51,23 +67,31 @@ Features that need new code (not just wiring), but unlock big workflows.
 
 ## Recommended order
 
-I'd attack v0.2 in this order:
+Updated based on user feedback (v0.1.6 + chat UI requests). I'd attack v0.2 in this order:
 
-1. **Skills system** — biggest UX win, lowest risk, builds team adoption  
-2. **Agent Manager Phase A+B** (in-memory + UI list) — unlocks parallel work  
-3. **Auto-fix loop wiring** — anti-hallucination win, almost free  
-4. **Checkpoint auto-create + restore UI** — safety net for the user  
-5. **Inline diff preview** — biggest "feels like Cursor" missing piece  
-6. **Custom modes** — power-user feature with low effort  
-7. **Agent Manager Phase C+D** (persistence + polish)  
-8. **Plan persistence** — quick win  
-9. **Rules engine `.aidev/rules/`** — quick win  
-10. **Image input** — multimodal users  
-11. **Codebase indexing on activation** — biggest single-feature in this list  
-12. **Memory system** — important but the contract needs more thought  
-13. **MCP, background agents, best-of-N, web search** — nice-to-haves  
+1. ~~**Skills system**~~ — ✅ shipped v0.1.5–v0.1.6
+2. **Chat UI v2 Phase A** (settings button + mode-below + model indicator) — direct user request, structural layout fix, half-day
+3. **Auto-fix loop wiring** — anti-hallucination win, almost free, ½ day
+4. **Chat UI v2 Phase B** (onboarding config picker) — fixes the broken first-run experience, ~1 day
+5. **Checkpoint auto-create + restore UI** — safety net for the user, ½ day
+6. **Inline diff preview** — biggest "feels like Cursor" missing piece, ~1 day
+7. **Chat UI v2 Phase C** (message actions + attach button + scroll pill) — UX polish, ~1 day
+8. **Custom modes** — power-user feature with low effort, ~1 day
+9. **Agent Manager Phase A+B** (in-memory + UI list) — unlocks parallel work, ~2 days
+10. **Plan persistence** — quick win, ½ day
+11. **Rules engine `.aidev/rules/`** — quick win, ½ day
+12. **Agent Manager Phase C+D** (persistence + polish), ~1 day
+13. **Image input** — multimodal users, ~1 day
+14. **Codebase indexing on activation** — biggest single-feature in this list, ~2 days
+15. **Memory system** — important but the contract needs more thought, ~2 days
+16. **MCP, background agents, best-of-N, web search** — nice-to-haves
 
-This sequence frontloads the high-impact-low-effort items so each release feels like a meaningful upgrade.
+This sequence frontloads:
+- **Direct user-feedback items** (chat UI Phase A, onboarding) right after the Skills work the user just received
+- **Anti-hallucination wins** that are nearly free (auto-fix loop wiring)
+- **Safety nets** (checkpoints, diff preview) before the harder feature work
+
+Each release feels like a meaningful upgrade and the user-visible items come first.
 
 ## Custom modes — design sketch
 
@@ -156,7 +180,8 @@ Out of scope for v0.2. Whisper is a ~150MB model and the latency for high-qualit
 ## Success criteria for v0.2
 
 When v0.2 ships:
-- Skills system is wired with 8 built-in skills + user-defined support
+- ✅ Skills system wired with 8 built-in skills + user-defined support (shipped v0.1.5–v0.1.6)
+- Chat UI v2: settings button, mode-below-input, model indicator, onboarding picker, message actions, attach button, scroll pill
 - Multiple parallel sessions via Agent Manager
 - Auto-fix loop catches LSP errors and re-prompts the model
 - Checkpoints auto-create before every destructive tool call
@@ -164,8 +189,8 @@ When v0.2 ships:
 - Custom modes work
 - Plan persistence
 - Rules engine loads `.aidev/rules/`
-- Test count grows by ≥80 (skills, agent manager, auto-fix, checkpoints, custom modes, rules wiring)
-- GAP_ANALYSIS.md score: 18/22 wired (up from 11)
+- Test count grows by ≥110 from v0.1.6 baseline of 442 (skills shipped, +30 chat UI, +30 agent manager, +20 auto-fix/checkpoints/custom modes/rules wiring, +30 from new features). Target: ≥550 total.
+- GAP_ANALYSIS.md score: 19/22 wired (up from 12)
 - Test report on every commit, hook discipline preserved
 
 ## Out of scope for v0.2
