@@ -266,8 +266,8 @@ html, body {
   color: var(--vscode-input-foreground);
   background-color: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border);
-  border-radius: 2px;
-  padding: 6px 8px;
+  border-radius: 10px;
+  padding: 10px 14px;
   outline: none;
 }
 
@@ -292,9 +292,9 @@ html, body {
   color: var(--vscode-foreground);
   background-color: var(--vscode-dropdown-background);
   border: 1px solid var(--vscode-dropdown-border);
-  padding: 3px 6px;
+  padding: 4px 8px;
   cursor: pointer;
-  border-radius: 2px;
+  border-radius: 8px;
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -334,9 +334,10 @@ html, body {
   color: var(--vscode-button-foreground);
   background-color: var(--vscode-button-background);
   border: none;
-  padding: 4px 12px;
+  padding: 5px 14px;
   cursor: pointer;
-  border-radius: 2px;
+  border-radius: 8px;
+  transition: background-color 0.15s;
 }
 
 .bottom-bar button:hover {
@@ -617,24 +618,27 @@ html, body {
 }
 
 .attach-btn {
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: calc(var(--vscode-font-size) + 2px);
-  color: var(--vscode-foreground);
+  color: var(--vscode-descriptionForeground);
   background: transparent;
   border: 1px solid var(--vscode-input-border);
-  border-radius: 2px;
+  border-radius: 10px;
   cursor: pointer;
   padding: 0;
   margin-top: 6px;
   flex-shrink: 0;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
 }
 
 .attach-btn:hover {
   background-color: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+  border-color: var(--vscode-focusBorder);
+  color: var(--vscode-foreground);
 }
 
 .hidden-file-input {

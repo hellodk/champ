@@ -59,7 +59,7 @@
   // Top header: app title + model indicator on the left, icon buttons on the right.
   const header = el('div', { class: 'header' });
   const headerLeft = el('div', { class: 'header-left' });
-  const headerTitle = el('div', { class: 'header-title' }, ['Champ']);
+  const headerTitle = el('div', { class: 'header-title' }, ['Champ-1.0.0']);
   const headerSubtitle = el('div', { class: 'header-subtitle' }, ['loading…']);
   headerLeft.append(headerTitle, headerSubtitle);
 
@@ -680,7 +680,7 @@
     messagesContainer.innerHTML = '';
     const empty = el('div', { class: 'empty-state' });
     empty.append(
-      el('div', { class: 'title' }, ['Welcome to Champ']),
+      el('div', { class: 'title' }, ['Welcome to Champ-1.0.0']),
       el('div', {}, ['Start by asking a question about your code,']),
       el('div', {}, ['requesting a fix, or asking for a refactor.']),
     );
@@ -700,7 +700,7 @@
     messagesContainer.innerHTML = '';
     const panel = el('div', { class: 'onboarding-panel' });
     panel.append(
-      el('div', { class: 'onboarding-title' }, ['Welcome to Champ']),
+      el('div', { class: 'onboarding-title' }, ['Welcome to Champ-1.0.0']),
       el('div', { class: 'onboarding-subtitle' }, [
         'No configuration found. Pick a starter template to create .champ/config.yaml:',
       ]),
