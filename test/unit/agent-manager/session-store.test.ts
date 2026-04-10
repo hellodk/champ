@@ -9,7 +9,7 @@ import * as path from "path";
 import * as os from "os";
 
 function makeTmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "aidev-store-test-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "champ-store-test-"));
 }
 
 function sampleSession(id = "sess-abc"): SerializedSession {

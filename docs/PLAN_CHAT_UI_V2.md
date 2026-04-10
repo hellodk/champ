@@ -34,7 +34,7 @@ While we're touching the chat UI, a few more small refinements pair naturally wi
 │                                      │
 ├──────────────────────────────────────┤
 │  [slash-command dropdown]            │
-│  Ask AIDev anything...               │
+│  Ask Champ anything...               │
 │                                      │
 │                  [Cancel] [Send]     │
 └──────────────────────────────────────┘
@@ -44,7 +44,7 @@ Problems:
 - Mode switcher is 6 cm away from the Send button — you have to move your eye up to change mode, down to type, up to verify, down to send
 - No way to tell which provider is active without hovering the bottom-right status bar
 - Settings gear only exists in the status bar — hidden from users who don't know to look
-- First-run experience: chat loads with no config → provider fails → error in chat → user has to find the Command Palette to run `AIDev: Generate Config File`
+- First-run experience: chat loads with no config → provider fails → error in chat → user has to find the Command Palette to run `Champ: Generate Config File`
 - No message-level actions (copy, retry)
 - No indication of whether messages in-progress are at the top or bottom of your scroll position
 
@@ -52,7 +52,7 @@ Problems:
 
 ```
 ┌──────────────────────────────────────┐
-│  AIDev  ·  ollama:qwen2.5-coder:14b  │  ← 1. header shows active model
+│  Champ  ·  ollama:qwen2.5-coder:14b  │  ← 1. header shows active model
 │                      [+] [⚙] [?]    │  ← 2. new chat + settings + help
 ├──────────────────────────────────────┤
 │                                      │
@@ -73,7 +73,7 @@ Problems:
 ├──────────────────────────────────────┤
 │  [slash-command dropdown]            │
 │ ┌────────────────────────────────┐  │
-│ │ [📎] Ask AIDev... / for cmds   │  │  ← 6. attach button beside textarea
+│ │ [📎] Ask Champ... / for cmds   │  │  ← 6. attach button beside textarea
 │ └────────────────────────────────┘  │
 │ [Agent ▾] [Model: qwen ▾]  [↵ Send] │  ← 7. mode + model + send, one row
 └──────────────────────────────────────┘
@@ -87,17 +87,17 @@ Seven items all together. Let me design each one.
 
 **Problem**: Users can't find the settings from the chat panel. The only entry points today are:
 - Clicking the status bar item (bottom-right, easy to miss)
-- `Ctrl+Shift+P → AIDev: Settings` (requires knowing the command name)
+- `Ctrl+Shift+P → Champ: Settings` (requires knowing the command name)
 
 **Solution**: Three icon buttons in the chat header, on the right side:
 
 | Icon | Command | Tooltip |
 |---|---|---|
-| `+` | `aidev.newChat` | "New chat" |
-| `⚙` (gear) | `aidev.openSettings` | "Open AIDev settings" |
-| `?` (question) | `aidev.showHelp` | "AIDev help and examples" |
+| `+` | `champ.newChat` | "New chat" |
+| `⚙` (gear) | `champ.openSettings` | "Open Champ settings" |
+| `?` (question) | `champ.showHelp` | "Champ help and examples" |
 
-Clicking settings executes the existing `workbench.action.openSettings` command filtered to `aidev.*`. Clicking help opens `docs/USER_GUIDE.md` in a new editor tab (extension copies it from the bundled `extensionUri` first).
+Clicking settings executes the existing `workbench.action.openSettings` command filtered to `champ.*`. Clicking help opens `docs/USER_GUIDE.md` in a new editor tab (extension copies it from the bundled `extensionUri` first).
 
 ### Implementation
 
@@ -105,7 +105,7 @@ Clicking settings executes the existing `workbench.action.openSettings` command 
 - `webview-ui/dist/main.css`: style the icon group using `var(--vscode-toolbar-hoverBackground)` for hover, `var(--vscode-icon-foreground)` for glyph color. Keep the header compact (32px tall).
 - `src/ui/messages.ts`: new outbound message type `openSettingsRequest`, `showHelpRequest`. Type guards.
 - `src/ui/chat-view-provider.ts`: handle both requests by executing the corresponding VS Code commands.
-- `src/extension.ts`: add `aidev.showHelp` command that opens `docs/USER_GUIDE.md` bundled with the extension.
+- `src/extension.ts`: add `champ.showHelp` command that opens `docs/USER_GUIDE.md` bundled with the extension.
 
 ### Test plan
 
@@ -119,13 +119,13 @@ Clicking settings executes the existing `workbench.action.openSettings` command 
 
 ## Feature 2 — Onboarding config picker (sample settings file)
 
-**Problem**: First-run experience is broken. New user opens AIDev → no YAML config → provider loader falls through to legacy settings → no `aidev.*` keys set → tries `claude` by default → no API key → error in chat. User has to read `docs/CONFIG.md` or `docs/SETUP_GUIDE.md` to figure out what to do.
+**Problem**: First-run experience is broken. New user opens Champ → no YAML config → provider loader falls through to legacy settings → no `champ.*` keys set → tries `claude` by default → no API key → error in chat. User has to read `docs/CONFIG.md` or `docs/SETUP_GUIDE.md` to figure out what to do.
 
-**Solution**: When activation runs and finds **no** workspace YAML **and** no legacy `aidev.*` settings, show a first-run onboarding panel inside the chat view with a picker:
+**Solution**: When activation runs and finds **no** workspace YAML **and** no legacy `champ.*` settings, show a first-run onboarding panel inside the chat view with a picker:
 
 ```
 ┌──────────────────────────────────────┐
-│  Welcome to AIDev                    │
+│  Welcome to Champ                    │
 │                                      │
 │  Let's get started. Pick a setup:    │
 │                                      │
@@ -155,7 +155,7 @@ Clicking settings executes the existing `workbench.action.openSettings` command 
 │  │   Claude chat, Ollama complete │ │
 │  └────────────────────────────────┘ │
 │                                      │
-│  [Create .aidev/config.yaml]         │
+│  [Create .champ/config.yaml]         │
 │  [Skip — I'll configure manually]    │
 └──────────────────────────────────────┘
 ```
@@ -170,22 +170,22 @@ The 5 options map to the existing files in `examples/`:
 | Cloud: Claude | (derived — provider claude + no keys prompt) |
 | Cloud + local autocomplete | `examples/config.cloud-fallback.yaml` |
 
-Clicking "Create .aidev/config.yaml" copies the chosen template into the workspace and opens it in an editor tab for review. The existing YAML config file watcher picks it up automatically and hot-reloads the provider.
+Clicking "Create .champ/config.yaml" copies the chosen template into the workspace and opens it in an editor tab for review. The existing YAML config file watcher picks it up automatically and hot-reloads the provider.
 
 ### Implementation
 
-- `src/extension.ts`: detect "first run" condition (no workspace YAML, no user YAML, no `aidev.provider` setting set to a non-default value). When true, post a new `firstRunWelcome` message to the webview.
+- `src/extension.ts`: detect "first run" condition (no workspace YAML, no user YAML, no `champ.provider` setting set to a non-default value). When true, post a new `firstRunWelcome` message to the webview.
 - Bundle the example files into the extension. They already live at `examples/*.yaml` and `.vscodeignore` includes them — I need to add them to the bundle by making sure they're NOT excluded. Alternatively, inline them as TS constants like I did for built-in skills (`src/skills/built-in.ts`). **Recommendation**: inline them via a new `src/config/sample-configs.ts` module so the extension ships self-contained without depending on external file resolution.
 - `src/ui/messages.ts`: add `firstRunWelcomeMessage` (ext→webview) and `firstRunSelectRequest` (webview→ext, carrying the chosen template id).
-- `src/ui/chat-view-provider.ts`: when `firstRunSelectRequest` arrives, write the chosen template into `<workspace>/.aidev/config.yaml`, open it in an editor, and clear the onboarding view.
+- `src/ui/chat-view-provider.ts`: when `firstRunSelectRequest` arrives, write the chosen template into `<workspace>/.champ/config.yaml`, open it in an editor, and clear the onboarding view.
 - `webview-ui/dist/main.js`: render the onboarding panel instead of the default empty-state when `firstRunWelcome` is received. Handle the radio-button picker and the Create/Skip buttons.
 
 ### Edge cases
 
-- User picks Cloud: Claude → we still write the YAML but immediately prompt for the API key via the existing `AIDev: Set API Key` command
-- User hits Skip → show the regular empty-state, never show the onboarding again this session, and set a `aidev.onboardingDismissed: true` key in VS Code global state
+- User picks Cloud: Claude → we still write the YAML but immediately prompt for the API key via the existing `Champ: Set API Key` command
+- User hits Skip → show the regular empty-state, never show the onboarding again this session, and set a `champ.onboardingDismissed: true` key in VS Code global state
 - Workspace already has a config → onboarding never shows
-- User has a user-level `~/.aidev/config.yaml` but no workspace config → onboarding does not show; the user-level config is enough
+- User has a user-level `~/.champ/config.yaml` but no workspace config → onboarding does not show; the user-level config is enough
 
 ### Test plan
 
@@ -216,7 +216,7 @@ Clicking "Create .aidev/config.yaml" copies the chosen template into the workspa
 - **Model dropdown** (middle-left): shows the active provider and model name. Clicking opens a picker listing the models defined in `providers:` from the YAML config. Selecting one fires `setModel` (new message) which the extension translates to a config edit
 - **Cancel / Send buttons** (right): same as today
 
-The top header only shows: the "AIDev" label, the **active model summary** (read-only small text), and the three icon buttons from Feature 1. No more mode dropdown at the top.
+The top header only shows: the "Champ" label, the **active model summary** (read-only small text), and the three icon buttons from Feature 1. No more mode dropdown at the top.
 
 ### Implementation
 
@@ -230,13 +230,13 @@ The top header only shows: the "AIDev" label, the **active model summary** (read
   - `.bottom-bar { display: flex; align-items: center; gap: 8px; margin-top: 6px; }`
   - `.bottom-bar .spacer { flex: 1; }` to push Cancel/Send to the right
 - `src/ui/messages.ts`: new `setModelRequest` (webview→ext) carrying the new model id + provider
-- `src/ui/chat-view-provider.ts`: handle `setModelRequest` by firing a VS Code command that edits `.aidev/config.yaml` (write the new `providers.<name>.model` value in place)
-- `src/extension.ts`: register `aidev.setActiveModel` command
+- `src/ui/chat-view-provider.ts`: handle `setModelRequest` by firing a VS Code command that edits `.champ/config.yaml` (write the new `providers.<name>.model` value in place)
+- `src/extension.ts`: register `champ.setActiveModel` command
 
 ### Test plan
 
 - Message protocol tests for `setModelRequest`
-- ChatViewProvider tests: `setModelRequest` triggers the `aidev.setActiveModel` command
+- ChatViewProvider tests: `setModelRequest` triggers the `champ.setActiveModel` command
 - Integration: changing the model in the webview writes the YAML and the file watcher reloads the provider
 
 **Effort**: ~1 day (most of the work is getting the model picker populated correctly)
@@ -251,7 +251,7 @@ The top header only shows: the "AIDev" label, the **active model summary** (read
 
 ```
 ┌──────────────────────────────────────┐
-│  AIDev  ·  ollama:qwen2.5-coder:14b  │  ← this line
+│  Champ  ·  ollama:qwen2.5-coder:14b  │  ← this line
 │                      [+] [⚙] [?]    │
 ├──────────────────────────────────────┤
 ```
@@ -261,7 +261,7 @@ The top header only shows: the "AIDev" label, the **active model summary** (read
 - `src/ui/messages.ts`: extend the existing `ready` message to carry `providerName` and `modelName`, OR add a dedicated `providerStatus` message (preferred — cleaner separation, and provider can change without a new ready handshake)
 - `src/extension.ts`: in `loadProvider()`, after successfully instantiating a new provider, post `providerStatus` to the webview with the names
 - `webview-ui/dist/main.js`: render the model name in the header. Update on `providerStatus`
-- On error: show "AIDev · provider not configured" in red with a link to Settings
+- On error: show "Champ · provider not configured" in red with a link to Settings
 
 ### Test plan
 
@@ -393,9 +393,9 @@ Total: ~3.5 days of focused work for the full v0.2 chat UI refresh.
 
 2. **Model dropdown source**: should it list every model defined under `providers:` in the current config, or also offer to pull a new Ollama model on the fly? **Recommendation**: v0.2 lists configured models only. Pulling new models is a v0.3+ feature — requires an Ollama `/api/pull` wrapper and a progress indicator.
 
-3. **Onboarding persistence**: when the user hits Skip, should the onboarding come back on the next window reload or never again? **Recommendation**: never again per-workspace. Store a `aidev.onboardingDismissed` key in `context.globalState`. Re-surface if the user runs a new `AIDev: Show Onboarding` command.
+3. **Onboarding persistence**: when the user hits Skip, should the onboarding come back on the next window reload or never again? **Recommendation**: never again per-workspace. Store a `champ.onboardingDismissed` key in `context.globalState`. Re-surface if the user runs a new `Champ: Show Onboarding` command.
 
-4. **Setting model via YAML rewrite vs in-memory**: when the user picks a new model from the dropdown, do we edit `.aidev/config.yaml` on disk or just update the in-memory provider? **Recommendation**: edit the file. This way the user sees their change persisted, can undo it, and the file-watcher hot-reload keeps everything consistent.
+4. **Setting model via YAML rewrite vs in-memory**: when the user picks a new model from the dropdown, do we edit `.champ/config.yaml` on disk or just update the in-memory provider? **Recommendation**: edit the file. This way the user sees their change persisted, can undo it, and the file-watcher hot-reload keeps everything consistent.
 
 5. **Message-level retry semantics**: clicking retry on a user message — should it delete everything after that point in the history, or just send a new parallel message? **Recommendation**: delete. Retry means "I wanted a different answer to this question". The old answer should go away to avoid confusion.
 
@@ -404,7 +404,7 @@ Total: ~3.5 days of focused work for the full v0.2 chat UI refresh.
 ## Success criteria
 
 When the v0.2 chat UI refresh ships:
-- A first-time user with no config can open the AIDev panel, pick a local template, and send their first message without ever touching JSON or reading docs
+- A first-time user with no config can open the Champ panel, pick a local template, and send their first message without ever touching JSON or reading docs
 - The mode switcher is visible where the user's attention is (near the input)
 - The active model is visible at a glance in the chat header
 - The settings button is discoverable in the chat header, not hidden in the status bar

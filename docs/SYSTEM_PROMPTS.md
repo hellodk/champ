@@ -1,6 +1,6 @@
-# AIDev System Prompts
+# Champ System Prompts
 
-This document defines all system prompts, mode appends, per-agent prompts, and prompt templates used by the AIDev extension. These are the single source of truth for prompt engineering in the project.
+This document defines all system prompts, mode appends, per-agent prompts, and prompt templates used by the Champ extension. These are the single source of truth for prompt engineering in the project.
 
 All prompts are stored as TypeScript template literals in `src/prompts/` and assembled at runtime based on the active mode, agents involved, and available context.
 
@@ -22,7 +22,7 @@ All prompts are stored as TypeScript template literals in `src/prompts/` and ass
 The base system prompt is included in every LLM request regardless of mode. Template variables are resolved at runtime by the prompt builder (`src/prompts/builder.ts`).
 
 ```
-You are AIDev, an expert AI coding assistant integrated into VS Code. You help developers understand, write, debug, refactor, and maintain code.
+You are Champ, an expert AI coding assistant integrated into VS Code. You help developers understand, write, debug, refactor, and maintain code.
 
 ## Environment
 - Operating System: {{os}}
@@ -522,9 +522,9 @@ Rules from all sources are merged and injected into the system prompt between th
 
 ### Rules Sources (in priority order, highest first)
 
-1. **User rules**: `aidev.userRules` from VS Code settings (global)
-2. **Project rules**: `.aidev/rules` file in workspace root
-3. **Directory rules**: `.aidev/rules` files in subdirectories (scoped to that subtree)
+1. **User rules**: `champ.userRules` from VS Code settings (global)
+2. **Project rules**: `.champ/rules` file in workspace root
+3. **Directory rules**: `.champ/rules` files in subdirectories (scoped to that subtree)
 
 ### Injection Format
 
@@ -551,7 +551,7 @@ The following rules MUST be followed for all code generation and modifications i
 Adhere to these rules strictly. If a rule conflicts with the user's explicit instruction, follow the user's instruction but note the conflict.
 ```
 
-### Example Rules File (`.aidev/rules`)
+### Example Rules File (`.champ/rules`)
 
 ```
 - Use functional components with hooks, never class components.

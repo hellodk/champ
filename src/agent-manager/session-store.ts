@@ -2,7 +2,7 @@
  * SessionStore: filesystem persistence for agent sessions.
  *
  * Each session is stored as a JSON file under the storage root
- * directory (typically <workspace>/.aidev/sessions/). Files are
+ * directory (typically <workspace>/.champ/sessions/). Files are
  * human-readable and git-trackable.
  */
 import * as fs from "fs";
@@ -50,7 +50,7 @@ export class SessionStore {
         }
       } catch (err) {
         console.warn(
-          `AIDev: skipping corrupted session file ${filePath}:`,
+          `Champ: skipping corrupted session file ${filePath}:`,
           err instanceof Error ? err.message : err,
         );
       }

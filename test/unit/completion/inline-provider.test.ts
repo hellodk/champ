@@ -3,11 +3,11 @@
  * Ghost text suggestions using a small fast local model.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { AidevInlineCompletionProvider } from "@/completion/inline-provider";
+import { ChampInlineCompletionProvider } from "@/completion/inline-provider";
 import type { LLMProvider, StreamDelta } from "@/providers/types";
 
-describe("AidevInlineCompletionProvider", () => {
-  let provider: AidevInlineCompletionProvider;
+describe("ChampInlineCompletionProvider", () => {
+  let provider: ChampInlineCompletionProvider;
   let mockLLM: LLMProvider;
 
   beforeEach(() => {
@@ -45,7 +45,7 @@ describe("AidevInlineCompletionProvider", () => {
       dispose: vi.fn(),
     } as unknown as LLMProvider;
 
-    provider = new AidevInlineCompletionProvider(mockLLM);
+    provider = new ChampInlineCompletionProvider(mockLLM);
   });
 
   it("should provide completions for a given prefix", async () => {

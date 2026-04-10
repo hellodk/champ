@@ -1,10 +1,10 @@
 /**
  * Built-in sample configurations for the onboarding flow.
  *
- * When AIDev detects a "first-run" condition (no workspace YAML, no
- * user YAML, no aidev.provider VS Code setting), the chat panel shows
- * an onboarding picker with these templates. The user picks one, AIDev
- * writes it to `<workspace>/.aidev/config.yaml`, and the file watcher
+ * When Champ detects a "first-run" condition (no workspace YAML, no
+ * user YAML, no champ.provider VS Code setting), the chat panel shows
+ * an onboarding picker with these templates. The user picks one, Champ
+ * writes it to `<workspace>/.champ/config.yaml`, and the file watcher
  * hot-reloads the provider.
  *
  * Each template is a self-contained, valid YAML config that passes
@@ -19,7 +19,7 @@ export interface SampleConfig {
   label: string;
   /** Short description shown below the label. */
   description: string;
-  /** The YAML content written to .aidev/config.yaml. */
+  /** The YAML content written to .champ/config.yaml. */
   yaml: string;
 }
 
@@ -29,7 +29,7 @@ export const SAMPLE_CONFIGS: ReadonlyArray<SampleConfig> = [
     label: "Local: Ollama (recommended)",
     description:
       "Privacy-first, no API key needed. Uses Ollama at localhost with qwen2.5-coder.",
-    yaml: `# AIDev — Ollama configuration (created by onboarding)
+    yaml: `# Champ — Ollama configuration (created by onboarding)
 # Edit freely. The file watcher reloads on save.
 
 provider: ollama
@@ -56,7 +56,7 @@ autocomplete:
     label: "Local: llama.cpp",
     description:
       "Direct llama.cpp server connection. Good for custom GGUF models.",
-    yaml: `# AIDev — llama.cpp configuration (created by onboarding)
+    yaml: `# Champ — llama.cpp configuration (created by onboarding)
 
 provider: llamacpp
 
@@ -82,7 +82,7 @@ autocomplete:
     label: "Local: vLLM",
     description:
       "High-throughput local inference with vLLM. Great for multi-GPU setups.",
-    yaml: `# AIDev — vLLM configuration (created by onboarding)
+    yaml: `# Champ — vLLM configuration (created by onboarding)
 
 provider: vllm
 
@@ -107,9 +107,9 @@ autocomplete:
     id: "claude",
     label: "Cloud: Claude",
     description:
-      "Anthropic Claude API. Requires an API key (set via AIDev: Set API Key).",
-    yaml: `# AIDev — Claude configuration (created by onboarding)
-# Set your API key with the "AIDev: Set API Key" command.
+      "Anthropic Claude API. Requires an API key (set via Champ: Set API Key).",
+    yaml: `# Champ — Claude configuration (created by onboarding)
+# Set your API key with the "Champ: Set API Key" command.
 
 provider: claude
 
@@ -134,9 +134,9 @@ autocomplete:
     label: "Cloud + local autocomplete",
     description:
       "Claude for chat/agents, Ollama for fast local ghost-text completions.",
-    yaml: `# AIDev — hybrid configuration (created by onboarding)
+    yaml: `# Champ — hybrid configuration (created by onboarding)
 # Claude handles chat; Ollama handles autocomplete locally.
-# Set your Claude API key with the "AIDev: Set API Key" command.
+# Set your Claude API key with the "Champ: Set API Key" command.
 
 provider: claude
 

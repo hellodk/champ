@@ -1,4 +1,4 @@
-# AIDev — basic Ollama configuration
+# Champ — basic Ollama configuration
 #
 # The simplest local-first setup: one Ollama model for everything.
 # Best for: getting started, single-model machines, conservative VRAM.

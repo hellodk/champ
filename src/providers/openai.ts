@@ -47,7 +47,7 @@ export class OpenAIProvider implements LLMProvider {
     if (!this._client) {
       if (!this.config.apiKey) {
         throw new Error(
-          "OpenAI API key is not configured. Set it via the SecretStorage key 'aidev.openai.apiKey'.",
+          "OpenAI API key is not configured. Set it via the SecretStorage key 'champ.openai.apiKey'.",
         );
       }
       this._client = new OpenAI({

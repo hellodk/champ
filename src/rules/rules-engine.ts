@@ -11,9 +11,9 @@
  *
  * Rules come from three sources:
  *
- *   - project: `.aidev/rules/*.md` in the workspace (committed, shared
+ *   - project: `.champ/rules/*.md` in the workspace (committed, shared
  *     with the team)
- *   - user:    the `aidev.userRules` setting in VS Code (personal)
+ *   - user:    the `champ.userRules` setting in VS Code (personal)
  *   - team:    pushed via a team dashboard (enterprise feature)
  *
  * The engine merges all three and exposes getActiveRules() for the
@@ -104,7 +104,7 @@ export class RulesEngine {
    * Load rules from a directory. In the default export-only
    * implementation this is a stub; tests override it via vi.fn() to
    * control the return value. The production implementation reads
-   * .md files with frontmatter from `.aidev/rules/` in the workspace.
+   * .md files with frontmatter from `.champ/rules/` in the workspace.
    */
   async loadRulesFromDirectory(_directory: string): Promise<Rule[]> {
     // Placeholder: the production implementation will use

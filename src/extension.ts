@@ -1,5 +1,5 @@
 /**
- * AIDev extension entry point.
+ * Champ extension entry point.
  *
  * Activation philosophy: never crash. Even if the configured LLM
  * provider fails to load (missing API key, unreachable server, bad
@@ -8,7 +8,7 @@
  *
  * Provider failures are reported via:
  *   - the chat panel itself (red error bubble)
- *   - the status bar item (shows "AIDev: error" with hover details)
+ *   - the status bar item (shows "Champ: error" with hover details)
  *   - a one-time toast on activation
  */
 import * as vscode from "vscode";
@@ -27,12 +27,12 @@ import { grepSearchTool } from "./tools/grep-search";
 import { fileSearchTool } from "./tools/file-search";
 import { AgentController, type AgentMode } from "./agent/agent-controller";
 import { ChatViewProvider } from "./ui/chat-view-provider";
-import { AidevInlineCompletionProvider } from "./completion/inline-provider";
+import { ChampInlineCompletionProvider } from "./completion/inline-provider";
 import { MetricsCollector } from "./observability/metrics-collector";
 import { ChunkingService } from "./indexing/chunking-service";
 import { RepoMapBuilder } from "./indexing/repo-map-builder";
 import { ContextResolver } from "./agent/context-resolver";
-import { ConfigLoader, type AidevConfig } from "./config/config-loader";
+import { ConfigLoader, type ChampConfig } from "./config/config-loader";
 import { SkillRegistry } from "./skills/skill-registry";
 import { SkillLoader } from "./skills/skill-loader";
 import { VariableResolver } from "./skills/variable-resolver";
@@ -57,7 +57,7 @@ let sessionStore: SessionStore | undefined;
 export async function activate(
   context: vscode.ExtensionContext,
 ): Promise<void> {
-  console.log("AIDev extension activating...");
+  console.log("Champ extension activating...");
 
   // ---- Singletons that don't depend on the provider ------------------
   providerRegistry = new ProviderRegistry();
@@ -80,9 +80,9 @@ export async function activate(
     vscode.StatusBarAlignment.Right,
     100,
   );
-  statusBarItem.command = "aidev.openSettings";
-  statusBarItem.text = "$(loading~spin) AIDev";
-  statusBarItem.tooltip = "AIDev — click to open settings";
+  statusBarItem.command = "champ.openSettings";
+  statusBarItem.text = "$(loading~spin) Champ";
+  statusBarItem.tooltip = "Champ — click to open settings";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
@@ -107,7 +107,7 @@ export async function activate(
     () => inlineProviderRef?.current ?? stubProvider,
   );
   sessionStore = new SessionStore(
-    path.join(workspaceRoot, ".aidev", "sessions"),
+    path.join(workspaceRoot, ".champ", "sessions"),
   );
 
   agentController.onStreamDelta((delta) => {
@@ -181,29 +181,29 @@ export async function activate(
     try {
       skillRegistry.register(SkillLoader.parseFile(text, "built-in"));
     } catch (err) {
-      console.error("AIDev: failed to load built-in skill:", err);
+      console.error("Champ: failed to load built-in skill:", err);
     }
   }
   await loadSkillsFromDirectory(
     skillRegistry,
-    workspaceRoot ? path.join(workspaceRoot, ".aidev", "skills") : null,
+    workspaceRoot ? path.join(workspaceRoot, ".champ", "skills") : null,
     "workspace",
   );
   await loadSkillsFromDirectory(
     skillRegistry,
-    path.join(os.homedir(), ".aidev", "skills"),
+    path.join(os.homedir(), ".champ", "skills"),
     "user",
   );
 
   // Watch user/workspace skill directories for live reload.
   if (workspaceRoot) {
     const wsSkillsWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(workspaceRoot, ".aidev/skills/*.md"),
+      new vscode.RelativePattern(workspaceRoot, ".champ/skills/*.md"),
     );
     const reloadWorkspaceSkills = () =>
       loadSkillsFromDirectory(
         skillRegistry,
-        path.join(workspaceRoot, ".aidev", "skills"),
+        path.join(workspaceRoot, ".champ", "skills"),
         "workspace",
       );
     wsSkillsWatcher.onDidChange(() => void reloadWorkspaceSkills());
@@ -236,7 +236,7 @@ export async function activate(
   // The inline provider holds a *reference* to the active provider, so
   // when we hot-swap below the same instance picks it up.
   const inlineProviderRef: { current: LLMProvider } = { current: stubProvider };
-  const inlineProvider = new AidevInlineCompletionProvider(stubProvider);
+  const inlineProvider = new ChampInlineCompletionProvider(stubProvider);
   context.subscriptions.push(
     vscode.languages.registerInlineCompletionItemProvider(
       { pattern: "**" },
@@ -285,7 +285,7 @@ export async function activate(
 
   // ---- Commands -------------------------------------------------------
   context.subscriptions.push(
-    vscode.commands.registerCommand("aidev.newChat", () => {
+    vscode.commands.registerCommand("champ.newChat", () => {
       if (agentManager) {
         const session = agentManager.createSession();
         chatViewProvider?.setAgent(session.controller);
@@ -299,7 +299,7 @@ export async function activate(
         messages: [],
       });
     }),
-    vscode.commands.registerCommand("aidev.toggleMode", async () => {
+    vscode.commands.registerCommand("champ.toggleMode", async () => {
       const pick = await vscode.window.showQuickPick(
         ["agent", "ask", "manual", "plan", "composer"],
         { placeHolder: "Select agent mode" },
@@ -312,23 +312,23 @@ export async function activate(
         });
       }
     }),
-    vscode.commands.registerCommand("aidev.indexWorkspace", () => {
+    vscode.commands.registerCommand("champ.indexWorkspace", () => {
       void vscode.window.showInformationMessage(
-        "AIDev: codebase indexing is built but not yet wired to a UI trigger in this phase.",
+        "Champ: codebase indexing is built but not yet wired to a UI trigger in this phase.",
       );
     }),
-    vscode.commands.registerCommand("aidev.restoreCheckpoint", () => {
+    vscode.commands.registerCommand("champ.restoreCheckpoint", () => {
       void vscode.window.showInformationMessage(
-        "AIDev: checkpoint restore is built but not yet wired to a UI trigger in this phase.",
+        "Champ: checkpoint restore is built but not yet wired to a UI trigger in this phase.",
       );
     }),
-    vscode.commands.registerCommand("aidev.openSettings", () => {
+    vscode.commands.registerCommand("champ.openSettings", () => {
       void vscode.commands.executeCommand(
         "workbench.action.openSettings",
-        "aidev",
+        "champ",
       );
     }),
-    vscode.commands.registerCommand("aidev.setApiKey", async () => {
+    vscode.commands.registerCommand("champ.setApiKey", async () => {
       const provider = await vscode.window.showQuickPick(
         ["claude", "openai", "gemini", "openai-compatible", "vllm"],
         { placeHolder: "Which provider's API key are you setting?" },
@@ -341,33 +341,33 @@ export async function activate(
       });
       if (!key) return;
       const settingMap: Record<string, string> = {
-        claude: "aidev.claude.apiKey",
-        openai: "aidev.openai.apiKey",
-        gemini: "aidev.gemini.apiKey",
-        "openai-compatible": "aidev.openaiCompatible.apiKey",
-        vllm: "aidev.vllm.apiKey",
+        claude: "champ.claude.apiKey",
+        openai: "champ.openai.apiKey",
+        gemini: "champ.gemini.apiKey",
+        "openai-compatible": "champ.openaiCompatible.apiKey",
+        vllm: "champ.vllm.apiKey",
       };
       await context.secrets.store(settingMap[provider], key);
       void vscode.window.showInformationMessage(
-        `AIDev: ${provider} API key saved. Reloading provider...`,
+        `Champ: ${provider} API key saved. Reloading provider...`,
       );
       await loadProvider();
     }),
-    vscode.commands.registerCommand("aidev.generateConfig", async () => {
+    vscode.commands.registerCommand("champ.generateConfig", async () => {
       if (!workspaceRoot) {
         void vscode.window.showErrorMessage(
-          "AIDev: open a workspace folder before generating a config file.",
+          "Champ: open a workspace folder before generating a config file.",
         );
         return;
       }
       const targetUri = vscode.Uri.file(
-        path.join(workspaceRoot, ".aidev", "config.yaml"),
+        path.join(workspaceRoot, ".champ", "config.yaml"),
       );
       // Don't overwrite an existing file silently.
       try {
         await vscode.workspace.fs.stat(targetUri);
         const choice = await vscode.window.showWarningMessage(
-          ".aidev/config.yaml already exists. Overwrite?",
+          ".champ/config.yaml already exists. Overwrite?",
           { modal: true },
           "Overwrite",
           "Cancel",
@@ -379,7 +379,7 @@ export async function activate(
       const template = generateDefaultConfigYaml();
       try {
         await vscode.workspace.fs.createDirectory(
-          vscode.Uri.file(path.join(workspaceRoot, ".aidev")),
+          vscode.Uri.file(path.join(workspaceRoot, ".champ")),
         );
       } catch {
         // Directory may already exist.
@@ -391,10 +391,10 @@ export async function activate(
       const doc = await vscode.workspace.openTextDocument(targetUri);
       await vscode.window.showTextDocument(doc);
       void vscode.window.showInformationMessage(
-        "AIDev: created .aidev/config.yaml. Edit it and save to apply.",
+        "Champ: created .champ/config.yaml. Edit it and save to apply.",
       );
     }),
-    vscode.commands.registerCommand("aidev.showHelp", async () => {
+    vscode.commands.registerCommand("champ.showHelp", async () => {
       // Open the bundled USER_GUIDE.md as an editor tab. The doc ships
       // with the extension so the URI lives under extensionUri.
       const helpUri = vscode.Uri.joinPath(
@@ -407,12 +407,12 @@ export async function activate(
         await vscode.window.showTextDocument(doc, { preview: false });
       } catch {
         void vscode.window.showErrorMessage(
-          "AIDev: USER_GUIDE.md is not bundled with this extension build.",
+          "Champ: USER_GUIDE.md is not bundled with this extension build.",
         );
       }
     }),
     vscode.commands.registerCommand(
-      "aidev.setActiveModel",
+      "champ.setActiveModel",
       async (providerName: string) => {
         // Surgically rewrite the workspace YAML's top-level
         // `provider:` line. Comments and the rest of the file are
@@ -420,11 +420,11 @@ export async function activate(
         // broadcasts a fresh providerStatus to the chat view.
         if (!workspaceRoot) {
           void vscode.window.showErrorMessage(
-            "AIDev: cannot switch model without an open workspace.",
+            "Champ: cannot switch model without an open workspace.",
           );
           return;
         }
-        const yamlPath = path.join(workspaceRoot, ".aidev", "config.yaml");
+        const yamlPath = path.join(workspaceRoot, ".champ", "config.yaml");
         const yamlUri = vscode.Uri.file(yamlPath);
         let text: string;
         try {
@@ -432,14 +432,14 @@ export async function activate(
           text = new TextDecoder().decode(data);
         } catch {
           void vscode.window.showErrorMessage(
-            `AIDev: cannot find ${yamlPath}. Run "AIDev: Generate Config File" first.`,
+            `Champ: cannot find ${yamlPath}. Run "Champ: Generate Config File" first.`,
           );
           return;
         }
         const updated = setActiveProviderInYaml(text, providerName);
         if (updated === text) {
           void vscode.window.showWarningMessage(
-            `AIDev: no top-level \`provider:\` line found in ${yamlPath}.`,
+            `Champ: no top-level \`provider:\` line found in ${yamlPath}.`,
           );
           return;
         }
@@ -452,24 +452,24 @@ export async function activate(
       },
     ),
     vscode.commands.registerCommand(
-      "aidev.firstRunSelect",
+      "champ.firstRunSelect",
       async (templateId: string) => {
         const template = SAMPLE_CONFIGS.find((c) => c.id === templateId);
         if (!template) {
           void vscode.window.showErrorMessage(
-            `AIDev: unknown onboarding template "${templateId}".`,
+            `Champ: unknown onboarding template "${templateId}".`,
           );
           return;
         }
         if (!workspaceRoot) {
           void vscode.window.showErrorMessage(
-            "AIDev: open a workspace folder before creating a config file.",
+            "Champ: open a workspace folder before creating a config file.",
           );
           return;
         }
-        const targetDir = vscode.Uri.file(path.join(workspaceRoot, ".aidev"));
+        const targetDir = vscode.Uri.file(path.join(workspaceRoot, ".champ"));
         const targetUri = vscode.Uri.file(
-          path.join(workspaceRoot, ".aidev", "config.yaml"),
+          path.join(workspaceRoot, ".champ", "config.yaml"),
         );
         try {
           await vscode.workspace.fs.createDirectory(targetDir);
@@ -483,15 +483,15 @@ export async function activate(
         const doc = await vscode.workspace.openTextDocument(targetUri);
         await vscode.window.showTextDocument(doc);
         void vscode.window.showInformationMessage(
-          `AIDev: created .aidev/config.yaml from "${template.label}". Edit and save to customize.`,
+          `Champ: created .champ/config.yaml from "${template.label}". Edit and save to customize.`,
         );
         // The file watcher fires loadProvider() automatically.
       },
     ),
-    vscode.commands.registerCommand("aidev.firstRunDismiss", () => {
-      context.globalState.update("aidev.onboardingDismissed", true);
+    vscode.commands.registerCommand("champ.firstRunDismiss", () => {
+      context.globalState.update("champ.onboardingDismissed", true);
     }),
-    vscode.commands.registerCommand("aidev.showOnboarding", () => {
+    vscode.commands.registerCommand("champ.showOnboarding", () => {
       chatViewProvider?.broadcastFirstRunWelcome(
         SAMPLE_CONFIGS.map((c) => ({
           id: c.id,
@@ -502,7 +502,7 @@ export async function activate(
     }),
     // ---- Session management commands ------------------------------------
     vscode.commands.registerCommand(
-      "aidev.switchSession",
+      "champ.switchSession",
       (sessionId: string) => {
         if (!agentManager) return;
         try {
@@ -519,12 +519,12 @@ export async function activate(
           broadcastSessionList();
         } catch {
           void vscode.window.showErrorMessage(
-            "AIDev: failed to switch session.",
+            "Champ: failed to switch session.",
           );
         }
       },
     ),
-    vscode.commands.registerCommand("aidev.newSession", (label?: string) => {
+    vscode.commands.registerCommand("champ.newSession", (label?: string) => {
       if (!agentManager) return;
       const session = agentManager.createSession(label);
       // Swap the chat view to the new session's controller.
@@ -537,7 +537,7 @@ export async function activate(
       broadcastSessionList();
     }),
     vscode.commands.registerCommand(
-      "aidev.deleteSession",
+      "champ.deleteSession",
       async (sessionId: string) => {
         if (!agentManager || !sessionStore) return;
         agentManager.deleteSession(sessionId);
@@ -562,7 +562,7 @@ export async function activate(
       },
     ),
     vscode.commands.registerCommand(
-      "aidev.renameSession",
+      "champ.renameSession",
       (sessionId: string, newLabel: string) => {
         if (!agentManager) return;
         agentManager.renameSession(sessionId, newLabel);
@@ -570,21 +570,21 @@ export async function activate(
         broadcastSessionList();
       },
     ),
-    vscode.commands.registerCommand("aidev.cleanupSessions", async () => {
+    vscode.commands.registerCommand("champ.cleanupSessions", async () => {
       if (!sessionStore) return;
       const pruned = await sessionStore.pruneOlderThan(30);
       void vscode.window.showInformationMessage(
-        `AIDev: cleaned up ${pruned} session(s) older than 30 days.`,
+        `Champ: cleaned up ${pruned} session(s) older than 30 days.`,
       );
     }),
   );
 
   // ---- Config loader (YAML + VS Code settings fallback) -------------
   /**
-   * Resolve the effective AidevConfig from (in order of precedence):
-   *   1. <workspace>/.aidev/config.yaml
-   *   2. ~/.aidev/config.yaml
-   *   3. VS Code aidev.* settings (legacy backward-compat)
+   * Resolve the effective ChampConfig from (in order of precedence):
+   *   1. <workspace>/.champ/config.yaml
+   *   2. ~/.champ/config.yaml
+   *   3. VS Code champ.* settings (legacy backward-compat)
    *   4. built-in defaults
    *
    * Returns null when no source has a usable config — the loader path
@@ -592,14 +592,14 @@ export async function activate(
    * Errors during YAML parsing are surfaced to the user but do not
    * crash activation.
    */
-  const resolveConfig = async (): Promise<AidevConfig | null> => {
+  const resolveConfig = async (): Promise<ChampConfig | null> => {
     const workspacePath = workspaceRoot
-      ? path.join(workspaceRoot, ".aidev", "config.yaml")
+      ? path.join(workspaceRoot, ".champ", "config.yaml")
       : null;
-    const userPath = path.join(os.homedir(), ".aidev", "config.yaml");
+    const userPath = path.join(os.homedir(), ".champ", "config.yaml");
 
-    let workspaceConfig: AidevConfig | null = null;
-    let userConfig: AidevConfig | null = null;
+    let workspaceConfig: ChampConfig | null = null;
+    let userConfig: ChampConfig | null = null;
 
     if (workspacePath) {
       try {
@@ -615,7 +615,7 @@ export async function activate(
         // FileSystemError code for missing files which we ignore.
         if (err instanceof Error && /Invalid YAML/.test(err.message)) {
           void vscode.window.showErrorMessage(
-            `AIDev: ${workspacePath} has invalid YAML — ${err.message}`,
+            `Champ: ${workspacePath} has invalid YAML — ${err.message}`,
           );
         }
       }
@@ -629,7 +629,7 @@ export async function activate(
     } catch (err) {
       if (err instanceof Error && /Invalid YAML/.test(err.message)) {
         void vscode.window.showErrorMessage(
-          `AIDev: ${userPath} has invalid YAML — ${err.message}`,
+          `Champ: ${userPath} has invalid YAML — ${err.message}`,
         );
       }
     }
@@ -656,13 +656,13 @@ export async function activate(
       state: "loading",
       available: [],
     });
-    let yamlConfig: AidevConfig | null = null;
+    let yamlConfig: ChampConfig | null = null;
     try {
       yamlConfig = await resolveConfig();
       const newProvider = yamlConfig
-        ? await factory.createFromAidevConfig(yamlConfig, context.secrets)
+        ? await factory.createFromChampConfig(yamlConfig, context.secrets)
         : await factory.createFromConfig(
-            vscode.workspace.getConfiguration("aidev"),
+            vscode.workspace.getConfiguration("champ"),
             context.secrets,
           );
       // Apply mode and userRules from YAML if present.
@@ -702,9 +702,9 @@ export async function activate(
       });
       chatViewProvider?.postMessage({
         type: "error",
-        message: `AIDev provider not ready: ${message}\n\nOpen settings (gear icon in the status bar) to configure the active provider, or create a .aidev/config.yaml file.`,
+        message: `Champ provider not ready: ${message}\n\nOpen settings (gear icon in the status bar) to configure the active provider, or create a .champ/config.yaml file.`,
       });
-      console.error("AIDev: provider load failed:", err);
+      console.error("Champ: provider load failed:", err);
     }
   };
 
@@ -714,20 +714,20 @@ export async function activate(
 
   function setStatusLoading(): void {
     if (!statusBarItem) return;
-    statusBarItem.text = "$(loading~spin) AIDev";
-    statusBarItem.tooltip = "AIDev — loading provider…";
+    statusBarItem.text = "$(loading~spin) Champ";
+    statusBarItem.tooltip = "Champ — loading provider…";
   }
 
   function setStatusReady(provider: LLMProvider): void {
     if (!statusBarItem) return;
-    statusBarItem.text = `$(robot) AIDev: ${provider.name}`;
-    statusBarItem.tooltip = `AIDev provider: ${provider.name} (${provider.config.model})\nClick to open settings`;
+    statusBarItem.text = `$(robot) Champ: ${provider.name}`;
+    statusBarItem.tooltip = `Champ provider: ${provider.name} (${provider.config.model})\nClick to open settings`;
   }
 
   function setStatusError(message: string): void {
     if (!statusBarItem) return;
-    statusBarItem.text = "$(error) AIDev: error";
-    statusBarItem.tooltip = `AIDev provider error: ${message}\nClick to open settings`;
+    statusBarItem.text = "$(error) Champ: error";
+    statusBarItem.tooltip = `Champ provider error: ${message}\nClick to open settings`;
   }
 
   /** Broadcast the current session list to the webview. */
@@ -774,7 +774,7 @@ export async function activate(
   // before, broadcast a firstRunWelcome so the chat panel shows the
   // onboarding picker with starter templates.
   const onboardingDismissed = context.globalState.get<boolean>(
-    "aidev.onboardingDismissed",
+    "champ.onboardingDismissed",
     false,
   );
   if (!onboardingDismissed) {
@@ -840,20 +840,20 @@ export async function activate(
   }
 
   // ---- Config change watchers -----------------------------------------
-  // Watch VS Code aidev.* settings (legacy path).
+  // Watch VS Code champ.* settings (legacy path).
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async (event) => {
-      if (!event.affectsConfiguration("aidev")) return;
+      if (!event.affectsConfiguration("champ")) return;
       await loadProvider();
     }),
   );
 
-  // Watch .aidev/config.yaml in the workspace for live reload. Created,
+  // Watch .champ/config.yaml in the workspace for live reload. Created,
   // changed, or deleted — any of those should trigger a provider reload
   // since the file is the source of truth when it exists.
   if (workspaceRoot) {
     const yamlWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(workspaceRoot, ".aidev/config.yaml"),
+      new vscode.RelativePattern(workspaceRoot, ".champ/config.yaml"),
     );
     yamlWatcher.onDidChange(() => void loadProvider());
     yamlWatcher.onDidCreate(() => void loadProvider());
@@ -861,7 +861,7 @@ export async function activate(
     context.subscriptions.push(yamlWatcher);
   }
 
-  console.log("AIDev extension activated");
+  console.log("Champ extension activated");
 }
 
 export function deactivate(): void {
@@ -890,7 +890,7 @@ function createStubProvider(name: string): LLMProvider {
       yield {
         type: "error",
         error:
-          "No LLM provider is configured. Click the AIDev status bar item or run 'AIDev: Settings' to choose a provider.",
+          "No LLM provider is configured. Click the Champ status bar item or run 'Champ: Settings' to choose a provider.",
       } as never;
       yield {
         type: "done",
@@ -921,14 +921,14 @@ function createStubProvider(name: string): LLMProvider {
 }
 
 /**
- * Build a starter .aidev/config.yaml that the user can edit. Defaults
+ * Build a starter .champ/config.yaml that the user can edit. Defaults
  * are conservative — Ollama at localhost since that's the most common
  * local-first setup. Uncommented blocks show every available knob.
  */
 function generateDefaultConfigYaml(): string {
-  return `# AIDev configuration — committed to git, shared with the team.
-# User-level overrides live in ~/.aidev/config.yaml.
-# API keys are NEVER stored here — use the 'AIDev: Set API Key' command.
+  return `# Champ configuration — committed to git, shared with the team.
+# User-level overrides live in ~/.champ/config.yaml.
+# API keys are NEVER stored here — use the 'Champ: Set API Key' command.
 # See docs/CONFIG.md for the full schema reference.
 
 # Active provider — must match a key under 'providers:' below.
@@ -1016,7 +1016,7 @@ userRules: |
  * is hidden in that case.
  */
 function buildAvailableModels(
-  yamlConfig: AidevConfig | null,
+  yamlConfig: ChampConfig | null,
 ): AvailableProviderModel[] {
   if (!yamlConfig?.providers) return [];
   const out: AvailableProviderModel[] = [];
@@ -1080,7 +1080,7 @@ async function loadSkillsFromDirectory(
       registry.register(skill);
     } catch (err) {
       console.error(
-        `AIDev: failed to load skill from ${filePath}:`,
+        `Champ: failed to load skill from ${filePath}:`,
         err instanceof Error ? err.message : err,
       );
     }

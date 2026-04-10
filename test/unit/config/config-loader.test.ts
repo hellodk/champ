@@ -1,16 +1,16 @@
 /**
  * TDD: Tests for ConfigLoader.
  *
- * The ConfigLoader is the single source of truth for AIDev runtime
- * configuration. It reads YAML from .aidev/config.yaml (workspace) and
- * ~/.aidev/config.yaml (user), merges them with workspace winning, and
+ * The ConfigLoader is the single source of truth for Champ runtime
+ * configuration. It reads YAML from .champ/config.yaml (workspace) and
+ * ~/.champ/config.yaml (user), merges them with workspace winning, and
  * validates against a schema. Secrets are NOT in YAML — they live in
  * VS Code's SecretStorage.
  *
  * See docs/CONFIG.md for the schema reference.
  */
 import { describe, it, expect } from "vitest";
-import { ConfigLoader, type AidevConfig } from "@/config/config-loader";
+import { ConfigLoader, type ChampConfig } from "@/config/config-loader";
 
 describe("ConfigLoader", () => {
   describe("parseYaml", () => {
@@ -128,14 +128,14 @@ providers:
 
   describe("merge", () => {
     it("merges two configs with later one winning", () => {
-      const user: AidevConfig = {
+      const user: ChampConfig = {
         provider: "ollama",
         providers: {
           ollama: { baseUrl: "http://localhost:11434", model: "llama3.1" },
         },
         autocomplete: { enabled: true, debounceMs: 500 },
       };
-      const workspace: AidevConfig = {
+      const workspace: ChampConfig = {
         provider: "llamacpp",
         providers: {
           llamacpp: {
@@ -155,12 +155,12 @@ providers:
     });
 
     it("deep-merges nested provider configs", () => {
-      const user: AidevConfig = {
+      const user: ChampConfig = {
         providers: {
           ollama: { baseUrl: "http://localhost:11434", model: "llama3.1" },
         },
       };
-      const workspace: AidevConfig = {
+      const workspace: ChampConfig = {
         providers: { ollama: { model: "qwen2.5-coder" } },
       };
       const merged = ConfigLoader.merge(user, workspace);
@@ -170,8 +170,8 @@ providers:
     });
 
     it("returns a copy — does not mutate inputs", () => {
-      const user: AidevConfig = { provider: "ollama" };
-      const workspace: AidevConfig = { provider: "claude" };
+      const user: ChampConfig = { provider: "ollama" };
+      const workspace: ChampConfig = { provider: "claude" };
       const merged = ConfigLoader.merge(user, workspace);
       merged.provider = "openai";
       expect(user.provider).toBe("ollama");
@@ -181,12 +181,12 @@ providers:
 
   describe("substituteEnv", () => {
     it("replaces ${env:VAR} placeholders with process.env values", () => {
-      process.env.TEST_AIDEV_VAR = "secretvalue";
+      process.env.TEST_CHAMP_VAR = "secretvalue";
       const yaml = `
 provider: ollama
 providers:
   ollama:
-    baseUrl: http://${"${env:TEST_AIDEV_VAR}"}.local:11434
+    baseUrl: http://${"${env:TEST_CHAMP_VAR}"}.local:11434
     model: llama3.1
 `;
       const config = ConfigLoader.parseYaml(yaml);
@@ -194,11 +194,11 @@ providers:
       expect(substituted.providers?.ollama?.baseUrl).toBe(
         "http://secretvalue.local:11434",
       );
-      delete process.env.TEST_AIDEV_VAR;
+      delete process.env.TEST_CHAMP_VAR;
     });
 
     it("leaves non-${env:} strings unchanged", () => {
-      const config: AidevConfig = {
+      const config: ChampConfig = {
         providers: {
           ollama: { baseUrl: "http://localhost:11434", model: "llama3.1" },
         },
@@ -210,7 +210,7 @@ providers:
     });
 
     it("substitutes inside MCP env blocks too", () => {
-      process.env.AIDEV_TEST_TOKEN = "ghp_xxxxxxxx";
+      process.env.CHAMP_TEST_TOKEN = "ghp_xxxxxxxx";
       const yaml = `
 mcp:
   servers:
@@ -218,23 +218,23 @@ mcp:
       command: npx
       args: ["server"]
       env:
-        GITHUB_TOKEN: ${"${env:AIDEV_TEST_TOKEN}"}
+        GITHUB_TOKEN: ${"${env:CHAMP_TEST_TOKEN}"}
 `;
       const config = ConfigLoader.parseYaml(yaml);
       const substituted = ConfigLoader.substituteEnv(config);
       expect(substituted.mcp?.servers?.[0]?.env?.GITHUB_TOKEN).toBe(
         "ghp_xxxxxxxx",
       );
-      delete process.env.AIDEV_TEST_TOKEN;
+      delete process.env.CHAMP_TEST_TOKEN;
     });
 
     it("leaves missing env vars as-is rather than replacing with empty string", () => {
-      delete process.env.DEFINITELY_NOT_SET_AIDEV;
+      delete process.env.DEFINITELY_NOT_SET_CHAMP;
       const yaml = `
 providers:
   ollama:
     baseUrl: http://localhost:11434
-    model: ${"${env:DEFINITELY_NOT_SET_AIDEV}"}
+    model: ${"${env:DEFINITELY_NOT_SET_CHAMP}"}
 `;
       const config = ConfigLoader.parseYaml(yaml);
       const substituted = ConfigLoader.substituteEnv(config);
@@ -245,7 +245,7 @@ providers:
 
   describe("withDefaults", () => {
     it("fills in built-in defaults for missing fields", () => {
-      const config: AidevConfig = { provider: "ollama" };
+      const config: ChampConfig = { provider: "ollama" };
       const filled = ConfigLoader.withDefaults(config);
       expect(filled.agent?.defaultMode).toBe("agent");
       expect(filled.agent?.yoloMode).toBe(false);
@@ -257,7 +257,7 @@ providers:
     });
 
     it("preserves user-supplied values when filling defaults", () => {
-      const config: AidevConfig = {
+      const config: ChampConfig = {
         provider: "ollama",
         agent: { yoloMode: true, autoFix: { maxIterations: 5 } },
       };
@@ -271,7 +271,7 @@ providers:
 
   describe("activeProviderConfig", () => {
     it("returns the configured provider's settings", () => {
-      const config: AidevConfig = {
+      const config: ChampConfig = {
         provider: "llamacpp",
         providers: {
           llamacpp: {
@@ -288,7 +288,7 @@ providers:
     });
 
     it("throws when the active provider has no entry under providers:", () => {
-      const config: AidevConfig = { provider: "ollama" };
+      const config: ChampConfig = { provider: "ollama" };
       expect(() => ConfigLoader.activeProviderConfig(config)).toThrow(
         /not configured/i,
       );

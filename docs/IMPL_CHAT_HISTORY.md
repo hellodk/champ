@@ -8,7 +8,7 @@ Companion to [`PLAN_AGENT_MANAGER.md`](PLAN_AGENT_MANAGER.md). This doc provides
 
 ## Problem Statement
 
-Today AIDev runs a **single in-memory chat session**. The conversation history (`AgentController.history: LLMMessage[]`) lives only in RAM. If the user:
+Today Champ runs a **single in-memory chat session**. The conversation history (`AgentController.history: LLMMessage[]`) lives only in RAM. If the user:
 
 - Reloads the VS Code window, all history is lost
 - Clicks "New Chat", the previous conversation is destroyed
@@ -73,7 +73,7 @@ src/checkpoints/checkpoint-manager.ts
 │                                                                  │
 │    SessionStore                                                  │
 │    ┌─────────────────────────────────────────────────────────┐   │
-│    │  storageRoot: <workspace>/.aidev/sessions/              │   │
+│    │  storageRoot: <workspace>/.champ/sessions/              │   │
 │    │  save(session) ──► write <id>.json                      │   │
 │    │  loadAll() ◄── read all *.json on activation            │   │
 │    │  delete(id) ──► unlink <id>.json                        │   │
@@ -93,7 +93,7 @@ src/checkpoints/checkpoint-manager.ts
 Webview (sandboxed iframe)
 ┌──────────────────────────────────────────────────────────────────┐
 │  ┌─── Header ──────────────────────────────────────────────────┐ │
-│  │ AIDev                                         [+] [⚙] [?]  │ │
+│  │ Champ                                         [+] [⚙] [?]  │ │
 │  │ ollama: qwen2.5-coder:14b                                  │ │
 │  ├─── Session List (collapsible) ──────────────────────────────┤ │
 │  │ ● refactor auth module                       running   [⋯] │ │
@@ -158,7 +158,7 @@ export interface SerializedSession {
 
 ```
 <workspace>/
-  .aidev/
+  .champ/
     config.yaml
     sessions/
       sess-a3f2x9.json     # one file per session
@@ -171,7 +171,7 @@ Each `.json` file is a complete `SerializedSession` — human-readable, git-trac
 **Why filesystem over VS Code state?**
 - `globalState`/`workspaceState` have undocumented size limits
 - Filesystem files can be inspected, backed up, shared via git
-- `.aidev/sessions/` is already in the project's `.gitignore` pattern
+- `.champ/sessions/` is already in the project's `.gitignore` pattern
 - The `SessionStore` class hides the I/O — switching to SQLite later is a one-class change
 
 ---
@@ -350,7 +350,7 @@ AgentController         AgentManager              SessionStore
 |------|---------|-------------|
 | `src/agent-manager/types.ts` | `SessionState`, `SessionMetadata`, `ManagerEvent` types | ~40 |
 | `src/agent-manager/agent-manager.ts` | Multi-session orchestrator | ~200 |
-| `src/agent-manager/session-store.ts` | Filesystem persistence (`.aidev/sessions/`) | ~120 |
+| `src/agent-manager/session-store.ts` | Filesystem persistence (`.champ/sessions/`) | ~120 |
 | `test/unit/agent-manager/agent-manager.test.ts` | Manager unit tests | ~200 |
 | `test/unit/agent-manager/session-store.test.ts` | Store unit tests | ~150 |
 
@@ -358,12 +358,12 @@ AgentController         AgentManager              SessionStore
 
 | File | Changes |
 |------|---------|
-| `src/extension.ts` | Replace inline `AgentController` with `AgentManager`. Wire `SessionStore.loadAll()` on activation. Add `aidev.cleanupSessions` command. |
+| `src/extension.ts` | Replace inline `AgentController` with `AgentManager`. Wire `SessionStore.loadAll()` on activation. Add `champ.cleanupSessions` command. |
 | `src/ui/chat-view-provider.ts` | Accept `AgentManager` instead of `AgentController`. Route messages to `manager.getActive().controller`. Handle new session message types. |
 | `src/ui/messages.ts` | Add 6 new message types (sessionList, switchSession, newSession, deleteSession, renameSession, archiveSession) |
 | `webview-ui/dist/main.js` | Add collapsible session list panel above messages. Click-to-switch, context menu, status badges. |
 | `webview-ui/dist/main.css` | Session list styles |
-| `package.json` | Register `aidev.showOnboarding`, `aidev.cleanupSessions` commands |
+| `package.json` | Register `champ.showOnboarding`, `champ.cleanupSessions` commands |
 
 ---
 
@@ -512,8 +512,8 @@ test/unit/ui/chat-view-provider.test.ts (+6)
 
 ### Phase D — Polish + commands — ~0.5 days
 
-1. `aidev.cleanupSessions` command: prune sessions older than 30 days (configurable)
-2. Per-session status bar indication: `AIDev: <session label> (running)`
+1. `champ.cleanupSessions` command: prune sessions older than 30 days (configurable)
+2. Per-session status bar indication: `Champ: <session label> (running)`
 3. Keyboard shortcut: `Ctrl+Shift+N` / `Cmd+Shift+N` for new session
 4. Session search/filter in the list (for users with many sessions)
 5. Auto-archive: sessions older than 7 days auto-archive (configurable)
@@ -524,7 +524,7 @@ test/unit/ui/chat-view-provider.test.ts (+6)
 
 **v0.2.2 → v0.3.0 (with history support)**:
 
-1. On first activation after upgrade, no `.aidev/sessions/` exists — `loadAll()` returns empty, a single default session is created (backward compatible)
+1. On first activation after upgrade, no `.champ/sessions/` exists — `loadAll()` returns empty, a single default session is created (backward compatible)
 2. Users with existing single-chat flows see "Session 1" in the list and nothing else changes
 3. The `newChat` command from v0.2.x maps to creating a new session
 4. No config migration needed — sessions are a new layer, orthogonal to provider config

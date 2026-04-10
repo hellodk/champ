@@ -49,7 +49,7 @@ export class ClaudeProvider implements LLMProvider {
     if (!this._client) {
       if (!this.config.apiKey) {
         throw new Error(
-          "Claude API key is not configured. Set it via the command palette: 'AIDev: Set Claude API Key', or store it under the SecretStorage key 'aidev.claude.apiKey'.",
+          "Claude API key is not configured. Set it via the command palette: 'Champ: Set Claude API Key', or store it under the SecretStorage key 'champ.claude.apiKey'.",
         );
       }
       this._client = new Anthropic({

@@ -41,7 +41,7 @@ export class GeminiProvider implements LLMProvider {
     if (!this._client) {
       if (!this.config.apiKey) {
         throw new Error(
-          "Gemini API key is not configured. Set it via the SecretStorage key 'aidev.gemini.apiKey'.",
+          "Gemini API key is not configured. Set it via the SecretStorage key 'champ.gemini.apiKey'.",
         );
       }
       this._client = new GoogleGenerativeAI(this.config.apiKey);

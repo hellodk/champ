@@ -2,7 +2,7 @@
  * ChatViewProvider: bridges VS Code's sidebar WebviewView and the agent layer.
  *
  * Responsibilities:
- *   - Register as the provider for the `aidev.chatView` view type.
+ *   - Register as the provider for the `champ.chatView` view type.
  *   - Render the HTML/CSS/JS chat UI into the webview.
  *   - Route incoming webview messages to the AgentController.
  *   - Forward streaming deltas from the agent back to the webview.
@@ -112,7 +112,7 @@ export type SkillVariableResolver = (
 ) => string;
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = "aidev.chatView";
+  public static readonly viewType = "champ.chatView";
 
   private view: vscode.WebviewView | undefined;
   private activeAbortController: AbortController | null = null;
@@ -287,23 +287,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.handleSkillAutocompleteRequest(msg.prefix);
       } else if (isOpenSettingsRequest(msg)) {
         // The gear icon in the chat header. Opens VS Code Settings
-        // filtered to `aidev.*` so the user lands directly on the
+        // filtered to `champ.*` so the user lands directly on the
         // extension's settings group.
         void vscode.commands.executeCommand(
           "workbench.action.openSettings",
-          "aidev",
+          "champ",
         );
       } else if (isShowHelpRequest(msg)) {
         // The `?` icon in the chat header. Opens docs/USER_GUIDE.md
         // as an editor tab via a dedicated extension command.
-        void vscode.commands.executeCommand("aidev.showHelp");
+        void vscode.commands.executeCommand("champ.showHelp");
       } else if (isSetModelRequest(msg)) {
         // The model dropdown in the bottom bar. Routes to a command
         // that surgically rewrites the active YAML config's
         // top-level `provider:` line. The file watcher then triggers
         // a fresh loadProvider().
         void vscode.commands.executeCommand(
-          "aidev.setActiveModel",
+          "champ.setActiveModel",
           msg.providerName,
         );
       } else if (isFirstRunSelectRequest(msg)) {
@@ -311,14 +311,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // onboarding panel. The extension command writes the template
         // to disk and opens it in an editor.
         void vscode.commands.executeCommand(
-          "aidev.firstRunSelect",
+          "champ.firstRunSelect",
           msg.templateId,
         );
       } else if (isFirstRunDismissRequest(msg)) {
         // The user dismissed the onboarding panel without picking a
         // template. The extension command sets a globalState flag so
         // it doesn't reappear.
-        void vscode.commands.executeCommand("aidev.firstRunDismiss");
+        void vscode.commands.executeCommand("champ.firstRunDismiss");
       } else if (isAttachFileRequest(msg)) {
         // Decode the base64 content and store it until the next
         // user message is sent. The enrichment happens in
@@ -338,19 +338,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
       } else if (isSwitchSessionRequest(msg)) {
         void vscode.commands.executeCommand(
-          "aidev.switchSession",
+          "champ.switchSession",
           msg.sessionId,
         );
       } else if (isNewSessionRequest(msg)) {
-        void vscode.commands.executeCommand("aidev.newSession", msg.label);
+        void vscode.commands.executeCommand("champ.newSession", msg.label);
       } else if (isDeleteSessionRequest(msg)) {
         void vscode.commands.executeCommand(
-          "aidev.deleteSession",
+          "champ.deleteSession",
           msg.sessionId,
         );
       } else if (isRenameSessionRequest(msg)) {
         void vscode.commands.executeCommand(
-          "aidev.renameSession",
+          "champ.renameSession",
           msg.sessionId,
           msg.newLabel,
         );
@@ -626,7 +626,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                  img-src ${cspSource} data:;
                  font-src ${cspSource};" />
   <link href="${styleUri}" rel="stylesheet" />
-  <title>AIDev Chat</title>
+  <title>Champ Chat</title>
 </head>
 <body>
   <div id="app"></div>

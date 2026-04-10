@@ -1,6 +1,6 @@
-# AIDev — User Guide
+# Champ — User Guide
 
-A complete walkthrough of the AIDev chat experience, from first install to advanced workflows.
+A complete walkthrough of the Champ chat experience, from first install to advanced workflows.
 
 ## Table of Contents
 
@@ -24,13 +24,13 @@ A complete walkthrough of the AIDev chat experience, from first install to advan
 ### From the VS Code Marketplace (once published)
 
 1. Open the Extensions view (`Cmd/Ctrl + Shift + X`).
-2. Search for **AIDev**.
+2. Search for **Champ**.
 3. Click **Install**.
 
 ### From a local `.vsix` (during development)
 
 ```bash
-code --install-extension aidev-0.1.0.vsix
+code --install-extension champ-0.1.0.vsix
 ```
 
 ### From source
@@ -46,7 +46,7 @@ npm install
 
 ## First run and provider setup
 
-After install, click the **AIDev** icon in the Activity Bar (left sidebar). The chat panel opens with a welcome message. Before sending your first message you need to configure an LLM provider.
+After install, click the **Champ** icon in the Activity Bar (left sidebar). The chat panel opens with a welcome message. Before sending your first message you need to configure an LLM provider.
 
 ### Option A — Local (privacy-preserving, no API costs)
 
@@ -58,48 +58,48 @@ After install, click the **AIDev** icon in the Activity Bar (left sidebar). The 
    ollama pull llama3.1                # main chat/agent model
    ollama pull qwen2.5-coder:1.5b      # small model for inline completions
    ```
-3. In VS Code settings (`Cmd/Ctrl + ,`), search for `aidev`:
-   - `aidev.provider` → `ollama`
-   - `aidev.ollama.model` → `llama3.1`
-   - `aidev.ollama.baseUrl` → `http://localhost:11434` *(default, leave as-is)*
-   - `aidev.autocomplete.model` → `qwen2.5-coder:1.5b`
+3. In VS Code settings (`Cmd/Ctrl + ,`), search for `champ`:
+   - `champ.provider` → `ollama`
+   - `champ.ollama.model` → `llama3.1`
+   - `champ.ollama.baseUrl` → `http://localhost:11434` *(default, leave as-is)*
+   - `champ.autocomplete.model` → `qwen2.5-coder:1.5b`
 
 **llama.cpp** works identically if you prefer:
 ```bash
 ./llama-server -m your-model.gguf --port 8080
 ```
-- `aidev.provider` → `llamacpp`
-- `aidev.llamacpp.baseUrl` → `http://localhost:8080/v1` *(default)*
+- `champ.provider` → `llamacpp`
+- `champ.llamacpp.baseUrl` → `http://localhost:8080/v1` *(default)*
 
 **vLLM** for GPU inference:
-- `aidev.provider` → `vllm`
-- `aidev.vllm.baseUrl` → `http://localhost:8000/v1`
-- `aidev.vllm.model` → your served model name
+- `champ.provider` → `vllm`
+- `champ.vllm.baseUrl` → `http://localhost:8000/v1`
+- `champ.vllm.model` → your served model name
 
 ### Option B — Cloud (best quality, requires API key)
 
 **Claude** (recommended):
 1. Get an API key from <https://console.anthropic.com>.
-2. Set `aidev.provider` → `claude`.
-3. Run the command `AIDev: Set Claude API Key` *(or configure via SecretStorage)*.
+2. Set `champ.provider` → `claude`.
+3. Run the command `Champ: Set Claude API Key` *(or configure via SecretStorage)*.
 
 **OpenAI**:
-- `aidev.provider` → `openai`
-- `aidev.openai.model` → `gpt-4o`
-- Store the API key via SecretStorage key `aidev.openai.apiKey`
+- `champ.provider` → `openai`
+- `champ.openai.model` → `gpt-4o`
+- Store the API key via SecretStorage key `champ.openai.apiKey`
 
 **Gemini**:
-- `aidev.provider` → `gemini`
-- `aidev.gemini.model` → `gemini-2.0-flash`
-- Store the API key via SecretStorage key `aidev.gemini.apiKey`
+- `champ.provider` → `gemini`
+- `champ.gemini.model` → `gemini-2.0-flash`
+- Store the API key via SecretStorage key `champ.gemini.apiKey`
 
 ### Option C — Any OpenAI-compatible endpoint
 
 Covers LM Studio, text-generation-webui, and self-hosted proxies:
-- `aidev.provider` → `openai-compatible`
-- `aidev.openaiCompatible.baseUrl` → your URL (e.g. `http://your-server:9000/v1`)
-- `aidev.openaiCompatible.model` → your model name
-- `aidev.openaiCompatible.apiKey` → optional
+- `champ.provider` → `openai-compatible`
+- `champ.openaiCompatible.baseUrl` → your URL (e.g. `http://your-server:9000/v1`)
+- `champ.openaiCompatible.model` → your model name
+- `champ.openaiCompatible.apiKey` → optional
 
 ---
 
@@ -122,7 +122,7 @@ The sidebar has three sections, top to bottom:
 │  └─────────────────────────────┘   │
 │                                     │  ← message list
 ├─────────────────────────────────────┤
-│  Ask AIDev anything...              │
+│  Ask Champ anything...              │
 │                                     │
 │                  [Cancel] [Send]    │  ← input
 └─────────────────────────────────────┘
@@ -187,7 +187,7 @@ The agent has 10 built-in tools:
 | `delete_file` | Delete a file | **Yes** |
 | `run_terminal_cmd` | Execute a shell command | **Yes** |
 
-When a tool requires approval, a dialog appears in the chat asking you to confirm before execution. **YOLO mode** can disable approvals (`aidev.yoloMode: true`) — use with caution.
+When a tool requires approval, a dialog appears in the chat asking you to confirm before execution. **YOLO mode** can disable approvals (`champ.yoloMode: true`) — use with caution.
 
 ### Safety layer
 
@@ -208,12 +208,12 @@ Before sending file contents or terminal output to the LLM, a secret scanner red
 
 ## Inline autocomplete
 
-As you type in any file, AIDev sends the surrounding context to a small fast local model and displays the suggestion as ghost text after the cursor. Press `Tab` to accept, `Esc` to dismiss.
+As you type in any file, Champ sends the surrounding context to a small fast local model and displays the suggestion as ghost text after the cursor. Press `Tab` to accept, `Esc` to dismiss.
 
 Configuration:
-- `aidev.autocomplete.enabled` — master switch (default `true`)
-- `aidev.autocomplete.debounceMs` — pause before triggering (default `300`)
-- `aidev.autocomplete.model` — small model name (default `qwen2.5-coder:1.5b`)
+- `champ.autocomplete.enabled` — master switch (default `true`)
+- `champ.autocomplete.debounceMs` — pause before triggering (default `300`)
+- `champ.autocomplete.model` — small model name (default `qwen2.5-coder:1.5b`)
 
 Autocomplete is routed separately from chat via the `ModelRouter` — you can use Claude for agent chat and a local Qwen model for autocomplete simultaneously.
 
@@ -240,7 +240,7 @@ Multiple references can be mixed in one message: `Compare @Files(a.ts) with @Fil
 
 ## Checkpoints
 
-Before any destructive agent action (file edit, create, delete, terminal command), AIDev snapshots the affected files. You can restore to any prior checkpoint via the **Restore Checkpoint** command.
+Before any destructive agent action (file edit, create, delete, terminal command), Champ snapshots the affected files. You can restore to any prior checkpoint via the **Restore Checkpoint** command.
 
 Snapshots are kept in memory per session and do not touch your git history, so they work even in non-git repositories.
 
@@ -248,7 +248,7 @@ Snapshots are kept in memory per session and do not touch your git history, so t
 
 ## Rules
 
-Project-level rules live in `.aidev/rules/*.md`. Each file is a Markdown document with optional YAML frontmatter:
+Project-level rules live in `.champ/rules/*.md`. Each file is a Markdown document with optional YAML frontmatter:
 
 ```markdown
 ---
@@ -267,19 +267,19 @@ Rule types:
 - `auto-attached` — attached when the current file matches `glob`
 - `agent-requested` — not auto-attached; the agent fetches by name
 
-User-wide rules are a single free-form string in `aidev.userRules`.
+User-wide rules are a single free-form string in `champ.userRules`.
 
 ---
 
 ## MCP servers
 
-AIDev supports [Model Context Protocol](https://modelcontextprotocol.io) servers for extending the agent with external tools (GitHub, Slack, databases, internal APIs).
+Champ supports [Model Context Protocol](https://modelcontextprotocol.io) servers for extending the agent with external tools (GitHub, Slack, databases, internal APIs).
 
-Configure via `aidev.mcp.servers`:
+Configure via `champ.mcp.servers`:
 
 ```json
 {
-  "aidev.mcp.servers": [
+  "champ.mcp.servers": [
     {
       "name": "github",
       "command": "npx",
@@ -303,13 +303,13 @@ Registered MCP tools appear alongside built-in tools with the prefix `mcp_<serve
 | Send message | `Cmd/Ctrl + Enter` in the chat input |
 | Accept inline completion | `Tab` |
 | Dismiss inline completion | `Esc` |
-| Open settings | `AIDev: Settings` command |
+| Open settings | `Champ: Settings` command |
 
 ---
 
 ## Troubleshooting
 
-### "AIDev: failed to initialize LLM provider"
+### "Champ: failed to initialize LLM provider"
 - For Claude/OpenAI/Gemini: verify the API key is stored in SecretStorage.
 - For Ollama: ensure `ollama serve` is running (`curl http://localhost:11434/api/tags`).
 - For llama.cpp: ensure the server started with `./llama-server -m <model>.gguf`.
@@ -318,12 +318,12 @@ Registered MCP tools appear alongside built-in tools with the prefix `mcp_<serve
 - Local model isn't running. Check the `baseUrl` setting matches your server.
 
 ### Agent loops or hangs
-- Press **Cancel** in the input area, or run `AIDev: New Chat`.
+- Press **Cancel** in the input area, or run `Champ: New Chat`.
 - Check the model supports tool calling (see the [provider support matrix](ARCHITECTURE.md)).
 - For small local models without native tool use, the XML fallback kicks in automatically but may be slower to parse.
 
 ### Inline autocomplete doesn't appear
-- Check `aidev.autocomplete.enabled` is `true`.
+- Check `champ.autocomplete.enabled` is `true`.
 - Verify the small model is pulled (`ollama list`).
 - Wait for the debounce delay (default 300ms after typing stops).
 
@@ -336,7 +336,7 @@ Registered MCP tools appear alongside built-in tools with the prefix `mcp_<serve
 - On Apple Silicon, ensure Metal acceleration is enabled in your Ollama/llama.cpp build.
 
 ### The extension doesn't activate
-- Check the VS Code Output panel → "AIDev" for activation errors.
+- Check the VS Code Output panel → "Champ" for activation errors.
 - Run `Developer: Toggle Developer Tools` to see webview console errors.
 
 ---
@@ -344,7 +344,7 @@ Registered MCP tools appear alongside built-in tools with the prefix `mcp_<serve
 ## Feedback
 
 File issues or feature requests at the project's GitHub repository. Include:
-- AIDev version (`aidev-0.1.0`)
+- Champ version (`champ-0.1.0`)
 - VS Code version
 - Provider name and model
 - Reproduction steps

@@ -1,6 +1,6 @@
-# Example AIDev configurations
+# Example Champ configurations
 
-Copy any of these into `<your-workspace>/.aidev/config.yaml` (or `~/.aidev/config.yaml` for user defaults) and edit to taste.
+Copy any of these into `<your-workspace>/.champ/config.yaml` (or `~/.champ/config.yaml` for user defaults) and edit to taste.
 
 | File | When to use |
 |------|-------------|
@@ -14,4 +14,4 @@ Copy any of these into `<your-workspace>/.aidev/config.yaml` (or `~/.aidev/confi
 
 ## Reminder: secrets
 
-API keys are **never** stored in YAML. After picking a config, run **`AIDev: Set API Key`** from the command palette to save the key into VS Code's encrypted SecretStorage.
+API keys are **never** stored in YAML. After picking a config, run **`Champ: Set API Key`** from the command palette to save the key into VS Code's encrypted SecretStorage.

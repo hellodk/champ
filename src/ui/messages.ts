@@ -210,7 +210,7 @@ export interface SkillAutocompleteRequest {
 
 /**
  * The settings gear in the chat header was clicked. The host opens
- * VS Code's settings UI filtered to `aidev.*`.
+ * VS Code's settings UI filtered to `champ.*`.
  */
 export interface OpenSettingsRequest {
   type: "openSettingsRequest";
@@ -236,7 +236,7 @@ export interface SetModelRequest {
 
 /**
  * The user picked a starter config template from the onboarding panel.
- * The host writes the template YAML to .aidev/config.yaml.
+ * The host writes the template YAML to .champ/config.yaml.
  */
 export interface FirstRunSelectRequest {
   type: "firstRunSelectRequest";

@@ -1,4 +1,4 @@
-# AIDev — basic vLLM configuration
+# Champ — basic vLLM configuration
 #
 # Single vLLM server hosting one model. Best for GPU workstations
 # (24GB+ VRAM) or shared inference servers on the LAN.
@@ -11,7 +11,7 @@
 #     --max-model-len 32768 \
 #     --gpu-memory-utilization 0.90
 #
-# Verify before configuring AIDev:
+# Verify before configuring Champ:
 #   curl http://YOUR_HOST:8000/v1/models
 #
 # The `model` value below MUST match the `id` in the /v1/models

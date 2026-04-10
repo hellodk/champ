@@ -1,6 +1,6 @@
-# AIDev Development Setup Guide
+# Champ Development Setup Guide
 
-This guide covers everything needed to set up the AIDev VS Code extension for local development, testing, and packaging.
+This guide covers everything needed to set up the Champ VS Code extension for local development, testing, and packaging.
 
 ---
 
@@ -61,7 +61,7 @@ git --version
 
 ```bash
 # Clone the repository
-git clone https://github.com/aidev-oss/vs-code-plugin.git
+git clone https://github.com/champ-oss/vs-code-plugin.git
 cd vs-code-plugin
 
 # Install dependencies (also installs husky git hooks via the "prepare" script)
@@ -132,7 +132,7 @@ vs-code-plugin/
 
 ## Local LLM Setup
 
-AIDev supports multiple local LLM backends. You only need one for development, but you can configure multiple.
+Champ supports multiple local LLM backends. You only need one for development, but you can configure multiple.
 
 ### Ollama (Recommended)
 
@@ -167,11 +167,11 @@ curl http://localhost:11434/api/tags
 
 ```json
 {
-  "aidev.provider": "ollama",
-  "aidev.ollama.baseUrl": "http://localhost:11434",
-  "aidev.ollama.model": "llama3.1",
-  "aidev.autocomplete.model": "qwen2.5-coder:1.5b",
-  "aidev.indexing.embeddingProvider": "ollama"
+  "champ.provider": "ollama",
+  "champ.ollama.baseUrl": "http://localhost:11434",
+  "champ.ollama.model": "llama3.1",
+  "champ.autocomplete.model": "qwen2.5-coder:1.5b",
+  "champ.indexing.embeddingProvider": "ollama"
 }
 ```
 
@@ -211,9 +211,9 @@ curl http://localhost:8080/v1/models
 
 ```json
 {
-  "aidev.provider": "llamacpp",
-  "aidev.llamacpp.baseUrl": "http://localhost:8080",
-  "aidev.llamacpp.model": "default"
+  "champ.provider": "llamacpp",
+  "champ.llamacpp.baseUrl": "http://localhost:8080",
+  "champ.llamacpp.model": "default"
 }
 ```
 
@@ -239,9 +239,9 @@ curl http://localhost:8000/v1/models
 
 ```json
 {
-  "aidev.provider": "vllm",
-  "aidev.vllm.baseUrl": "http://localhost:8000",
-  "aidev.vllm.model": "meta-llama/Llama-3.1-8B-Instruct"
+  "champ.provider": "vllm",
+  "champ.vllm.baseUrl": "http://localhost:8000",
+  "champ.vllm.model": "meta-llama/Llama-3.1-8B-Instruct"
 }
 ```
 
@@ -251,25 +251,25 @@ For development with cloud LLMs:
 
 ```json
 {
-  "aidev.provider": "claude",
-  "aidev.claude.apiKey": "sk-ant-...",
-  "aidev.claude.model": "claude-sonnet-4-20250514"
+  "champ.provider": "claude",
+  "champ.claude.apiKey": "sk-ant-...",
+  "champ.claude.model": "claude-sonnet-4-20250514"
 }
 ```
 
 ```json
 {
-  "aidev.provider": "openai",
-  "aidev.openai.apiKey": "sk-...",
-  "aidev.openai.model": "gpt-4o"
+  "champ.provider": "openai",
+  "champ.openai.apiKey": "sk-...",
+  "champ.openai.model": "gpt-4o"
 }
 ```
 
 ```json
 {
-  "aidev.provider": "gemini",
-  "aidev.gemini.apiKey": "AI...",
-  "aidev.gemini.model": "gemini-2.0-flash"
+  "champ.provider": "gemini",
+  "champ.gemini.apiKey": "AI...",
+  "champ.gemini.model": "gemini-2.0-flash"
 }
 ```
 
@@ -287,7 +287,7 @@ The project includes a pre-configured launch configuration in `.vscode/launch.js
 2. Press `F5` (or `Run > Start Debugging`)
 3. Select **"Run Extension"** from the launch configuration dropdown
 4. A new VS Code window opens with the extension loaded (the "Extension Development Host")
-5. Open the AIDev sidebar by clicking the AIDev icon in the activity bar
+5. Open the Champ sidebar by clicking the Champ icon in the activity bar
 
 The launch configuration automatically:
 - Compiles the TypeScript code (`npm run compile`)
@@ -520,14 +520,14 @@ npm install -g @vscode/vsce
 # Package the extension
 vsce package
 
-# This produces: aidev-0.1.0.vsix
+# This produces: champ-0.1.0.vsix
 ```
 
 ### Install .vsix Locally
 
 ```bash
 # Install in VS Code
-code --install-extension aidev-0.1.0.vsix
+code --install-extension champ-0.1.0.vsix
 
 # Or via the VS Code UI:
 # Extensions sidebar > "..." menu > "Install from VSIX..."
@@ -537,7 +537,7 @@ code --install-extension aidev-0.1.0.vsix
 
 ```bash
 # Login to your publisher account
-vsce login aidev-oss
+vsce login champ-oss
 
 # Publish
 vsce publish
@@ -550,50 +550,50 @@ vsce publish 0.1.0
 
 ## Configuration Reference
 
-All settings are prefixed with `aidev.` and configured in VS Code Settings (JSON).
+All settings are prefixed with `champ.` and configured in VS Code Settings (JSON).
 
 ### Provider Settings
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `aidev.provider` | string | `"claude"` | Active LLM provider |
-| `aidev.claude.apiKey` | string | | Anthropic API key |
-| `aidev.claude.model` | string | `"claude-sonnet-4-20250514"` | Claude model |
-| `aidev.openai.apiKey` | string | | OpenAI API key |
-| `aidev.openai.model` | string | `"gpt-4o"` | OpenAI model |
-| `aidev.gemini.apiKey` | string | | Google Gemini API key |
-| `aidev.gemini.model` | string | `"gemini-2.0-flash"` | Gemini model |
-| `aidev.ollama.baseUrl` | string | `"http://localhost:11434"` | Ollama server URL |
-| `aidev.ollama.model` | string | `"llama3.1"` | Ollama model |
-| `aidev.llamacpp.baseUrl` | string | `"http://localhost:8080"` | llama.cpp server URL |
-| `aidev.llamacpp.model` | string | `"default"` | llama.cpp model |
-| `aidev.vllm.baseUrl` | string | `"http://localhost:8000"` | vLLM server URL |
-| `aidev.vllm.model` | string | | vLLM model |
-| `aidev.openaiCompatible.baseUrl` | string | | OpenAI-compatible base URL |
-| `aidev.openaiCompatible.model` | string | | OpenAI-compatible model |
-| `aidev.openaiCompatible.apiKey` | string | | OpenAI-compatible API key |
+| `champ.provider` | string | `"claude"` | Active LLM provider |
+| `champ.claude.apiKey` | string | | Anthropic API key |
+| `champ.claude.model` | string | `"claude-sonnet-4-20250514"` | Claude model |
+| `champ.openai.apiKey` | string | | OpenAI API key |
+| `champ.openai.model` | string | `"gpt-4o"` | OpenAI model |
+| `champ.gemini.apiKey` | string | | Google Gemini API key |
+| `champ.gemini.model` | string | `"gemini-2.0-flash"` | Gemini model |
+| `champ.ollama.baseUrl` | string | `"http://localhost:11434"` | Ollama server URL |
+| `champ.ollama.model` | string | `"llama3.1"` | Ollama model |
+| `champ.llamacpp.baseUrl` | string | `"http://localhost:8080"` | llama.cpp server URL |
+| `champ.llamacpp.model` | string | `"default"` | llama.cpp model |
+| `champ.vllm.baseUrl` | string | `"http://localhost:8000"` | vLLM server URL |
+| `champ.vllm.model` | string | | vLLM model |
+| `champ.openaiCompatible.baseUrl` | string | | OpenAI-compatible base URL |
+| `champ.openaiCompatible.model` | string | | OpenAI-compatible model |
+| `champ.openaiCompatible.apiKey` | string | | OpenAI-compatible API key |
 
 ### Feature Settings
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `aidev.yoloMode` | boolean | `false` | Skip approval for tool calls |
-| `aidev.autoFix.enabled` | boolean | `true` | Auto-fix lint/type errors after code gen |
-| `aidev.autoFix.maxIterations` | number | `3` | Max auto-fix retry iterations |
-| `aidev.indexing.enabled` | boolean | `true` | Enable workspace indexing |
-| `aidev.indexing.embeddingProvider` | string | `"ollama"` | Embedding provider for indexing |
-| `aidev.autocomplete.enabled` | boolean | `true` | Enable inline autocomplete |
-| `aidev.autocomplete.debounceMs` | number | `300` | Autocomplete debounce delay |
-| `aidev.autocomplete.model` | string | `"qwen2.5-coder:1.5b"` | Model for autocomplete |
-| `aidev.userRules` | string | `""` | Global rules for all projects |
-| `aidev.mcp.servers` | array | `[]` | MCP server configurations |
+| `champ.yoloMode` | boolean | `false` | Skip approval for tool calls |
+| `champ.autoFix.enabled` | boolean | `true` | Auto-fix lint/type errors after code gen |
+| `champ.autoFix.maxIterations` | number | `3` | Max auto-fix retry iterations |
+| `champ.indexing.enabled` | boolean | `true` | Enable workspace indexing |
+| `champ.indexing.embeddingProvider` | string | `"ollama"` | Embedding provider for indexing |
+| `champ.autocomplete.enabled` | boolean | `true` | Enable inline autocomplete |
+| `champ.autocomplete.debounceMs` | number | `300` | Autocomplete debounce delay |
+| `champ.autocomplete.model` | string | `"qwen2.5-coder:1.5b"` | Model for autocomplete |
+| `champ.userRules` | string | `""` | Global rules for all projects |
+| `champ.mcp.servers` | array | `[]` | MCP server configurations |
 
 ### Keyboard Shortcuts
 
 | Shortcut | Command | Description |
 |---|---|---|
-| `Ctrl+Shift+L` / `Cmd+Shift+L` | `aidev.newChat` | Start a new chat |
-| `Ctrl+Shift+M` / `Cmd+Shift+M` | `aidev.toggleMode` | Toggle between modes |
+| `Ctrl+Shift+L` / `Cmd+Shift+L` | `champ.newChat` | Start a new chat |
+| `Ctrl+Shift+M` / `Cmd+Shift+M` | `champ.toggleMode` | Toggle between modes |
 
 ---
 
@@ -603,13 +603,13 @@ All settings are prefixed with `aidev.` and configured in VS Code Settings (JSON
 
 1. Check the VS Code version: `code --version` (must be 1.93+)
 2. Check the developer console: `Help > Toggle Developer Tools > Console`
-3. Look for errors in the Output panel: `View > Output > AIDev`
+3. Look for errors in the Output panel: `View > Output > Champ`
 
 ### Ollama connection refused
 
 1. Verify Ollama is running: `curl http://localhost:11434/api/tags`
 2. If running in Docker/WSL, check that localhost resolves correctly
-3. Try the explicit IP: set `aidev.ollama.baseUrl` to `http://127.0.0.1:11434`
+3. Try the explicit IP: set `champ.ollama.baseUrl` to `http://127.0.0.1:11434`
 
 ### Type check errors after pulling
 
@@ -672,4 +672,4 @@ For large workspaces, indexing may consume significant memory. Mitigations:
 
 1. Increase Node.js heap size: Add `"NODE_OPTIONS": "--max-old-space-size=4096"` to the launch configuration
 2. Reduce indexing scope: Add patterns to `.gitignore` (indexed files respect gitignore)
-3. Disable indexing temporarily: Set `aidev.indexing.enabled` to `false`
+3. Disable indexing temporarily: Set `champ.indexing.enabled` to `false`

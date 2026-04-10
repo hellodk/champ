@@ -1,11 +1,11 @@
 /*
- * AIDev chat UI — vanilla JS webview entry point.
+ * Champ chat UI — vanilla JS webview entry point.
  *
  * Layout (Chat UI v2 — Phase A):
  *
  *   ┌──────────────────────────────────────────┐
  *   │ Top header                               │
- *   │   AIDev                       [+] [⚙] [?]│
+ *   │   Champ                       [+] [⚙] [?]│
  *   │   <provider:model> indicator             │
  *   ├──────────────────────────────────────────┤
  *   │ Messages                                 │
@@ -59,7 +59,7 @@
   // Top header: app title + model indicator on the left, icon buttons on the right.
   const header = el('div', { class: 'header' });
   const headerLeft = el('div', { class: 'header-left' });
-  const headerTitle = el('div', { class: 'header-title' }, ['AIDev']);
+  const headerTitle = el('div', { class: 'header-title' }, ['Champ']);
   const headerSubtitle = el('div', { class: 'header-subtitle' }, ['loading…']);
   headerLeft.append(headerTitle, headerSubtitle);
 
@@ -224,7 +224,7 @@
   }
 
   const textarea = el('textarea', {
-    placeholder: 'Ask AIDev anything... (/ for slash commands, Enter to send, Shift+Enter for newline)',
+    placeholder: 'Ask Champ anything... (/ for slash commands, Enter to send, Shift+Enter for newline)',
   });
   // Slash-command autocomplete dropdown — hidden until the user types
   // a / at the start of the input.
@@ -606,7 +606,7 @@
     messagesContainer.innerHTML = '';
     const empty = el('div', { class: 'empty-state' });
     empty.append(
-      el('div', { class: 'title' }, ['Welcome to AIDev']),
+      el('div', { class: 'title' }, ['Welcome to Champ']),
       el('div', {}, ['Start by asking a question about your code,']),
       el('div', {}, ['requesting a fix, or asking for a refactor.']),
     );
@@ -626,9 +626,9 @@
     messagesContainer.innerHTML = '';
     const panel = el('div', { class: 'onboarding-panel' });
     panel.append(
-      el('div', { class: 'onboarding-title' }, ['Welcome to AIDev']),
+      el('div', { class: 'onboarding-title' }, ['Welcome to Champ']),
       el('div', { class: 'onboarding-subtitle' }, [
-        'No configuration found. Pick a starter template to create .aidev/config.yaml:',
+        'No configuration found. Pick a starter template to create .champ/config.yaml:',
       ]),
     );
 

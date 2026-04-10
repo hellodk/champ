@@ -1,4 +1,4 @@
-# AIDev — vLLM with two endpoints (chat + autocomplete)
+# Champ — vLLM with two endpoints (chat + autocomplete)
 #
 # Run two vLLM servers on different ports — one big model for chat,
 # one small fast model for autocomplete. Best for multi-GPU setups
@@ -16,7 +16,7 @@
 #     --max-model-len 8192 \
 #     --gpu-memory-utilization 0.40
 #
-# AIDev only supports one vLLM provider entry, so the second endpoint
+# Champ only supports one vLLM provider entry, so the second endpoint
 # is registered as openai-compatible (vLLM speaks the OpenAI API).
 
 provider: vllm

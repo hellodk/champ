@@ -1,26 +1,26 @@
-# AIDev Configuration Reference
+# Champ Configuration Reference
 
-AIDev reads configuration from a hierarchical YAML file instead of (or alongside) VS Code's flat `settings.json`. This is cleaner, version-controlled, and shareable with the rest of your team.
+Champ reads configuration from a hierarchical YAML file instead of (or alongside) VS Code's flat `settings.json`. This is cleaner, version-controlled, and shareable with the rest of your team.
 
 ## Locations and precedence
 
 Highest wins:
 
-1. **`<workspace>/.aidev/config.yaml`** — project-specific, committed to git, shared with the team
-2. **`~/.aidev/config.yaml`** — your personal defaults across all projects
-3. **VS Code `aidev.*` settings** — legacy backward-compatibility (still works, but YAML is preferred)
+1. **`<workspace>/.champ/config.yaml`** — project-specific, committed to git, shared with the team
+2. **`~/.champ/config.yaml`** — your personal defaults across all projects
+3. **VS Code `champ.*` settings** — legacy backward-compatibility (still works, but YAML is preferred)
 4. **Built-in defaults**
 
 The workspace config is deep-merged on top of the user config. Nested objects merge field-by-field; arrays are replaced wholesale.
 
 ## Quick start
 
-Run **`AIDev: Generate Config File`** from the command palette (`Ctrl+Shift+P`). It writes a starter `.aidev/config.yaml` in your workspace root and opens it in the editor. Edit and save — the extension watches the file and hot-reloads on change.
+Run **`Champ: Generate Config File`** from the command palette (`Ctrl+Shift+P`). It writes a starter `.champ/config.yaml` in your workspace root and opens it in the editor. Edit and save — the extension watches the file and hot-reloads on change.
 
 Or write it by hand:
 
 ```yaml
-# .aidev/config.yaml
+# .champ/config.yaml
 provider: ollama
 providers:
   ollama:
@@ -38,7 +38,7 @@ That's the minimum required to get a working setup. Everything else has sensible
 provider: llamacpp
 
 # Per-provider settings. Add only the providers you actually use —
-# AIDev only reads the entry matching the active `provider:` above.
+# Champ only reads the entry matching the active `provider:` above.
 providers:
   claude:
     model: claude-sonnet-4-20250514
@@ -117,7 +117,7 @@ mcp:
 
 ## Secrets handling
 
-**API keys are never stored in YAML.** They live in VS Code's encrypted `SecretStorage`, accessed via the **`AIDev: Set API Key`** command.
+**API keys are never stored in YAML.** They live in VS Code's encrypted `SecretStorage`, accessed via the **`Champ: Set API Key`** command.
 
 The schema validator actively rejects any config that tries to put a key under `providers.*.apiKey`:
 
@@ -131,7 +131,7 @@ This protects you from accidentally committing a key when you commit the config 
 
 To set a key:
 
-1. `Ctrl+Shift+P` → `AIDev: Set API Key`
+1. `Ctrl+Shift+P` → `Champ: Set API Key`
 2. Pick the provider
 3. Paste the key
 4. The extension stores it in `SecretStorage` and reloads the provider
@@ -161,7 +161,7 @@ If the variable is not set, the literal `${env:VAR_NAME}` text is left in place 
 
 ## Hot reload
 
-When you save `.aidev/config.yaml`, the extension automatically reloads the active provider. The status bar updates and a "switched to ..." notification appears. No need to reload the window.
+When you save `.champ/config.yaml`, the extension automatically reloads the active provider. The status bar updates and a "switched to ..." notification appears. No need to reload the window.
 
 If you save invalid YAML, the extension shows the parse error and keeps the previous provider active.
 
@@ -171,16 +171,16 @@ Before — `settings.json`:
 
 ```json
 {
-  "aidev.provider": "llamacpp",
-  "aidev.llamacpp.baseUrl": "http://192.168.1.24:21434/v1",
-  "aidev.llamacpp.model": "Qwen2.5-Coder-7B-Instruct.gguf",
-  "aidev.autocomplete.enabled": true,
-  "aidev.autocomplete.debounceMs": 300,
-  "aidev.userRules": "Always write tests first."
+  "champ.provider": "llamacpp",
+  "champ.llamacpp.baseUrl": "http://192.168.1.24:21434/v1",
+  "champ.llamacpp.model": "Qwen2.5-Coder-7B-Instruct.gguf",
+  "champ.autocomplete.enabled": true,
+  "champ.autocomplete.debounceMs": 300,
+  "champ.userRules": "Always write tests first."
 }
 ```
 
-After — `.aidev/config.yaml`:
+After — `.champ/config.yaml`:
 
 ```yaml
 provider: llamacpp
@@ -195,7 +195,7 @@ userRules: |
   Always write tests first.
 ```
 
-You can keep both — the YAML file wins, and the `settings.json` values are silently ignored. To migrate cleanly, remove the `aidev.*` entries from `settings.json` after creating the YAML file.
+You can keep both — the YAML file wins, and the `settings.json` values are silently ignored. To migrate cleanly, remove the `champ.*` entries from `settings.json` after creating the YAML file.
 
 ## Validation errors
 
@@ -206,19 +206,19 @@ The loader produces clear, actionable error messages:
 | `Invalid YAML: ...` | Syntactically broken YAML | Check indentation, quotes, list dashes |
 | `Invalid provider "X"` | `provider:` doesn't match a known name | Use one of: claude, openai, gemini, ollama, llamacpp, vllm, openai-compatible |
 | `Active provider "X" is not configured under providers:` | You set `provider: ollama` but no `providers.ollama:` block | Add the block |
-| `providers.X.apiKey is not allowed in YAML` | Tried to put a secret in YAML | Use `AIDev: Set API Key` instead |
+| `providers.X.apiKey is not allowed in YAML` | Tried to put a secret in YAML | Use `Champ: Set API Key` instead |
 | `agent.defaultMode must be one of: ...` | Invalid mode name | Use one of: agent, ask, manual, plan, composer |
 | `autocomplete.debounceMs must be a number` | Wrong type for a numeric field | Remove quotes from the number |
 
 ## What goes in workspace vs user config
 
-**Workspace** (`.aidev/config.yaml`, committed):
+**Workspace** (`.champ/config.yaml`, committed):
 - Active provider (so the team uses the same one)
 - Project-specific user rules ("our codebase uses tabs not spaces")
 - MCP servers required for the project
 - Indexing ignore patterns specific to the repo
 
-**User** (`~/.aidev/config.yaml`, personal):
+**User** (`~/.champ/config.yaml`, personal):
 - Personal model preferences
 - Personal user rules ("always explain in plain English")
 - Local llama.cpp endpoint URL (might differ from teammates')
@@ -228,4 +228,4 @@ The workspace file usually ends up in the repo. The user file is private and sho
 
 ## Disabling YAML config
 
-If you'd rather stick with `settings.json`, just don't create a `.aidev/config.yaml`. The loader falls through to the legacy path automatically. Backward compatibility is permanent.
+If you'd rather stick with `settings.json`, just don't create a `.champ/config.yaml`. The loader falls through to the legacy path automatically. Backward compatibility is permanent.

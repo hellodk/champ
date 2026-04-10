@@ -15,7 +15,7 @@ Four themes for the next milestone, in priority order:
 
 ### Theme 1 — Workflow ergonomics (Skills + Agent Manager)
 
-The features that change *how* you use AIDev day-to-day. Highest impact-per-effort because they unlock things you can't do today at all.
+The features that change *how* you use Champ day-to-day. Highest impact-per-effort because they unlock things you can't do today at all.
 
 | Feature | Status | Plan doc | Estimated effort |
 |---------|--------|----------|-------------------|
@@ -47,7 +47,7 @@ The features that exist as built-but-unwired modules. Cheap to wire because the 
 | **Auto-fix loop wiring** — call `AutoFixService` after every successful tool call | ½ day | Catches most hallucinations because they fail to compile |
 | **Checkpoint auto-create before destructive tools** | ½ day | Lets the user roll back any agent action |
 | **Inline diff preview before apply** | 1 day | The single biggest "feels like Cursor" missing piece |
-| **Rules engine loads `.aidev/rules/*.md`** | ½ day | Per-file glob-attached project rules |
+| **Rules engine loads `.champ/rules/*.md`** | ½ day | Per-file glob-attached project rules |
 | **Codebase indexing on activation** | 2 days | `@Codebase` actually works; needs an embedding service |
 
 ### Theme 4 — New capabilities
@@ -57,9 +57,9 @@ Features that need new code (not just wiring), but unlock big workflows.
 | Feature | Effort | Why |
 |---------|--------|-----|
 | **Custom modes** (user-defined modes via YAML) | 1 day | Power users want a security-reviewer mode, doc-writer mode, etc. |
-| **Plan persistence** (`.aidev/plans/<timestamp>.md`) | ½ day | Plan mode produces a plan; today it's lost when chat closes |
+| **Plan persistence** (`.champ/plans/<timestamp>.md`) | ½ day | Plan mode produces a plan; today it's lost when chat closes |
 | **Image input** (paste screenshots into chat) | 1 day | Multimodal models can use them |
-| **Memory system** (`.aidev/memory/`) | 2 days | Long-term recall across sessions |
+| **Memory system** (`.champ/memory/`) | 2 days | Long-term recall across sessions |
 | **Background agents** (run without UI) | 2 days | Long tasks like "refactor entire repo to async" |
 | **Best-of-N** (run prompt across multiple models, compare) | 1 day | Quality boost when one model hallucinates |
 | **MCP protocol wiring** (replace stub with real SDK) | 2 days | Extensibility — github, slack, db, etc. |
@@ -79,7 +79,7 @@ Updated based on user feedback (v0.1.6 + chat UI requests). I'd attack v0.2 in t
 8. **Custom modes** — power-user feature with low effort, ~1 day
 9. **Agent Manager Phase A+B** (in-memory + UI list) — unlocks parallel work, ~2 days
 10. **Plan persistence** — quick win, ½ day
-11. **Rules engine `.aidev/rules/`** — quick win, ½ day
+11. **Rules engine `.champ/rules/`** — quick win, ½ day
 12. **Agent Manager Phase C+D** (persistence + polish), ~1 day
 13. **Image input** — multimodal users, ~1 day
 14. **Codebase indexing on activation** — biggest single-feature in this list, ~2 days
@@ -98,7 +98,7 @@ Each release feels like a meaningful upgrade and the user-visible items come fir
 Already partially designed in v0.1's package.json schema. The implementation needs:
 
 ```yaml
-# .aidev/config.yaml
+# .champ/config.yaml
 modes:
   security-reviewer:
     extends: ask
@@ -132,7 +132,7 @@ Estimated effort: 1 day. TDD: parser tests, registry tests, integration test tha
 
 The hardest item on the list. Memory is genuinely useful but the contract is subtle. Sketch:
 
-- `.aidev/memory/` directory with categorized markdown files:
+- `.champ/memory/` directory with categorized markdown files:
   - `user.md` — facts about the user (role, preferences, conventions)
   - `project.md` — facts about the project (architecture decisions, history)
   - `feedback.md` — corrections the user has given the agent
@@ -157,7 +157,7 @@ Implementation:
 - A "Run in background" button next to "Send"
 - Status bar shows count of running background agents
 - Notifications on completion
-- Per-session log under `.aidev/sessions/<id>.log`
+- Per-session log under `.champ/sessions/<id>.log`
 
 Depends on Agent Manager Phase C (persistence). Estimated effort: 2 days after Agent Manager is in place.
 
@@ -165,7 +165,7 @@ Depends on Agent Manager Phase C (persistence). Estimated effort: 2 days after A
 
 Run the same prompt across N providers in parallel, present the user with all responses to pick from. Useful when a single model hallucinates.
 
-- New command: `AIDev: Run with Best-of-N`
+- New command: `Champ: Run with Best-of-N`
 - Pick N providers from a dropdown
 - Send the same prompt to each
 - Render all responses side-by-side in the chat panel with "Use this response" buttons
@@ -188,7 +188,7 @@ When v0.2 ships:
 - Inline diff preview shows green/red before applying
 - Custom modes work
 - Plan persistence
-- Rules engine loads `.aidev/rules/`
+- Rules engine loads `.champ/rules/`
 - Test count grows by ≥110 from v0.1.6 baseline of 442 (skills shipped, +30 chat UI, +30 agent manager, +20 auto-fix/checkpoints/custom modes/rules wiring, +30 from new features). Target: ≥550 total.
 - GAP_ANALYSIS.md score: 19/22 wired (up from 12)
 - Test report on every commit, hook discipline preserved

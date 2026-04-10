@@ -12,7 +12,7 @@ describe("RulesEngine", () => {
     engine = new RulesEngine("/test-workspace");
   });
 
-  it("should load rules from .aidev/rules/ directory", async () => {
+  it("should load rules from .champ/rules/ directory", async () => {
     // Mock filesystem to return rule files
     engine.loadRulesFromDirectory = vi.fn().mockResolvedValue([
       {
@@ -29,7 +29,7 @@ describe("RulesEngine", () => {
       },
     ]);
 
-    const rules = await engine.loadRulesFromDirectory(".aidev/rules");
+    const rules = await engine.loadRulesFromDirectory(".champ/rules");
     expect(rules).toHaveLength(2);
   });
 

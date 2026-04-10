@@ -1,6 +1,6 @@
-# AIDev Architecture
+# Champ Architecture
 
-This document is the single source of truth for the AIDev VS Code extension architecture. It describes every module, data flow, agent system, provider abstraction, tool system, indexing pipeline, checkpoint mechanism, safety layer, and observability infrastructure.
+This document is the single source of truth for the Champ VS Code extension architecture. It describes every module, data flow, agent system, provider abstraction, tool system, indexing pipeline, checkpoint mechanism, safety layer, and observability infrastructure.
 
 ---
 
@@ -60,7 +60,7 @@ This document is the single source of truth for the AIDev VS Code extension arch
 |                                                                       |
 |  +------------------+    +------------------+                         |
 |  | Rules Engine     |    | UI               |                         |
-|  | (.aidev rules,   |    | (ChatViewProvider|                         |
+|  | (.champ rules,   |    | (ChatViewProvider|                         |
 |  |  user rules,     |    |  webview bridge) |                         |
 |  |  project rules)  |    |                  |                         |
 |  +------------------+    +--------+---------+                         |
@@ -105,7 +105,7 @@ The extension is organized into two main layers: the **Extension Host** (Node.js
 | **Indexing** | `src/indexing/` | Tree-sitter chunking, embedding generation, sqlite-vec vector store, incremental indexing |
 | **Upload** | `src/upload/` | File upload handling, parsing (code, logs, JSON, YAML, Markdown, PDF), chunking |
 | **Checkpoints** | `src/checkpoints/` | Shadow-copy file snapshots, checkpoint creation, restoration, cleanup |
-| **Rules** | `src/rules/` | Rules engine loading .aidev rules files, user rules from settings, project-level rules |
+| **Rules** | `src/rules/` | Rules engine loading .champ rules files, user rules from settings, project-level rules |
 | **MCP** | `src/mcp/` | Model Context Protocol client, external tool server management via stdio transport |
 | **Observability** | `src/observability/` | Metrics collector, latency tracking, token counting, agent step logs, failure tracking |
 | **Safety** | `src/safety/` | Secret redaction (regex patterns), command sandboxing, confidence scoring, blocklists |
@@ -278,7 +278,7 @@ User describes desired changes
 ```
 User types in editor
     |
-    v (debounce: aidev.autocomplete.debounceMs, default 300ms)
+    v (debounce: champ.autocomplete.debounceMs, default 300ms)
 +-------------------+
 | InlineCompletion   |
 | Provider           |  Gathers context: prefix, suffix, file language,
@@ -436,7 +436,7 @@ The `ModelRouter` (`src/providers/model-router.ts`) maps task types to provider/
 | **Agent orchestration** | Configured main model (large) | Complex reasoning, tool use |
 | **Embeddings** | `nomic-embed-text` (Ollama) or OpenAI `text-embedding-3-small` | Vector representations for RAG |
 
-The router reads from VS Code settings (`aidev.provider`, `aidev.autocomplete.model`, `aidev.indexing.embeddingProvider`) and constructs the appropriate provider instance.
+The router reads from VS Code settings (`champ.provider`, `champ.autocomplete.model`, `champ.indexing.embeddingProvider`) and constructs the appropriate provider instance.
 
 ### ProviderRegistry
 
@@ -578,7 +578,7 @@ Workspace Files
 | Vector Store       |    - Stores: chunk_id, file_path, chunk_text,
 +-------------------+      start_line, end_line, embedding, metadata
                            - Supports cosine similarity search
-                           - Single file: .aidev/index.db
+                           - Single file: .champ/index.db
 ```
 
 ### Incremental Indexing
@@ -645,7 +645,7 @@ The checkpoint system uses **shadow-copy snapshots** -- full copies of affected 
          |
          v
 +--------+----------+
-| .aidev/           |
+| .champ/           |
 | checkpoints/      |
 |   <id>/           |
 |     manifest.json |  { id, label, timestamp, files: [...] }
@@ -658,7 +658,7 @@ The checkpoint system uses **shadow-copy snapshots** -- full copies of affected 
 ### Checkpoint Lifecycle
 
 1. **Before Apply**: When the agent system is about to write files, `CheckpointManager.create()` is called
-2. **Snapshot**: For each file to be modified, read current contents and save to `.aidev/checkpoints/<id>/files/`
+2. **Snapshot**: For each file to be modified, read current contents and save to `.champ/checkpoints/<id>/files/`
 3. **Manifest**: Write `manifest.json` listing all snapshotted files with their original paths and content hashes
 4. **Apply**: Proceed with the file modifications
 5. **Restore** (on user request): Read manifest, copy each snapshot back to its original path
@@ -666,7 +666,7 @@ The checkpoint system uses **shadow-copy snapshots** -- full copies of affected 
 
 ### Integration Points
 
-- `aidev.restoreCheckpoint` command opens a quickpick of available checkpoints
+- `champ.restoreCheckpoint` command opens a quickpick of available checkpoints
 - The webview shows a "Restore" button after agent-applied changes
 - Composer mode creates a checkpoint before applying accepted diffs
 - Git integration: optionally create a git commit at checkpoint time
@@ -761,7 +761,7 @@ The `MetricsCollector` (`src/observability/metrics.ts`) is a centralized metrics
 
 ### Logging
 
-Structured logs are written to a VS Code OutputChannel (`AIDev`) and optionally to a file:
+Structured logs are written to a VS Code OutputChannel (`Champ`) and optionally to a file:
 
 ```
 AgentStepLog {
@@ -790,6 +790,6 @@ ToolCallLog {
 ### Metrics Exposure
 
 - **Status bar**: Real-time display of model name, token count, and latency for the current session
-- **Output channel**: Detailed logs viewable via `Output > AIDev`
+- **Output channel**: Detailed logs viewable via `Output > Champ`
 - **JSON export**: Metrics can be exported for external analysis
 - **Webview**: The StatusBar component in the chat UI shows per-message token usage and latency

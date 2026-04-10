@@ -1,6 +1,6 @@
-# AIDev — Honest Gap Analysis vs Cursor
+# Champ — Honest Gap Analysis vs Cursor
 
-This document is the honest assessment of where AIDev currently stands relative to its stated goal of "Cursor-parity AI coding agent." It exists because the project's unit-test coverage is excellent (313 tests, 100% passing) but the runtime extension only assembles a subset of the components those tests cover. Knowing the gap is the first step to closing it.
+This document is the honest assessment of where Champ currently stands relative to its stated goal of "Cursor-parity AI coding agent." It exists because the project's unit-test coverage is excellent (313 tests, 100% passing) but the runtime extension only assembles a subset of the components those tests cover. Knowing the gap is the first step to closing it.
 
 Last updated: 2026-04-06 (after v0.1.2)
 
@@ -27,12 +27,12 @@ The unit tests pass because each module satisfies its contract in isolation. But
 | 11 | Auto-fix loop after edits (LSP errors → re-prompt the model) | ✅ `AutoFixService` | ✅ | ❌ — service exists, never invoked | ✅ |
 | 12 | Multi-agent orchestrator for complex tasks | ✅ `AgentOrchestrator` + 6 agents | ✅ | ❌ — only used by `ComposerController`, which is also unwired | partial |
 | 13 | Tool approval flow piped through webview | ✅ approval callback exists | ✅ | ❌ — `ChatViewProvider` auto-approves; no dialog ever appears | ✅ |
-| 14 | Rules system (`.aidev/rules/*.md` auto-attach by glob) | ✅ `RulesEngine` | ✅ | ❌ — engine exists, no extension code loads or injects rules | ✅ |
+| 14 | Rules system (`.champ/rules/*.md` auto-attach by glob) | ✅ `RulesEngine` | ✅ | ❌ — engine exists, no extension code loads or injects rules | ✅ |
 | 15 | MCP server connections | ✅ `MCPClientManager` (stub) | ✅ | ❌ — no real protocol wiring; settings schema exists | ✅ |
 | 16 | Secret redaction before LLM calls | ✅ `SecretScanner` | ✅ | ❌ — scanner exists, AgentController never calls it | ✅ |
 | 17 | Web search tool | ❌ in roadmap, not built | ❌ | ❌ | ✅ |
 | 18 | Image input (paste screenshots into chat) | ✅ `LLMMessage` supports image content blocks | ✅ | ❌ — webview doesn't accept paste | ✅ |
-| 19 | Inline ghost-text autocomplete | ✅ `AidevInlineCompletionProvider` | ✅ | ✅ | ✅ |
+| 19 | Inline ghost-text autocomplete | ✅ `ChampInlineCompletionProvider` | ✅ | ✅ | ✅ |
 | 20 | Streaming chat with cancel | ✅ | ✅ | ✅ | ✅ |
 | 21 | Provider hot-swap on settings change | ✅ | partial | ✅ (v0.1.1) | ✅ |
 | 22 | Status bar provider indicator | ✅ | — | ✅ (v0.1.1) | partial (Cursor shows model in chat) |
@@ -72,7 +72,7 @@ These directly address the failure mode the user just hit (model talks instead o
 
 11. **Codebase indexing on activation** — index workspace in background, make `@Codebase` actually search. Needs an embedding service (the only real new code).
 12. **Composer mode UI** — toolbar button or mode that triggers the existing `ComposerController` workflow.
-13. **Rules engine loads `.aidev/rules/*.md`** on activation; system prompt builder injects them.
+13. **Rules engine loads `.champ/rules/*.md`** on activation; system prompt builder injects them.
 14. **Image input** — webview accepts paste, encodes as base64, sends as `image` content block.
 
 ### Round 5 — extensibility (LOW value for solo users, HIGH effort)

@@ -33,7 +33,7 @@ Companion to [`PLAN_CHAT_UI_V2.md`](PLAN_CHAT_UI_V2.md). The plan doc covers *wh
                   │                                          │
                   │  ┌────────────────────────────────────┐  │
                   │  │ Top Header                          │  │
-                  │  │  · "AIDev · model" indicator        │  │
+                  │  │  · "Champ · model" indicator        │  │
                   │  │  · [+] [⚙] [?] icon buttons         │  │
                   │  ├────────────────────────────────────┤  │
                   │  │ Messages list                       │  │
@@ -64,7 +64,7 @@ The host and webview only communicate through typed messages defined in `src/ui/
 
 1. **Three icon buttons** in the top header: new chat (`+`), settings (`⚙`), help (`?`)
 2. **Mode dropdown moved** from the top toolbar to a new bottom bar below the textarea
-3. **Active model indicator** shown as a subtitle under the "AIDev" label in the top header
+3. **Active model indicator** shown as a subtitle under the "Champ" label in the top header
 4. **Model dropdown** in the bottom bar listing every model defined in the YAML config
 5. **Send/Cancel buttons** moved into the bottom bar alongside Mode and Model
 
@@ -120,12 +120,12 @@ User              Webview                  ChatViewProvider          VS Code
  │                  │                            │ executeCommand      │
  │                  │                            │   "workbench.action │
  │                  │                            │    .openSettings",  │
- │                  │                            │   "aidev"           │
+ │                  │                            │   "champ"           │
  │                  │                            ├────────────────────►│
  │                  │                            │                     │ Settings
  │                  │                            │                     │ tab opens
  │                  │                            │                     │ filtered
- │                  │                            │                     │ to aidev.*
+ │                  │                            │                     │ to champ.*
 ```
 
 ### Sequence diagram — provider status broadcast on activation
@@ -136,7 +136,7 @@ extension.ts                ChatViewProvider             Webview
      │ activate()                 │                        │
      ├──┐                         │                        │
      │  │ resolveConfig()         │                        │
-     │  │ (reads .aidev/...yaml)  │                        │
+     │  │ (reads .champ/...yaml)  │                        │
      │◄─┘                         │                        │
      │                            │                        │
      │ post providerStatus        │                        │
@@ -158,7 +158,7 @@ extension.ts                ChatViewProvider             Webview
      │    available: [...]}       │                        │
      ├───────────────────────────►│                        │
      │                            ├───────────────────────►│
-     │                            │                        │ "AIDev ·
+     │                            │                        │ "Champ ·
      │                            │                        │  ollama:
      │                            │                        │  qwen2.5-…"
      │                            │                        │ in header
@@ -180,11 +180,11 @@ User       Webview            ChatViewProvider     extension.ts          File sy
  │            │   providerName:"vllm"}│                  │                    │
  │            ├──────────────────────►│                  │                    │
  │            │                       │ executeCommand   │                    │
- │            │                       │  "aidev.set      │                    │
+ │            │                       │  "champ.set      │                    │
  │            │                       │   ActiveModel"   │                    │
  │            │                       ├─────────────────►│                    │
  │            │                       │                  │ readFile           │
- │            │                       │                  │ .aidev/config.yaml │
+ │            │                       │                  │ .champ/config.yaml │
  │            │                       │                  ├───────────────────►│
  │            │                       │                  │◄───────────────────┤
  │            │                       │                  │                    │
@@ -238,7 +238,7 @@ The `^...$` with `/m` flag pins the match to a line at the top level (no leading
 The model selection writes back to the active workspace YAML. Example before/after:
 
 ```yaml
-# .aidev/config.yaml — BEFORE the user picks a different model
+# .champ/config.yaml — BEFORE the user picks a different model
 
 provider: ollama          # ← this line gets rewritten
 
@@ -252,7 +252,7 @@ providers:
 ```
 
 ```yaml
-# .aidev/config.yaml — AFTER picking "vllm: meta-llama/Llama-3.1-8B"
+# .champ/config.yaml — AFTER picking "vllm: meta-llama/Llama-3.1-8B"
 
 provider: vllm            # ← only this line changes
 
@@ -282,8 +282,8 @@ test/unit/ui/messages.test.ts (+8)
 
 test/unit/ui/chat-view-provider.test.ts (+6)
   ✓ openSettingsRequest fires the "workbench.action.openSettings" command
-  ✓ showHelpRequest fires the aidev.showHelp command
-  ✓ setModelRequest fires aidev.setActiveModel with the providerName
+  ✓ showHelpRequest fires the champ.showHelp command
+  ✓ setModelRequest fires champ.setActiveModel with the providerName
   ✓ broadcastProviderStatus posts the message to the webview
   ✓ broadcastProviderStatus includes the available models list
   ✓ broadcastProviderStatus state="error" includes errorMessage
@@ -293,9 +293,9 @@ test/unit/ui/chat-view-provider.test.ts (+6)
 
 When Phase A ships as v0.2.0:
 
-- [ ] Top header shows `AIDev · <provider>:<model>` (or "loading…" / "error" states)
+- [ ] Top header shows `Champ · <provider>:<model>` (or "loading…" / "error" states)
 - [ ] Top header has 3 icon buttons: `+` (new chat), `⚙` (settings), `?` (help)
-- [ ] Clicking `⚙` opens VS Code Settings filtered to `aidev.*`
+- [ ] Clicking `⚙` opens VS Code Settings filtered to `champ.*`
 - [ ] Clicking `?` opens `docs/USER_GUIDE.md` in an editor tab
 - [ ] Clicking `+` resets the conversation
 - [ ] Mode dropdown is in the bottom bar (no longer in the top toolbar)
@@ -316,11 +316,11 @@ When Phase A ships as v0.2.0:
 
 ### Goals
 
-1. Detect "first-run" condition: no workspace YAML, no user YAML, no `aidev.provider` in settings
+1. Detect "first-run" condition: no workspace YAML, no user YAML, no `champ.provider` in settings
 2. Show an in-chat onboarding panel with **5 starter templates** (Ollama / llama.cpp / vLLM / Claude / cloud+local hybrid)
-3. On selection, write the chosen template to `<workspace>/.aidev/config.yaml` and open it in an editor
-4. On dismiss, set a `aidev.onboardingDismissed` flag in `globalState` so it doesn't reappear
-5. New `AIDev: Show Onboarding` command to bring it back manually
+3. On selection, write the chosen template to `<workspace>/.champ/config.yaml` and open it in an editor
+4. On dismiss, set a `champ.onboardingDismissed` flag in `globalState` so it doesn't reappear
+5. New `Champ: Show Onboarding` command to bring it back manually
 
 ### Architecture
 
@@ -349,10 +349,10 @@ extension.ts                                    Webview
    │                   templateId:"ollama-basic"}   │
    │◄───────────────────────────────────────────────┤
    │                                                │
-   │ writeFile .aidev/config.yaml ←── content from  │
+   │ writeFile .champ/config.yaml ←── content from  │
    │   src/config/sample-configs.ts                 │
    │                                                │
-   │ open .aidev/config.yaml in editor              │
+   │ open .champ/config.yaml in editor              │
    │                                                │
    │ ── file watcher fires ──                       │
    │                                                │
@@ -391,11 +391,11 @@ export const SAMPLE_CONFIGS: ReadonlyArray<SampleConfig> = [
 
 ### Configuration written by Phase B
 
-When the user picks "Local: Ollama (recommended)", AIDev writes this to `<workspace>/.aidev/config.yaml`:
+When the user picks "Local: Ollama (recommended)", Champ writes this to `<workspace>/.champ/config.yaml`:
 
 ```yaml
-# AIDev — basic Ollama configuration (created by onboarding)
-# See examples/ in the AIDev repo for more templates.
+# Champ — basic Ollama configuration (created by onboarding)
+# See examples/ in the Champ repo for more templates.
 
 provider: ollama
 
@@ -442,13 +442,13 @@ test/unit/ui/chat-view-provider.test.ts (+4)
 
 ### Acceptance criteria for Phase B
 
-- [ ] Fresh install + open AIDev panel + no config → onboarding panel appears
+- [ ] Fresh install + open Champ panel + no config → onboarding panel appears
 - [ ] Picker shows 5 templates with descriptions
-- [ ] Picking one writes `.aidev/config.yaml` with the template content
+- [ ] Picking one writes `.champ/config.yaml` with the template content
 - [ ] Picked file opens in an editor automatically
 - [ ] File watcher reloads the provider; chat panel switches from onboarding to ready state
-- [ ] Skip button dismisses the panel and sets `aidev.onboardingDismissed`
-- [ ] `AIDev: Show Onboarding` command brings the panel back
+- [ ] Skip button dismisses the panel and sets `champ.onboardingDismissed`
+- [ ] `Champ: Show Onboarding` command brings the panel back
 - [ ] +14 new tests pass
 
 ---

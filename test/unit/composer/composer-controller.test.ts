@@ -28,7 +28,7 @@ describe("ComposerController", () => {
         }),
       } as any,
       gitIntegration: {
-        createBranch: vi.fn().mockResolvedValue("aidev/fix-123"),
+        createBranch: vi.fn().mockResolvedValue("champ/fix-123"),
         commit: vi.fn().mockResolvedValue("abc1234"),
         rollback: vi.fn().mockResolvedValue(undefined),
       } as any,

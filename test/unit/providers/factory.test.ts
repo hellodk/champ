@@ -39,7 +39,7 @@ describe("ProviderFactory", () => {
       "claude.model": "claude-sonnet-4-20250514",
     }) as never;
     const secrets = createFakeSecrets({
-      "aidev.claude.apiKey": "test-key",
+      "champ.claude.apiKey": "test-key",
     }) as never;
 
     const provider = await factory.createFromConfig(config, secrets);
@@ -53,7 +53,7 @@ describe("ProviderFactory", () => {
       "openai.model": "gpt-4o",
     }) as never;
     const secrets = createFakeSecrets({
-      "aidev.openai.apiKey": "sk-test",
+      "champ.openai.apiKey": "sk-test",
     }) as never;
 
     const provider = await factory.createFromConfig(config, secrets);
@@ -67,7 +67,7 @@ describe("ProviderFactory", () => {
       "gemini.model": "gemini-2.0-flash",
     }) as never;
     const secrets = createFakeSecrets({
-      "aidev.gemini.apiKey": "key",
+      "champ.gemini.apiKey": "key",
     }) as never;
 
     const provider = await factory.createFromConfig(config, secrets);
@@ -118,7 +118,7 @@ describe("ProviderFactory", () => {
       "openaiCompatible.model": "my-model",
     }) as never;
     const secrets = createFakeSecrets({
-      "aidev.openaiCompatible.apiKey": "key",
+      "champ.openaiCompatible.apiKey": "key",
     }) as never;
 
     const provider = await factory.createFromConfig(config, secrets);
@@ -132,9 +132,9 @@ describe("ProviderFactory", () => {
     await expect(factory.createFromConfig(config, secrets)).rejects.toThrow();
   });
 
-  describe("createFromAidevConfig (YAML path)", () => {
-    it("creates a llamacpp provider from a parsed AidevConfig", async () => {
-      const provider = await factory.createFromAidevConfig(
+  describe("createFromChampConfig (YAML path)", () => {
+    it("creates a llamacpp provider from a parsed ChampConfig", async () => {
+      const provider = await factory.createFromChampConfig(
         {
           provider: "llamacpp",
           providers: {
@@ -152,19 +152,19 @@ describe("ProviderFactory", () => {
     });
 
     it("creates a claude provider with the api key from SecretStorage", async () => {
-      const provider = await factory.createFromAidevConfig(
+      const provider = await factory.createFromChampConfig(
         {
           provider: "claude",
           providers: { claude: { model: "claude-sonnet-4-20250514" } },
         },
-        createFakeSecrets({ "aidev.claude.apiKey": "sk-ant-test" }) as never,
+        createFakeSecrets({ "champ.claude.apiKey": "sk-ant-test" }) as never,
       );
       expect(provider.name).toBe("claude");
       expect(provider.config.apiKey).toBe("sk-ant-test");
     });
 
     it("falls back to per-provider defaults when fields are unset", async () => {
-      const provider = await factory.createFromAidevConfig(
+      const provider = await factory.createFromChampConfig(
         { provider: "ollama", providers: { ollama: {} } },
         createFakeSecrets({}) as never,
       );
@@ -174,9 +174,9 @@ describe("ProviderFactory", () => {
     });
 
     it("defaults to claude when no provider is specified", async () => {
-      const provider = await factory.createFromAidevConfig(
+      const provider = await factory.createFromChampConfig(
         {},
-        createFakeSecrets({ "aidev.claude.apiKey": "k" }) as never,
+        createFakeSecrets({ "champ.claude.apiKey": "k" }) as never,
       );
       expect(provider.name).toBe("claude");
     });
@@ -205,12 +205,12 @@ describe("ProviderFactory", () => {
       ] as const;
 
       for (const c of cases) {
-        const provider = await factory.createFromAidevConfig(
+        const provider = await factory.createFromChampConfig(
           { provider: c.name, providers: { [c.name]: c.entry } },
           createFakeSecrets({
-            "aidev.claude.apiKey": "k",
-            "aidev.openai.apiKey": "k",
-            "aidev.gemini.apiKey": "k",
+            "champ.claude.apiKey": "k",
+            "champ.openai.apiKey": "k",
+            "champ.gemini.apiKey": "k",
           }) as never,
         );
         expect(provider.name).toBe(c.name);

@@ -1,6 +1,6 @@
-# LLM Hallucination Mitigation in AIDev
+# LLM Hallucination Mitigation in Champ
 
-A deep analysis of *why* coding agents hallucinate, *how* the leading tools (Cursor, Aider, Continue.dev, Cline, Codeium) address it, and a concrete implementation plan for AIDev. Last updated: 2026-04-06.
+A deep analysis of *why* coding agents hallucinate, *how* the leading tools (Cursor, Aider, Continue.dev, Cline, Codeium) address it, and a concrete implementation plan for Champ. Last updated: 2026-04-06.
 
 ## What "hallucination" means in this context
 
@@ -229,7 +229,7 @@ Even with everything in this document implemented, these failure modes remain:
 
 - **Pretrained knowledge cutoff** — the model doesn't know about libraries released after its training. Mitigation: `@Web` search, but that's a Round 5 item.
 - **Model lacks reasoning capability** — a 3B model still won't reason as well as a 70B. Mitigation: use a bigger model (see `MODEL_GUIDE.md`).
-- **Pathologically weird codebases** — if the user's code follows non-standard conventions, the model will mispredict. Mitigation: project rules (`.aidev/rules/*.md`) once that's wired.
+- **Pathologically weird codebases** — if the user's code follows non-standard conventions, the model will mispredict. Mitigation: project rules (`.champ/rules/*.md`) once that's wired.
 - **Adversarial prompts** — a user actively trying to make the model fail will succeed. Out of scope.
 
-The goal is not zero hallucination — it's "few enough hallucinations that the user trusts the agent". Cursor and Aider hit that bar with the techniques above. AIDev can too.
+The goal is not zero hallucination — it's "few enough hallucinations that the user trusts the agent". Cursor and Aider hit that bar with the techniques above. Champ can too.

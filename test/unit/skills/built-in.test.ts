@@ -1,5 +1,5 @@
 /**
- * TDD: Tests for the 8 built-in skills shipped with AIDev.
+ * TDD: Tests for the 8 built-in skills shipped with Champ.
  *
  * Verifies every built-in parses cleanly, has the required metadata,
  * and uses only the documented variable placeholders. This catches

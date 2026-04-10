@@ -1,4 +1,4 @@
-# AIDev — llama.cpp configuration
+# Champ — llama.cpp configuration
 #
 # Best for Apple Silicon (Metal), CPU-only inference, or when you want
 # the lightest possible runtime. Hosted by `llama-server` from llama.cpp.

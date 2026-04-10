@@ -245,11 +245,11 @@ export class ComposerController {
 
   private generateBranchName(): string {
     const timestamp = Date.now().toString(36);
-    return `aidev/composer-${timestamp}`;
+    return `champ/composer-${timestamp}`;
   }
 
   private generateCommitMessage(files: string[]): string {
-    if (files.length === 1) return `AIDev: edit ${files[0]}`;
-    return `AIDev: edit ${files.length} files`;
+    if (files.length === 1) return `Champ: edit ${files[0]}`;
+    return `Champ: edit ${files.length} files`;
   }
 }

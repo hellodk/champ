@@ -1,11 +1,11 @@
-# AIDev — cloud chat + local autocomplete
+# Champ — cloud chat + local autocomplete
 #
 # Best of both worlds: top-tier cloud model (Claude) for agent chat,
 # fast local model for inline ghost-text completion. The local model
 # never sees the cloud API key.
 #
 # Prerequisites:
-#   1. Set the Claude API key: `AIDev: Set API Key` -> claude
+#   1. Set the Claude API key: `Champ: Set API Key` -> claude
 #   2. Pull the local autocomplete model: `ollama pull qwen2.5-coder:1.5b`
 
 provider: claude

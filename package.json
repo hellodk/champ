@@ -1,9 +1,9 @@
 {
-  "name": "aidev",
-  "displayName": "AIDev - AI Coding Agent",
+  "name": "champ",
+  "displayName": "Champ - AI Coding Agent",
   "description": "Cursor-like AI coding experience with local LLM support, multi-agent orchestration, and autonomous workflows",
   "version": "1.0.0",
-  "publisher": "aidev-oss",
+  "publisher": "champ-oss",
   "license": "MIT",
   "icon": "media/icon.png",
   "engines": {
@@ -26,12 +26,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/aidev-oss/aidev"
+    "url": "https://github.com/champ-oss/champ"
   },
   "bugs": {
-    "url": "https://github.com/aidev-oss/aidev/issues"
+    "url": "https://github.com/champ-oss/champ/issues"
   },
-  "homepage": "https://github.com/aidev-oss/aidev#readme",
+  "homepage": "https://github.com/champ-oss/champ#readme",
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -40,71 +40,71 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "aidev-sidebar",
-          "title": "AIDev",
+          "id": "champ-sidebar",
+          "title": "Champ",
           "icon": "media/icon.svg"
         }
       ]
     },
     "views": {
-      "aidev-sidebar": [
+      "champ-sidebar": [
         {
           "type": "webview",
-          "id": "aidev.chatView",
+          "id": "champ.chatView",
           "name": "Chat"
         }
       ]
     },
     "commands": [
       {
-        "command": "aidev.newChat",
-        "title": "AIDev: New Chat"
+        "command": "champ.newChat",
+        "title": "Champ: New Chat"
       },
       {
-        "command": "aidev.toggleMode",
-        "title": "AIDev: Toggle Mode"
+        "command": "champ.toggleMode",
+        "title": "Champ: Toggle Mode"
       },
       {
-        "command": "aidev.indexWorkspace",
-        "title": "AIDev: Index Workspace"
+        "command": "champ.indexWorkspace",
+        "title": "Champ: Index Workspace"
       },
       {
-        "command": "aidev.restoreCheckpoint",
-        "title": "AIDev: Restore Checkpoint"
+        "command": "champ.restoreCheckpoint",
+        "title": "Champ: Restore Checkpoint"
       },
       {
-        "command": "aidev.openSettings",
-        "title": "AIDev: Settings"
+        "command": "champ.openSettings",
+        "title": "Champ: Settings"
       },
       {
-        "command": "aidev.setApiKey",
-        "title": "AIDev: Set API Key"
+        "command": "champ.setApiKey",
+        "title": "Champ: Set API Key"
       },
       {
-        "command": "aidev.generateConfig",
-        "title": "AIDev: Generate Config File"
+        "command": "champ.generateConfig",
+        "title": "Champ: Generate Config File"
       },
       {
-        "command": "aidev.showHelp",
-        "title": "AIDev: Show User Guide"
+        "command": "champ.showHelp",
+        "title": "Champ: Show User Guide"
       },
       {
-        "command": "aidev.setActiveModel",
-        "title": "AIDev: Set Active Model"
+        "command": "champ.setActiveModel",
+        "title": "Champ: Set Active Model"
       },
       {
-        "command": "aidev.showOnboarding",
-        "title": "AIDev: Show Onboarding"
+        "command": "champ.showOnboarding",
+        "title": "Champ: Show Onboarding"
       },
       {
-        "command": "aidev.cleanupSessions",
-        "title": "AIDev: Clean Up Old Sessions"
+        "command": "champ.cleanupSessions",
+        "title": "Champ: Clean Up Old Sessions"
       }
     ],
     "configuration": {
-      "title": "AIDev",
+      "title": "Champ",
       "properties": {
-        "aidev.provider": {
+        "champ.provider": {
           "type": "string",
           "default": "claude",
           "enum": [
@@ -118,80 +118,80 @@
           ],
           "description": "Active LLM provider"
         },
-        "aidev.claude.apiKey": {
+        "champ.claude.apiKey": {
           "type": "string",
           "description": "Anthropic API key"
         },
-        "aidev.claude.model": {
+        "champ.claude.model": {
           "type": "string",
           "default": "claude-sonnet-4-20250514"
         },
-        "aidev.openai.apiKey": {
+        "champ.openai.apiKey": {
           "type": "string",
           "description": "OpenAI API key"
         },
-        "aidev.openai.model": {
+        "champ.openai.model": {
           "type": "string",
           "default": "gpt-4o"
         },
-        "aidev.gemini.apiKey": {
+        "champ.gemini.apiKey": {
           "type": "string",
           "description": "Google Gemini API key"
         },
-        "aidev.gemini.model": {
+        "champ.gemini.model": {
           "type": "string",
           "default": "gemini-2.0-flash"
         },
-        "aidev.ollama.baseUrl": {
+        "champ.ollama.baseUrl": {
           "type": "string",
           "default": "http://localhost:11434"
         },
-        "aidev.ollama.model": {
+        "champ.ollama.model": {
           "type": "string",
           "default": "llama3.1"
         },
-        "aidev.llamacpp.baseUrl": {
+        "champ.llamacpp.baseUrl": {
           "type": "string",
           "default": "http://localhost:8080"
         },
-        "aidev.llamacpp.model": {
+        "champ.llamacpp.model": {
           "type": "string",
           "default": "default"
         },
-        "aidev.vllm.baseUrl": {
+        "champ.vllm.baseUrl": {
           "type": "string",
           "default": "http://localhost:8000"
         },
-        "aidev.vllm.model": {
+        "champ.vllm.model": {
           "type": "string"
         },
-        "aidev.openaiCompatible.baseUrl": {
+        "champ.openaiCompatible.baseUrl": {
           "type": "string"
         },
-        "aidev.openaiCompatible.model": {
+        "champ.openaiCompatible.model": {
           "type": "string"
         },
-        "aidev.openaiCompatible.apiKey": {
+        "champ.openaiCompatible.apiKey": {
           "type": "string"
         },
-        "aidev.yoloMode": {
+        "champ.yoloMode": {
           "type": "boolean",
           "default": false,
           "description": "Skip approval for terminal commands and file edits"
         },
-        "aidev.autoFix.enabled": {
+        "champ.autoFix.enabled": {
           "type": "boolean",
           "default": true
         },
-        "aidev.autoFix.maxIterations": {
+        "champ.autoFix.maxIterations": {
           "type": "number",
           "default": 3
         },
-        "aidev.indexing.enabled": {
+        "champ.indexing.enabled": {
           "type": "boolean",
           "default": true
         },
-        "aidev.indexing.embeddingProvider": {
+        "champ.indexing.embeddingProvider": {
           "type": "string",
           "default": "ollama",
           "enum": [
@@ -199,24 +199,24 @@
             "openai"
           ]
         },
-        "aidev.autocomplete.enabled": {
+        "champ.autocomplete.enabled": {
           "type": "boolean",
           "default": true
         },
-        "aidev.autocomplete.debounceMs": {
+        "champ.autocomplete.debounceMs": {
           "type": "number",
           "default": 300
         },
-        "aidev.autocomplete.model": {
+        "champ.autocomplete.model": {
           "type": "string",
           "default": "qwen2.5-coder:1.5b"
         },
-        "aidev.userRules": {
+        "champ.userRules": {
           "type": "string",
           "default": "",
           "description": "Global rules applied to all projects"
         },
-        "aidev.mcp.servers": {
+        "champ.mcp.servers": {
           "type": "array",
           "items": {
             "type": "object",
@@ -244,12 +244,12 @@
     },
     "keybindings": [
       {
-        "command": "aidev.newChat",
+        "command": "champ.newChat",
         "key": "ctrl+shift+l",
         "mac": "cmd+shift+l"
       },
       {
-        "command": "aidev.toggleMode",
+        "command": "champ.toggleMode",
         "key": "ctrl+shift+m",
         "mac": "cmd+shift+m"
       }

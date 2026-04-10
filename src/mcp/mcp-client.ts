@@ -90,12 +90,12 @@ export class MCPClientManager {
     });
 
     child.on("error", (err) => {
-      console.error(`AIDev MCP: server "${config.name}" error:`, err.message);
+      console.error(`Champ MCP: server "${config.name}" error:`, err.message);
     });
 
     child.on("exit", (code) => {
       console.log(
-        `AIDev MCP: server "${config.name}" exited with code ${code}`,
+        `Champ MCP: server "${config.name}" exited with code ${code}`,
       );
       // Reject all pending requests.
       for (const [, pending] of connection.pendingRequests) {
@@ -111,7 +111,7 @@ export class MCPClientManager {
       await this.sendRequest(config.name, "initialize", {
         protocolVersion: "2024-11-05",
         capabilities: {},
-        clientInfo: { name: "aidev-vscode", version: "0.3.0" },
+        clientInfo: { name: "champ-vscode", version: "0.3.0" },
       });
 
       // Notify initialized.

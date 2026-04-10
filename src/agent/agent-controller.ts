@@ -44,7 +44,7 @@ const DEFAULT_MAX_ITERATIONS = 25;
  * expected, and includes anti-hallucination directives based on
  * docs/HALLUCINATION_MITIGATION.md.
  */
-const PROMPT_BASED_BASE_INSTRUCTIONS = `You are AIDev, an autonomous AI coding assistant integrated into the user's code editor. You have access to tools that let you read files, edit files, search the codebase, and run commands in the user's workspace.
+const PROMPT_BASED_BASE_INSTRUCTIONS = `You are Champ, an autonomous AI coding assistant integrated into the user's code editor. You have access to tools that let you read files, edit files, search the codebase, and run commands in the user's workspace.
 
 # Core directive
 

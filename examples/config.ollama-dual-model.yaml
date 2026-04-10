@@ -1,4 +1,4 @@
-# AIDev — Ollama with separate models for chat and autocomplete
+# Champ — Ollama with separate models for chat and autocomplete
 #
 # Uses a larger model for agent chat (slower, smarter) and a small fast
 # model for inline ghost-text autocomplete (sub-300ms target).

@@ -64,7 +64,7 @@ describe("ChatViewProvider", () => {
   });
 
   it("has a static viewType identifier", () => {
-    expect(ChatViewProvider.viewType).toBe("aidev.chatView");
+    expect(ChatViewProvider.viewType).toBe("champ.chatView");
   });
 
   it("resolves a webview view and sets HTML", () => {
@@ -595,11 +595,11 @@ describe("ChatViewProvider", () => {
 
       expect(exec).toHaveBeenCalledWith(
         "workbench.action.openSettings",
-        "aidev",
+        "champ",
       );
     });
 
-    it("showHelpRequest fires the aidev.showHelp command", async () => {
+    it("showHelpRequest fires the champ.showHelp command", async () => {
       const vscode = await import("vscode");
       const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
       exec.mockClear();
@@ -610,10 +610,10 @@ describe("ChatViewProvider", () => {
       view.fireMessage({ type: "showHelpRequest" });
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(exec).toHaveBeenCalledWith("aidev.showHelp");
+      expect(exec).toHaveBeenCalledWith("champ.showHelp");
     });
 
-    it("setModelRequest fires aidev.setActiveModel with the providerName", async () => {
+    it("setModelRequest fires champ.setActiveModel with the providerName", async () => {
       const vscode = await import("vscode");
       const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
       exec.mockClear();
@@ -627,7 +627,7 @@ describe("ChatViewProvider", () => {
       });
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(exec).toHaveBeenCalledWith("aidev.setActiveModel", "vllm");
+      expect(exec).toHaveBeenCalledWith("champ.setActiveModel", "vllm");
     });
 
     it("broadcastProviderStatus posts a providerStatus message to the webview", () => {
@@ -700,7 +700,7 @@ describe("ChatViewProvider", () => {
   });
 
   describe("Onboarding flow (Phase B)", () => {
-    it("firstRunSelectRequest fires aidev.firstRunSelect with the templateId", async () => {
+    it("firstRunSelectRequest fires champ.firstRunSelect with the templateId", async () => {
       const vscode = await import("vscode");
       const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
       exec.mockClear();
@@ -714,10 +714,10 @@ describe("ChatViewProvider", () => {
       });
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(exec).toHaveBeenCalledWith("aidev.firstRunSelect", "ollama-basic");
+      expect(exec).toHaveBeenCalledWith("champ.firstRunSelect", "ollama-basic");
     });
 
-    it("firstRunDismissRequest fires aidev.firstRunDismiss", async () => {
+    it("firstRunDismissRequest fires champ.firstRunDismiss", async () => {
       const vscode = await import("vscode");
       const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
       exec.mockClear();
@@ -728,7 +728,7 @@ describe("ChatViewProvider", () => {
       view.fireMessage({ type: "firstRunDismissRequest" });
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(exec).toHaveBeenCalledWith("aidev.firstRunDismiss");
+      expect(exec).toHaveBeenCalledWith("champ.firstRunDismiss");
     });
 
     it("broadcastFirstRunWelcome posts a firstRunWelcome message to the webview", () => {
@@ -812,7 +812,7 @@ describe("ChatViewProvider", () => {
   });
 
   describe("Session management handlers (History)", () => {
-    it("switchSessionRequest fires aidev.switchSession with sessionId", async () => {
+    it("switchSessionRequest fires champ.switchSession with sessionId", async () => {
       const vscode = await import("vscode");
       const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
       exec.mockClear();
@@ -823,10 +823,10 @@ describe("ChatViewProvider", () => {
       view.fireMessage({ type: "switchSessionRequest", sessionId: "s1" });
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(exec).toHaveBeenCalledWith("aidev.switchSession", "s1");
+      expect(exec).toHaveBeenCalledWith("champ.switchSession", "s1");
     });
 
-    it("newSessionRequest fires aidev.newSession", async () => {
+    it("newSessionRequest fires champ.newSession", async () => {
       const vscode = await import("vscode");
       const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
       exec.mockClear();
@@ -837,10 +837,10 @@ describe("ChatViewProvider", () => {
       view.fireMessage({ type: "newSessionRequest" });
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(exec).toHaveBeenCalledWith("aidev.newSession", undefined);
+      expect(exec).toHaveBeenCalledWith("champ.newSession", undefined);
     });
 
-    it("deleteSessionRequest fires aidev.deleteSession with sessionId", async () => {
+    it("deleteSessionRequest fires champ.deleteSession with sessionId", async () => {
       const vscode = await import("vscode");
       const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
       exec.mockClear();
@@ -851,10 +851,10 @@ describe("ChatViewProvider", () => {
       view.fireMessage({ type: "deleteSessionRequest", sessionId: "s2" });
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(exec).toHaveBeenCalledWith("aidev.deleteSession", "s2");
+      expect(exec).toHaveBeenCalledWith("champ.deleteSession", "s2");
     });
 
-    it("renameSessionRequest fires aidev.renameSession", async () => {
+    it("renameSessionRequest fires champ.renameSession", async () => {
       const vscode = await import("vscode");
       const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
       exec.mockClear();
@@ -869,7 +869,7 @@ describe("ChatViewProvider", () => {
       });
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(exec).toHaveBeenCalledWith("aidev.renameSession", "s1", "renamed");
+      expect(exec).toHaveBeenCalledWith("champ.renameSession", "s1", "renamed");
     });
 
     it("broadcastSessionList posts a sessionList message to the webview", () => {

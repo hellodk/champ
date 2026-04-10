@@ -1,5 +1,5 @@
 /**
- * Built-in skills shipped with the AIDev extension.
+ * Built-in skills shipped with the Champ extension.
  *
  * Each skill is a markdown file (with YAML frontmatter) inlined as a
  * TypeScript constant. We inline rather than reading from disk so the
@@ -11,7 +11,7 @@
  * and the SkillRegistry holds them.
  *
  * Users can override any built-in by dropping a same-named .md file in
- * .aidev/skills/ (workspace) or ~/.aidev/skills/ (personal).
+ * .champ/skills/ (workspace) or ~/.champ/skills/ (personal).
  */
 
 const EXPLAIN = `---

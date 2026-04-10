@@ -1,19 +1,19 @@
 /**
- * ConfigLoader: parse and validate AIDev's YAML configuration.
+ * ConfigLoader: parse and validate Champ's YAML configuration.
  *
- * AIDev reads configuration from two YAML files (workspace overrides user):
+ * Champ reads configuration from two YAML files (workspace overrides user):
  *
- *   ~/.aidev/config.yaml          — user-wide defaults (personal)
- *   <workspace>/.aidev/config.yaml — project-specific (committed, shared)
+ *   ~/.champ/config.yaml          — user-wide defaults (personal)
+ *   <workspace>/.champ/config.yaml — project-specific (committed, shared)
  *
  * Both files use the same schema (see docs/CONFIG.md). Secrets like API
  * keys are NOT in YAML — they live in VS Code's SecretStorage and are
- * accessed via the AIDev: Set API Key command.
+ * accessed via the Champ: Set API Key command.
  *
  * Precedence (highest wins):
- *   1. workspace .aidev/config.yaml
- *   2. user ~/.aidev/config.yaml
- *   3. VS Code aidev.* settings (legacy backward-compat)
+ *   1. workspace .champ/config.yaml
+ *   2. user ~/.champ/config.yaml
+ *   3. VS Code champ.* settings (legacy backward-compat)
  *   4. built-in defaults
  *
  * The loader is intentionally pure — no filesystem I/O lives here. The
@@ -84,7 +84,7 @@ export interface MCPConfig {
   servers?: MCPServerConfig[];
 }
 
-export interface AidevConfig {
+export interface ChampConfig {
   provider?: ProviderName;
   providers?: Partial<Record<ProviderName, ProviderConfig>>;
   autocomplete?: AutocompleteConfig;
@@ -121,7 +121,7 @@ export class ConfigLoader {
    * Parse and validate a YAML string. Throws on invalid syntax or
    * schema violations. Empty input returns an empty config.
    */
-  static parseYaml(text: string): AidevConfig {
+  static parseYaml(text: string): ChampConfig {
     if (!text || !text.trim()) return {};
 
     let parsed: unknown;
@@ -145,8 +145,8 @@ export class ConfigLoader {
    * message on the first violation found. Returns the validated config
    * with the correct TypeScript shape.
    */
-  static validate(raw: Record<string, unknown>): AidevConfig {
-    const result: AidevConfig = {};
+  static validate(raw: Record<string, unknown>): ChampConfig {
+    const result: ChampConfig = {};
 
     // provider
     if ("provider" in raw) {
@@ -188,7 +188,7 @@ export class ConfigLoader {
         if ("apiKey" in c) {
           throw new Error(
             `providers.${name}.apiKey is not allowed in YAML. ` +
-              `Store API keys via the 'AIDev: Set API Key' command (SecretStorage).`,
+              `Store API keys via the 'Champ: Set API Key' command (SecretStorage).`,
           );
         }
         const pc: ProviderConfig = {};
@@ -412,8 +412,8 @@ export class ConfigLoader {
    * Deep-merge two configs. The second argument wins on conflicts.
    * Used to layer workspace config over user config.
    */
-  static merge(base: AidevConfig, override: AidevConfig): AidevConfig {
-    const result: AidevConfig = JSON.parse(JSON.stringify(base));
+  static merge(base: ChampConfig, override: ChampConfig): ChampConfig {
+    const result: ChampConfig = JSON.parse(JSON.stringify(base));
 
     if (override.provider !== undefined) result.provider = override.provider;
     if (override.userRules !== undefined) result.userRules = override.userRules;
@@ -465,7 +465,7 @@ export class ConfigLoader {
    * notices the misconfiguration rather than getting a silent empty
    * string.
    */
-  static substituteEnv(config: AidevConfig): AidevConfig {
+  static substituteEnv(config: ChampConfig): ChampConfig {
     const replacer = (input: string): string => {
       return input.replace(
         /\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g,
@@ -489,7 +489,7 @@ export class ConfigLoader {
       return val;
     };
 
-    return walk(config) as AidevConfig;
+    return walk(config) as ChampConfig;
   }
 
   /**
@@ -497,7 +497,7 @@ export class ConfigLoader {
    * after merge() so the runtime never sees an undefined required
    * setting.
    */
-  static withDefaults(config: AidevConfig): AidevConfig {
+  static withDefaults(config: ChampConfig): ChampConfig {
     return {
       ...config,
       autocomplete: {
@@ -526,7 +526,7 @@ export class ConfigLoader {
    * Look up the active provider's settings. Throws if no provider is
    * configured under providers: for the active provider name.
    */
-  static activeProviderConfig(config: AidevConfig): {
+  static activeProviderConfig(config: ChampConfig): {
     name: ProviderName;
     baseUrl?: string;
     model?: string;

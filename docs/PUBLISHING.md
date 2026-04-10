@@ -1,6 +1,6 @@
-# Publishing AIDev to the VS Code Marketplace
+# Publishing Champ to the VS Code Marketplace
 
-A step-by-step runbook for packaging and publishing AIDev to the Visual Studio Code Marketplace.
+A step-by-step runbook for packaging and publishing Champ to the Visual Studio Code Marketplace.
 
 ## Prerequisites
 
@@ -33,12 +33,12 @@ A step-by-step runbook for packaging and publishing AIDev to the Visual Studio C
 1. Open <https://marketplace.visualstudio.com/manage>.
 2. Sign in with the same Microsoft account.
 3. Click **Create publisher** and fill in:
-   - **Name**: human-readable display name (e.g., `AIDev OSS`)
-   - **ID**: the stable identifier that must match `publisher` in `package.json`. For this project use `aidev-oss`.
+   - **Name**: human-readable display name (e.g., `Champ OSS`)
+   - **ID**: the stable identifier that must match `publisher` in `package.json`. For this project use `champ-oss`.
    - **Email**: your contact email
 4. Click **Create**.
 
-> ⚠️ The `publisher` field in `package.json` must match your publisher ID exactly. This project is set to `aidev-oss`. Change both if you want to publish under a different name.
+> ⚠️ The `publisher` field in `package.json` must match your publisher ID exactly. This project is set to `champ-oss`. Change both if you want to publish under a different name.
 
 ### 4. Install `vsce`
 
@@ -55,7 +55,7 @@ npx @vscode/vsce --version
 ### 5. Log in with your PAT
 
 ```bash
-vsce login aidev-oss
+vsce login champ-oss
 ```
 
 Paste your PAT when prompted. `vsce` stores it in your system keychain for future runs.
@@ -67,13 +67,13 @@ Builds a `.vsix` file you can install locally or upload manually.
 ```bash
 # From the project root
 npm run package          # production esbuild bundle
-npx @vscode/vsce package # creates aidev-0.1.0.vsix
+npx @vscode/vsce package # creates champ-0.1.0.vsix
 ```
 
 The `.vsix` appears in the project root. Install it locally to test:
 
 ```bash
-code --install-extension aidev-0.1.0.vsix
+code --install-extension champ-0.1.0.vsix
 ```
 
 ## Publish
@@ -82,7 +82,7 @@ code --install-extension aidev-0.1.0.vsix
 
 ```bash
 # Make sure you're logged in (one-time; see setup step 5)
-vsce login aidev-oss
+vsce login champ-oss
 
 # Publish the currently-committed version
 npx @vscode/vsce publish
@@ -95,7 +95,7 @@ npx @vscode/vsce publish major   # 0.1.0 -> 1.0.0
 
 ### Option B — upload the `.vsix` manually
 
-1. Go to <https://marketplace.visualstudio.com/manage/publishers/aidev-oss>.
+1. Go to <https://marketplace.visualstudio.com/manage/publishers/champ-oss>.
 2. Click **+ New extension** → **Visual Studio Code**.
 3. Upload the `.vsix` file created by `vsce package`.
 4. Review the listing and click **Upload**.
@@ -120,8 +120,8 @@ Before every release, verify:
 
 ## Post-publish
 
-- **Verify the listing**: open <https://marketplace.visualstudio.com/items?itemName=aidev-oss.aidev>.
-- **Install from marketplace**: `code --install-extension aidev-oss.aidev` and smoke-test.
+- **Verify the listing**: open <https://marketplace.visualstudio.com/items?itemName=champ-oss.champ>.
+- **Install from marketplace**: `code --install-extension champ-oss.champ` and smoke-test.
 - **Tag the git commit**:
   ```bash
   git tag v0.1.0
@@ -156,11 +156,11 @@ jobs:
 
 ## Troubleshooting
 
-### `ERROR  Publisher aidev-oss not found`
+### `ERROR  Publisher champ-oss not found`
 Your publisher ID doesn't exist, or your PAT doesn't have access. Re-run publisher setup (step 3) and regenerate the PAT with **All accessible organizations** (step 2).
 
 ### `ERROR  Missing publisher name`
-The `publisher` field is absent from `package.json`. Already set to `aidev-oss` in this repo; verify it wasn't removed.
+The `publisher` field is absent from `package.json`. Already set to `champ-oss` in this repo; verify it wasn't removed.
 
 ### `ERROR  Icon media/icon.png does not exist`
 Run the SVG-to-PNG conversion:

@@ -9,15 +9,15 @@ A "skill" is a named, reusable prompt template you can invoke from chat with `/<
 Why this matters:
 - **Reduces friction.** "Explain this function" is a thing you do 50× a day. A `/explain` skill makes it one keystroke.
 - **Encodes team conventions.** A `/commit` skill that follows your team's commit message style. A `/security-review` skill that runs through your security checklist. A `/api-doc` skill that generates JSDoc in your house format.
-- **Shareable.** Skills committed to `.aidev/skills/` ride along with the repo so every team member has the same workflow.
-- **Extensible.** Users can write their own skills without touching the extension code — just drop a markdown file in `.aidev/skills/`.
+- **Shareable.** Skills committed to `.champ/skills/` ride along with the repo so every team member has the same workflow.
+- **Extensible.** Users can write their own skills without touching the extension code — just drop a markdown file in `.champ/skills/`.
 
 ## Goals
 
 - Skills as **markdown files with YAML frontmatter** — easy to read, write, version, share
 - Triggered via `/<name>` in the chat input
 - Built-in skills shipped with the extension cover the 80% case
-- User-defined skills loaded from `.aidev/skills/*.md` and `~/.aidev/skills/*.md`
+- User-defined skills loaded from `.champ/skills/*.md` and `~/.champ/skills/*.md`
 - Variable substitution: `{{selection}}`, `{{currentFile}}`, `{{language}}`, etc.
 - Optional per-skill tool restrictions and mode override
 
@@ -86,7 +86,7 @@ Shipped with the extension under `src/skills/built-in/`:
 | `/fix` | Fixes the diagnostic at the current cursor position |
 | `/optimize` | Suggests performance optimizations for the selection |
 
-These are markdown files inside the extension bundle, loaded at activation alongside user-defined skills. Users can override a built-in by dropping a same-named file in `.aidev/skills/`.
+These are markdown files inside the extension bundle, loaded at activation alongside user-defined skills. Users can override a built-in by dropping a same-named file in `.champ/skills/`.
 
 ## Architecture
 
@@ -225,7 +225,7 @@ When the user types `/` in the chat input, the webview asks the extension for ma
 - Built-in skills load on activation
 
 ### Phase C — user/workspace skills (½ day)
-- `loadFromDirectory` for `<workspace>/.aidev/skills/` and `~/.aidev/skills/`
+- `loadFromDirectory` for `<workspace>/.champ/skills/` and `~/.champ/skills/`
 - File watcher to reload on save
 
 ### Phase D — autocomplete (½ day)
@@ -310,7 +310,7 @@ After generating the message, suggest the exact command to commit
 ## Success criteria
 
 - 8 built-in skills working out of the box
-- A user can drop a custom `.md` file in `.aidev/skills/` and use it immediately
+- A user can drop a custom `.md` file in `.champ/skills/` and use it immediately
 - Slash command autocomplete works in the chat input
 - All variable placeholders resolve correctly
 - Test count grows by ≥20 (loader + registry + resolver + integration)

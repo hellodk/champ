@@ -1,6 +1,6 @@
-# AIDev Implementation Roadmap
+# Champ Implementation Roadmap
 
-This document defines the 10-phase implementation plan for the AIDev VS Code extension. Each phase builds on the prior one, following strict TDD discipline as defined in `GROUND_RULES.md`.
+This document defines the 10-phase implementation plan for the Champ VS Code extension. Each phase builds on the prior one, following strict TDD discipline as defined in `GROUND_RULES.md`.
 
 ---
 

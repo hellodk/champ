@@ -347,7 +347,7 @@ describe("AgentController", () => {
       const sysContent =
         typeof systemMsg!.content === "string" ? systemMsg!.content : "";
       // The base instructions should be present.
-      expect(sysContent).toContain("AIDev");
+      expect(sysContent).toContain("Champ");
       // The tool catalog should be in there.
       expect(sysContent).toContain("read_file");
       // The XML format spec should be there.

@@ -4,7 +4,7 @@ Status: **design** — not yet implemented. Targets v0.2.
 
 ## Why
 
-Today AIDev runs a single chat session. If you start a long task ("refactor the auth module"), then realize you need to ask a quick unrelated question, you have to either wait or destroy the long-running context. Cursor 3.0 introduced an "Agents Window" exactly to solve this — multiple parallel sessions, each with its own state and history, switchable from a sidebar list.
+Today Champ runs a single chat session. If you start a long task ("refactor the auth module"), then realize you need to ask a quick unrelated question, you have to either wait or destroy the long-running context. Cursor 3.0 introduced an "Agents Window" exactly to solve this — multiple parallel sessions, each with its own state and history, switchable from a sidebar list.
 
 This is also a prerequisite for several other features:
 - **Background agents** that work autonomously while you do other things
@@ -16,7 +16,7 @@ This is also a prerequisite for several other features:
 
 - **Multiple parallel sessions.** Each is independent — separate history, mode, modified-files set, repo map cache, abort signal.
 - **Lifecycle commands.** Create, switch, abort, archive, delete.
-- **Persistence.** Sessions survive a window reload. Stored under `.aidev/sessions/`.
+- **Persistence.** Sessions survive a window reload. Stored under `.champ/sessions/`.
 - **Visibility.** A sidebar list shows every session with its status badge (idle / running / completed / errored), title, and a quick-action menu.
 - **Backward compatible.** v0.1.x users with a single chat see "session 1" and nothing else changes.
 
@@ -46,7 +46,7 @@ This is also a prerequisite for several other features:
 |     ↑↓ messages routed to active   |
 |        session via manager         |
 |                                    |
-|   SessionStore (.aidev/sessions/)  |
+|   SessionStore (.champ/sessions/)  |
 +-----------------------------------+
 ```
 
@@ -146,7 +146,7 @@ export interface SerializedSession {
 }
 ```
 
-Storage: `<workspace>/.aidev/sessions/<sessionId>.json`. JSON is fine — sessions are small, and we want them human-readable for debugging.
+Storage: `<workspace>/.champ/sessions/<sessionId>.json`. JSON is fine — sessions are small, and we want them human-readable for debugging.
 
 ### Updates to existing files
 
@@ -173,7 +173,7 @@ Storage: `<workspace>/.aidev/sessions/<sessionId>.json`. JSON is fine — sessio
 │  ... messages of the active session ...  │  ← message area
 │                                          │
 ├──────────────────────────────────────────┤
-│ Ask AIDev anything...                    │
+│ Ask Champ anything...                    │
 │                                          │
 │                  [Cancel] [Send]         │
 └──────────────────────────────────────────┘
@@ -221,7 +221,7 @@ Storage: `<workspace>/.aidev/sessions/<sessionId>.json`. JSON is fine — sessio
 - `SessionStore` with file-system backend
 - `loadAll()` on extension activation
 - `save()` after every state change (debounced)
-- Pruning command: `AIDev: Clean Up Old Sessions`
+- Pruning command: `Champ: Clean Up Old Sessions`
 
 ### Phase D — polish (½ day)
 - Auto-generate session labels from first user message (truncated)
@@ -233,7 +233,7 @@ Total: ~3 days of focused work.
 
 ## Open questions
 
-1. **Storage scope**: workspace-scoped (`<repo>/.aidev/sessions/`) or extension-global? Workspace makes more sense for sharing sessions across team members via git, but it pollutes the repo. **Recommendation**: workspace by default, with a setting to switch to extension-global.
+1. **Storage scope**: workspace-scoped (`<repo>/.champ/sessions/`) or extension-global? Workspace makes more sense for sharing sessions across team members via git, but it pollutes the repo. **Recommendation**: workspace by default, with a setting to switch to extension-global.
 
 2. **Label auto-generation**: take the first 60 chars of the first user message? Or LLM-generate a 4-word title in the background? **Recommendation**: truncate the first message; LLM titles can come later.
 

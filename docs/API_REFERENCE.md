@@ -1,6 +1,6 @@
-# AIDev API Reference
+# Champ API Reference
 
-This document defines all TypeScript interfaces, types, and enums that form the public contract of the AIDev extension's internal modules. These types are the single source of truth; all implementations must conform to them.
+This document defines all TypeScript interfaces, types, and enums that form the public contract of the Champ extension's internal modules. These types are the single source of truth; all implementations must conform to them.
 
 ---
 

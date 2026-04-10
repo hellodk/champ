@@ -1,5 +1,5 @@
 /**
- * AidevInlineCompletionProvider: ghost-text inline autocomplete.
+ * ChampInlineCompletionProvider: ghost-text inline autocomplete.
  *
  * Uses a small, fast local model (e.g. Qwen2.5-Coder-1.5B via Ollama) to
  * produce single-line or multi-line completions as the user types. The
@@ -53,7 +53,7 @@ interface PendingRequest {
   superseded: boolean;
 }
 
-export class AidevInlineCompletionProvider {
+export class ChampInlineCompletionProvider {
   /** The most recent pending request, awaiting a microtask to fire. */
   private pending: PendingRequest | null = null;
   /** Whether a microtask has already been scheduled for the pending request. */

@@ -1,10 +1,10 @@
-# AIDev — team-shared workspace config
+# Champ — team-shared workspace config
 #
-# Place this at <repo>/.aidev/config.yaml and commit it. Every developer
+# Place this at <repo>/.champ/config.yaml and commit it. Every developer
 # on the team gets the same provider, same rules, same MCP servers.
 #
 # Personal preferences (e.g. your local llama.cpp endpoint URL) belong
-# in ~/.aidev/config.yaml — workspace overrides user, so you can keep
+# in ~/.champ/config.yaml — workspace overrides user, so you can keep
 # the team baseline and tweak per machine.
 
 # All developers use Ollama with the same model — predictable behaviour.

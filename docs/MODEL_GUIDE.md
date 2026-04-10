@@ -1,6 +1,6 @@
-# AIDev — Local Model Selection Guide
+# Champ — Local Model Selection Guide
 
-A practical guide to picking the right open model for AIDev's chat-driven file editing on local hardware. Last updated: 2026-04-06.
+A practical guide to picking the right open model for Champ's chat-driven file editing on local hardware. Last updated: 2026-04-06.
 
 ## What you actually need from a model
 
@@ -18,13 +18,13 @@ If you saw the model "happily explain how to create a file" instead of actually 
 
 - **Wrong variant**: you have the *base* GGUF (e.g. `Qwen2.5-Coder-3B-Q4_K_M.gguf`). Base models are completion-only — trained to extend a prefix, not to follow instructions. You need the **`-Instruct`** variant.
 - **Model too small**: 1-3B instruct models can follow simple instructions but rarely emit reliable structured tool calls. Move to 7B+.
-- **Old extension**: prior to v0.1.2, AIDev didn't wire prompt-based tool calling, so even an instruct model wouldn't get the tool catalog. Upgrade to v0.1.2+.
+- **Old extension**: prior to v0.1.2, Champ didn't wire prompt-based tool calling, so even an instruct model wouldn't get the tool catalog. Upgrade to v0.1.2+.
 
 ## Recommendations by hardware tier
 
 ### Tier 1 — best price/quality for local agent work right now
 
-These are my top picks for AIDev specifically.
+These are my top picks for Champ specifically.
 
 | Model | Size on disk (Q4_K_M) | RAM budget | Why |
 |-------|----------------------|-----------|-----|
@@ -43,7 +43,7 @@ These are my top picks for AIDev specifically.
 
 ### Tier 0 — for autocomplete only (do not use for chat)
 
-These are fine for inline ghost-text completion (`aidev.autocomplete.model`), but **not** for chat. They lack instruction following.
+These are fine for inline ghost-text completion (`champ.autocomplete.model`), but **not** for chat. They lack instruction following.
 
 | Model | Size | Use for |
 |-------|------|---------|
@@ -67,11 +67,11 @@ huggingface-cli download Qwen/Qwen2.5-Coder-7B-Instruct-GGUF \
   --ctx-size 16384
 ```
 
-Then in VS Code settings (`Ctrl+Shift+P` → `Preferences: Open Settings (UI)`, search `aidev`):
+Then in VS Code settings (`Ctrl+Shift+P` → `Preferences: Open Settings (UI)`, search `champ`):
 
-- **`aidev.provider`** → `llamacpp`
-- **`aidev.llamacpp.baseUrl`** → `http://192.168.1.24:21434/v1` (or wherever your server is)
-- **`aidev.llamacpp.model`** → the exact `id` value from `curl <baseUrl>/models`
+- **`champ.provider`** → `llamacpp`
+- **`champ.llamacpp.baseUrl`** → `http://192.168.1.24:21434/v1` (or wherever your server is)
+- **`champ.llamacpp.model`** → the exact `id` value from `curl <baseUrl>/models`
 
 Reload the window. Send `create a hello world python file` and the file should actually appear in your workspace.
 
@@ -104,7 +104,7 @@ Once basic tool calling works, try these in order of difficulty:
 | `the function in src/utils.ts has a bug, the addition returns the first arg twice. fix it.` | `read_file` + `edit_file` |
 | `run the tests` | `run_terminal_cmd` |
 
-If the model handles all five, it's a good fit for AIDev.
+If the model handles all five, it's a good fit for Champ.
 
 ## Why I recommend Qwen2.5-Coder over alternatives
 
