@@ -308,7 +308,21 @@
   const textareaRow = el('div', { class: 'textarea-row' });
   textareaRow.append(attachBtn, textarea, fileInput);
 
-  inputArea.append(skillDropdown, attachChips, textareaRow, bottomBar);
+  // Metrics footer — tiny status line below the bottom bar.
+  const metricsFooter = el('div', { class: 'metrics-footer' });
+  metricsFooter.textContent = '';
+
+  function renderMetrics(m) {
+    if (!m || m.totalRequests === 0) {
+      metricsFooter.textContent = '';
+      return;
+    }
+    const tokensIn = m.totalTokensIn.toLocaleString();
+    const tokensOut = m.totalTokensOut.toLocaleString();
+    metricsFooter.textContent = `${m.totalRequests} req · ${tokensIn} in · ${tokensOut} out · ${m.averageLatency}ms avg${m.totalFailures > 0 ? ` · ${m.totalFailures} err` : ''}`;
+  }
+
+  inputArea.append(skillDropdown, attachChips, textareaRow, bottomBar, metricsFooter);
 
   // Wrap messages + scroll pill in a positioned container.
   const messagesWrapper = el('div', { class: 'messages-wrapper' });
@@ -707,6 +721,9 @@
         break;
       case 'sessionList':
         renderSessionList(msg.sessions || [], msg.activeSessionId);
+        break;
+      case 'metricsUpdate':
+        renderMetrics(msg);
         break;
     }
   });

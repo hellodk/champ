@@ -118,8 +118,11 @@ export async function activate(
         inputTokens: delta.usage.inputTokens,
         outputTokens: delta.usage.outputTokens,
       });
+      // Broadcast updated metrics to the webview after each completion.
+      broadcastMetrics();
     } else if (delta.type === "error" && delta.error) {
       metrics?.recordFailure(delta.error);
+      broadcastMetrics();
     }
   });
 
@@ -734,6 +737,20 @@ export async function activate(
       agentManager.listSessions(),
       agentManager.getActiveId(),
     );
+  }
+
+  /** Broadcast current metrics snapshot to the webview. */
+  function broadcastMetrics(): void {
+    if (!metrics) return;
+    const m = metrics.getMetrics();
+    chatViewProvider?.postMessage({
+      type: "metricsUpdate",
+      totalRequests: m.totalRequests,
+      totalTokensIn: m.totalTokensIn,
+      totalTokensOut: m.totalTokensOut,
+      averageLatency: Math.round(m.averageLatency),
+      totalFailures: m.totalFailures,
+    });
   }
 
   /** Save a session to disk (debounced in practice). */

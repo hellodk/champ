@@ -141,6 +141,19 @@ export interface SessionListMessage {
   activeSessionId: string | null;
 }
 
+/**
+ * Observability metrics snapshot sent to the webview for the
+ * status footer and expandable metrics panel.
+ */
+export interface MetricsUpdateMessage {
+  type: "metricsUpdate";
+  totalRequests: number;
+  totalTokensIn: number;
+  totalTokensOut: number;
+  averageLatency: number;
+  totalFailures: number;
+}
+
 export type ExtensionToWebviewMessage =
   | StreamDeltaMessage
   | StreamEndMessage
@@ -154,7 +167,8 @@ export type ExtensionToWebviewMessage =
   | SkillAutocompleteResponseMessage
   | ProviderStatusMessage
   | FirstRunWelcomeMessage
-  | SessionListMessage;
+  | SessionListMessage
+  | MetricsUpdateMessage;
 
 // ---------------------------------------------------------------------------
 // Webview -> Extension Host

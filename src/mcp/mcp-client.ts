@@ -4,42 +4,33 @@
  * MCP is Anthropic's open protocol for letting LLMs call tools and
  * access resources on external services (GitHub, Slack, databases,
  * internal APIs). Each MCP server is a separate process that speaks
- * JSON-RPC over stdio (or SSE for remote servers). This manager owns
- * the lifecycle of connections and exposes a uniform invokeTool API
- * that the ToolRegistry can adapt.
+ * JSON-RPC 2.0 over stdio.
  *
- * For Phase 9 this is an interface-first implementation. The actual
- * MCP protocol integration will be added via @modelcontextprotocol/sdk
- * once the agent plumbing is wired up (Phase 10). The interface is
- * structured so that swap-in is a drop-in replacement.
+ * This implementation uses raw child_process.spawn + JSON-RPC so it
+ * doesn't depend on @modelcontextprotocol/sdk. The protocol flow is:
+ *   1. spawn(command, args, { stdio: ['pipe','pipe','pipe'] })
+ *   2. send `initialize` JSON-RPC → receive capabilities
+ *   3. send `tools/list` → receive tool catalog
+ *   4. send `tools/call` with tool name + args → receive result
+ *
+ * Each message is a JSON-RPC 2.0 object terminated by a newline.
  */
+import { spawn, type ChildProcess } from "child_process";
 
-/**
- * Configuration for a single MCP server. stdio transport is the default;
- * SSE servers use a baseUrl instead of command+args.
- */
 export interface MCPServerConfig {
   name: string;
   command?: string;
   args?: string[];
   env?: Record<string, string>;
-  /** For SSE transport instead of stdio. */
   baseUrl?: string;
 }
 
-/**
- * Metadata about a tool exposed by an MCP server.
- */
 export interface MCPTool {
   name: string;
   description: string;
   inputSchema?: Record<string, unknown>;
 }
 
-/**
- * Content block returned from a tool invocation. MCP servers return
- * arrays of blocks so tools can mix text, images, and resources.
- */
 export interface MCPContentBlock {
   type: "text" | "image" | "resource";
   text?: string;
@@ -48,72 +39,112 @@ export interface MCPContentBlock {
   uri?: string;
 }
 
-/**
- * Result returned from invoking an MCP tool.
- */
 export interface MCPToolResult {
   content: MCPContentBlock[];
   isError?: boolean;
 }
 
-/**
- * A connected MCP server instance. In the real implementation this
- * wraps the @modelcontextprotocol/sdk Client class; here we keep an
- * opaque handle so the interface stays stable across implementations.
- */
 interface MCPConnection {
   config: MCPServerConfig;
   tools: MCPTool[];
-  /** Underlying SDK client. Opaque from the manager's perspective. */
-  client: unknown;
+  process: ChildProcess | null;
+  nextId: number;
+  pendingRequests: Map<
+    number,
+    { resolve: (value: unknown) => void; reject: (err: Error) => void }
+  >;
+  buffer: string;
 }
 
 export class MCPClientManager {
   private connections = new Map<string, MCPConnection>();
 
   /**
-   * Connect to an MCP server. Spawns the server process (stdio) or
-   * opens an SSE connection, performs the MCP handshake, and caches
-   * the tool list.
-   *
-   * Tests override this method via vi.fn() before calling, so the
-   * default implementation just stores the config without a real
-   * connection attempt.
+   * Connect to an MCP server via stdio. Spawns the server process,
+   * performs the JSON-RPC initialize handshake, and fetches the tool list.
    */
   async connect(config: MCPServerConfig): Promise<void> {
-    // Placeholder: the real implementation will construct a
-    // StdioClientTransport / SseClientTransport from
-    // @modelcontextprotocol/sdk, start the client, and call listTools().
-    // For now we record the connection so the rest of the manager
-    // methods have something to reference.
-    this.connections.set(config.name, {
+    if (!config.command) {
+      throw new Error(`MCP server "${config.name}" has no command configured`);
+    }
+
+    const env = { ...process.env, ...(config.env ?? {}) };
+    const child = spawn(config.command, config.args ?? [], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env,
+    });
+
+    const connection: MCPConnection = {
       config,
       tools: [],
-      client: null,
+      process: child,
+      nextId: 1,
+      pendingRequests: new Map(),
+      buffer: "",
+    };
+
+    // Wire stdout to parse JSON-RPC responses.
+    child.stdout?.on("data", (chunk: Buffer) => {
+      connection.buffer += chunk.toString();
+      this.processBuffer(connection);
     });
+
+    child.on("error", (err) => {
+      console.error(`AIDev MCP: server "${config.name}" error:`, err.message);
+    });
+
+    child.on("exit", (code) => {
+      console.log(
+        `AIDev MCP: server "${config.name}" exited with code ${code}`,
+      );
+      // Reject all pending requests.
+      for (const [, pending] of connection.pendingRequests) {
+        pending.reject(new Error(`MCP server exited with code ${code}`));
+      }
+      connection.pendingRequests.clear();
+    });
+
+    this.connections.set(config.name, connection);
+
+    // MCP handshake: initialize.
+    try {
+      await this.sendRequest(config.name, "initialize", {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "aidev-vscode", version: "0.3.0" },
+      });
+
+      // Notify initialized.
+      this.sendNotification(config.name, "notifications/initialized", {});
+
+      // Fetch tool catalog.
+      const toolsResult = (await this.sendRequest(
+        config.name,
+        "tools/list",
+        {},
+      )) as { tools?: MCPTool[] };
+      connection.tools = toolsResult?.tools ?? [];
+    } catch (err) {
+      // If handshake fails, clean up.
+      child.kill();
+      this.connections.delete(config.name);
+      throw err;
+    }
   }
 
-  /**
-   * Disconnect from an MCP server. Closes the transport and removes
-   * the connection from the manager.
-   */
   async disconnect(serverName: string): Promise<void> {
+    const connection = this.connections.get(serverName);
+    if (connection?.process) {
+      connection.process.kill();
+    }
     this.connections.delete(serverName);
   }
 
-  /**
-   * List all tools exposed by a connected MCP server.
-   */
   async listTools(serverName: string): Promise<MCPTool[]> {
     const connection = this.connections.get(serverName);
-    return connection ? connection.tools : [];
+    return connection ? [...connection.tools] : [];
   }
 
-  /**
-   * Invoke a tool on an MCP server and return the structured result.
-   * The ToolRegistry adapter converts this into the internal ToolResult
-   * format before feeding it back into the agent loop.
-   */
   async invokeTool(
     serverName: string,
     toolName: string,
@@ -123,36 +154,132 @@ export class MCPClientManager {
     if (!connection) {
       return {
         content: [
-          { type: "text", text: `MCP server "${serverName}" is not connected` },
+          {
+            type: "text",
+            text: `MCP server "${serverName}" is not connected`,
+          },
         ],
         isError: true,
       };
     }
 
-    // Placeholder: the real implementation will call
-    // connection.client.callTool({ name: toolName, arguments: args }).
-    // Unused variables referenced here to satisfy noUnusedParameters.
-    void toolName;
-    void args;
-    return {
-      content: [{ type: "text", text: "[MCP not yet wired to SDK]" }],
-      isError: false,
-    };
+    try {
+      const result = (await this.sendRequest(serverName, "tools/call", {
+        name: toolName,
+        arguments: args,
+      })) as { content?: MCPContentBlock[]; isError?: boolean };
+
+      return {
+        content: result?.content ?? [{ type: "text", text: "" }],
+        isError: result?.isError ?? false,
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `MCP tool call failed: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
   }
 
-  /**
-   * List the names of all currently-connected MCP servers.
-   */
   getConnectedServers(): string[] {
     return Array.from(this.connections.keys());
   }
 
-  /**
-   * Disconnect from every server. Called during extension deactivation.
-   */
   async disconnectAll(): Promise<void> {
     for (const name of Array.from(this.connections.keys())) {
       await this.disconnect(name);
+    }
+  }
+
+  // ---- JSON-RPC helpers ------------------------------------------------
+
+  private sendRequest(
+    serverName: string,
+    method: string,
+    params: unknown,
+  ): Promise<unknown> {
+    const connection = this.connections.get(serverName);
+    if (!connection?.process?.stdin) {
+      return Promise.reject(
+        new Error(`MCP server "${serverName}" is not connected`),
+      );
+    }
+
+    const id = connection.nextId++;
+    const message = JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      method,
+      params,
+    });
+
+    return new Promise((resolve, reject) => {
+      connection.pendingRequests.set(id, { resolve, reject });
+      connection.process!.stdin!.write(message + "\n");
+
+      // Timeout after 30 seconds.
+      setTimeout(() => {
+        if (connection.pendingRequests.has(id)) {
+          connection.pendingRequests.delete(id);
+          reject(new Error(`MCP request ${method} timed out after 30s`));
+        }
+      }, 30_000);
+    });
+  }
+
+  private sendNotification(
+    serverName: string,
+    method: string,
+    params: unknown,
+  ): void {
+    const connection = this.connections.get(serverName);
+    if (!connection?.process?.stdin) return;
+
+    const message = JSON.stringify({
+      jsonrpc: "2.0",
+      method,
+      params,
+    });
+    connection.process.stdin.write(message + "\n");
+  }
+
+  private processBuffer(connection: MCPConnection): void {
+    const lines = connection.buffer.split("\n");
+    // Keep the last incomplete line in the buffer.
+    connection.buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const msg = JSON.parse(trimmed) as {
+          id?: number;
+          result?: unknown;
+          error?: { code: number; message: string };
+        };
+
+        if (msg.id !== undefined) {
+          const pending = connection.pendingRequests.get(msg.id);
+          if (pending) {
+            connection.pendingRequests.delete(msg.id);
+            if (msg.error) {
+              pending.reject(
+                new Error(`MCP error ${msg.error.code}: ${msg.error.message}`),
+              );
+            } else {
+              pending.resolve(msg.result);
+            }
+          }
+        }
+        // Notifications from the server are ignored for now.
+      } catch {
+        // Malformed JSON — skip.
+      }
     }
   }
 }
