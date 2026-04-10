@@ -115,6 +115,21 @@ export interface ProviderStatusMessage {
   available: AvailableProviderModel[];
 }
 
+/**
+ * Onboarding template entry sent to the webview so the user can
+ * pick a starter configuration.
+ */
+export interface FirstRunTemplate {
+  id: string;
+  label: string;
+  description: string;
+}
+
+export interface FirstRunWelcomeMessage {
+  type: "firstRunWelcome";
+  templates: FirstRunTemplate[];
+}
+
 export type ExtensionToWebviewMessage =
   | StreamDeltaMessage
   | StreamEndMessage
@@ -126,7 +141,8 @@ export type ExtensionToWebviewMessage =
   | ConversationHistoryMessage
   | ReadyMessage
   | SkillAutocompleteResponseMessage
-  | ProviderStatusMessage;
+  | ProviderStatusMessage
+  | FirstRunWelcomeMessage;
 
 // ---------------------------------------------------------------------------
 // Webview -> Extension Host
@@ -192,6 +208,23 @@ export interface SetModelRequest {
   providerName: string;
 }
 
+/**
+ * The user picked a starter config template from the onboarding panel.
+ * The host writes the template YAML to .aidev/config.yaml.
+ */
+export interface FirstRunSelectRequest {
+  type: "firstRunSelectRequest";
+  templateId: string;
+}
+
+/**
+ * The user dismissed the onboarding panel without picking a template.
+ * The host sets a globalState flag so it doesn't reappear.
+ */
+export interface FirstRunDismissRequest {
+  type: "firstRunDismissRequest";
+}
+
 export type WebviewToExtensionMessage =
   | UserMessageRequest
   | SetModeRequest
@@ -202,7 +235,9 @@ export type WebviewToExtensionMessage =
   | SkillAutocompleteRequest
   | OpenSettingsRequest
   | ShowHelpRequest
-  | SetModelRequest;
+  | SetModelRequest
+  | FirstRunSelectRequest
+  | FirstRunDismissRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)
@@ -273,6 +308,12 @@ export function createProviderStatus(opts: {
   };
 }
 
+export function createFirstRunWelcome(
+  templates: FirstRunTemplate[],
+): FirstRunWelcomeMessage {
+  return { type: "firstRunWelcome", templates };
+}
+
 // ---------------------------------------------------------------------------
 // Type guards (Webview -> Extension)
 // ---------------------------------------------------------------------------
@@ -335,4 +376,16 @@ export function isSetModelRequest(
   msg: WebviewToExtensionMessage,
 ): msg is SetModelRequest {
   return msg.type === "setModelRequest";
+}
+
+export function isFirstRunSelectRequest(
+  msg: WebviewToExtensionMessage,
+): msg is FirstRunSelectRequest {
+  return msg.type === "firstRunSelectRequest";
+}
+
+export function isFirstRunDismissRequest(
+  msg: WebviewToExtensionMessage,
+): msg is FirstRunDismissRequest {
+  return msg.type === "firstRunDismissRequest";
 }

@@ -209,4 +209,47 @@ describe("Webview Message Protocol", () => {
       expect(isSetModelRequest(msg)).toBe(false);
     });
   });
+
+  describe("first-run onboarding protocol (Phase B)", () => {
+    it("creates a firstRunWelcome message with a templates list", async () => {
+      const { createFirstRunWelcome } = await import("@/ui/messages");
+      const templates = [
+        {
+          id: "ollama-basic",
+          label: "Local: Ollama",
+          description: "Privacy-first",
+        },
+        {
+          id: "claude",
+          label: "Cloud: Claude",
+          description: "Requires API key",
+        },
+      ];
+      const msg = createFirstRunWelcome(templates);
+      expect(msg.type).toBe("firstRunWelcome");
+      expect(msg.templates).toHaveLength(2);
+      expect(msg.templates[0].id).toBe("ollama-basic");
+    });
+
+    it("identifies a firstRunSelectRequest from the webview", async () => {
+      const { isFirstRunSelectRequest } = await import("@/ui/messages");
+      const msg: WebviewToExtensionMessage = {
+        type: "firstRunSelectRequest",
+        templateId: "ollama-basic",
+      };
+      expect(isFirstRunSelectRequest(msg)).toBe(true);
+    });
+
+    it("rejects unrelated messages from the firstRunSelect guard", async () => {
+      const { isFirstRunSelectRequest } = await import("@/ui/messages");
+      const msg: WebviewToExtensionMessage = { type: "cancelRequest" };
+      expect(isFirstRunSelectRequest(msg)).toBe(false);
+    });
+
+    it("identifies a firstRunDismissRequest from the webview", async () => {
+      const { isFirstRunDismissRequest } = await import("@/ui/messages");
+      const msg: WebviewToExtensionMessage = { type: "firstRunDismissRequest" };
+      expect(isFirstRunDismissRequest(msg)).toBe(true);
+    });
+  });
 });

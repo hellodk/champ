@@ -39,6 +39,7 @@ import { VariableResolver } from "./skills/variable-resolver";
 import { BUILT_IN_SKILL_TEXTS } from "./skills/built-in";
 import type { LLMProvider } from "./providers/types";
 import type { AvailableProviderModel } from "./ui/messages";
+import { SAMPLE_CONFIGS } from "./config/sample-configs";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -426,6 +427,55 @@ export async function activate(
         // a fresh providerStatus. Nothing more to do here.
       },
     ),
+    vscode.commands.registerCommand(
+      "aidev.firstRunSelect",
+      async (templateId: string) => {
+        const template = SAMPLE_CONFIGS.find((c) => c.id === templateId);
+        if (!template) {
+          void vscode.window.showErrorMessage(
+            `AIDev: unknown onboarding template "${templateId}".`,
+          );
+          return;
+        }
+        if (!workspaceRoot) {
+          void vscode.window.showErrorMessage(
+            "AIDev: open a workspace folder before creating a config file.",
+          );
+          return;
+        }
+        const targetDir = vscode.Uri.file(path.join(workspaceRoot, ".aidev"));
+        const targetUri = vscode.Uri.file(
+          path.join(workspaceRoot, ".aidev", "config.yaml"),
+        );
+        try {
+          await vscode.workspace.fs.createDirectory(targetDir);
+        } catch {
+          // Directory may already exist.
+        }
+        await vscode.workspace.fs.writeFile(
+          targetUri,
+          new TextEncoder().encode(template.yaml),
+        );
+        const doc = await vscode.workspace.openTextDocument(targetUri);
+        await vscode.window.showTextDocument(doc);
+        void vscode.window.showInformationMessage(
+          `AIDev: created .aidev/config.yaml from "${template.label}". Edit and save to customize.`,
+        );
+        // The file watcher fires loadProvider() automatically.
+      },
+    ),
+    vscode.commands.registerCommand("aidev.firstRunDismiss", () => {
+      context.globalState.update("aidev.onboardingDismissed", true);
+    }),
+    vscode.commands.registerCommand("aidev.showOnboarding", () => {
+      chatViewProvider?.broadcastFirstRunWelcome(
+        SAMPLE_CONFIGS.map((c) => ({
+          id: c.id,
+          label: c.label,
+          description: c.description,
+        })),
+      );
+    }),
   );
 
   // ---- Config loader (YAML + VS Code settings fallback) -------------
@@ -580,6 +630,27 @@ export async function activate(
   // Initial load. Failures here are non-fatal — the chat panel will
   // show the error and the user can fix it from settings.
   await loadProvider();
+
+  // ---- First-run detection (onboarding) ---------------------------------
+  // If no config exists at all and the user hasn't dismissed onboarding
+  // before, broadcast a firstRunWelcome so the chat panel shows the
+  // onboarding picker with starter templates.
+  const onboardingDismissed = context.globalState.get<boolean>(
+    "aidev.onboardingDismissed",
+    false,
+  );
+  if (!onboardingDismissed) {
+    const hasConfig = await resolveConfig();
+    if (!hasConfig) {
+      chatViewProvider?.broadcastFirstRunWelcome(
+        SAMPLE_CONFIGS.map((c) => ({
+          id: c.id,
+          label: c.label,
+          description: c.description,
+        })),
+      );
+    }
+  }
 
   // ---- Config change watchers -----------------------------------------
   // Watch VS Code aidev.* settings (legacy path).

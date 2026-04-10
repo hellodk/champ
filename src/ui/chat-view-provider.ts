@@ -19,6 +19,7 @@ import {
   createConversationHistory,
   createSkillAutocompleteResponse,
   createProviderStatus,
+  createFirstRunWelcome,
   isUserMessage,
   isSetMode,
   isNewChat,
@@ -29,10 +30,13 @@ import {
   isOpenSettingsRequest,
   isShowHelpRequest,
   isSetModelRequest,
+  isFirstRunSelectRequest,
+  isFirstRunDismissRequest,
   type ExtensionToWebviewMessage,
   type WebviewToExtensionMessage,
   type AvailableProviderModel,
   type ProviderStatusState,
+  type FirstRunTemplate,
 } from "./messages";
 import type { StreamDelta } from "../providers/types";
 
@@ -208,6 +212,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
+   * Broadcast a first-run welcome message to the webview. Called by
+   * extension.ts when it detects no config exists yet so the user
+   * sees the onboarding picker.
+   */
+  broadcastFirstRunWelcome(templates: FirstRunTemplate[]): void {
+    this.postMessage(createFirstRunWelcome(templates));
+  }
+
+  /**
    * Handle a message from the webview. Dispatches to the appropriate
    * action based on the discriminated-union type.
    */
@@ -257,6 +270,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           "aidev.setActiveModel",
           msg.providerName,
         );
+      } else if (isFirstRunSelectRequest(msg)) {
+        // The user picked a starter config template from the
+        // onboarding panel. The extension command writes the template
+        // to disk and opens it in an editor.
+        void vscode.commands.executeCommand(
+          "aidev.firstRunSelect",
+          msg.templateId,
+        );
+      } else if (isFirstRunDismissRequest(msg)) {
+        // The user dismissed the onboarding panel without picking a
+        // template. The extension command sets a globalState flag so
+        // it doesn't reappear.
+        void vscode.commands.executeCommand("aidev.firstRunDismiss");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

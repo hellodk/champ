@@ -698,4 +698,56 @@ describe("ChatViewProvider", () => {
       expect(msg.errorMessage).toBe("Connection refused");
     });
   });
+
+  describe("Onboarding flow (Phase B)", () => {
+    it("firstRunSelectRequest fires aidev.firstRunSelect with the templateId", async () => {
+      const vscode = await import("vscode");
+      const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
+      exec.mockClear();
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({
+        type: "firstRunSelectRequest",
+        templateId: "ollama-basic",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(exec).toHaveBeenCalledWith("aidev.firstRunSelect", "ollama-basic");
+    });
+
+    it("firstRunDismissRequest fires aidev.firstRunDismiss", async () => {
+      const vscode = await import("vscode");
+      const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
+      exec.mockClear();
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({ type: "firstRunDismissRequest" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(exec).toHaveBeenCalledWith("aidev.firstRunDismiss");
+    });
+
+    it("broadcastFirstRunWelcome posts a firstRunWelcome message to the webview", () => {
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      provider.broadcastFirstRunWelcome([
+        { id: "ollama-basic", label: "Ollama", description: "Local" },
+      ]);
+
+      const posts = postMessage.mock.calls.filter(
+        (args) => (args[0] as { type: string }).type === "firstRunWelcome",
+      );
+      expect(posts).toHaveLength(1);
+      const msg = posts[0][0] as {
+        templates: Array<{ id: string }>;
+      };
+      expect(msg.templates).toHaveLength(1);
+      expect(msg.templates[0].id).toBe("ollama-basic");
+    });
+  });
 });

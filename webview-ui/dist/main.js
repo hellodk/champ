@@ -417,6 +417,63 @@
     messagesContainer.append(empty);
   }
 
+  // -------------------------------------------------------------------
+  // Onboarding (first-run) panel
+  // -------------------------------------------------------------------
+
+  /**
+   * Render the onboarding picker in the messages area. Shows a set of
+   * radio-button template options with a Create + Skip button. Replaces
+   * whatever was previously in messagesContainer.
+   */
+  function renderOnboardingPanel(templates) {
+    messagesContainer.innerHTML = '';
+    const panel = el('div', { class: 'onboarding-panel' });
+    panel.append(
+      el('div', { class: 'onboarding-title' }, ['Welcome to AIDev']),
+      el('div', { class: 'onboarding-subtitle' }, [
+        'No configuration found. Pick a starter template to create .aidev/config.yaml:',
+      ]),
+    );
+
+    let selectedId = templates.length > 0 ? templates[0].id : null;
+
+    const radioGroup = el('div', { class: 'onboarding-radios' });
+    for (const t of templates) {
+      const row = el('label', { class: 'onboarding-radio-row' });
+      const radio = el('input', { type: 'radio', name: 'onboarding-template' });
+      radio.value = t.id;
+      if (t.id === selectedId) radio.checked = true;
+      radio.addEventListener('change', () => {
+        selectedId = t.id;
+      });
+      const textGroup = el('div', { class: 'onboarding-radio-text' });
+      textGroup.append(
+        el('div', { class: 'onboarding-radio-label' }, [t.label]),
+        el('div', { class: 'onboarding-radio-desc' }, [t.description]),
+      );
+      row.append(radio, textGroup);
+      radioGroup.append(row);
+    }
+    panel.append(radioGroup);
+
+    const actions = el('div', { class: 'onboarding-actions' });
+    const createBtn = el('button', { class: 'onboarding-create' }, ['Create Config']);
+    createBtn.addEventListener('click', () => {
+      if (!selectedId) return;
+      vscode.postMessage({ type: 'firstRunSelectRequest', templateId: selectedId });
+    });
+    const skipBtn = el('button', { class: 'onboarding-skip secondary' }, ['Skip']);
+    skipBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'firstRunDismissRequest' });
+      renderEmptyState();
+    });
+    actions.append(createBtn, skipBtn);
+    panel.append(actions);
+
+    messagesContainer.append(panel);
+  }
+
   window.addEventListener('message', (event) => {
     const msg = event.data;
     if (!msg || typeof msg !== 'object') return;
@@ -462,6 +519,9 @@
           available: msg.available || [],
         };
         renderProviderStatus();
+        break;
+      case 'firstRunWelcome':
+        renderOnboardingPanel(msg.templates || []);
         break;
     }
   });
