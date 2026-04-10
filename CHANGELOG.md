@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to AIDev will be documented in this file.
+All notable changes to Champ will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -48,7 +48,7 @@ input. The Skills feature is now complete.
 
 Skills Phases A, B, C, and D are now all shipped. The feature is
 end-to-end usable: 8 built-in slash commands plus user-defined skills
-loaded from `.aidev/skills/`, all discoverable via the autocomplete
+loaded from `.champ/skills/`, all discoverable via the autocomplete
 dropdown, all expandable in the chat input.
 
 ## [0.1.5] — 2026-04-08
@@ -71,7 +71,7 @@ is deferred to a follow-up.
   `unregister`, `get`, `list`, `matchPrefix`, `clear`. Source
   precedence (workspace > user > built-in) is enforced at registration
   time so the user can always override a built-in by dropping a
-  same-named file in `.aidev/skills/`.
+  same-named file in `.champ/skills/`.
 - **`src/skills/variable-resolver.ts`** — substitutes `{{variable}}`
   placeholders in skill templates. Supports `{{selection}}`,
   `{{currentFile}}`, `{{language}}`, `{{userInput}}`, `{{cursorLine}}`,
@@ -96,8 +96,8 @@ is deferred to a follow-up.
     with the resolved skill template before passing to the agent
 - **Extension activation**:
   - Built-in skills loaded at activation
-  - Workspace skills loaded from `<workspace>/.aidev/skills/*.md`
-  - User skills loaded from `~/.aidev/skills/*.md`
+  - Workspace skills loaded from `<workspace>/.champ/skills/*.md`
+  - User skills loaded from `~/.champ/skills/*.md`
   - FileSystemWatcher on the workspace skills directory triggers a
     reload on create/change/delete
   - `buildSkillContext()` populates `selection`, `currentFile`,
@@ -116,27 +116,27 @@ is deferred to a follow-up.
 
 ### Notes
 
-- API keys still go through `AIDev: Set API Key` (SecretStorage). Skills
+- API keys still go through `Champ: Set API Key` (SecretStorage). Skills
   never need keys because they're prompt templates, not provider config.
 - User-defined skills can override any built-in by dropping a same-named
-  `.md` file in `.aidev/skills/` (workspace) or `~/.aidev/skills/` (user).
+  `.md` file in `.champ/skills/` (workspace) or `~/.champ/skills/` (user).
 - Phase D — slash-command autocomplete dropdown in the chat input — is
   deferred to v0.1.6 to keep this release focused.
 
 ## [0.1.4] — 2026-04-06
 
 The "YAML config" release. Adds a hierarchical, version-controlled
-config file format that replaces the flat `aidev.*` keys in
+config file format that replaces the flat `champ.*` keys in
 `settings.json`. Backward compatible — existing settings.json users
 keep working unchanged.
 
 ### Added
 
-- **`.aidev/config.yaml` workspace config and `~/.aidev/config.yaml`
+- **`.champ/config.yaml` workspace config and `~/.champ/config.yaml`
   user config.** Both YAML files use the same schema (see
   `docs/CONFIG.md`). The workspace file is committed and shared with
   the team; the user file is personal. Workspace deep-merges over
-  user, then over legacy `aidev.*` settings, then over built-in
+  user, then over legacy `champ.*` settings, then over built-in
   defaults.
 - **`ConfigLoader` module** (`src/config/config-loader.ts`) — pure
   parser/validator/merger with no filesystem I/O. Hand-rolled
@@ -146,16 +146,16 @@ keep working unchanged.
   placeholders in any config string are resolved against
   `process.env`. Unset variables are left as the literal placeholder
   so misconfigurations are visible.
-- **`AIDev: Generate Config File` command** — writes a starter
-  `.aidev/config.yaml` to the workspace root with every option
+- **`Champ: Generate Config File` command** — writes a starter
+  `.champ/config.yaml` to the workspace root with every option
   documented and conservative defaults.
 - **Hot reload on YAML save.** A FileSystemWatcher on
-  `.aidev/config.yaml` triggers `loadProvider()` whenever the file
+  `.champ/config.yaml` triggers `loadProvider()` whenever the file
   is created, modified, or deleted.
 - **`docs/CONFIG.md`** — full schema reference, migration guide
   from `settings.json`, secret handling rules, validation error
   table, workspace vs user split guidance.
-- **`ProviderFactory.createFromAidevConfig()`** — new YAML-driven
+- **`ProviderFactory.createFromChampConfig()`** — new YAML-driven
   factory path alongside the existing `createFromConfig()`.
 - **`js-yaml` dependency** (~14kb).
 
@@ -165,7 +165,7 @@ keep working unchanged.
   - 19 ConfigLoader tests covering parse, validate, merge,
     substituteEnv, withDefaults, activeProviderConfig, and the
     apiKey rejection rule
-  - 5 createFromAidevConfig tests covering each provider, default
+  - 5 createFromChampConfig tests covering each provider, default
     fallthrough, and the no-provider-set case
 
 ### Documentation
@@ -185,11 +185,11 @@ P0 hallucination mitigations from `docs/HALLUCINATION_MITIGATION.md`.
   features are wired vs built-but-unwired vs missing. 22-item table
   with priority order for closure.
 - **`docs/MODEL_GUIDE.md`** — practical guide to picking open models
-  for AIDev's local agent workflow. Tier 1 / Tier 2 / Tier 0 (autocomplete)
+  for Champ's local agent workflow. Tier 1 / Tier 2 / Tier 0 (autocomplete)
   recommendations with Apple Silicon hardware notes.
 - **`docs/HALLUCINATION_MITIGATION.md`** — deep analysis of why coding
   agents hallucinate and how Cursor, Aider, Continue.dev, Cline, and
-  Codeium address it. Maps each pattern to AIDev's implementation
+  Codeium address it. Maps each pattern to Champ's implementation
   priority.
 
 ### Added — anti-hallucination
@@ -216,7 +216,7 @@ P0 hallucination mitigations from `docs/HALLUCINATION_MITIGATION.md`.
     write/exec tools).
   - Appends mode-specific instructions to the system prompt.
   - Mode is set via `setMode()` and pushed through from both the
-    chat view dropdown and the `AIDev: Toggle Mode` command.
+    chat view dropdown and the `Champ: Toggle Mode` command.
 - **`@-symbol` resolution in chat input.** `ChatViewProvider.setContextResolver()`
   attaches a `ContextResolver`. Every user message is scanned for
   `@Files(...)`, `@Folders(...)`, `@Codebase`, `@Web`, `@Git`, `@Docs(...)`,
@@ -268,7 +268,7 @@ P0 hallucination mitigations from `docs/HALLUCINATION_MITIGATION.md`.
   the model would just describe what to do — never actually creating
   files or running commands.
 - **Agent now has system prompt instructions.** AgentController prepends
-  base instructions telling the model it is "AIDev, an autonomous AI
+  base instructions telling the model it is "Champ, an autonomous AI
   coding assistant" and that it MUST use tools instead of describing
   actions. Without this the model would helpfully explain the steps
   but never take them.
@@ -293,7 +293,7 @@ P0 hallucination mitigations from `docs/HALLUCINATION_MITIGATION.md`.
 - **Activation no longer crashes when an API key is missing.** Previously,
   if the user installed the extension and tried to configure llama.cpp,
   Ollama, or another provider, activation would fail because the default
-  `aidev.provider` was `claude` and `new Anthropic({apiKey: undefined})`
+  `champ.provider` was `claude` and `new Anthropic({apiKey: undefined})`
   throws synchronously. The chat view, commands, and inline completion
   weren't registered as a result, leaving the user with no UI to fix the
   problem. ClaudeProvider, OpenAIProvider, and GeminiProvider now lazy-init
@@ -317,10 +317,10 @@ P0 hallucination mitigations from `docs/HALLUCINATION_MITIGATION.md`.
 ### Added
 
 - **Status bar item** showing the active provider, click to open settings.
-- **`AIDev: Set API Key` command** for storing API keys in SecretStorage
+- **`Champ: Set API Key` command** for storing API keys in SecretStorage
   without editing JSON.
 - **Hot-swap provider on settings change** — `AgentController` and
-  `AidevInlineCompletionProvider` now expose `setProvider()` so the
+  `ChampInlineCompletionProvider` now expose `setProvider()` so the
   extension can swap providers at runtime without re-initializing.
 - **Stub provider** used as a placeholder during activation; emits a
   clear "no provider configured" error in the chat instead of crashing.
@@ -374,7 +374,7 @@ Initial release covering the full 10-phase implementation:
 - `ModelRouter` routing completion/chat/embedding tasks to different providers
 
 #### Phase 5 — Inline autocomplete
-- `AidevInlineCompletionProvider` with microtask coalescing and FIM prompting
+- `ChampInlineCompletionProvider` with microtask coalescing and FIM prompting
 
 #### Phase 6 — Codebase indexing
 - `ChunkingService` regex-based TS/JS function+class extraction with sliding window fallback

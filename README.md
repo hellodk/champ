@@ -1,4 +1,4 @@
-# AIDev — AI Coding Agent for VS Code
+# Champ — AI Coding Agent for VS Code
 
 Open-source VS Code extension that delivers a Cursor-like AI coding experience with multi-agent orchestration, full local LLM support, and strong safety controls. Built in pure TypeScript with a TDD-first workflow.
 
@@ -16,7 +16,7 @@ Open-source VS Code extension that delivers a Cursor-like AI coding experience w
 - **Safety layer** — Command sandbox (blocks `rm -rf /`, `curl | bash`, etc.), secret scanner (redacts API keys before sending to LLM), path traversal protection.
 - **Auto-fix loop** — Detects LSP diagnostic errors after edits and iterates up to 3 times to resolve them.
 - **@-symbols for context injection** — `@Files`, `@Folders`, `@Codebase`, `@Web`, `@Git`, `@Docs`, `@Code`, `@Symbols`.
-- **Rules engine** — Project (`.aidev/rules/*.md`), user, and team rules with glob-based auto-attach.
+- **Rules engine** — Project (`.champ/rules/*.md`), user, and team rules with glob-based auto-attach.
 - **MCP support** — Extend the agent with external Model Context Protocol servers.
 - **Observability** — Per-request latency, token usage, agent step logs, and tool call metrics.
 
@@ -26,18 +26,18 @@ Open-source VS Code extension that delivers a Cursor-like AI coding experience w
 
 **From VSIX** (during development):
 ```bash
-code --install-extension aidev-0.1.0.vsix
+code --install-extension champ-0.1.0.vsix
 ```
 
-**From Marketplace**: (once published) search "AIDev" in the Extensions view.
+**From Marketplace**: (once published) search "Champ" in the Extensions view.
 
 ### Configure a provider
 
-Open settings (`Cmd/Ctrl + ,`) and search for `aidev`. Pick one:
+Open settings (`Cmd/Ctrl + ,`) and search for `champ`. Pick one:
 
 **Cloud (Claude)**
-- Set `aidev.provider` to `claude`
-- Store your API key via the command palette: `AIDev: Set API Key` *(or set `aidev.claude.apiKey` as a workspace-level secret via SecretStorage)*
+- Set `champ.provider` to `claude`
+- Store your API key via the command palette: `Champ: Set API Key` *(or set `champ.claude.apiKey` as a workspace-level secret via SecretStorage)*
 
 **Local (Ollama)** — recommended for privacy
 ```bash
@@ -45,22 +45,22 @@ Open settings (`Cmd/Ctrl + ,`) and search for `aidev`. Pick one:
 ollama pull llama3.1
 ollama pull qwen2.5-coder:1.5b  # for inline autocomplete
 ```
-- Set `aidev.provider` to `ollama`
-- `aidev.ollama.model` to `llama3.1`
-- `aidev.autocomplete.model` to `qwen2.5-coder:1.5b`
+- Set `champ.provider` to `ollama`
+- `champ.ollama.model` to `llama3.1`
+- `champ.autocomplete.model` to `qwen2.5-coder:1.5b`
 
 **Local (llama.cpp)**
 ```bash
 # Build llama.cpp with server support, then:
 ./llama-server -m your-model.gguf --port 8080
 ```
-- Set `aidev.provider` to `llamacpp`
+- Set `champ.provider` to `llamacpp`
 
 Supported providers: `claude`, `openai`, `gemini`, `ollama`, `llamacpp`, `vllm`, `openai-compatible`.
 
 ### Use
 
-1. Click the **AIDev** icon in the Activity Bar to open the chat sidebar.
+1. Click the **Champ** icon in the Activity Bar to open the chat sidebar.
 2. Pick a mode from the dropdown:
    - **Agent** — autonomous multi-step execution
    - **Ask** — read-only Q&A
@@ -74,11 +74,11 @@ Supported providers: `claude`, `openai`, `gemini`, `ollama`, `llamacpp`, `vllm`,
 
 | Command | Keybinding | Description |
 |---------|-----------|-------------|
-| `AIDev: New Chat` | `Cmd/Ctrl + Shift + L` | Start a fresh conversation |
-| `AIDev: Toggle Mode` | `Cmd/Ctrl + Shift + M` | Switch between Agent/Ask/Manual/Plan/Composer |
-| `AIDev: Index Workspace` | — | Build the embedding index for semantic search |
-| `AIDev: Restore Checkpoint` | — | Roll back to a prior agent action |
-| `AIDev: Settings` | — | Jump to AIDev settings |
+| `Champ: New Chat` | `Cmd/Ctrl + Shift + L` | Start a fresh conversation |
+| `Champ: Toggle Mode` | `Cmd/Ctrl + Shift + M` | Switch between Agent/Ask/Manual/Plan/Composer |
+| `Champ: Index Workspace` | — | Build the embedding index for semantic search |
+| `Champ: Restore Checkpoint` | — | Roll back to a prior agent action |
+| `Champ: Settings` | — | Jump to Champ settings |
 
 ## Documentation
 
@@ -151,7 +151,7 @@ src/
 
 ## License
 
-MIT © AIDev contributors. See [`LICENSE`](LICENSE).
+MIT © Champ contributors. See [`LICENSE`](LICENSE).
 
 ## Contributing
 
