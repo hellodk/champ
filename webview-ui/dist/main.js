@@ -708,6 +708,32 @@
     setStreaming(false);
   }
 
+  /**
+   * Show an inline approval dialog when the agent wants to execute
+   * a destructive tool (create/edit/delete file, run terminal).
+   * The user clicks Allow or Deny, which sends an approvalResponse
+   * back to the extension host.
+   */
+  function showApprovalDialog(id, description) {
+    const dialog = el('div', { class: 'approval-dialog' });
+    const desc = el('div', { class: 'approval-desc' }, [description]);
+    const btnRow = el('div', { class: 'approval-btns' });
+    const allowBtn = el('button', { class: 'approval-allow' }, ['Allow']);
+    const denyBtn = el('button', { class: 'approval-deny' }, ['Deny']);
+    allowBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'approvalResponse', id, approved: true });
+      dialog.remove();
+    });
+    denyBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'approvalResponse', id, approved: false });
+      dialog.remove();
+    });
+    btnRow.append(allowBtn, denyBtn);
+    dialog.append(desc, btnRow);
+    messagesContainer.append(dialog);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
+
   function renderEmptyState() {
     messagesContainer.innerHTML = '';
   }
@@ -796,6 +822,9 @@
         break;
       case 'toolCallResult':
         updateToolCallResult(msg.toolName, msg.result, msg.success);
+        break;
+      case 'approvalRequest':
+        showApprovalDialog(msg.id, msg.description);
         break;
       case 'error':
         showError(msg.message);
