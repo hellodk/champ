@@ -64,13 +64,13 @@
   headerLeft.append(headerTitle, headerSubtitle);
 
   const headerRight = el('div', { class: 'header-right' });
-  const newChatBtn = iconButton('+', 'New chat', () => {
+  const newChatBtn = iconButton('codicon-add', 'New chat', () => {
     vscode.postMessage({ type: 'newSessionRequest' });
   });
-  const settingsBtn = iconButton('⚙', 'Open settings', () => {
+  const settingsBtn = iconButton('codicon-settings', 'Open settings', () => {
     vscode.postMessage({ type: 'openSettingsRequest' });
   });
-  const helpBtn = iconButton('?', 'Show user guide', () => {
+  const helpBtn = iconButton('codicon-question', 'Show user guide', () => {
     vscode.postMessage({ type: 'showHelpRequest' });
   });
   headerRight.append(newChatBtn, settingsBtn, helpBtn);
@@ -83,12 +83,14 @@
 
   const tabBar = el('div', { class: 'tab-bar' });
   const tabContainer = el('div', { class: 'tab-container' });
-  const tabAddBtn = el('button', { class: 'tab-add', title: 'New chat' }, ['+']);
+  const tabAddBtn = el('button', { class: 'tab-add', title: 'New chat' });
+  tabAddBtn.append(codicon('add'));
   tabAddBtn.addEventListener('click', () => {
     vscode.postMessage({ type: 'newSessionRequest' });
   });
   // Overflow menu for when there are too many tabs.
-  const tabOverflowBtn = el('button', { class: 'tab-overflow', title: 'All sessions' }, ['≡']);
+  const tabOverflowBtn = el('button', { class: 'tab-overflow', title: 'All sessions' });
+  tabOverflowBtn.append(codicon('list-unordered'));
   const tabOverflowMenu = el('div', { class: 'tab-overflow-menu', hidden: 'true' });
   tabOverflowBtn.addEventListener('click', (ev) => {
     ev.stopPropagation();
@@ -157,31 +159,36 @@
   let compactMode = false;
 
   function actionBtn(label, title, onClick) {
-    const btn = el('button', { class: 'action-btn', title }, [label]);
+    const btn = el('button', { class: 'action-btn', title });
+    if (label && label.startsWith('codicon-')) {
+      btn.append(codicon(label.replace('codicon-', '')));
+    } else {
+      btn.append(document.createTextNode(label || ''));
+    }
     btn.addEventListener('click', onClick);
     return btn;
   }
 
-  const compactBtn = actionBtn('▤', 'Compact view', () => {
+  const compactBtn = actionBtn('codicon-list-flat', 'Compact view', () => {
     compactMode = !compactMode;
     messagesContainer.classList.toggle('compact', compactMode);
     compactBtn.classList.toggle('active', compactMode);
   });
-  const deleteChatBtn = actionBtn('🗑', 'Delete chat', () => {
+  const deleteChatBtn = actionBtn('codicon-trash', 'Delete chat', () => {
     const id = lastSessionData.activeSessionId;
     if (id) vscode.postMessage({ type: 'deleteSessionRequest', sessionId: id });
   });
-  const copyChatBtn = actionBtn('📄', 'Copy chat', () => {
+  const copyChatBtn = actionBtn('codicon-copy', 'Copy chat', () => {
     const text = state.messages
       .map(m => `${m.role}: ${m.text}`)
       .join('\n\n');
     navigator.clipboard.writeText(text).catch(() => {});
   });
-  const helpfulBtn = actionBtn('👍', 'Helpful', () => {
+  const helpfulBtn = actionBtn('codicon-thumbsup', 'Helpful', () => {
     helpfulBtn.classList.toggle('active');
     notHelpfulBtn.classList.remove('active');
   });
-  const notHelpfulBtn = actionBtn('👎', 'Not helpful', () => {
+  const notHelpfulBtn = actionBtn('codicon-thumbsdown', 'Not helpful', () => {
     notHelpfulBtn.classList.toggle('active');
     helpfulBtn.classList.remove('active');
   });
@@ -246,7 +253,8 @@
     fileInput.value = '';
   });
 
-  const attachBtn = el('button', { class: 'attach-btn', title: 'Attach file', 'aria-label': 'Attach file' }, ['📎']);
+  const attachBtn = el('button', { class: 'attach-btn', title: 'Attach file', 'aria-label': 'Attach file' });
+  attachBtn.append(codicon('attach'));
   attachBtn.addEventListener('click', () => fileInput.click());
 
   function renderAttachChips() {
@@ -654,7 +662,8 @@
     const actions = el('div', { class: 'msg-actions' });
 
     if (role === 'user') {
-      const retryBtn = el('button', { class: 'msg-action', title: 'Retry' }, ['↻']);
+      const retryBtn = el('button', { class: 'msg-action', title: 'Retry' });
+      retryBtn.append(codicon('refresh'));
       retryBtn.addEventListener('click', () => {
         const originalText = state.messages[msgIdx]?.text || text;
         state.messages.splice(msgIdx);
@@ -665,7 +674,8 @@
         textarea.value = originalText;
         sendCurrentInput();
       });
-      const copyBtn = el('button', { class: 'msg-action', title: 'Copy' }, ['📋']);
+      const copyBtn = el('button', { class: 'msg-action', title: 'Copy' });
+      copyBtn.append(codicon('copy'));
       copyBtn.addEventListener('click', () => {
         navigator.clipboard.writeText(bodyEl.textContent || '').catch(() => {});
       });
@@ -673,17 +683,21 @@
     }
 
     if (role === 'assistant') {
-      const copyBtn = el('button', { class: 'msg-action', title: 'Copy' }, ['📋']);
+      const copyBtn = el('button', { class: 'msg-action', title: 'Copy' });
+      copyBtn.append(codicon('copy'));
       copyBtn.addEventListener('click', () => {
         navigator.clipboard.writeText(bodyEl.textContent || '').catch(() => {});
       });
-      const delBtn = el('button', { class: 'msg-action', title: 'Delete' }, ['🗑']);
+      const delBtn = el('button', { class: 'msg-action', title: 'Delete' });
+      delBtn.append(codicon('trash'));
       delBtn.addEventListener('click', () => {
         state.messages.splice(msgIdx, 1);
         messageEl.remove();
       });
-      const upBtn = el('button', { class: 'msg-action', title: 'Helpful' }, ['👍']);
-      const downBtn = el('button', { class: 'msg-action', title: 'Not helpful' }, ['👎']);
+      const upBtn = el('button', { class: 'msg-action', title: 'Helpful' });
+      upBtn.append(codicon('thumbsup'));
+      const downBtn = el('button', { class: 'msg-action', title: 'Not helpful' });
+      downBtn.append(codicon('thumbsdown'));
       upBtn.addEventListener('click', () => { upBtn.classList.toggle('active'); downBtn.classList.remove('active'); });
       downBtn.addEventListener('click', () => { downBtn.classList.toggle('active'); upBtn.classList.remove('active'); });
       actions.append(copyBtn, delBtn, upBtn, downBtn);
@@ -723,8 +737,12 @@
     const card = el('div', { class: 'tool-card' });
     // Tool name row with copy button on the right.
     const nameRow = el('div', { class: 'tool-name-row' });
-    const name = el('span', { class: 'tool-name' }, [`🔧 ${toolName}`]);
-    const copyToolBtn = el('button', { class: 'tool-copy-btn', title: 'Copy' }, ['📋']);
+    const toolIcon = codicon('tools');
+    toolIcon.style.marginRight = '6px';
+    const name = el('span', { class: 'tool-name' });
+    name.append(toolIcon, document.createTextNode(toolName));
+    const copyToolBtn = el('button', { class: 'tool-copy-btn', title: 'Copy' });
+    copyToolBtn.append(codicon('copy'));
     copyToolBtn.addEventListener('click', () => {
       const text = JSON.stringify(args, null, 2);
       navigator.clipboard.writeText(text).catch(() => {});
@@ -997,6 +1015,11 @@
     return node;
   }
 
+  /** Create a codicon <i> element: codicon('copy') → <i class="codicon codicon-copy"></i> */
+  function codicon(name) {
+    return el('i', { class: `codicon codicon-${name}` });
+  }
+
   function option(value, label) {
     const o = document.createElement('option');
     o.value = value;
@@ -1009,8 +1032,17 @@
    * than an SVG to keep the bundle tiny — VS Code's font already
    * includes glyphs that look reasonable in any theme.
    */
+  /**
+   * Build a header icon button. If glyph starts with 'codicon-', render
+   * as a codicon <i> element; otherwise use the glyph as text.
+   */
   function iconButton(glyph, ariaLabel, onClick) {
-    const btn = el('button', { class: 'icon-btn', title: ariaLabel, 'aria-label': ariaLabel }, [glyph]);
+    const btn = el('button', { class: 'icon-btn', title: ariaLabel, 'aria-label': ariaLabel });
+    if (glyph && glyph.startsWith('codicon-')) {
+      btn.append(codicon(glyph.replace('codicon-', '')));
+    } else if (glyph) {
+      btn.append(document.createTextNode(glyph));
+    }
     btn.addEventListener('click', onClick);
     return btn;
   }

@@ -663,6 +663,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // the tests look for.
     let scriptUri = "";
     let styleUri = "";
+    let codiconUri = "";
     try {
       const scriptPath = vscode.Uri.joinPath(
         this.extensionUri,
@@ -676,8 +677,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         "dist",
         "main.css",
       );
+      const codiconPath = vscode.Uri.joinPath(
+        this.extensionUri,
+        "node_modules",
+        "@vscode",
+        "codicons",
+        "dist",
+        "codicon.css",
+      );
       scriptUri = webview.asWebviewUri(scriptPath).toString();
       styleUri = webview.asWebviewUri(stylePath).toString();
+      codiconUri = webview.asWebviewUri(codiconPath).toString();
     } catch {
       // Test environment — leave URIs empty.
     }
@@ -695,6 +705,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                  script-src 'nonce-${nonce}';
                  img-src ${cspSource} data:;
                  font-src ${cspSource};" />
+  ${codiconUri ? `<link href="${codiconUri}" rel="stylesheet" />` : ""}
   <link href="${styleUri}" rel="stylesheet" />
   <title>Champ Chat</title>
 </head>
