@@ -24,14 +24,18 @@ const DEFAULT_BASE_URL = "http://localhost:11434";
  * Known models that support native tool calling in Ollama. For unknown
  * models, the prompt-based XML tool calling fallback should be used.
  */
+/**
+ * Models that support Ollama's native tool calling API (not just
+ * text-based tool tokens). Qwen models use their own special token
+ * format (<｜tool▁calls▁begin｜>) which our prompt-based parser
+ * handles — they should NOT be in this list.
+ */
 const TOOL_CALLING_MODELS = new Set([
   "llama3.1",
   "llama3.1:8b",
   "llama3.1:70b",
   "llama3.2",
   "llama3.3",
-  "qwen2.5",
-  "qwen2.5-coder",
   "mistral-nemo",
   "mistral-large",
   "command-r",

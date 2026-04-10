@@ -603,7 +603,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private forwardStreamDelta(delta: StreamDelta): void {
     switch (delta.type) {
       case "text":
-        if (delta.text) this.postMessage(createStreamDelta(delta.text));
+        if (delta.text) {
+          // Strip any Qwen/DeepSeek special tokens that leaked through.
+          const cleaned = delta.text
+            .replace(/<｜[^｜]*｜>/g, "")
+            .replace(/```json\s*\{[\s\S]*?\}\s*```/g, "");
+          const trimmed = cleaned.trim();
+          if (trimmed) this.postMessage(createStreamDelta(trimmed));
+        }
         break;
       case "tool_call_start":
         if (delta.toolCall) {
