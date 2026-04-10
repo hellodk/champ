@@ -684,8 +684,10 @@
   }
 
   function updateToolCallResult(toolName, result, success) {
-    if (!state.currentAssistantMessage) return;
-    const cards = state.currentAssistantMessage.querySelectorAll('.tool-card');
+    // Search ALL tool cards in the messages container, not just
+    // currentAssistantMessage — it may have been nullified by
+    // an intermediate streamEnd before the tool result arrived.
+    const cards = messagesContainer.querySelectorAll('.tool-card');
     for (let i = cards.length - 1; i >= 0; i--) {
       const card = cards[i];
       if (card.dataset.toolName === toolName && !card.dataset.completed) {
@@ -777,6 +779,17 @@
         break;
       case 'streamEnd':
         setStreaming(false);
+        // Safety net: mark any tool cards still showing "Running..."
+        // as completed (the result message may have been lost).
+        for (const card of messagesContainer.querySelectorAll('.tool-card')) {
+          if (!card.dataset.completed) {
+            card.dataset.completed = 'true';
+            const resultEl = card.querySelector('.tool-result');
+            if (resultEl && resultEl.textContent === 'Running...') {
+              resultEl.textContent = 'Done';
+            }
+          }
+        }
         break;
       case 'toolCallStart':
         appendToolCallCard(msg.toolName, msg.args);

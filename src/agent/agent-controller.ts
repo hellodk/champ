@@ -378,13 +378,16 @@ export class AgentController {
         }
       }
 
-      // Persist the assistant turn to history. We store the original
-      // unfiltered text in prompt-based mode so the model sees its own
-      // <tool_call> blocks on the next turn — that helps it stay
-      // consistent with its own format.
+      // Persist the assistant turn to history. Strip any fabricated
+      // <tool_output> blocks that the model self-generated (Qwen models
+      // often output both the tool call AND a fake result in one turn).
+      // We keep the tool_call blocks so the model stays consistent.
+      const historyText = assistantText
+        .replace(/<｜tool▁outputs▁begin｜>[\s\S]*?<｜tool▁outputs▁end｜>/g, "")
+        .trim();
       const assistantMessage: LLMMessage = {
         role: "assistant",
-        content: assistantText,
+        content: historyText || assistantText,
         toolCalls: pendingToolCalls.length > 0 ? pendingToolCalls : undefined,
       };
       this.history.push(assistantMessage);
