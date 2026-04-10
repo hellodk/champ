@@ -34,7 +34,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--vscode-panel-border);
   flex-shrink: 0;
   gap: 8px;
@@ -107,10 +107,10 @@ html, body {
 .messages {
   flex: 1;
   overflow-y: auto;
-  padding: 12px;
+  padding: 16px 14px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 .message {
@@ -120,7 +120,7 @@ html, body {
   max-width: 100%;
 }
 
-/* Cursor-style: user messages right-aligned as compact bubbles */
+/* User messages: right-aligned, compact, themed bubble */
 .message.user {
   align-items: flex-end;
 }
@@ -128,11 +128,14 @@ html, body {
 .message.user .body {
   background-color: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
-  border-radius: 12px 12px 2px 12px;
+  border-radius: 16px 16px 4px 16px;
   max-width: 85%;
+  padding: 10px 14px;
+  font-size: var(--vscode-font-size);
+  line-height: 1.5;
 }
 
-/* Assistant messages: left-aligned, flat, no background */
+/* Assistant messages: left-aligned, clean, no background */
 .message.assistant {
   align-items: flex-start;
 }
@@ -141,30 +144,34 @@ html, body {
   background-color: transparent;
   color: var(--vscode-foreground);
   border-radius: 0;
-  padding: 4px 0;
+  padding: 2px 0;
   max-width: 100%;
+  font-size: var(--vscode-font-size);
+  line-height: 1.65;
 }
 
-/* Error messages: full width, highlighted */
+/* Error messages */
 .message.error .body {
-  background-color: var(--vscode-inputValidation-errorBackground, rgba(255, 0, 0, 0.1));
+  background-color: var(--vscode-inputValidation-errorBackground, rgba(255, 0, 0, 0.08));
   color: var(--vscode-errorForeground);
-  border-radius: 4px;
+  border-radius: 8px;
   border-left: 3px solid var(--vscode-errorForeground);
+  padding: 10px 14px;
 }
 
 .message .body {
   white-space: pre-wrap;
   word-wrap: break-word;
   padding: 8px 12px;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
+/* Tool call cards — compact, rounded */
 .tool-card {
-  margin-top: 6px;
-  padding: 8px;
+  margin-top: 8px;
+  padding: 10px 12px;
   border: 1px solid var(--vscode-panel-border);
-  border-radius: 4px;
+  border-radius: 8px;
   background-color: var(--vscode-textBlockQuote-background);
   font-family: var(--vscode-editor-font-family);
   font-size: calc(var(--vscode-font-size) - 1px);
@@ -177,11 +184,14 @@ html, body {
 
 .tool-card .tool-args,
 .tool-card .tool-result {
-  margin-top: 4px;
+  margin-top: 6px;
   white-space: pre-wrap;
   word-wrap: break-word;
   max-height: 200px;
   overflow-y: auto;
+  border-radius: 4px;
+  padding: 4px 6px;
+  background-color: var(--vscode-editor-background);
 }
 
 .tool-card.error {
@@ -196,9 +206,9 @@ html, body {
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--vscode-panel-border);
-  padding: 8px;
+  padding: 10px 12px 8px;
   flex-shrink: 0;
-  background-color: var(--vscode-input-background);
+  background-color: var(--vscode-editor-background);
   position: relative;
 }
 
@@ -377,12 +387,15 @@ html, body {
 }
 
 .streaming-cursor::after {
-  content: '▊';
-  margin-left: 2px;
-  animation: blink 1s steps(1) infinite;
+  content: '│';
+  margin-left: 1px;
+  color: var(--vscode-editorCursor-foreground, var(--vscode-foreground));
+  opacity: 0.7;
+  animation: cursor-blink 1s ease-in-out infinite;
 }
 
-@keyframes blink {
+@keyframes cursor-blink {
+  0%, 100% { opacity: 0.7; }
   50% { opacity: 0; }
 }
 

@@ -516,6 +516,9 @@
     vscode.postMessage({ type: 'userMessage', text });
     appendMessage('user', text);
     state.currentAssistantMessage = appendMessage('assistant', '');
+    // Show blinking cursor only on the active streaming message.
+    const cursorBody = state.currentAssistantMessage.querySelector('.body');
+    if (cursorBody) cursorBody.classList.add('streaming-cursor');
     textarea.value = '';
     // Clear pending attachment chips after sending.
     pendingFiles.length = 0;
@@ -630,7 +633,12 @@
 
     const messageEl = el('div', { class: `message ${role}` });
     const bodyEl = el('div', { class: 'body' }, [text]);
-    if (role === 'assistant') bodyEl.classList.add('streaming-cursor');
+    // Only show the blinking cursor on the CURRENT streaming message —
+    // not on restored/completed ones. The caller sets
+    // state.currentAssistantMessage after this returns, which is only
+    // done for new live messages, not for history restores.
+    // We add the class here and the caller is responsible for it being
+    // the active streaming message or removing it immediately.
 
     // Hover actions: copy + retry (Cursor-style — appear on hover).
     const actions = el('div', { class: 'msg-actions' });
@@ -675,6 +683,8 @@
   function appendStreamDelta(text) {
     if (!state.currentAssistantMessage) {
       state.currentAssistantMessage = appendMessage('assistant', '');
+      const b = state.currentAssistantMessage.querySelector('.body');
+      if (b) b.classList.add('streaming-cursor');
     }
     const body = state.currentAssistantMessage.querySelector('.body');
     if (body) {
@@ -690,6 +700,8 @@
   function appendToolCallCard(toolName, args) {
     if (!state.currentAssistantMessage) {
       state.currentAssistantMessage = appendMessage('assistant', '');
+      const b = state.currentAssistantMessage.querySelector('.body');
+      if (b) b.classList.add('streaming-cursor');
     }
     const card = el('div', { class: 'tool-card' });
     const name = el('div', { class: 'tool-name' }, [`🔧 ${toolName}`]);
