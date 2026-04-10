@@ -140,8 +140,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   constructor(
     private readonly extensionUri: vscode.Uri,
-    private readonly agent: AgentController,
+    private agent: AgentController,
   ) {}
+
+  /**
+   * Hot-swap the agent controller reference. Called by extension.ts
+   * when the active session changes so all subsequent messages route
+   * to the new session's controller.
+   */
+  setAgent(agent: AgentController): void {
+    this.agent = agent;
+  }
 
   /**
    * Attach a context resolver. When set, every user message is scanned

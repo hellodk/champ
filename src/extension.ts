@@ -283,7 +283,14 @@ export async function activate(
   // ---- Commands -------------------------------------------------------
   context.subscriptions.push(
     vscode.commands.registerCommand("aidev.newChat", () => {
-      agentController.reset();
+      if (agentManager) {
+        const session = agentManager.createSession();
+        chatViewProvider?.setAgent(session.controller);
+        void saveSession(session.metadata.id);
+        broadcastSessionList();
+      } else {
+        agentController.reset();
+      }
       chatViewProvider?.postMessage({
         type: "conversationHistory",
         messages: [],
@@ -499,9 +506,8 @@ export async function activate(
           agentManager.setActive(sessionId);
           const session = agentManager.getActive();
           if (session) {
-            agentController.setProvider(
-              session.controller["provider"] as LLMProvider,
-            );
+            // Swap the chat view's agent to the new session's controller.
+            chatViewProvider?.setAgent(session.controller);
             chatViewProvider?.postMessage({
               type: "conversationHistory",
               messages: session.controller.getHistory(),
@@ -518,7 +524,8 @@ export async function activate(
     vscode.commands.registerCommand("aidev.newSession", (label?: string) => {
       if (!agentManager) return;
       const session = agentManager.createSession(label);
-      // Save the new session to disk.
+      // Swap the chat view to the new session's controller.
+      chatViewProvider?.setAgent(session.controller);
       void saveSession(session.metadata.id);
       chatViewProvider?.postMessage({
         type: "conversationHistory",
@@ -533,10 +540,21 @@ export async function activate(
         agentManager.deleteSession(sessionId);
         await sessionStore.delete(sessionId);
         const active = agentManager.getActive();
-        chatViewProvider?.postMessage({
-          type: "conversationHistory",
-          messages: active ? active.controller.getHistory() : [],
-        });
+        if (active) {
+          chatViewProvider?.setAgent(active.controller);
+          chatViewProvider?.postMessage({
+            type: "conversationHistory",
+            messages: active.controller.getHistory(),
+          });
+        } else {
+          // No sessions left — create a fresh one.
+          const fresh = agentManager.createSession();
+          chatViewProvider?.setAgent(fresh.controller);
+          chatViewProvider?.postMessage({
+            type: "conversationHistory",
+            messages: [],
+          });
+        }
         broadcastSessionList();
       },
     ),
@@ -656,6 +674,8 @@ export async function activate(
       }
       providerRegistry?.register(newProvider);
       agentController.setProvider(newProvider);
+      // Push the new provider into all session controllers too.
+      agentManager?.swapProvider(newProvider);
       inlineProvider.setProvider(newProvider);
       inlineProviderRef.current = newProvider;
       setStatusReady(newProvider);
@@ -776,7 +796,30 @@ export async function activate(
     if (agentManager.listSessions(true).length === 0) {
       agentManager.createSession();
     }
+
+    // Point the ChatViewProvider at the active session's controller.
+    const activeSession = agentManager.getActive();
+    if (activeSession) {
+      chatViewProvider?.setAgent(activeSession.controller);
+      chatViewProvider?.postMessage({
+        type: "conversationHistory",
+        messages: activeSession.controller.getHistory(),
+      });
+    }
     broadcastSessionList();
+
+    // Auto-broadcast session list on every manager event, and
+    // auto-save sessions after state changes.
+    agentManager.onChange((event) => {
+      broadcastSessionList();
+      if (
+        event.type === "sessionCreated" ||
+        event.type === "sessionStateChanged" ||
+        event.type === "sessionUpdated"
+      ) {
+        void saveSession(event.id);
+      }
+    });
   }
 
   // ---- Config change watchers -----------------------------------------
