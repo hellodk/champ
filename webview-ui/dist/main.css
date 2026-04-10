@@ -400,156 +400,161 @@ html, body {
 }
 
 /* -------------------------------------------------------------------
- * Session list (Cursor-style, time-grouped)
+ * Tab bar (browser-style session tabs)
  * ---------------------------------------------------------------- */
 
-.session-panel {
+.tab-bar {
+  display: flex;
+  align-items: center;
   border-bottom: 1px solid var(--vscode-panel-border);
   flex-shrink: 0;
+  height: 34px;
   position: relative;
 }
 
-.session-search {
-  display: block;
-  width: calc(100% - 16px);
-  margin: 8px auto 4px;
-  padding: 6px 10px;
-  font-family: inherit;
-  font-size: var(--vscode-font-size);
-  color: var(--vscode-input-foreground);
-  background-color: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border);
-  border-radius: 8px;
-  outline: none;
+.tab-container {
+  display: flex;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-.session-search:focus {
-  border-color: var(--vscode-focusBorder);
+.tab-container::-webkit-scrollbar {
+  display: none;
 }
 
-.session-search::placeholder {
-  color: var(--vscode-input-placeholderForeground);
-}
-
-.new-agent-btn {
-  display: block;
-  width: calc(100% - 16px);
-  margin: 8px auto;
-  padding: 6px 0;
-  font-family: inherit;
-  font-size: var(--vscode-font-size);
-  color: var(--vscode-foreground);
-  background-color: transparent;
-  border: 1px solid var(--vscode-panel-border);
-  border-radius: 6px;
-  cursor: pointer;
-  text-align: center;
-}
-
-.new-agent-btn:hover {
-  background-color: var(--vscode-list-hoverBackground);
-  border-color: var(--vscode-focusBorder);
-}
-
-.session-list {
-  max-height: 220px;
-  overflow-y: auto;
-  padding-bottom: 4px;
-}
-
-.session-group-header {
-  padding: 6px 12px 2px;
-  font-size: calc(var(--vscode-font-size) - 2px);
-  color: var(--vscode-descriptionForeground);
-  text-transform: capitalize;
-  letter-spacing: 0.3px;
-  user-select: none;
-}
-
-.session-row {
+.tab {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
+  gap: 4px;
+  padding: 0 10px;
+  height: 34px;
+  font-size: calc(var(--vscode-font-size) - 1px);
+  color: var(--vscode-descriptionForeground);
   cursor: pointer;
-  font-size: var(--vscode-font-size);
-  border-radius: 6px;
-  margin: 1px 6px;
+  white-space: nowrap;
+  border-right: 1px solid var(--vscode-panel-border);
+  flex-shrink: 0;
+  max-width: 160px;
+  transition: background-color 0.1s;
 }
 
-.session-row:hover {
+.tab:hover {
+  background-color: var(--vscode-list-hoverBackground);
+  color: var(--vscode-foreground);
+}
+
+.tab.active {
+  background-color: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  border-bottom: 2px solid var(--vscode-focusBorder);
+}
+
+.tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-close {
+  width: 18px;
+  height: 18px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--vscode-font-size) - 1px);
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.tab:hover .tab-close {
+  display: inline-flex;
+}
+
+.tab-close:hover {
+  background-color: var(--vscode-toolbar-hoverBackground);
+  color: var(--vscode-errorForeground);
+}
+
+.tab-add, .tab-overflow {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--vscode-font-size) + 1px);
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tab-add:hover, .tab-overflow:hover {
+  background-color: var(--vscode-list-hoverBackground);
+  color: var(--vscode-foreground);
+}
+
+/* Overflow dropdown for all sessions */
+.tab-overflow-menu {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  z-index: 50;
+  min-width: 200px;
+  max-height: 300px;
+  overflow-y: auto;
+  background-color: var(--vscode-menu-background, var(--vscode-dropdown-background));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.tab-overflow-menu[hidden] {
+  display: none;
+}
+
+.overflow-item {
+  padding: 6px 14px;
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.overflow-item:hover {
   background-color: var(--vscode-list-hoverBackground);
 }
 
-.session-row.active {
+.overflow-item.active {
   background-color: var(--vscode-list-activeSelectionBackground);
   color: var(--vscode-list-activeSelectionForeground);
 }
 
-.session-icon {
-  flex-shrink: 0;
-  width: 18px;
-  text-align: center;
-  font-size: calc(var(--vscode-font-size) - 1px);
-}
+/* -------------------------------------------------------------------
+ * Action bar (below tabs, above messages)
+ * ---------------------------------------------------------------- */
 
-.session-icon.state-completed {
-  color: var(--vscode-charts-green, #6a9955);
-}
-
-.session-icon.state-errored {
-  color: var(--vscode-errorForeground);
-}
-
-.session-icon.state-running {
-  color: var(--vscode-charts-blue, #4ec9b0);
-  animation: dot-pulse 1.5s ease-in-out infinite;
-}
-
-.session-icon.state-aborted {
-  color: var(--vscode-charts-orange, #d19a66);
-}
-
-.session-icon.state-idle {
-  color: var(--vscode-descriptionForeground);
-}
-
-@keyframes dot-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
-}
-
-.session-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Hover actions: age + archive + three-dot menu */
-.session-hover-actions {
-  display: none;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.session-row:hover .session-hover-actions {
+.action-bar {
   display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  flex-shrink: 0;
 }
 
-.session-age {
-  font-size: calc(var(--vscode-font-size) - 2px);
-  color: var(--vscode-descriptionForeground);
-  opacity: 0.7;
-  min-width: 20px;
-  text-align: right;
-}
-
-.session-action-btn {
-  width: 22px;
-  height: 22px;
+.action-btn {
+  width: 26px;
+  height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -560,50 +565,34 @@ html, body {
   border-radius: 4px;
   cursor: pointer;
   padding: 0;
+  transition: background-color 0.1s;
 }
 
-.session-action-btn:hover {
+.action-btn:hover {
   background-color: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
   color: var(--vscode-foreground);
 }
 
-.session-empty {
-  padding: 12px;
-  text-align: center;
-  color: var(--vscode-descriptionForeground);
-  font-size: calc(var(--vscode-font-size) - 1px);
+.action-btn.active {
+  background-color: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
 }
 
-/* -------------------------------------------------------------------
- * Right-click context menu
- * ---------------------------------------------------------------- */
-
-.ctx-menu {
-  position: fixed;
-  z-index: 100;
-  min-width: 160px;
-  background-color: var(--vscode-menu-background, var(--vscode-dropdown-background));
-  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
-  border-radius: 6px;
-  padding: 4px 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+.action-spacer {
+  flex: 1;
 }
 
-.ctx-menu[hidden] {
+/* Compact mode: collapse messages to one-liners */
+.messages.compact .message .body {
+  max-height: 1.6em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
+.messages.compact .tool-card {
   display: none;
-}
-
-.ctx-menu-item {
-  padding: 6px 14px;
-  font-size: var(--vscode-font-size);
-  color: var(--vscode-menu-foreground, var(--vscode-foreground));
-  cursor: pointer;
-  user-select: none;
-}
-
-.ctx-menu-item:hover {
-  background-color: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
-  color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
 }
 
 /* -------------------------------------------------------------------

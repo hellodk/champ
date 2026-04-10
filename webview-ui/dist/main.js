@@ -59,7 +59,7 @@
   // Top header: app title + model indicator on the left, icon buttons on the right.
   const header = el('div', { class: 'header' });
   const headerLeft = el('div', { class: 'header-left' });
-  const headerTitle = el('div', { class: 'header-title' }, ['Champ-1.0.0']);
+  const headerTitle = el('div', { class: 'header-title' }, ['Champ-1.1.0']);
   const headerSubtitle = el('div', { class: 'header-subtitle' }, ['loading…']);
   headerLeft.append(headerTitle, headerSubtitle);
 
@@ -78,160 +78,116 @@
   header.append(headerLeft, headerRight);
 
   // -------------------------------------------------------------------
-  // DOM construction — session list (Cursor-style, time-grouped)
+  // DOM construction — tab bar (browser-style session tabs)
   // -------------------------------------------------------------------
 
-  const sessionPanel = el('div', { class: 'session-panel' });
-
-  // Search bar + "New Agent" button.
-  const sessionSearchInput = el('input', {
-    type: 'text', class: 'session-search', placeholder: 'Search Agents...',
-  });
-  const newAgentBtn = el('button', { class: 'new-agent-btn' }, ['New Agent']);
-  newAgentBtn.addEventListener('click', () => {
+  const tabBar = el('div', { class: 'tab-bar' });
+  const tabContainer = el('div', { class: 'tab-container' });
+  const tabAddBtn = el('button', { class: 'tab-add', title: 'New chat' }, ['+']);
+  tabAddBtn.addEventListener('click', () => {
     vscode.postMessage({ type: 'newSessionRequest' });
   });
-
-  const sessionListEl = el('div', { class: 'session-list' });
-  sessionPanel.append(sessionSearchInput, newAgentBtn, sessionListEl);
-
-  // Filter sessions on search input.
-  let lastSessionData = { sessions: [], activeSessionId: null };
-  sessionSearchInput.addEventListener('input', () => {
-    renderSessionList(lastSessionData.sessions, lastSessionData.activeSessionId);
-  });
-
-  // Right-click / three-dot context menu
-  const ctxMenu = el('div', { class: 'ctx-menu', hidden: 'true' });
-  document.addEventListener('click', () => ctxMenu.setAttribute('hidden', 'true'));
-  sessionPanel.append(ctxMenu);
-
-  function showContextMenu(ev, sessionId) {
-    ev.preventDefault();
+  // Overflow menu for when there are too many tabs.
+  const tabOverflowBtn = el('button', { class: 'tab-overflow', title: 'All sessions' }, ['≡']);
+  const tabOverflowMenu = el('div', { class: 'tab-overflow-menu', hidden: 'true' });
+  tabOverflowBtn.addEventListener('click', (ev) => {
     ev.stopPropagation();
-    ctxMenu.innerHTML = '';
-    const items = [
-      { label: 'Rename', action: () => {
-        const name = prompt('Rename session:');
-        if (name) vscode.postMessage({ type: 'renameSessionRequest', sessionId, newLabel: name });
-      }},
-      { label: 'Delete', action: () => {
-        vscode.postMessage({ type: 'deleteSessionRequest', sessionId });
-      }},
-      { label: 'Archive', action: () => {
-        vscode.postMessage({ type: 'deleteSessionRequest', sessionId });
-      }},
-    ];
-    for (const item of items) {
-      const row = el('div', { class: 'ctx-menu-item' }, [item.label]);
-      row.addEventListener('click', (e) => {
-        e.stopPropagation();
-        ctxMenu.setAttribute('hidden', 'true');
-        item.action();
-      });
-      ctxMenu.append(row);
+    if (tabOverflowMenu.hidden) {
+      renderOverflowMenu();
+      tabOverflowMenu.removeAttribute('hidden');
+    } else {
+      tabOverflowMenu.setAttribute('hidden', 'true');
     }
-    // Position near the click.
-    const rect = sessionPanel.getBoundingClientRect();
-    ctxMenu.style.top = (ev.clientY - rect.top) + 'px';
-    ctxMenu.style.left = Math.min(ev.clientX, rect.right - 170) + 'px';
-    ctxMenu.removeAttribute('hidden');
-  }
+  });
+  document.addEventListener('click', () => tabOverflowMenu.setAttribute('hidden', 'true'));
 
-  /** Format relative age: "2m", "3h", "5d", "2w" */
-  function relativeAge(timestamp) {
-    const diff = Date.now() - timestamp;
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'now';
-    if (mins < 60) return mins + 'm';
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return hrs + 'h';
-    const days = Math.floor(hrs / 24);
-    if (days < 7) return days + 'd';
-    const weeks = Math.floor(days / 7);
-    return weeks + 'w';
-  }
+  tabBar.append(tabContainer, tabAddBtn, tabOverflowBtn, tabOverflowMenu);
 
-  /**
-   * Group sessions by time period and render, matching Cursor's style.
-   */
+  let lastSessionData = { sessions: [], activeSessionId: null };
+
   function renderSessionList(sessions, activeSessionId) {
     lastSessionData = { sessions, activeSessionId };
-    sessionListEl.innerHTML = '';
+    tabContainer.innerHTML = '';
     if (!sessions || sessions.length === 0) return;
+    for (const s of sessions) {
+      const tab = el('div', { class: `tab${s.id === activeSessionId ? ' active' : ''}` });
+      const label = el('span', { class: 'tab-label' }, [
+        (s.label || 'New chat').slice(0, 24) + ((s.label || '').length > 24 ? '…' : '')
+      ]);
+      const closeBtn = el('button', { class: 'tab-close', title: 'Close' }, ['×']);
+      closeBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        vscode.postMessage({ type: 'deleteSessionRequest', sessionId: s.id });
+      });
+      tab.append(label, closeBtn);
+      tab.addEventListener('click', () => {
+        if (s.id !== activeSessionId) {
+          vscode.postMessage({ type: 'switchSessionRequest', sessionId: s.id });
+        }
+      });
+      tabContainer.append(tab);
+    }
+  }
 
-    // Apply search filter.
-    const query = (sessionSearchInput.value || '').toLowerCase();
-    const filtered = query
-      ? sessions.filter(s => (s.label || '').toLowerCase().includes(query))
-      : sessions;
-
-    if (filtered.length === 0) {
-      sessionListEl.append(el('div', { class: 'session-empty' }, ['No matching sessions']));
+  function renderOverflowMenu() {
+    tabOverflowMenu.innerHTML = '';
+    const sessions = lastSessionData.sessions || [];
+    if (sessions.length === 0) {
+      tabOverflowMenu.append(el('div', { class: 'overflow-item' }, ['No sessions']));
       return;
     }
-
-    const now = Date.now();
-    const dayMs = 86400000;
-    const todayStart = new Date().setHours(0, 0, 0, 0);
-    const weekAgo = now - 7 * dayMs;
-
-    const groups = { today: [], last7: [], older: [] };
-    for (const s of filtered) {
-      const t = s.lastActivityAt || s.createdAt || 0;
-      if (t >= todayStart) groups.today.push(s);
-      else if (t >= weekAgo) groups.last7.push(s);
-      else groups.older.push(s);
+    for (const s of sessions) {
+      const isActive = s.id === lastSessionData.activeSessionId;
+      const item = el('div', { class: `overflow-item${isActive ? ' active' : ''}` });
+      item.append(el('span', {}, [s.label || 'New chat']));
+      item.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        tabOverflowMenu.setAttribute('hidden', 'true');
+        if (!isActive) vscode.postMessage({ type: 'switchSessionRequest', sessionId: s.id });
+      });
+      tabOverflowMenu.append(item);
     }
-
-    function renderGroup(groupLabel, items) {
-      if (items.length === 0) return;
-      const header = el('div', { class: 'session-group-header' }, [groupLabel]);
-      sessionListEl.append(header);
-      for (const s of items) {
-        const row = el('div', {
-          class: `session-row${s.id === activeSessionId ? ' active' : ''}`,
-        });
-        // Status icon
-        const icon = el('span', { class: 'session-icon' });
-        if (s.state === 'completed') icon.textContent = '✓';
-        else if (s.state === 'errored') icon.textContent = '✗';
-        else if (s.state === 'running') icon.textContent = '●';
-        else icon.textContent = '○';
-        icon.classList.add('state-' + s.state);
-
-        const labelEl = el('span', { class: 'session-label' }, [s.label || 'New chat']);
-
-        // Hover actions: age + archive + three-dot menu (hidden until hover).
-        const hoverActions = el('span', { class: 'session-hover-actions' });
-        const ageEl = el('span', { class: 'session-age' }, [relativeAge(s.lastActivityAt || s.createdAt)]);
-        const archiveBtn = el('button', { class: 'session-action-btn', title: 'Archive' }, ['⊟']);
-        archiveBtn.addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          vscode.postMessage({ type: 'deleteSessionRequest', sessionId: s.id });
-        });
-        const menuBtn = el('button', { class: 'session-action-btn', title: 'More actions' }, ['⋯']);
-        menuBtn.addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          showContextMenu(ev, s.id);
-        });
-        hoverActions.append(ageEl, archiveBtn, menuBtn);
-
-        row.append(icon, labelEl, hoverActions);
-        row.addEventListener('click', () => {
-          if (s.id !== activeSessionId) {
-            vscode.postMessage({ type: 'switchSessionRequest', sessionId: s.id });
-          }
-        });
-        row.addEventListener('contextmenu', (ev) => showContextMenu(ev, s.id));
-        sessionListEl.append(row);
-      }
-    }
-
-    renderGroup('Today', groups.today);
-    renderGroup('Last 7 Days', groups.last7);
-    renderGroup('Older', groups.older);
   }
+
+  // -------------------------------------------------------------------
+  // DOM construction — action bar (below tabs, above messages)
+  // -------------------------------------------------------------------
+
+  const actionBar = el('div', { class: 'action-bar' });
+  let compactMode = false;
+
+  function actionBtn(label, title, onClick) {
+    const btn = el('button', { class: 'action-btn', title }, [label]);
+    btn.addEventListener('click', onClick);
+    return btn;
+  }
+
+  const compactBtn = actionBtn('▤', 'Compact view', () => {
+    compactMode = !compactMode;
+    messagesContainer.classList.toggle('compact', compactMode);
+    compactBtn.classList.toggle('active', compactMode);
+  });
+  const deleteChatBtn = actionBtn('🗑', 'Delete chat', () => {
+    const id = lastSessionData.activeSessionId;
+    if (id) vscode.postMessage({ type: 'deleteSessionRequest', sessionId: id });
+  });
+  const copyChatBtn = actionBtn('📄', 'Copy chat', () => {
+    const text = state.messages
+      .map(m => `${m.role}: ${m.text}`)
+      .join('\n\n');
+    navigator.clipboard.writeText(text).catch(() => {});
+  });
+  const helpfulBtn = actionBtn('👍', 'Helpful', () => {
+    helpfulBtn.classList.toggle('active');
+    notHelpfulBtn.classList.remove('active');
+  });
+  const notHelpfulBtn = actionBtn('👎', 'Not helpful', () => {
+    notHelpfulBtn.classList.toggle('active');
+    helpfulBtn.classList.remove('active');
+  });
+
+  const actionSpacer = el('div', { class: 'action-spacer' });
+  actionBar.append(compactBtn, deleteChatBtn, copyChatBtn, actionSpacer, helpfulBtn, notHelpfulBtn);
 
   // -------------------------------------------------------------------
   // DOM construction — messages list
@@ -460,7 +416,7 @@
   const messagesWrapper = el('div', { class: 'messages-wrapper' });
   messagesWrapper.append(messagesContainer, scrollPill);
 
-  root.append(header, sessionPanel, messagesWrapper, inputArea);
+  root.append(header, tabBar, actionBar, messagesWrapper, inputArea);
 
   // -------------------------------------------------------------------
   // Provider status rendering — header indicator + model dropdown
@@ -754,7 +710,7 @@
     messagesContainer.innerHTML = '';
     const panel = el('div', { class: 'onboarding-panel' });
     panel.append(
-      el('div', { class: 'onboarding-title' }, ['Welcome to Champ-1.0.0']),
+      el('div', { class: 'onboarding-title' }, ['Welcome to Champ-1.1.0']),
       el('div', { class: 'onboarding-subtitle' }, [
         'No configuration found. Pick a starter template to create .champ/config.yaml:',
       ]),

@@ -81,7 +81,7 @@ export async function activate(
     100,
   );
   statusBarItem.command = "champ.openSettings";
-  statusBarItem.text = "$(loading~spin) Champ-1.0.0";
+  statusBarItem.text = "$(loading~spin) Champ-1.1.0";
   statusBarItem.tooltip = "Champ — click to open settings";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
@@ -715,16 +715,19 @@ export async function activate(
       inlineProvider.setProvider(newProvider);
       inlineProviderRef.current = newProvider;
       setStatusReady(newProvider);
+      const staticModels = buildAvailableModels(yamlConfig);
       chatViewProvider?.broadcastProviderStatus({
         state: "ready",
         providerName: newProvider.name,
         modelName: newProvider.config.model,
-        available: buildAvailableModels(yamlConfig),
+        available: staticModels,
       });
       chatViewProvider?.postMessage({
         type: "conversationHistory",
         messages: [],
       });
+      // Auto-detect models from provider APIs in the background.
+      void autoDetectModels(yamlConfig, newProvider, staticModels);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatusError(message);
@@ -747,19 +750,19 @@ export async function activate(
 
   function setStatusLoading(): void {
     if (!statusBarItem) return;
-    statusBarItem.text = "$(loading~spin) Champ-1.0.0";
+    statusBarItem.text = "$(loading~spin) Champ-1.1.0";
     statusBarItem.tooltip = "Champ — loading provider…";
   }
 
   function setStatusReady(provider: LLMProvider): void {
     if (!statusBarItem) return;
-    statusBarItem.text = `$(robot) Champ-1.0.0: ${provider.name}`;
+    statusBarItem.text = `$(robot) Champ-1.1.0: ${provider.name}`;
     statusBarItem.tooltip = `Champ provider: ${provider.name} (${provider.config.model})\nClick to open settings`;
   }
 
   function setStatusError(message: string): void {
     if (!statusBarItem) return;
-    statusBarItem.text = "$(error) Champ-1.0.0: error";
+    statusBarItem.text = "$(error) Champ-1.1.0: error";
     statusBarItem.tooltip = `Champ provider error: ${message}\nClick to open settings`;
   }
 
@@ -1027,6 +1030,109 @@ indexing:
  * VS Code settings path doesn't enumerate providers, so the dropdown
  * is hidden in that case.
  */
+/**
+ * Query each configured provider's API for available models and
+ * re-broadcast the merged list to the webview. Non-blocking — called
+ * in the background after the initial provider load.
+ */
+async function autoDetectModels(
+  yamlConfig: ChampConfig | null,
+  activeProvider: LLMProvider,
+  staticModels: AvailableProviderModel[],
+): Promise<void> {
+  if (!yamlConfig?.providers) return;
+  const detected: AvailableProviderModel[] = [];
+  for (const [providerName, conf] of Object.entries(yamlConfig.providers)) {
+    if (!conf) continue;
+    try {
+      // Use the active provider's listModels if it's the same provider,
+      // otherwise construct a temporary URL-based query.
+      let models: Array<{ id: string; name: string }> = [];
+      if (
+        providerName === activeProvider.name &&
+        "listModels" in activeProvider &&
+        typeof (activeProvider as { listModels: () => Promise<unknown> })
+          .listModels === "function"
+      ) {
+        models =
+          (await (
+            activeProvider as {
+              listModels: () => Promise<Array<{ id: string; name: string }>>;
+            }
+          ).listModels()) ?? [];
+      } else if (conf.baseUrl) {
+        // Try OpenAI-compatible /v1/models endpoint.
+        try {
+          const res = await fetch(
+            `${conf.baseUrl.replace(/\/$/, "")}/v1/models`,
+          );
+          if (res.ok) {
+            const data = (await res.json()) as { data?: Array<{ id: string }> };
+            models = (data.data ?? []).map((m) => ({ id: m.id, name: m.id }));
+          }
+        } catch {
+          /* offline */
+        }
+        // Try Ollama /api/tags endpoint.
+        if (models.length === 0) {
+          try {
+            const res = await fetch(
+              `${conf.baseUrl.replace(/\/$/, "")}/api/tags`,
+            );
+            if (res.ok) {
+              const data = (await res.json()) as {
+                models?: Array<{ name: string }>;
+              };
+              models = (data.models ?? []).map((m) => ({
+                id: m.name,
+                name: m.name,
+              }));
+            }
+          } catch {
+            /* offline */
+          }
+        }
+      }
+      for (const m of models) {
+        // Avoid duplicates with static list.
+        if (
+          !detected.some(
+            (d) => d.providerName === providerName && d.modelName === m.name,
+          )
+        ) {
+          detected.push({
+            providerName,
+            modelName: m.name,
+            label: `${m.name} (${providerName})`,
+          });
+        }
+      }
+    } catch {
+      /* skip failed providers */
+    }
+  }
+  if (detected.length > 0) {
+    // Merge: detected models first (they're real), then any static-only entries.
+    const merged = [...detected];
+    for (const s of staticModels) {
+      if (
+        !merged.some(
+          (d) =>
+            d.providerName === s.providerName && d.modelName === s.modelName,
+        )
+      ) {
+        merged.push(s);
+      }
+    }
+    chatViewProvider?.broadcastProviderStatus({
+      state: "ready",
+      providerName: activeProvider.name,
+      modelName: activeProvider.config.model,
+      available: merged,
+    });
+  }
+}
+
 function buildAvailableModels(
   yamlConfig: ChampConfig | null,
 ): AvailableProviderModel[] {

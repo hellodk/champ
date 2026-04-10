@@ -188,6 +188,22 @@ export class OllamaProvider implements LLMProvider {
     }
   }
 
+  /**
+   * Query Ollama's /api/tags endpoint for all locally available models.
+   */
+  async listModels(): Promise<Array<{ id: string; name: string }>> {
+    try {
+      const res = await fetch(`${this.config.baseUrl}/api/tags`);
+      if (!res.ok) return [];
+      const data = (await res.json()) as {
+        models?: Array<{ name: string }>;
+      };
+      return (data.models ?? []).map((m) => ({ id: m.name, name: m.name }));
+    } catch {
+      return [];
+    }
+  }
+
   dispose(): void {
     // No resources to release; fetch is stateless.
   }

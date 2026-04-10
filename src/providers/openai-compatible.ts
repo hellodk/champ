@@ -174,6 +174,26 @@ export class OpenAICompatibleProvider implements LLMProvider {
     }
   }
 
+  /**
+   * Query the /v1/models endpoint for available models.
+   * Works with vLLM, llama.cpp, and any OpenAI-compatible server.
+   */
+  async listModels(): Promise<Array<{ id: string; name: string }>> {
+    try {
+      const headers: Record<string, string> = {};
+      const apiKey = this.config.apiKey;
+      if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+      const res = await fetch(this.joinUrl("/models"), { headers });
+      if (!res.ok) return [];
+      const data = (await res.json()) as {
+        data?: Array<{ id: string }>;
+      };
+      return (data.data ?? []).map((m) => ({ id: m.id, name: m.id }));
+    } catch {
+      return [];
+    }
+  }
+
   dispose(): void {
     // Stateless fetch; nothing to release.
   }
