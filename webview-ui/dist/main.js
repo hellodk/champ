@@ -78,70 +78,110 @@
   header.append(headerLeft, headerRight);
 
   // -------------------------------------------------------------------
-  // DOM construction — session list (collapsible)
+  // DOM construction — session list (Cursor-style, time-grouped)
   // -------------------------------------------------------------------
 
   const sessionPanel = el('div', { class: 'session-panel' });
-  const sessionHeader = el('div', { class: 'session-header' });
-  const sessionToggle = el('span', { class: 'session-toggle' }, ['▾']);
-  const sessionTitle = el('span', {}, ['Sessions']);
-  let sessionListExpanded = true;
 
-  sessionHeader.append(sessionToggle, sessionTitle);
-  sessionHeader.addEventListener('click', () => {
-    sessionListExpanded = !sessionListExpanded;
-    sessionToggle.textContent = sessionListExpanded ? '▾' : '▸';
-    sessionListEl.style.display = sessionListExpanded ? '' : 'none';
+  // "New Agent" button at the top.
+  const newAgentBtn = el('button', { class: 'new-agent-btn' }, ['New Agent']);
+  newAgentBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'newSessionRequest' });
   });
 
   const sessionListEl = el('div', { class: 'session-list' });
-  sessionPanel.append(sessionHeader, sessionListEl);
+  sessionPanel.append(newAgentBtn, sessionListEl);
+
+  // Right-click context menu
+  const ctxMenu = el('div', { class: 'ctx-menu', hidden: 'true' });
+  let ctxSessionId = null;
+  document.addEventListener('click', () => ctxMenu.setAttribute('hidden', 'true'));
+  sessionPanel.append(ctxMenu);
+
+  function showContextMenu(ev, sessionId) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    ctxSessionId = sessionId;
+    ctxMenu.innerHTML = '';
+    const items = [
+      { label: 'Rename', action: () => {
+        const name = prompt('Rename session:');
+        if (name) vscode.postMessage({ type: 'renameSessionRequest', sessionId, newLabel: name });
+      }},
+      { label: 'Delete', action: () => {
+        vscode.postMessage({ type: 'deleteSessionRequest', sessionId });
+      }},
+      { label: 'Archive', action: () => {
+        // Archive is handled as delete for now — future: archiveSessionRequest
+        vscode.postMessage({ type: 'deleteSessionRequest', sessionId });
+      }},
+    ];
+    for (const item of items) {
+      const row = el('div', { class: 'ctx-menu-item' }, [item.label]);
+      row.addEventListener('click', (e) => {
+        e.stopPropagation();
+        ctxMenu.setAttribute('hidden', 'true');
+        item.action();
+      });
+      ctxMenu.append(row);
+    }
+    ctxMenu.style.top = ev.clientY + 'px';
+    ctxMenu.style.left = ev.clientX + 'px';
+    ctxMenu.removeAttribute('hidden');
+  }
 
   /**
-   * Re-render the session list from the latest state. Called whenever
-   * a sessionList message arrives from the host.
+   * Group sessions by time period and render, matching Cursor's style.
    */
   function renderSessionList(sessions, activeSessionId) {
     sessionListEl.innerHTML = '';
-    if (!sessions || sessions.length === 0) {
-      sessionPanel.style.display = 'none';
-      return;
-    }
-    sessionPanel.style.display = '';
+    if (!sessions || sessions.length === 0) return;
+
+    const now = Date.now();
+    const dayMs = 86400000;
+    const todayStart = new Date().setHours(0, 0, 0, 0);
+    const weekAgo = now - 7 * dayMs;
+
+    const groups = { today: [], last7: [], older: [] };
     for (const s of sessions) {
-      const row = el('div', {
-        class: `session-row${s.id === activeSessionId ? ' active' : ''}`,
-      });
-      // Status dot
-      const dotColor = {
-        idle: 'var(--vscode-descriptionForeground)',
-        running: 'var(--vscode-charts-blue, #4ec9b0)',
-        completed: 'var(--vscode-charts-green, #6a9955)',
-        errored: 'var(--vscode-errorForeground)',
-        aborted: 'var(--vscode-charts-orange, #d19a66)',
-      }[s.state] || 'var(--vscode-descriptionForeground)';
-      const dot = el('span', { class: 'session-dot' });
-      dot.style.backgroundColor = dotColor;
-      if (s.state === 'running') dot.classList.add('pulse');
-
-      const label = el('span', { class: 'session-label' }, [s.label || 'New chat']);
-      const count = el('span', { class: 'session-count' }, [`${s.messageCount || 0}`]);
-
-      // Delete button (shown on hover)
-      const deleteBtn = el('button', { class: 'session-delete', title: 'Delete session' }, ['×']);
-      deleteBtn.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        vscode.postMessage({ type: 'deleteSessionRequest', sessionId: s.id });
-      });
-
-      row.append(dot, label, count, deleteBtn);
-      row.addEventListener('click', () => {
-        if (s.id !== activeSessionId) {
-          vscode.postMessage({ type: 'switchSessionRequest', sessionId: s.id });
-        }
-      });
-      sessionListEl.append(row);
+      const t = s.lastActivityAt || s.createdAt || 0;
+      if (t >= todayStart) groups.today.push(s);
+      else if (t >= weekAgo) groups.last7.push(s);
+      else groups.older.push(s);
     }
+
+    function renderGroup(label, items) {
+      if (items.length === 0) return;
+      const header = el('div', { class: 'session-group-header' }, [label]);
+      sessionListEl.append(header);
+      for (const s of items) {
+        const row = el('div', {
+          class: `session-row${s.id === activeSessionId ? ' active' : ''}`,
+        });
+        // Status icon
+        const icon = el('span', { class: 'session-icon' });
+        if (s.state === 'completed') icon.textContent = '✓';
+        else if (s.state === 'errored') icon.textContent = '✗';
+        else if (s.state === 'running') icon.textContent = '●';
+        else icon.textContent = '○';
+        icon.classList.add('state-' + s.state);
+
+        const label = el('span', { class: 'session-label' }, [s.label || 'New chat']);
+
+        row.append(icon, label);
+        row.addEventListener('click', () => {
+          if (s.id !== activeSessionId) {
+            vscode.postMessage({ type: 'switchSessionRequest', sessionId: s.id });
+          }
+        });
+        row.addEventListener('contextmenu', (ev) => showContextMenu(ev, s.id));
+        sessionListEl.append(row);
+      }
+    }
+
+    renderGroup('Today', groups.today);
+    renderGroup('Last 7 Days', groups.last7);
+    renderGroup('Older', groups.older);
   }
 
   // -------------------------------------------------------------------
