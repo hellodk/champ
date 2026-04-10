@@ -59,7 +59,7 @@
   // Top header: app title + model indicator on the left, icon buttons on the right.
   const header = el('div', { class: 'header' });
   const headerLeft = el('div', { class: 'header-left' });
-  const headerTitle = el('div', { class: 'header-title' }, ['Champ-1.1.0']);
+  const headerTitle = el('div', { class: 'header-title' }, ['Champ-1.2.0']);
   const headerSubtitle = el('div', { class: 'header-subtitle' }, ['loading…']);
   headerLeft.append(headerTitle, headerSubtitle);
 
@@ -233,29 +233,13 @@
   /** @type {Array<{filename: string, contentBase64: string, mimeType: string}>} */
   const pendingFiles = [];
 
-  // Hidden file input for the paperclip attach button.
-  // Accept all file types: text, images, videos, PDFs, etc.
-  const fileInput = el('input', { type: 'file', class: 'hidden-file-input', multiple: 'true', accept: '*/*' });
-  fileInput.addEventListener('change', () => {
-    const files = fileInput.files;
-    if (!files || files.length === 0) return;
-    for (const file of files) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = /** @type {string} */ (reader.result).split(',')[1] || '';
-        pendingFiles.push({ filename: file.name, contentBase64: base64, mimeType: file.type || 'application/octet-stream' });
-        vscode.postMessage({ type: 'attachFileRequest', filename: file.name, mimeType: file.type || 'application/octet-stream', contentBase64: base64 });
-        renderAttachChips();
-      };
-      reader.readAsDataURL(file);
-    }
-    // Reset so the same file can be re-selected.
-    fileInput.value = '';
-  });
-
+  // Attach button — sends a message to the host which opens VS Code's
+  // native file picker (webview CSP blocks <input type="file">).
   const attachBtn = el('button', { class: 'attach-btn', title: 'Attach file', 'aria-label': 'Attach file' });
   attachBtn.append(codicon('attach'));
-  attachBtn.addEventListener('click', () => fileInput.click());
+  attachBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'openFilePickerRequest' });
+  });
 
   function renderAttachChips() {
     attachChips.innerHTML = '';
@@ -460,7 +444,7 @@
 
   // Textarea row: attach button + textarea side by side.
   const textareaRow = el('div', { class: 'textarea-row' });
-  textareaRow.append(attachBtn, textarea, fileInput);
+  textareaRow.append(attachBtn, textarea);
 
   // Metrics footer — tiny status line below the bottom bar.
   const metricsFooter = el('div', { class: 'metrics-footer' });
@@ -858,7 +842,7 @@
     messagesContainer.innerHTML = '';
     const panel = el('div', { class: 'onboarding-panel' });
     panel.append(
-      el('div', { class: 'onboarding-title' }, ['Welcome to Champ-1.1.0']),
+      el('div', { class: 'onboarding-title' }, ['Welcome to Champ-1.2.0']),
       el('div', { class: 'onboarding-subtitle' }, [
         'No configuration found. Pick a starter template to create .champ/config.yaml:',
       ]),
@@ -932,6 +916,10 @@
         break;
       case 'approvalRequest':
         showApprovalDialog(msg.id, msg.description);
+        break;
+      case 'attachFileAdded':
+        pendingFiles.push({ filename: msg.filename });
+        renderAttachChips();
         break;
       case 'error':
         showError(msg.message);

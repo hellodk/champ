@@ -252,6 +252,15 @@ export interface FirstRunDismissRequest {
 }
 
 /**
+ * The user clicked the attach button. The webview can't use native
+ * file inputs (CSP blocks them), so it asks the host to open VS Code's
+ * file picker dialog.
+ */
+export interface OpenFilePickerRequest {
+  type: "openFilePickerRequest";
+}
+
+/**
  * The user attached a file via the paperclip button. The webview reads
  * the file with FileReader and sends the base64 content to the host.
  * The host decodes it and stores it in pending attachments until the
@@ -299,6 +308,7 @@ export type WebviewToExtensionMessage =
   | FirstRunSelectRequest
   | FirstRunDismissRequest
   | AttachFileRequest
+  | OpenFilePickerRequest
   | SwitchSessionRequest
   | NewSessionRequest
   | DeleteSessionRequest
@@ -466,6 +476,12 @@ export function isAttachFileRequest(
   msg: WebviewToExtensionMessage,
 ): msg is AttachFileRequest {
   return msg.type === "attachFileRequest";
+}
+
+export function isOpenFilePickerRequest(
+  msg: WebviewToExtensionMessage,
+): msg is OpenFilePickerRequest {
+  return msg.type === "openFilePickerRequest";
 }
 
 export function isSwitchSessionRequest(

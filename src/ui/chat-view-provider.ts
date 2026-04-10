@@ -33,6 +33,7 @@ import {
   isFirstRunSelectRequest,
   isFirstRunDismissRequest,
   isAttachFileRequest,
+  isOpenFilePickerRequest,
   isSwitchSessionRequest,
   isNewSessionRequest,
   isDeleteSessionRequest,
@@ -380,6 +381,31 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             createError(`Failed to decode attached file: ${msg.filename}`),
           );
         }
+      } else if (isOpenFilePickerRequest(msg)) {
+        // VS Code webview CSP blocks native <input type="file">.
+        // Use VS Code's showOpenDialog and read the files ourselves.
+        void (async () => {
+          const uris = await vscode.window.showOpenDialog({
+            canSelectMany: true,
+            openLabel: "Attach",
+          });
+          if (!uris || uris.length === 0) return;
+          for (const uri of uris) {
+            try {
+              const data = await vscode.workspace.fs.readFile(uri);
+              const content = new TextDecoder().decode(data);
+              const filename = uri.path.split("/").pop() ?? "file";
+              this.pendingAttachments.push({ filename, content });
+              // Tell webview to show the chip.
+              this.postMessage({
+                type: "attachFileAdded" as never,
+                filename,
+              } as never);
+            } catch {
+              this.postMessage(createError(`Failed to read: ${uri.fsPath}`));
+            }
+          }
+        })();
       } else if (isSwitchSessionRequest(msg)) {
         void vscode.commands.executeCommand(
           "champ.switchSession",
