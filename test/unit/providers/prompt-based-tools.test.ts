@@ -119,5 +119,39 @@ I'll analyze the results.`;
       // Should either skip or return with error, not crash
       expect(calls).toHaveLength(0);
     });
+
+    it("should parse Qwen/DeepSeek special token format", () => {
+      const text = `I'll create the file now.
+<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>function<｜tool▁sep｜>create_file
+\`\`\`json
+{"path": "hello_world.py", "content": "print(\\"Hello, World!\\")"}
+\`\`\`<｜tool▁call▁end｜><｜tool▁calls▁end｜>`;
+
+      const calls = parseToolCallsFromText(text);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].name).toBe("create_file");
+      expect(calls[0].arguments).toEqual({
+        path: "hello_world.py",
+        content: 'print("Hello, World!")',
+      });
+    });
+
+    it("should strip Qwen tokens from extractTextContent", async () => {
+      const { extractTextContent } =
+        await import("@/providers/prompt-based-tools");
+      const text = `I've created the file.
+<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>function<｜tool▁sep｜>create_file
+\`\`\`json
+{"path": "test.py", "content": "pass"}
+\`\`\`<｜tool▁call▁end｜><｜tool▁calls▁end｜>
+<｜tool▁outputs▁begin｜><｜tool▁output▁begin｜>{"status": "success"}<｜tool▁output▁end｜><｜tool▁outputs▁end｜>
+ Done!`;
+
+      const cleaned = extractTextContent(text);
+      expect(cleaned).not.toContain("tool▁");
+      expect(cleaned).not.toContain("tool_call");
+      expect(cleaned).toContain("I've created the file.");
+      expect(cleaned).toContain("Done!");
+    });
   });
 });

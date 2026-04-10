@@ -48,29 +48,56 @@ response as plain text.`;
 }
 
 /**
- * Parses tool calls from a model response. Non-tool-call text is ignored;
- * the caller is responsible for rendering text content separately.
+ * Parses tool calls from a model response. Supports two formats:
+ *
+ * 1. XML format (used by our prompt injection):
+ *    <tool_call><name>...</name><arguments>{...}</arguments></tool_call>
+ *
+ * 2. Qwen/DeepSeek token format:
+ *    <｜tool▁calls▁begin｜><｜tool▁call▁begin｜>function<｜tool▁sep｜>name
+ *    ```json
+ *    {"key": "value"}
+ *    ```<｜tool▁call▁end｜><｜tool▁calls▁end｜>
+ *
+ * Non-tool-call text is ignored; the caller is responsible for
+ * rendering text content separately.
  */
 export function parseToolCallsFromText(text: string): ToolCall[] {
   const results: ToolCall[] = [];
-  // Use [\s\S] to match across newlines without the s flag (Node 20 supports it
-  // but [\s\S] is widely compatible).
-  const regex =
-    /<tool_call>\s*<name>([\s\S]*?)<\/name>\s*<arguments>([\s\S]*?)<\/arguments>\s*<\/tool_call>/g;
 
+  // Format 1: XML <tool_call> blocks.
+  const xmlRegex =
+    /<tool_call>\s*<name>([\s\S]*?)<\/name>\s*<arguments>([\s\S]*?)<\/arguments>\s*<\/tool_call>/g;
   let match: RegExpExecArray | null;
-  while ((match = regex.exec(text)) !== null) {
+  while ((match = xmlRegex.exec(text)) !== null) {
     const name = match[1].trim();
     const argsText = match[2].trim();
-
     let args: Record<string, unknown>;
     try {
       args = JSON.parse(argsText) as Record<string, unknown>;
     } catch {
-      // Skip malformed tool calls entirely.
       continue;
     }
+    results.push({
+      id: `call_${Math.random().toString(36).slice(2, 11)}`,
+      name,
+      arguments: args,
+    });
+  }
 
+  // Format 2: Qwen/DeepSeek special tokens.
+  // Pattern: <｜tool▁call▁begin｜>function<｜tool▁sep｜>TOOL_NAME\n```json\n{...}\n```<｜tool▁call▁end｜>
+  const qwenRegex =
+    /<｜tool▁call▁begin｜>[^<]*<｜tool▁sep｜>(\S+)\s*```(?:json)?\s*([\s\S]*?)```\s*<｜tool▁call▁end｜>/g;
+  while ((match = qwenRegex.exec(text)) !== null) {
+    const name = match[1].trim();
+    const argsText = match[2].trim();
+    let args: Record<string, unknown>;
+    try {
+      args = JSON.parse(argsText) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
     results.push({
       id: `call_${Math.random().toString(36).slice(2, 11)}`,
       name,
@@ -84,9 +111,17 @@ export function parseToolCallsFromText(text: string): ToolCall[] {
 /**
  * Extracts the non-tool-call text from a model response, so the caller can
  * render it to the user separately from tool invocations.
+ *
+ * Strips both XML <tool_call> blocks and Qwen-style special token blocks,
+ * plus any <tool_result>/<tool_output> blocks that shouldn't be shown.
  */
 export function extractTextContent(text: string): string {
-  return text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
+  return text
+    .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "")
+    .replace(/<｜tool▁calls▁begin｜>[\s\S]*?<｜tool▁calls▁end｜>/g, "")
+    .replace(/<｜tool▁call▁begin｜>[\s\S]*?<｜tool▁call▁end｜>/g, "")
+    .replace(/<｜tool▁outputs▁begin｜>[\s\S]*?<｜tool▁outputs▁end｜>/g, "")
+    .trim();
 }
 
 function escapeXml(s: string): string {
