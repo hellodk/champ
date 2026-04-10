@@ -769,10 +769,27 @@
         modeSelect.value = msg.mode;
         break;
       case 'conversationHistory':
-        // Clear and render.
+        // Clear and re-render. If the host sent actual messages
+        // (e.g. session restore/switch), render them; otherwise
+        // show the empty welcome state.
         state.messages = [];
         state.currentAssistantMessage = null;
-        renderEmptyState();
+        if (msg.messages && msg.messages.length > 0) {
+          messagesContainer.innerHTML = '';
+          for (const m of msg.messages) {
+            const role = m.role === 'user' ? 'user'
+              : m.role === 'assistant' ? 'assistant'
+              : null;
+            if (role) {
+              const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+              appendMessage(role, text);
+            }
+          }
+          // Not streaming — clear the cursor.
+          state.currentAssistantMessage = null;
+        } else {
+          renderEmptyState();
+        }
         break;
       case 'ready':
         // Initial handshake; could populate model info.
