@@ -660,10 +660,18 @@
       if (b) b.classList.add('streaming-cursor');
     }
     const card = el('div', { class: 'tool-card' });
-    const name = el('div', { class: 'tool-name' }, [`🔧 ${toolName}`]);
+    // Tool name row with copy button on the right.
+    const nameRow = el('div', { class: 'tool-name-row' });
+    const name = el('span', { class: 'tool-name' }, [`🔧 ${toolName}`]);
+    const copyToolBtn = el('button', { class: 'tool-copy-btn', title: 'Copy' }, ['📋']);
+    copyToolBtn.addEventListener('click', () => {
+      const text = JSON.stringify(args, null, 2);
+      navigator.clipboard.writeText(text).catch(() => {});
+    });
+    nameRow.append(name, copyToolBtn);
     const argsEl = el('div', { class: 'tool-args' }, [JSON.stringify(args, null, 2)]);
     const resultEl = el('div', { class: 'tool-result' }, ['Running...']);
-    card.append(name, argsEl, resultEl);
+    card.append(nameRow, argsEl, resultEl);
     state.currentAssistantMessage.append(card);
     card.dataset.toolName = toolName;
     messagesContainer.scrollTop = messagesContainer.scrollHeight;

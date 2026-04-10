@@ -427,8 +427,14 @@ export class AgentController {
           output: redactedOutput,
         };
 
-        // Emit a synthetic tool_call_end + result for the UI.
-        this.emit({ type: "tool_call_end", toolCallId: call.id });
+        // Emit tool result so the UI can update the "Running..." card.
+        this.emit({
+          type: "tool_call_end",
+          toolCallId: call.id,
+          toolName: call.name,
+          toolResult: redactedOutput,
+          toolSuccess: result.success,
+        });
 
         if (usePromptBased) {
           // For prompt-based providers, the next user message contains

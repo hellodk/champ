@@ -613,7 +613,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
         break;
       case "tool_call_end":
-        // Result arrives via a separate channel from the agent controller.
+        if (delta.toolName) {
+          this.postMessage(
+            createToolCallResult(
+              delta.toolName,
+              delta.toolResult ?? "",
+              delta.toolSuccess ?? true,
+            ),
+          );
+        }
         break;
       case "done":
         this.postMessage(createStreamEnd(delta.usage));

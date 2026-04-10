@@ -86,7 +86,13 @@ export type StreamDelta =
   | { type: "text"; text: string }
   | { type: "tool_call_start"; toolCall: ToolCall }
   | { type: "tool_call_delta"; toolCallId: string; argumentsDelta: string }
-  | { type: "tool_call_end"; toolCallId?: string }
+  | {
+      type: "tool_call_end";
+      toolCallId?: string;
+      toolName?: string;
+      toolResult?: string;
+      toolSuccess?: boolean;
+    }
   | { type: "done"; usage: TokenUsage }
   | { type: "error"; error: string };
 

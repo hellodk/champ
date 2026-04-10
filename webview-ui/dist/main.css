@@ -177,9 +177,41 @@ html, body {
   font-size: calc(var(--vscode-font-size) - 1px);
 }
 
+.tool-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .tool-card .tool-name {
   font-weight: 600;
   color: var(--vscode-symbolIcon-functionForeground, #dcdcaa);
+}
+
+.tool-copy-btn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--vscode-font-size) - 2px);
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.tool-card:hover .tool-copy-btn {
+  opacity: 1;
+}
+
+.tool-copy-btn:hover {
+  background-color: var(--vscode-toolbar-hoverBackground);
+  color: var(--vscode-foreground);
 }
 
 .tool-card .tool-args,
