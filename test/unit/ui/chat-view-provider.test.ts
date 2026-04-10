@@ -750,4 +750,64 @@ describe("ChatViewProvider", () => {
       expect(msg.templates[0].id).toBe("ollama-basic");
     });
   });
+
+  describe("File attachment flow (Phase C)", () => {
+    it("stores an attached file and enriches the next user message", async () => {
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      // Attach a file.
+      view.fireMessage({
+        type: "attachFileRequest",
+        filename: "notes.txt",
+        mimeType: "text/plain",
+        contentBase64: btoa("Hello world"),
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // Now send a message — it should include the file content.
+      view.fireMessage({
+        type: "userMessage",
+        text: "summarize this file",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const processCalls = (agent.processMessage as ReturnType<typeof vi.fn>)
+        .mock.calls;
+      expect(processCalls.length).toBeGreaterThan(0);
+      const sentText = processCalls[0][0] as string;
+      expect(sentText).toContain("summarize this file");
+      expect(sentText).toContain("notes.txt");
+      expect(sentText).toContain("Hello world");
+    });
+
+    it("clears pending attachments after sending a message", async () => {
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      // Attach then send.
+      view.fireMessage({
+        type: "attachFileRequest",
+        filename: "a.txt",
+        mimeType: "text/plain",
+        contentBase64: btoa("data"),
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      view.fireMessage({ type: "userMessage", text: "first" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // Reset mock and send a second message without attaching again.
+      (agent.processMessage as ReturnType<typeof vi.fn>).mockClear();
+      view.fireMessage({ type: "userMessage", text: "second" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const processCalls = (agent.processMessage as ReturnType<typeof vi.fn>)
+        .mock.calls;
+      const sentText = processCalls[0][0] as string;
+      // Should NOT contain the attachment from the first send.
+      expect(sentText).not.toContain("a.txt");
+      expect(sentText).toBe("second");
+    });
+  });
 });

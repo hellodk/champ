@@ -359,6 +359,165 @@ html, body {
 }
 
 /* -------------------------------------------------------------------
+ * Messages wrapper (positioned container for scroll pill)
+ * ---------------------------------------------------------------- */
+
+.messages-wrapper {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.messages-wrapper .messages {
+  flex: 1;
+}
+
+/* -------------------------------------------------------------------
+ * Message hover actions (copy, retry)
+ * ---------------------------------------------------------------- */
+
+.msg-actions {
+  display: none;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.message:hover .msg-actions {
+  display: flex;
+}
+
+.msg-action {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--vscode-font-size) - 1px);
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.msg-action:hover {
+  background-color: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+  border-color: var(--vscode-panel-border);
+  color: var(--vscode-foreground);
+}
+
+/* -------------------------------------------------------------------
+ * Scroll pill
+ * ---------------------------------------------------------------- */
+
+.scroll-pill {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: calc(var(--vscode-font-size) - 1px);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  z-index: 10;
+  user-select: none;
+}
+
+.scroll-pill:hover {
+  background-color: var(--vscode-button-hoverBackground);
+}
+
+.scroll-pill[hidden] {
+  display: none;
+}
+
+/* -------------------------------------------------------------------
+ * Textarea row (attach button + textarea side by side)
+ * ---------------------------------------------------------------- */
+
+.textarea-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.textarea-row textarea {
+  flex: 1;
+}
+
+.attach-btn {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--vscode-font-size) + 2px);
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 2px;
+  cursor: pointer;
+  padding: 0;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+.attach-btn:hover {
+  background-color: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+/* -------------------------------------------------------------------
+ * Attachment chips
+ * ---------------------------------------------------------------- */
+
+.attach-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.attach-chips:empty {
+  display: none;
+}
+
+.attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: calc(var(--vscode-font-size) - 1px);
+  background-color: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  border-radius: 10px;
+}
+
+.attach-chip-remove {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: calc(var(--vscode-font-size));
+  padding: 0 2px;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.attach-chip-remove:hover {
+  opacity: 1;
+}
+
+/* -------------------------------------------------------------------
  * Onboarding panel (first-run config picker)
  * ---------------------------------------------------------------- */
 

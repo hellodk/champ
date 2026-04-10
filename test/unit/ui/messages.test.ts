@@ -252,4 +252,23 @@ describe("Webview Message Protocol", () => {
       expect(isFirstRunDismissRequest(msg)).toBe(true);
     });
   });
+
+  describe("attach file protocol (Phase C)", () => {
+    it("identifies an attachFileRequest from the webview", async () => {
+      const { isAttachFileRequest } = await import("@/ui/messages");
+      const msg: WebviewToExtensionMessage = {
+        type: "attachFileRequest",
+        filename: "readme.md",
+        mimeType: "text/markdown",
+        contentBase64: "SGVsbG8=",
+      };
+      expect(isAttachFileRequest(msg)).toBe(true);
+    });
+
+    it("rejects unrelated messages from the attachFile guard", async () => {
+      const { isAttachFileRequest } = await import("@/ui/messages");
+      const msg: WebviewToExtensionMessage = { type: "cancelRequest" };
+      expect(isAttachFileRequest(msg)).toBe(false);
+    });
+  });
 });

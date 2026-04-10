@@ -225,6 +225,19 @@ export interface FirstRunDismissRequest {
   type: "firstRunDismissRequest";
 }
 
+/**
+ * The user attached a file via the paperclip button. The webview reads
+ * the file with FileReader and sends the base64 content to the host.
+ * The host decodes it and stores it in pending attachments until the
+ * next user message is sent.
+ */
+export interface AttachFileRequest {
+  type: "attachFileRequest";
+  filename: string;
+  mimeType: string;
+  contentBase64: string;
+}
+
 export type WebviewToExtensionMessage =
   | UserMessageRequest
   | SetModeRequest
@@ -237,7 +250,8 @@ export type WebviewToExtensionMessage =
   | ShowHelpRequest
   | SetModelRequest
   | FirstRunSelectRequest
-  | FirstRunDismissRequest;
+  | FirstRunDismissRequest
+  | AttachFileRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)
@@ -388,4 +402,10 @@ export function isFirstRunDismissRequest(
   msg: WebviewToExtensionMessage,
 ): msg is FirstRunDismissRequest {
   return msg.type === "firstRunDismissRequest";
+}
+
+export function isAttachFileRequest(
+  msg: WebviewToExtensionMessage,
+): msg is AttachFileRequest {
+  return msg.type === "attachFileRequest";
 }

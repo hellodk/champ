@@ -84,11 +84,77 @@
   const messagesContainer = el('div', { class: 'messages' });
   renderEmptyState();
 
+  // Scroll pill — floating "↓ new messages" affordance shown when the
+  // user scrolls up during streaming. Clicking it jumps to the bottom.
+  const scrollPill = el('div', { class: 'scroll-pill', hidden: 'true' }, ['↓ New messages']);
+  scrollPill.addEventListener('click', () => {
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    scrollPill.setAttribute('hidden', 'true');
+  });
+
+  // Track whether the user has manually scrolled up.
+  let userScrolledUp = false;
+  messagesContainer.addEventListener('scroll', () => {
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainer;
+    const atBottom = scrollHeight - scrollTop - clientHeight < 40;
+    userScrolledUp = !atBottom;
+    if (atBottom) {
+      scrollPill.setAttribute('hidden', 'true');
+    }
+  });
+
   // -------------------------------------------------------------------
   // DOM construction — input area + bottom bar
   // -------------------------------------------------------------------
 
   const inputArea = el('div', { class: 'input-area' });
+
+  // Attachment chips displayed above the textarea when files are pending.
+  const attachChips = el('div', { class: 'attach-chips' });
+  /** @type {Array<{filename: string, contentBase64: string, mimeType: string}>} */
+  const pendingFiles = [];
+
+  // Hidden file input for the paperclip attach button.
+  const fileInput = el('input', { type: 'file', class: 'hidden-file-input' });
+  fileInput.addEventListener('change', () => {
+    const files = fileInput.files;
+    if (!files || files.length === 0) return;
+    for (const file of files) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = /** @type {string} */ (reader.result).split(',')[1] || '';
+        pendingFiles.push({ filename: file.name, contentBase64: base64, mimeType: file.type || 'application/octet-stream' });
+        vscode.postMessage({ type: 'attachFileRequest', filename: file.name, mimeType: file.type || 'application/octet-stream', contentBase64: base64 });
+        renderAttachChips();
+      };
+      reader.readAsDataURL(file);
+    }
+    // Reset so the same file can be re-selected.
+    fileInput.value = '';
+  });
+
+  const attachBtn = el('button', { class: 'attach-btn', title: 'Attach file', 'aria-label': 'Attach file' }, ['📎']);
+  attachBtn.addEventListener('click', () => fileInput.click());
+
+  function renderAttachChips() {
+    attachChips.innerHTML = '';
+    for (let i = 0; i < pendingFiles.length; i++) {
+      const chip = el('span', { class: 'attach-chip' });
+      chip.append(
+        el('span', {}, [pendingFiles[i].filename]),
+        (() => {
+          const x = el('button', { class: 'attach-chip-remove', title: 'Remove' }, ['×']);
+          x.addEventListener('click', () => {
+            pendingFiles.splice(i, 1);
+            renderAttachChips();
+          });
+          return x;
+        })(),
+      );
+      attachChips.append(chip);
+    }
+  }
+
   const textarea = el('textarea', {
     placeholder: 'Ask AIDev anything... (/ for slash commands, Cmd/Ctrl+Enter to send)',
   });
@@ -169,9 +235,17 @@
     }
   });
 
-  inputArea.append(skillDropdown, textarea, bottomBar);
+  // Textarea row: attach button + textarea side by side.
+  const textareaRow = el('div', { class: 'textarea-row' });
+  textareaRow.append(attachBtn, textarea, fileInput);
 
-  root.append(header, messagesContainer, inputArea);
+  inputArea.append(skillDropdown, attachChips, textareaRow, bottomBar);
+
+  // Wrap messages + scroll pill in a positioned container.
+  const messagesWrapper = el('div', { class: 'messages-wrapper' });
+  messagesWrapper.append(messagesContainer, scrollPill);
+
+  root.append(header, messagesWrapper, inputArea);
 
   // -------------------------------------------------------------------
   // Provider status rendering — header indicator + model dropdown
@@ -237,6 +311,9 @@
     appendMessage('user', text);
     state.currentAssistantMessage = appendMessage('assistant', '');
     textarea.value = '';
+    // Clear pending attachment chips after sending.
+    pendingFiles.length = 0;
+    renderAttachChips();
     setStreaming(true);
   }
 
@@ -341,6 +418,7 @@
     if (state.messages.length === 0) {
       messagesContainer.innerHTML = '';
     }
+    const msgIdx = state.messages.length;
     const msg = { role, text, toolCalls: [] };
     state.messages.push(msg);
 
@@ -348,9 +426,44 @@
     const roleEl = el('div', { class: 'role' }, [role]);
     const bodyEl = el('div', { class: 'body' }, [text]);
     if (role === 'assistant') bodyEl.classList.add('streaming-cursor');
-    messageEl.append(roleEl, bodyEl);
+
+    // Hover actions: copy + retry.
+    const actions = el('div', { class: 'msg-actions' });
+    const copyBtn = el('button', { class: 'msg-action', title: 'Copy to clipboard' }, ['📋']);
+    copyBtn.addEventListener('click', () => {
+      const content = bodyEl.textContent || '';
+      navigator.clipboard.writeText(content).catch(() => {});
+    });
+    actions.append(copyBtn);
+
+    if (role === 'user') {
+      const retryBtn = el('button', { class: 'msg-action', title: 'Retry this message' }, ['↻']);
+      retryBtn.addEventListener('click', () => {
+        // Truncate conversation to this message and resend.
+        const originalText = state.messages[msgIdx]?.text || text;
+        state.messages.splice(msgIdx);
+        state.currentAssistantMessage = null;
+        // Re-render all remaining messages.
+        messagesContainer.innerHTML = '';
+        if (state.messages.length === 0) {
+          renderEmptyState();
+        } else {
+          for (const m of state.messages) {
+            appendMessage(m.role, m.text);
+          }
+        }
+        // Re-send.
+        textarea.value = originalText;
+        sendCurrentInput();
+      });
+      actions.append(retryBtn);
+    }
+
+    messageEl.append(roleEl, bodyEl, actions);
     messagesContainer.append(messageEl);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    if (!userScrolledUp) {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
     return messageEl;
   }
 
@@ -361,7 +474,11 @@
     const body = state.currentAssistantMessage.querySelector('.body');
     if (body) {
       body.textContent = (body.textContent || '') + text;
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      if (userScrolledUp) {
+        scrollPill.removeAttribute('hidden');
+      } else {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
     }
   }
 

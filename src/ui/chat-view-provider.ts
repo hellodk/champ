@@ -32,6 +32,7 @@ import {
   isSetModelRequest,
   isFirstRunSelectRequest,
   isFirstRunDismissRequest,
+  isAttachFileRequest,
   type ExtensionToWebviewMessage,
   type WebviewToExtensionMessage,
   type AvailableProviderModel,
@@ -115,6 +116,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private skillRegistry: ChatSkillRegistry | undefined;
   private skillContextProvider: SkillContextProvider | undefined;
   private skillVariableResolver: SkillVariableResolver | undefined;
+  /**
+   * Files attached via the paperclip button, accumulated until the
+   * next user message is sent. Each entry stores the filename and
+   * decoded text content. Cleared after the message is dispatched.
+   */
+  private pendingAttachments: Array<{
+    filename: string;
+    content: string;
+  }> = [];
   /**
    * Pending approval requests keyed by id. Each entry is the
    * resolve callback of the promise the agent is awaiting. When the
@@ -283,6 +293,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // template. The extension command sets a globalState flag so
         // it doesn't reappear.
         void vscode.commands.executeCommand("aidev.firstRunDismiss");
+      } else if (isAttachFileRequest(msg)) {
+        // Decode the base64 content and store it until the next
+        // user message is sent. The enrichment happens in
+        // handleUserMessage → enrichWithAttachments.
+        try {
+          const content = Buffer.from(msg.contentBase64, "base64").toString(
+            "utf-8",
+          );
+          this.pendingAttachments.push({
+            filename: msg.filename,
+            content,
+          });
+        } catch {
+          this.postMessage(
+            createError(`Failed to decode attached file: ${msg.filename}`),
+          );
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -325,7 +352,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // Then resolve any @-symbol references and append the resolved
     // content to the message. The user's literal text is preserved
     // verbatim at the top so the model still sees the original phrasing.
-    const enrichedText = await this.resolveContextReferences(skillExpanded);
+    const contextResolved = await this.resolveContextReferences(skillExpanded);
+
+    // Append any pending file attachments and clear the buffer.
+    const enrichedText = this.enrichWithAttachments(contextResolved);
 
     // Wire the agent's stream events to the webview for live rendering.
     // Dispose the prior listener first so we don't leak subscriptions.
@@ -452,6 +482,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       .join("\n\n");
 
     return `${text}\n\n# Referenced context\n\n${sections}`;
+  }
+
+  /**
+   * If there are pending file attachments, append them to the message
+   * text as a `# Attached files` section and clear the buffer. Returns
+   * the original text unchanged when no attachments are pending.
+   */
+  private enrichWithAttachments(text: string): string {
+    if (this.pendingAttachments.length === 0) return text;
+
+    const sections = this.pendingAttachments
+      .map((a) => `--- ${a.filename} ---\n${a.content}`)
+      .join("\n\n");
+
+    this.pendingAttachments = [];
+
+    return `${text}\n\n# Attached files\n\n${sections}`;
   }
 
   /**
