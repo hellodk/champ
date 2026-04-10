@@ -708,27 +708,60 @@
     setStreaming(false);
   }
 
+  // Per-session auto-approve flag. When true, all subsequent approval
+  // requests are auto-allowed without showing a dialog.
+  let sessionAutoApprove = false;
+
   /**
    * Show an inline approval dialog when the agent wants to execute
    * a destructive tool (create/edit/delete file, run terminal).
-   * The user clicks Allow or Deny, which sends an approvalResponse
-   * back to the extension host.
+   *
+   * Options:
+   *   Allow            — approve this one tool call
+   *   Allow for Session — auto-approve all remaining calls in this session
+   *   Deny             — skip this tool, agent continues
+   *   Deny & Stop      — skip and abort the entire agent loop
    */
   function showApprovalDialog(id, description) {
+    // If session auto-approve is active, approve immediately.
+    if (sessionAutoApprove) {
+      vscode.postMessage({ type: 'approvalResponse', id, approved: true });
+      return;
+    }
+
     const dialog = el('div', { class: 'approval-dialog' });
     const desc = el('div', { class: 'approval-desc' }, [description]);
     const btnRow = el('div', { class: 'approval-btns' });
+
     const allowBtn = el('button', { class: 'approval-allow' }, ['Allow']);
-    const denyBtn = el('button', { class: 'approval-deny' }, ['Deny']);
     allowBtn.addEventListener('click', () => {
       vscode.postMessage({ type: 'approvalResponse', id, approved: true });
       dialog.remove();
     });
+
+    const allowSessionBtn = el('button', { class: 'approval-allow-session' }, ['Allow for Session']);
+    allowSessionBtn.addEventListener('click', () => {
+      sessionAutoApprove = true;
+      vscode.postMessage({ type: 'approvalResponse', id, approved: true });
+      dialog.remove();
+    });
+
+    const denyBtn = el('button', { class: 'approval-deny' }, ['Deny']);
     denyBtn.addEventListener('click', () => {
       vscode.postMessage({ type: 'approvalResponse', id, approved: false });
       dialog.remove();
     });
-    btnRow.append(allowBtn, denyBtn);
+
+    const denyStopBtn = el('button', { class: 'approval-deny-stop' }, ['Deny & Stop']);
+    denyStopBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'approvalResponse', id, approved: false });
+      // Also cancel the entire agent loop.
+      vscode.postMessage({ type: 'cancelRequest' });
+      dialog.remove();
+      setStreaming(false);
+    });
+
+    btnRow.append(allowBtn, allowSessionBtn, denyBtn, denyStopBtn);
     dialog.append(desc, btnRow);
     messagesContainer.append(dialog);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -839,6 +872,8 @@
         // show the empty welcome state.
         state.messages = [];
         state.currentAssistantMessage = null;
+        // Reset per-session auto-approve on session switch/new chat.
+        sessionAutoApprove = false;
         if (msg.messages && msg.messages.length > 0) {
           messagesContainer.innerHTML = '';
           for (const m of msg.messages) {

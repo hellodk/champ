@@ -901,37 +901,54 @@ html, body {
 
 .approval-btns {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
-.approval-allow {
-  padding: 5px 16px;
+.approval-btns button {
+  padding: 5px 12px;
   font-family: inherit;
-  font-size: var(--vscode-font-size);
-  color: var(--vscode-button-foreground);
-  background-color: var(--vscode-button-background);
+  font-size: calc(var(--vscode-font-size) - 1px);
   border: none;
   border-radius: 6px;
   cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.approval-allow {
+  color: var(--vscode-button-foreground);
+  background-color: var(--vscode-button-background);
 }
 
 .approval-allow:hover {
   background-color: var(--vscode-button-hoverBackground);
 }
 
+.approval-allow-session {
+  color: var(--vscode-button-foreground);
+  background-color: var(--vscode-charts-green, #388a34);
+}
+
+.approval-allow-session:hover {
+  opacity: 0.9;
+}
+
 .approval-deny {
-  padding: 5px 16px;
-  font-family: inherit;
-  font-size: var(--vscode-font-size);
   color: var(--vscode-button-secondaryForeground);
   background-color: var(--vscode-button-secondaryBackground);
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
 }
 
 .approval-deny:hover {
   background-color: var(--vscode-button-secondaryHoverBackground);
+}
+
+.approval-deny-stop {
+  color: var(--vscode-button-foreground);
+  background-color: var(--vscode-errorForeground, #d32f2f);
+}
+
+.approval-deny-stop:hover {
+  opacity: 0.9;
 }
 
 /* -------------------------------------------------------------------
