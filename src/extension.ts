@@ -53,6 +53,8 @@ let metrics: MetricsCollector | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
 let agentManager: AgentManager | undefined;
 let sessionStore: SessionStore | undefined;
+let cachedYamlConfig: import("./config/config-loader").ChampConfig | null =
+  null;
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -245,13 +247,15 @@ export async function activate(
   chatViewProvider.onWebviewReady(() => {
     const provider = inlineProviderRef.current;
     if (provider.name !== "not-configured") {
-      const yamlConfig = null; // Re-resolve would be async; use cached available models.
+      const staticModels = buildAvailableModels(cachedYamlConfig);
       chatViewProvider?.broadcastProviderStatus({
         state: "ready",
         providerName: provider.name,
         modelName: provider.config.model,
-        available: buildAvailableModels(yamlConfig),
+        available: staticModels,
       });
+      // Re-trigger auto-detection in the background.
+      void autoDetectModels(cachedYamlConfig, provider, staticModels);
     }
     broadcastSessionList();
   });
@@ -690,8 +694,10 @@ export async function activate(
       available: [],
     });
     let yamlConfig: ChampConfig | null = null;
+    // Cache for onWebviewReady re-broadcast.
     try {
       yamlConfig = await resolveConfig();
+      cachedYamlConfig = yamlConfig;
       const newProvider = yamlConfig
         ? await factory.createFromChampConfig(yamlConfig, context.secrets)
         : await factory.createFromConfig(
