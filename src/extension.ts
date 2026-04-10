@@ -247,7 +247,16 @@ export async function activate(
   chatViewProvider.onWebviewReady(() => {
     const provider = inlineProviderRef.current;
     if (provider.name !== "not-configured") {
-      const staticModels = buildAvailableModels(cachedYamlConfig);
+      let staticModels = buildAvailableModels(cachedYamlConfig);
+      if (staticModels.length === 0) {
+        staticModels = [
+          {
+            providerName: provider.name,
+            modelName: provider.config.model,
+            label: `${provider.config.model} (${provider.name})`,
+          },
+        ];
+      }
       chatViewProvider?.broadcastProviderStatus({
         state: "ready",
         providerName: provider.name,
@@ -255,7 +264,37 @@ export async function activate(
         available: staticModels,
       });
       // Re-trigger auto-detection in the background.
-      void autoDetectModels(cachedYamlConfig, provider, staticModels);
+      if (cachedYamlConfig) {
+        void autoDetectModels(cachedYamlConfig, provider, staticModels);
+      } else if (
+        "listModels" in provider &&
+        typeof (provider as { listModels: () => Promise<unknown> })
+          .listModels === "function"
+      ) {
+        void (async () => {
+          try {
+            const models = await (
+              provider as {
+                listModels: () => Promise<Array<{ id: string; name: string }>>;
+              }
+            ).listModels();
+            if (models.length > 0) {
+              chatViewProvider?.broadcastProviderStatus({
+                state: "ready",
+                providerName: provider.name,
+                modelName: provider.config.model,
+                available: models.map((m) => ({
+                  providerName: provider.name,
+                  modelName: m.name,
+                  label: `${m.name} (${provider.name})`,
+                })),
+              });
+            }
+          } catch {
+            /* offline */
+          }
+        })();
+      }
     }
     broadcastSessionList();
   });
@@ -721,7 +760,17 @@ export async function activate(
       inlineProvider.setProvider(newProvider);
       inlineProviderRef.current = newProvider;
       setStatusReady(newProvider);
-      const staticModels = buildAvailableModels(yamlConfig);
+      let staticModels = buildAvailableModels(yamlConfig);
+      // If no YAML config, create a fallback entry from the active provider.
+      if (staticModels.length === 0) {
+        staticModels = [
+          {
+            providerName: newProvider.name,
+            modelName: newProvider.config.model,
+            label: `${newProvider.config.model} (${newProvider.name})`,
+          },
+        ];
+      }
       chatViewProvider?.broadcastProviderStatus({
         state: "ready",
         providerName: newProvider.name,
@@ -733,7 +782,39 @@ export async function activate(
         messages: [],
       });
       // Auto-detect models from provider APIs in the background.
-      void autoDetectModels(yamlConfig, newProvider, staticModels);
+      // If no YAML config, try the active provider directly.
+      if (yamlConfig) {
+        void autoDetectModels(yamlConfig, newProvider, staticModels);
+      } else if (
+        "listModels" in newProvider &&
+        typeof (newProvider as { listModels: () => Promise<unknown> })
+          .listModels === "function"
+      ) {
+        void (async () => {
+          try {
+            const models = await (
+              newProvider as {
+                listModels: () => Promise<Array<{ id: string; name: string }>>;
+              }
+            ).listModels();
+            if (models.length > 0) {
+              const detected = models.map((m) => ({
+                providerName: newProvider.name,
+                modelName: m.name,
+                label: `${m.name} (${newProvider.name})`,
+              }));
+              chatViewProvider?.broadcastProviderStatus({
+                state: "ready",
+                providerName: newProvider.name,
+                modelName: newProvider.config.model,
+                available: detected,
+              });
+            }
+          } catch {
+            /* provider offline */
+          }
+        })();
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatusError(message);

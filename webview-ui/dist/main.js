@@ -318,12 +318,21 @@
 
   function renderModelList(filter) {
     modelListEl.innerHTML = '';
-    const available = state.providerStatus.available || [];
+    let available = state.providerStatus.available || [];
+    // If no models were detected, show at least the current active model.
+    if (available.length === 0 && state.providerStatus.providerName) {
+      available = [{
+        providerName: state.providerStatus.providerName,
+        modelName: state.providerStatus.modelName || 'default',
+        label: `${state.providerStatus.modelName || 'default'} (${state.providerStatus.providerName})`,
+      }];
+    }
     const query = filter.toLowerCase();
     for (const m of available) {
-      if (query && !m.label.toLowerCase().includes(query) && !m.providerName.toLowerCase().includes(query)) continue;
+      if (query && !m.label.toLowerCase().includes(query) && !m.providerName.toLowerCase().includes(query) && !(m.modelName || '').toLowerCase().includes(query)) continue;
       const row = el('div', { class: 'model-row' });
-      const isActive = m.providerName === state.providerStatus.providerName;
+      const isActive = m.providerName === state.providerStatus.providerName &&
+        (m.modelName === state.providerStatus.modelName || available.length === 1);
       if (isActive) row.classList.add('active');
       const nameEl = el('span', { class: 'model-name' }, [m.modelName || m.providerName]);
       const tagEl = el('span', { class: 'model-tag' }, [m.providerName]);
@@ -340,7 +349,7 @@
       modelListEl.append(row);
     }
     if (modelListEl.children.length === 0) {
-      modelListEl.append(el('div', { class: 'model-empty' }, ['No models match']));
+      modelListEl.append(el('div', { class: 'model-empty' }, ['No models found']));
     }
   }
 
@@ -446,16 +455,12 @@
       headerSubtitle.classList.remove('error');
     }
 
-    // Model picker button label.
-    if (!ps.available || ps.available.length === 0) {
-      modelPickerBtn.style.display = 'none';
-    } else {
-      modelPickerBtn.style.display = '';
-      const activeLabel = ps.providerName && ps.modelName
-        ? `${ps.modelName}`
-        : ps.providerName || 'Auto';
-      modelPickerBtn.textContent = activeLabel + ' ▾';
-    }
+    // Model picker button — always visible, shows current model.
+    const activeLabel = ps.providerName && ps.modelName
+      ? `${ps.modelName}`
+      : ps.providerName || 'Auto';
+    modelPickerBtn.textContent = activeLabel + ' ▾';
+    modelPickerBtn.style.display = '';
   }
 
   // Initial render so the user sees "loading…" immediately on open.
