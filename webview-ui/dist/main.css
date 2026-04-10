@@ -328,25 +328,102 @@ html, body {
   margin-top: 6px;
 }
 
-.bottom-bar select {
+/* Mode picker button */
+.mode-picker-btn {
   font-family: inherit;
   font-size: calc(var(--vscode-font-size) - 1px);
   color: var(--vscode-foreground);
   background-color: var(--vscode-dropdown-background);
   border: 1px solid var(--vscode-dropdown-border);
-  padding: 4px 8px;
+  padding: 4px 10px;
   cursor: pointer;
   border-radius: 8px;
-  max-width: 200px;
+  white-space: nowrap;
+}
+
+.mode-picker-btn:hover {
+  border-color: var(--vscode-focusBorder);
+}
+
+/* Mode picker popup */
+.mode-picker-popup {
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+  border-radius: 8px;
+  background-color: var(--vscode-menu-background, var(--vscode-dropdown-background));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  margin-bottom: 6px;
   overflow: hidden;
-  text-overflow: ellipsis;
+  padding: 4px 0;
 }
 
-.bottom-bar .mode-select {
-  min-width: 80px;
+.mode-picker-popup[hidden] {
+  display: none;
 }
 
-/* Model picker button (replaces native <select>) */
+.mode-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background-color 0.1s;
+}
+
+.mode-row:hover {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.mode-row.active {
+  background-color: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+.mode-icon {
+  font-size: calc(var(--vscode-font-size) + 1px);
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.mode-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.mode-name {
+  font-size: var(--vscode-font-size);
+  font-weight: 500;
+}
+
+.mode-desc {
+  font-size: calc(var(--vscode-font-size) - 2px);
+  color: var(--vscode-descriptionForeground);
+  margin-top: 1px;
+}
+
+.mode-row.active .mode-desc {
+  color: var(--vscode-list-activeSelectionForeground);
+  opacity: 0.7;
+}
+
+.mode-check {
+  flex-shrink: 0;
+  font-size: calc(var(--vscode-font-size) - 1px);
+}
+
+/* Shared picker hint */
+.picker-hint {
+  padding: 6px 14px 4px;
+  font-size: calc(var(--vscode-font-size) - 2px);
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.6;
+  border-top: 1px solid var(--vscode-panel-border);
+  margin-top: 4px;
+}
+
+/* Model picker button */
 .model-picker-btn {
   font-family: inherit;
   font-size: calc(var(--vscode-font-size) - 1px);
@@ -649,8 +726,9 @@ html, body {
 
 .msg-actions {
   display: none;
-  gap: 4px;
+  gap: 2px;
   margin-top: 4px;
+  justify-content: flex-end;
 }
 
 .message:hover .msg-actions {
@@ -658,24 +736,28 @@ html, body {
 }
 
 .msg-action {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: calc(var(--vscode-font-size) - 1px);
+  font-size: calc(var(--vscode-font-size) - 2px);
   color: var(--vscode-descriptionForeground);
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 3px;
+  border: none;
+  border-radius: 4px;
   cursor: pointer;
   padding: 0;
+  transition: background-color 0.1s, color 0.1s;
 }
 
 .msg-action:hover {
   background-color: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
-  border-color: var(--vscode-panel-border);
   color: var(--vscode-foreground);
+}
+
+.msg-action.active {
+  color: var(--vscode-button-background);
 }
 
 /* -------------------------------------------------------------------
@@ -878,6 +960,22 @@ html, body {
   text-align: center;
   color: var(--vscode-descriptionForeground);
   font-size: calc(var(--vscode-font-size) - 1px);
+}
+
+.model-footer {
+  border-top: 1px solid var(--vscode-panel-border);
+  margin-top: 4px;
+}
+
+.model-add {
+  padding: 8px 14px;
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-textLink-foreground, var(--vscode-button-background));
+  cursor: pointer;
+}
+
+.model-add:hover {
+  background-color: var(--vscode-list-hoverBackground);
 }
 
 /* -------------------------------------------------------------------

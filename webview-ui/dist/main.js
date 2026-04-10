@@ -275,21 +275,58 @@
   // a / at the start of the input.
   const skillDropdown = el('div', { class: 'skill-dropdown', hidden: 'true' });
 
-  // Bottom bar: Mode select, Model select, Cancel/Send buttons.
+  // Bottom bar: Mode picker, Model picker, Cancel/Send buttons.
   const bottomBar = el('div', { class: 'bottom-bar' });
 
-  const modeSelect = el('select', { class: 'mode-select', title: 'Agent mode' }, [
-    option('agent', 'Agent'),
-    option('ask', 'Ask'),
-    option('manual', 'Manual'),
-    option('plan', 'Plan'),
-    option('composer', 'Composer'),
-  ]);
-  modeSelect.value = state.mode;
-  modeSelect.addEventListener('change', () => {
-    state.mode = modeSelect.value;
-    vscode.postMessage({ type: 'setMode', mode: state.mode });
+  // Mode picker — styled popup replacing native <select>.
+  const modeIcons = { agent: '⚙', ask: '💬', manual: '🛡', plan: '📋', composer: '🎼' };
+  const modeDescs = {
+    agent: 'Autonomous — uses tools, edits files',
+    ask: 'Read-only — answers questions, no edits',
+    manual: 'Step-by-step — approval for each action',
+    plan: 'Plan only — research, no changes',
+    composer: 'Multi-file — bundled diffs',
+  };
+  const modePickerBtn = el('button', { class: 'mode-picker-btn' }, [`${modeIcons[state.mode] || '⚙'} ${state.mode.charAt(0).toUpperCase() + state.mode.slice(1)} ▾`]);
+  const modePickerPopup = el('div', { class: 'mode-picker-popup', hidden: 'true' });
+  modePickerBtn.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    if (modePickerPopup.hidden) {
+      renderModeList();
+      modePickerPopup.removeAttribute('hidden');
+    } else {
+      modePickerPopup.setAttribute('hidden', 'true');
+    }
   });
+  document.addEventListener('click', () => modePickerPopup.setAttribute('hidden', 'true'));
+  modePickerPopup.addEventListener('click', (ev) => ev.stopPropagation());
+
+  function renderModeList() {
+    modePickerPopup.innerHTML = '';
+    for (const m of ['agent', 'ask', 'manual', 'plan', 'composer']) {
+      const row = el('div', { class: `mode-row${m === state.mode ? ' active' : ''}` });
+      const icon = el('span', { class: 'mode-icon' }, [modeIcons[m] || '']);
+      const textCol = el('div', { class: 'mode-text' });
+      const nameEl = el('span', { class: 'mode-name' }, [m.charAt(0).toUpperCase() + m.slice(1)]);
+      const descEl = el('span', { class: 'mode-desc' }, [modeDescs[m] || '']);
+      textCol.append(nameEl, descEl);
+      if (m === state.mode) {
+        const check = el('span', { class: 'mode-check' }, ['✓']);
+        row.append(icon, textCol, check);
+      } else {
+        row.append(icon, textCol);
+      }
+      row.addEventListener('click', () => {
+        state.mode = m;
+        vscode.postMessage({ type: 'setMode', mode: m });
+        modePickerBtn.textContent = `${modeIcons[m]} ${m.charAt(0).toUpperCase() + m.slice(1)} ▾`;
+        modePickerPopup.setAttribute('hidden', 'true');
+      });
+      modePickerPopup.append(row);
+    }
+    const hint = el('div', { class: 'picker-hint' }, ['Ctrl+Shift+M to toggle']);
+    modePickerPopup.append(hint);
+  }
 
   // Model picker — Cursor-style popup instead of native <select>.
   const modelPickerBtn = el('button', { class: 'model-picker-btn', title: 'Switch model' }, ['Auto']);
@@ -319,7 +356,6 @@
   function renderModelList(filter) {
     modelListEl.innerHTML = '';
     let available = state.providerStatus.available || [];
-    // If no models were detected, show at least the current active model.
     if (available.length === 0 && state.providerStatus.providerName) {
       available = [{
         providerName: state.providerStatus.providerName,
@@ -335,7 +371,7 @@
         (m.modelName === state.providerStatus.modelName || available.length === 1);
       if (isActive) row.classList.add('active');
       const nameEl = el('span', { class: 'model-name' }, [m.modelName || m.providerName]);
-      const tagEl = el('span', { class: 'model-tag' }, [m.providerName]);
+      const tagEl = el('span', { class: 'model-tag' }, ['(autodetected)']);
       if (isActive) {
         const check = el('span', { class: 'model-check' }, ['✓']);
         row.append(nameEl, tagEl, check);
@@ -351,6 +387,16 @@
     if (modelListEl.children.length === 0) {
       modelListEl.append(el('div', { class: 'model-empty' }, ['No models found']));
     }
+    // Footer: + Add model + shortcut hint.
+    const footer = el('div', { class: 'model-footer' });
+    const addBtn = el('div', { class: 'model-add' }, ['+ Add Chat model']);
+    addBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'openSettingsRequest' });
+      modelPickerPopup.setAttribute('hidden', 'true');
+    });
+    const shortcutHint = el('div', { class: 'picker-hint' }, ["Ctrl+' to toggle model"]);
+    footer.append(addBtn, shortcutHint);
+    modelListEl.append(footer);
   }
 
   const bottomSpacer = el('div', { class: 'bottom-spacer' });
@@ -364,7 +410,10 @@
     setStreaming(false);
   });
 
-  bottomBar.append(modeSelect, modelPickerBtn, bottomSpacer, cancelBtn, sendBtn);
+  const sendBtnLabel = el('span', {}, ['↵ Enter']);
+  sendBtn.innerHTML = '';
+  sendBtn.append(sendBtnLabel);
+  bottomBar.append(modePickerBtn, modelPickerBtn, bottomSpacer, cancelBtn, sendBtn);
 
   textarea.addEventListener('input', () => {
     handleSkillInput();
@@ -419,7 +468,7 @@
     metricsFooter.textContent = `${m.totalRequests} req · ${tokensIn} in · ${tokensOut} out · ${m.averageLatency}ms avg${m.totalFailures > 0 ? ` · ${m.totalFailures} err` : ''}`;
   }
 
-  inputArea.append(skillDropdown, attachChips, textareaRow, modelPickerPopup, bottomBar, metricsFooter);
+  inputArea.append(skillDropdown, attachChips, textareaRow, modePickerPopup, modelPickerPopup, bottomBar, metricsFooter);
 
   // Wrap messages + scroll pill in a positioned container.
   const messagesWrapper = el('div', { class: 'messages-wrapper' });
@@ -601,36 +650,43 @@
     // We add the class here and the caller is responsible for it being
     // the active streaming message or removing it immediately.
 
-    // Hover actions: copy + retry (Cursor-style — appear on hover).
+    // Per-message action bar (Continue.dev style) — floats on the right, visible on hover.
     const actions = el('div', { class: 'msg-actions' });
-    const copyBtn = el('button', { class: 'msg-action', title: 'Copy to clipboard' }, ['📋']);
-    copyBtn.addEventListener('click', () => {
-      const content = bodyEl.textContent || '';
-      navigator.clipboard.writeText(content).catch(() => {});
-    });
-    actions.append(copyBtn);
 
     if (role === 'user') {
-      const retryBtn = el('button', { class: 'msg-action', title: 'Retry this message' }, ['↻']);
+      const retryBtn = el('button', { class: 'msg-action', title: 'Retry' }, ['↻']);
       retryBtn.addEventListener('click', () => {
-        // Truncate conversation to this message and resend.
         const originalText = state.messages[msgIdx]?.text || text;
         state.messages.splice(msgIdx);
         state.currentAssistantMessage = null;
-        // Re-render all remaining messages.
         messagesContainer.innerHTML = '';
-        if (state.messages.length === 0) {
-          renderEmptyState();
-        } else {
-          for (const m of state.messages) {
-            appendMessage(m.role, m.text);
-          }
-        }
-        // Re-send.
+        if (state.messages.length === 0) renderEmptyState();
+        else for (const m of state.messages) appendMessage(m.role, m.text);
         textarea.value = originalText;
         sendCurrentInput();
       });
-      actions.append(retryBtn);
+      const copyBtn = el('button', { class: 'msg-action', title: 'Copy' }, ['📋']);
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(bodyEl.textContent || '').catch(() => {});
+      });
+      actions.append(retryBtn, copyBtn);
+    }
+
+    if (role === 'assistant') {
+      const copyBtn = el('button', { class: 'msg-action', title: 'Copy' }, ['📋']);
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(bodyEl.textContent || '').catch(() => {});
+      });
+      const delBtn = el('button', { class: 'msg-action', title: 'Delete' }, ['🗑']);
+      delBtn.addEventListener('click', () => {
+        state.messages.splice(msgIdx, 1);
+        messageEl.remove();
+      });
+      const upBtn = el('button', { class: 'msg-action', title: 'Helpful' }, ['👍']);
+      const downBtn = el('button', { class: 'msg-action', title: 'Not helpful' }, ['👎']);
+      upBtn.addEventListener('click', () => { upBtn.classList.toggle('active'); downBtn.classList.remove('active'); });
+      downBtn.addEventListener('click', () => { downBtn.classList.toggle('active'); upBtn.classList.remove('active'); });
+      actions.append(copyBtn, delBtn, upBtn, downBtn);
     }
 
     messageEl.append(bodyEl, actions);
