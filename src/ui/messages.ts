@@ -8,6 +8,7 @@
  */
 import type { AgentMode } from "../prompts/system-prompt";
 import type { LLMMessage } from "../providers/types";
+import type { SessionMetadata } from "../agent-manager/types";
 
 // ---------------------------------------------------------------------------
 // Extension Host -> Webview
@@ -130,6 +131,16 @@ export interface FirstRunWelcomeMessage {
   templates: FirstRunTemplate[];
 }
 
+/**
+ * Full session list sent to the webview on activation and after every
+ * session change (create/switch/delete/rename).
+ */
+export interface SessionListMessage {
+  type: "sessionList";
+  sessions: SessionMetadata[];
+  activeSessionId: string | null;
+}
+
 export type ExtensionToWebviewMessage =
   | StreamDeltaMessage
   | StreamEndMessage
@@ -142,7 +153,8 @@ export type ExtensionToWebviewMessage =
   | ReadyMessage
   | SkillAutocompleteResponseMessage
   | ProviderStatusMessage
-  | FirstRunWelcomeMessage;
+  | FirstRunWelcomeMessage
+  | SessionListMessage;
 
 // ---------------------------------------------------------------------------
 // Webview -> Extension Host
@@ -238,6 +250,27 @@ export interface AttachFileRequest {
   contentBase64: string;
 }
 
+export interface SwitchSessionRequest {
+  type: "switchSessionRequest";
+  sessionId: string;
+}
+
+export interface NewSessionRequest {
+  type: "newSessionRequest";
+  label?: string;
+}
+
+export interface DeleteSessionRequest {
+  type: "deleteSessionRequest";
+  sessionId: string;
+}
+
+export interface RenameSessionRequest {
+  type: "renameSessionRequest";
+  sessionId: string;
+  newLabel: string;
+}
+
 export type WebviewToExtensionMessage =
   | UserMessageRequest
   | SetModeRequest
@@ -251,7 +284,11 @@ export type WebviewToExtensionMessage =
   | SetModelRequest
   | FirstRunSelectRequest
   | FirstRunDismissRequest
-  | AttachFileRequest;
+  | AttachFileRequest
+  | SwitchSessionRequest
+  | NewSessionRequest
+  | DeleteSessionRequest
+  | RenameSessionRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)
@@ -326,6 +363,13 @@ export function createFirstRunWelcome(
   templates: FirstRunTemplate[],
 ): FirstRunWelcomeMessage {
   return { type: "firstRunWelcome", templates };
+}
+
+export function createSessionList(
+  sessions: SessionMetadata[],
+  activeSessionId: string | null,
+): SessionListMessage {
+  return { type: "sessionList", sessions, activeSessionId };
 }
 
 // ---------------------------------------------------------------------------
@@ -408,4 +452,28 @@ export function isAttachFileRequest(
   msg: WebviewToExtensionMessage,
 ): msg is AttachFileRequest {
   return msg.type === "attachFileRequest";
+}
+
+export function isSwitchSessionRequest(
+  msg: WebviewToExtensionMessage,
+): msg is SwitchSessionRequest {
+  return msg.type === "switchSessionRequest";
+}
+
+export function isNewSessionRequest(
+  msg: WebviewToExtensionMessage,
+): msg is NewSessionRequest {
+  return msg.type === "newSessionRequest";
+}
+
+export function isDeleteSessionRequest(
+  msg: WebviewToExtensionMessage,
+): msg is DeleteSessionRequest {
+  return msg.type === "deleteSessionRequest";
+}
+
+export function isRenameSessionRequest(
+  msg: WebviewToExtensionMessage,
+): msg is RenameSessionRequest {
+  return msg.type === "renameSessionRequest";
 }

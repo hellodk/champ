@@ -2,7 +2,7 @@
   "name": "aidev",
   "displayName": "AIDev - AI Coding Agent",
   "description": "Cursor-like AI coding experience with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "publisher": "aidev-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -95,6 +95,10 @@
       {
         "command": "aidev.showOnboarding",
         "title": "AIDev: Show Onboarding"
+      },
+      {
+        "command": "aidev.cleanupSessions",
+        "title": "AIDev: Clean Up Old Sessions"
       }
     ],
     "configuration": {

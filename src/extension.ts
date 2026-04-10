@@ -40,6 +40,8 @@ import { BUILT_IN_SKILL_TEXTS } from "./skills/built-in";
 import type { LLMProvider } from "./providers/types";
 import type { AvailableProviderModel } from "./ui/messages";
 import { SAMPLE_CONFIGS } from "./config/sample-configs";
+import { AgentManager } from "./agent-manager/agent-manager";
+import { SessionStore } from "./agent-manager/session-store";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -49,6 +51,8 @@ let providerRegistry: ProviderRegistry | undefined;
 let chatViewProvider: ChatViewProvider | undefined;
 let metrics: MetricsCollector | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
+let agentManager: AgentManager | undefined;
+let sessionStore: SessionStore | undefined;
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -94,6 +98,16 @@ export async function activate(
     stubProvider,
     toolRegistry,
     workspaceRoot,
+  );
+
+  // ---- Agent Manager (multi-session orchestrator) --------------------
+  agentManager = new AgentManager(
+    toolRegistry,
+    workspaceRoot,
+    () => inlineProviderRef?.current ?? stubProvider,
+  );
+  sessionStore = new SessionStore(
+    path.join(workspaceRoot, ".aidev", "sessions"),
   );
 
   agentController.onStreamDelta((delta) => {
@@ -476,6 +490,72 @@ export async function activate(
         })),
       );
     }),
+    // ---- Session management commands ------------------------------------
+    vscode.commands.registerCommand(
+      "aidev.switchSession",
+      (sessionId: string) => {
+        if (!agentManager) return;
+        try {
+          agentManager.setActive(sessionId);
+          const session = agentManager.getActive();
+          if (session) {
+            agentController.setProvider(
+              session.controller["provider"] as LLMProvider,
+            );
+            chatViewProvider?.postMessage({
+              type: "conversationHistory",
+              messages: session.controller.getHistory(),
+            });
+          }
+          broadcastSessionList();
+        } catch {
+          void vscode.window.showErrorMessage(
+            "AIDev: failed to switch session.",
+          );
+        }
+      },
+    ),
+    vscode.commands.registerCommand("aidev.newSession", (label?: string) => {
+      if (!agentManager) return;
+      const session = agentManager.createSession(label);
+      // Save the new session to disk.
+      void saveSession(session.metadata.id);
+      chatViewProvider?.postMessage({
+        type: "conversationHistory",
+        messages: [],
+      });
+      broadcastSessionList();
+    }),
+    vscode.commands.registerCommand(
+      "aidev.deleteSession",
+      async (sessionId: string) => {
+        if (!agentManager || !sessionStore) return;
+        agentManager.deleteSession(sessionId);
+        await sessionStore.delete(sessionId);
+        const active = agentManager.getActive();
+        chatViewProvider?.postMessage({
+          type: "conversationHistory",
+          messages: active ? active.controller.getHistory() : [],
+        });
+        broadcastSessionList();
+      },
+    ),
+    vscode.commands.registerCommand(
+      "aidev.renameSession",
+      (sessionId: string, newLabel: string) => {
+        if (!agentManager) return;
+        agentManager.renameSession(sessionId, newLabel);
+        void saveSession(sessionId);
+        broadcastSessionList();
+      },
+    ),
+    vscode.commands.registerCommand("aidev.cleanupSessions", async () => {
+      if (!sessionStore) return;
+      const pruned = await sessionStore.pruneOlderThan(30);
+      void vscode.window.showInformationMessage(
+        `AIDev: cleaned up ${pruned} session(s) older than 30 days.`,
+      );
+    }),
   );
 
   // ---- Config loader (YAML + VS Code settings fallback) -------------
@@ -627,6 +707,27 @@ export async function activate(
     statusBarItem.tooltip = `AIDev provider error: ${message}\nClick to open settings`;
   }
 
+  /** Broadcast the current session list to the webview. */
+  function broadcastSessionList(): void {
+    if (!agentManager) return;
+    chatViewProvider?.broadcastSessionList(
+      agentManager.listSessions(),
+      agentManager.getActiveId(),
+    );
+  }
+
+  /** Save a session to disk (debounced in practice). */
+  async function saveSession(id: string): Promise<void> {
+    if (!agentManager || !sessionStore) return;
+    try {
+      const serialized = agentManager.exportSession(id);
+      await sessionStore.save(serialized);
+    } catch {
+      // Non-fatal — session will be lost on restart but the user
+      // can keep working.
+    }
+  }
+
   // Initial load. Failures here are non-fatal — the chat panel will
   // show the error and the user can fix it from settings.
   await loadProvider();
@@ -650,6 +751,32 @@ export async function activate(
         })),
       );
     }
+  }
+
+  // ---- Restore persisted sessions ---------------------------------------
+  // Load any saved sessions from disk, or create a default session if
+  // none exist. This ensures the user always has at least one session.
+  if (sessionStore && agentManager) {
+    try {
+      const persisted = await sessionStore.loadAll();
+      for (const s of persisted) {
+        agentManager.importSession(s);
+      }
+      if (persisted.length > 0) {
+        // Activate the most recently used session.
+        const sorted = persisted.sort(
+          (a, b) => b.metadata.lastActivityAt - a.metadata.lastActivityAt,
+        );
+        agentManager.setActive(sorted[0].metadata.id);
+      }
+    } catch {
+      // Non-fatal — start fresh.
+    }
+    // Ensure at least one session exists.
+    if (agentManager.listSessions(true).length === 0) {
+      agentManager.createSession();
+    }
+    broadcastSessionList();
   }
 
   // ---- Config change watchers -----------------------------------------

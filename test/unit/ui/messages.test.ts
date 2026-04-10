@@ -271,4 +271,63 @@ describe("Webview Message Protocol", () => {
       expect(isAttachFileRequest(msg)).toBe(false);
     });
   });
+
+  describe("session management protocol (History)", () => {
+    it("creates a sessionList message", async () => {
+      const { createSessionList } = await import("@/ui/messages");
+      const msg = createSessionList(
+        [
+          {
+            id: "s1",
+            label: "test",
+            state: "idle",
+            createdAt: 0,
+            lastActivityAt: 0,
+            mode: "agent",
+            messageCount: 0,
+            modifiedFiles: [],
+            archived: false,
+          },
+        ],
+        "s1",
+      );
+      expect(msg.type).toBe("sessionList");
+      expect(msg.sessions).toHaveLength(1);
+      expect(msg.activeSessionId).toBe("s1");
+    });
+
+    it("identifies a switchSessionRequest", async () => {
+      const { isSwitchSessionRequest } = await import("@/ui/messages");
+      const msg: WebviewToExtensionMessage = {
+        type: "switchSessionRequest",
+        sessionId: "s1",
+      };
+      expect(isSwitchSessionRequest(msg)).toBe(true);
+    });
+
+    it("identifies a newSessionRequest", async () => {
+      const { isNewSessionRequest } = await import("@/ui/messages");
+      const msg: WebviewToExtensionMessage = { type: "newSessionRequest" };
+      expect(isNewSessionRequest(msg)).toBe(true);
+    });
+
+    it("identifies a deleteSessionRequest", async () => {
+      const { isDeleteSessionRequest } = await import("@/ui/messages");
+      const msg: WebviewToExtensionMessage = {
+        type: "deleteSessionRequest",
+        sessionId: "s1",
+      };
+      expect(isDeleteSessionRequest(msg)).toBe(true);
+    });
+
+    it("identifies a renameSessionRequest", async () => {
+      const { isRenameSessionRequest } = await import("@/ui/messages");
+      const msg: WebviewToExtensionMessage = {
+        type: "renameSessionRequest",
+        sessionId: "s1",
+        newLabel: "renamed",
+      };
+      expect(isRenameSessionRequest(msg)).toBe(true);
+    });
+  });
 });

@@ -810,4 +810,99 @@ describe("ChatViewProvider", () => {
       expect(sentText).toBe("second");
     });
   });
+
+  describe("Session management handlers (History)", () => {
+    it("switchSessionRequest fires aidev.switchSession with sessionId", async () => {
+      const vscode = await import("vscode");
+      const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
+      exec.mockClear();
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({ type: "switchSessionRequest", sessionId: "s1" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(exec).toHaveBeenCalledWith("aidev.switchSession", "s1");
+    });
+
+    it("newSessionRequest fires aidev.newSession", async () => {
+      const vscode = await import("vscode");
+      const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
+      exec.mockClear();
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({ type: "newSessionRequest" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(exec).toHaveBeenCalledWith("aidev.newSession", undefined);
+    });
+
+    it("deleteSessionRequest fires aidev.deleteSession with sessionId", async () => {
+      const vscode = await import("vscode");
+      const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
+      exec.mockClear();
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({ type: "deleteSessionRequest", sessionId: "s2" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(exec).toHaveBeenCalledWith("aidev.deleteSession", "s2");
+    });
+
+    it("renameSessionRequest fires aidev.renameSession", async () => {
+      const vscode = await import("vscode");
+      const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
+      exec.mockClear();
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({
+        type: "renameSessionRequest",
+        sessionId: "s1",
+        newLabel: "renamed",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(exec).toHaveBeenCalledWith("aidev.renameSession", "s1", "renamed");
+    });
+
+    it("broadcastSessionList posts a sessionList message to the webview", () => {
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      provider.broadcastSessionList(
+        [
+          {
+            id: "s1",
+            label: "test",
+            state: "idle",
+            createdAt: 0,
+            lastActivityAt: 0,
+            mode: "agent",
+            messageCount: 0,
+            modifiedFiles: [],
+            archived: false,
+          },
+        ],
+        "s1",
+      );
+
+      const posts = postMessage.mock.calls.filter(
+        (args) => (args[0] as { type: string }).type === "sessionList",
+      );
+      expect(posts).toHaveLength(1);
+      const msg = posts[0][0] as {
+        sessions: Array<{ id: string }>;
+        activeSessionId: string | null;
+      };
+      expect(msg.sessions).toHaveLength(1);
+      expect(msg.activeSessionId).toBe("s1");
+    });
+  });
 });

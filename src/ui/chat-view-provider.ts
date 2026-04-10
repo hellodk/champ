@@ -33,6 +33,11 @@ import {
   isFirstRunSelectRequest,
   isFirstRunDismissRequest,
   isAttachFileRequest,
+  isSwitchSessionRequest,
+  isNewSessionRequest,
+  isDeleteSessionRequest,
+  isRenameSessionRequest,
+  createSessionList,
   type ExtensionToWebviewMessage,
   type WebviewToExtensionMessage,
   type AvailableProviderModel,
@@ -231,6 +236,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
+   * Broadcast the full session list to the webview. Called by
+   * extension.ts after every AgentManager change event so the
+   * sidebar session list stays in sync.
+   */
+  broadcastSessionList(
+    sessions: import("../agent-manager/types").SessionMetadata[],
+    activeSessionId: string | null,
+  ): void {
+    this.postMessage(createSessionList(sessions, activeSessionId));
+  }
+
+  /**
    * Handle a message from the webview. Dispatches to the appropriate
    * action based on the discriminated-union type.
    */
@@ -310,6 +327,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             createError(`Failed to decode attached file: ${msg.filename}`),
           );
         }
+      } else if (isSwitchSessionRequest(msg)) {
+        void vscode.commands.executeCommand(
+          "aidev.switchSession",
+          msg.sessionId,
+        );
+      } else if (isNewSessionRequest(msg)) {
+        void vscode.commands.executeCommand("aidev.newSession", msg.label);
+      } else if (isDeleteSessionRequest(msg)) {
+        void vscode.commands.executeCommand(
+          "aidev.deleteSession",
+          msg.sessionId,
+        );
+      } else if (isRenameSessionRequest(msg)) {
+        void vscode.commands.executeCommand(
+          "aidev.renameSession",
+          msg.sessionId,
+          msg.newLabel,
+        );
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

@@ -65,7 +65,7 @@
 
   const headerRight = el('div', { class: 'header-right' });
   const newChatBtn = iconButton('+', 'New chat', () => {
-    vscode.postMessage({ type: 'newChat' });
+    vscode.postMessage({ type: 'newSessionRequest' });
   });
   const settingsBtn = iconButton('⚙', 'Open settings', () => {
     vscode.postMessage({ type: 'openSettingsRequest' });
@@ -76,6 +76,73 @@
   headerRight.append(newChatBtn, settingsBtn, helpBtn);
 
   header.append(headerLeft, headerRight);
+
+  // -------------------------------------------------------------------
+  // DOM construction — session list (collapsible)
+  // -------------------------------------------------------------------
+
+  const sessionPanel = el('div', { class: 'session-panel' });
+  const sessionHeader = el('div', { class: 'session-header' });
+  const sessionToggle = el('span', { class: 'session-toggle' }, ['▾']);
+  const sessionTitle = el('span', {}, ['Sessions']);
+  let sessionListExpanded = true;
+
+  sessionHeader.append(sessionToggle, sessionTitle);
+  sessionHeader.addEventListener('click', () => {
+    sessionListExpanded = !sessionListExpanded;
+    sessionToggle.textContent = sessionListExpanded ? '▾' : '▸';
+    sessionListEl.style.display = sessionListExpanded ? '' : 'none';
+  });
+
+  const sessionListEl = el('div', { class: 'session-list' });
+  sessionPanel.append(sessionHeader, sessionListEl);
+
+  /**
+   * Re-render the session list from the latest state. Called whenever
+   * a sessionList message arrives from the host.
+   */
+  function renderSessionList(sessions, activeSessionId) {
+    sessionListEl.innerHTML = '';
+    if (!sessions || sessions.length === 0) {
+      sessionPanel.style.display = 'none';
+      return;
+    }
+    sessionPanel.style.display = '';
+    for (const s of sessions) {
+      const row = el('div', {
+        class: `session-row${s.id === activeSessionId ? ' active' : ''}`,
+      });
+      // Status dot
+      const dotColor = {
+        idle: 'var(--vscode-descriptionForeground)',
+        running: 'var(--vscode-charts-blue, #4ec9b0)',
+        completed: 'var(--vscode-charts-green, #6a9955)',
+        errored: 'var(--vscode-errorForeground)',
+        aborted: 'var(--vscode-charts-orange, #d19a66)',
+      }[s.state] || 'var(--vscode-descriptionForeground)';
+      const dot = el('span', { class: 'session-dot' });
+      dot.style.backgroundColor = dotColor;
+      if (s.state === 'running') dot.classList.add('pulse');
+
+      const label = el('span', { class: 'session-label' }, [s.label || 'New chat']);
+      const count = el('span', { class: 'session-count' }, [`${s.messageCount || 0}`]);
+
+      // Delete button (shown on hover)
+      const deleteBtn = el('button', { class: 'session-delete', title: 'Delete session' }, ['×']);
+      deleteBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        vscode.postMessage({ type: 'deleteSessionRequest', sessionId: s.id });
+      });
+
+      row.append(dot, label, count, deleteBtn);
+      row.addEventListener('click', () => {
+        if (s.id !== activeSessionId) {
+          vscode.postMessage({ type: 'switchSessionRequest', sessionId: s.id });
+        }
+      });
+      sessionListEl.append(row);
+    }
+  }
 
   // -------------------------------------------------------------------
   // DOM construction — messages list
@@ -115,7 +182,8 @@
   const pendingFiles = [];
 
   // Hidden file input for the paperclip attach button.
-  const fileInput = el('input', { type: 'file', class: 'hidden-file-input' });
+  // Accept all file types: text, images, videos, PDFs, etc.
+  const fileInput = el('input', { type: 'file', class: 'hidden-file-input', multiple: 'true', accept: '*/*' });
   fileInput.addEventListener('change', () => {
     const files = fileInput.files;
     if (!files || files.length === 0) return;
@@ -156,7 +224,7 @@
   }
 
   const textarea = el('textarea', {
-    placeholder: 'Ask AIDev anything... (/ for slash commands, Cmd/Ctrl+Enter to send)',
+    placeholder: 'Ask AIDev anything... (/ for slash commands, Enter to send, Shift+Enter for newline)',
   });
   // Slash-command autocomplete dropdown — hidden until the user types
   // a / at the start of the input.
@@ -229,7 +297,8 @@
         return;
       }
     }
-    if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
+    // Enter sends, Shift+Enter inserts newline.
+    if (ev.key === 'Enter' && !ev.shiftKey && !ev.metaKey && !ev.ctrlKey) {
       ev.preventDefault();
       sendCurrentInput();
     }
@@ -245,7 +314,7 @@
   const messagesWrapper = el('div', { class: 'messages-wrapper' });
   messagesWrapper.append(messagesContainer, scrollPill);
 
-  root.append(header, messagesWrapper, inputArea);
+  root.append(header, sessionPanel, messagesWrapper, inputArea);
 
   // -------------------------------------------------------------------
   // Provider status rendering — header indicator + model dropdown
@@ -423,11 +492,10 @@
     state.messages.push(msg);
 
     const messageEl = el('div', { class: `message ${role}` });
-    const roleEl = el('div', { class: 'role' }, [role]);
     const bodyEl = el('div', { class: 'body' }, [text]);
     if (role === 'assistant') bodyEl.classList.add('streaming-cursor');
 
-    // Hover actions: copy + retry.
+    // Hover actions: copy + retry (Cursor-style — appear on hover).
     const actions = el('div', { class: 'msg-actions' });
     const copyBtn = el('button', { class: 'msg-action', title: 'Copy to clipboard' }, ['📋']);
     copyBtn.addEventListener('click', () => {
@@ -459,7 +527,7 @@
       actions.append(retryBtn);
     }
 
-    messageEl.append(roleEl, bodyEl, actions);
+    messageEl.append(bodyEl, actions);
     messagesContainer.append(messageEl);
     if (!userScrolledUp) {
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -514,10 +582,7 @@
 
   function showError(message) {
     const messageEl = el('div', { class: 'message error' });
-    messageEl.append(
-      el('div', { class: 'role' }, ['error']),
-      el('div', { class: 'body' }, [message]),
-    );
+    messageEl.append(el('div', { class: 'body' }, [message]));
     messagesContainer.append(messageEl);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
     setStreaming(false);
@@ -639,6 +704,9 @@
         break;
       case 'firstRunWelcome':
         renderOnboardingPanel(msg.templates || []);
+        break;
+      case 'sessionList':
+        renderSessionList(msg.sessions || [], msg.activeSessionId);
         break;
     }
   });
