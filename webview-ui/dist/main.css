@@ -1,5 +1,5 @@
 /*
- * AIDev chat UI styles.
+ * AIDev chat UI styles (Chat UI v2 — Phase A).
  *
  * Uses VS Code theme variables so the panel matches the user's
  * active color theme automatically.
@@ -25,34 +25,84 @@ html, body {
   height: 100vh;
 }
 
-.toolbar {
+/* -------------------------------------------------------------------
+ * Top header — title + provider/model indicator on the left,
+ * 3 icon buttons (+ ⚙ ?) on the right.
+ * ---------------------------------------------------------------- */
+
+.header {
   display: flex;
-  gap: 8px;
-  padding: 8px;
-  border-bottom: 1px solid var(--vscode-panel-border);
   align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.header-left {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.header-title {
+  font-weight: 600;
+  font-size: calc(var(--vscode-font-size) + 1px);
+  color: var(--vscode-foreground);
+  line-height: 1.2;
+}
+
+.header-subtitle {
+  font-size: calc(var(--vscode-font-size) - 1px);
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.2;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.header-subtitle.error {
+  color: var(--vscode-errorForeground);
+}
+
+.header-right {
+  display: flex;
+  gap: 4px;
   flex-shrink: 0;
 }
 
-.toolbar select,
-.toolbar button {
+.icon-btn {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-family: inherit;
-  font-size: var(--vscode-font-size);
+  font-size: calc(var(--vscode-font-size) + 2px);
+  line-height: 1;
   color: var(--vscode-foreground);
-  background-color: var(--vscode-dropdown-background);
-  border: 1px solid var(--vscode-dropdown-border);
-  padding: 4px 8px;
+  background-color: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
   cursor: pointer;
-  border-radius: 2px;
+  padding: 0;
 }
 
-.toolbar button:hover {
-  background-color: var(--vscode-button-hoverBackground);
+.icon-btn:hover {
+  background-color: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+  border-color: var(--vscode-panel-border);
 }
 
-.toolbar .spacer {
-  flex: 1;
+.icon-btn:active {
+  background-color: var(--vscode-toolbar-activeBackground, var(--vscode-button-background));
 }
+
+/* -------------------------------------------------------------------
+ * Messages list
+ * ---------------------------------------------------------------- */
 
 .messages {
   flex: 1;
@@ -125,6 +175,10 @@ html, body {
 .tool-card.error {
   border-color: var(--vscode-errorForeground);
 }
+
+/* -------------------------------------------------------------------
+ * Input area + bottom bar
+ * ---------------------------------------------------------------- */
 
 .input-area {
   display: flex;
@@ -209,14 +263,45 @@ html, body {
   border-color: var(--vscode-focusBorder);
 }
 
-.input-area .actions {
+/*
+ * Bottom bar — Mode + Model on the left, Cancel/Send on the right.
+ * Sits directly below the textarea, inside the input area.
+ */
+.bottom-bar {
   display: flex;
+  align-items: center;
   gap: 6px;
   margin-top: 6px;
-  justify-content: flex-end;
 }
 
-.input-area button {
+.bottom-bar select {
+  font-family: inherit;
+  font-size: calc(var(--vscode-font-size) - 1px);
+  color: var(--vscode-foreground);
+  background-color: var(--vscode-dropdown-background);
+  border: 1px solid var(--vscode-dropdown-border);
+  padding: 3px 6px;
+  cursor: pointer;
+  border-radius: 2px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bottom-bar .mode-select {
+  min-width: 80px;
+}
+
+.bottom-bar .model-select {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.bottom-bar .bottom-spacer {
+  flex: 1;
+}
+
+.bottom-bar button {
   font-family: inherit;
   font-size: var(--vscode-font-size);
   color: var(--vscode-button-foreground);
@@ -227,16 +312,20 @@ html, body {
   border-radius: 2px;
 }
 
-.input-area button:hover {
+.bottom-bar button:hover {
   background-color: var(--vscode-button-hoverBackground);
 }
 
-.input-area button.secondary {
+.bottom-bar button.secondary {
   background-color: var(--vscode-button-secondaryBackground);
   color: var(--vscode-button-secondaryForeground);
 }
 
-.input-area button:disabled {
+.bottom-bar button.secondary:hover {
+  background-color: var(--vscode-button-secondaryHoverBackground);
+}
+
+.bottom-bar button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

@@ -38,6 +38,7 @@ import { SkillLoader } from "./skills/skill-loader";
 import { VariableResolver } from "./skills/variable-resolver";
 import { BUILT_IN_SKILL_TEXTS } from "./skills/built-in";
 import type { LLMProvider } from "./providers/types";
+import type { AvailableProviderModel } from "./ui/messages";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -368,6 +369,63 @@ export async function activate(
         "AIDev: created .aidev/config.yaml. Edit it and save to apply.",
       );
     }),
+    vscode.commands.registerCommand("aidev.showHelp", async () => {
+      // Open the bundled USER_GUIDE.md as an editor tab. The doc ships
+      // with the extension so the URI lives under extensionUri.
+      const helpUri = vscode.Uri.joinPath(
+        context.extensionUri,
+        "docs",
+        "USER_GUIDE.md",
+      );
+      try {
+        const doc = await vscode.workspace.openTextDocument(helpUri);
+        await vscode.window.showTextDocument(doc, { preview: false });
+      } catch {
+        void vscode.window.showErrorMessage(
+          "AIDev: USER_GUIDE.md is not bundled with this extension build.",
+        );
+      }
+    }),
+    vscode.commands.registerCommand(
+      "aidev.setActiveModel",
+      async (providerName: string) => {
+        // Surgically rewrite the workspace YAML's top-level
+        // `provider:` line. Comments and the rest of the file are
+        // preserved. The file watcher fires loadProvider() which
+        // broadcasts a fresh providerStatus to the chat view.
+        if (!workspaceRoot) {
+          void vscode.window.showErrorMessage(
+            "AIDev: cannot switch model without an open workspace.",
+          );
+          return;
+        }
+        const yamlPath = path.join(workspaceRoot, ".aidev", "config.yaml");
+        const yamlUri = vscode.Uri.file(yamlPath);
+        let text: string;
+        try {
+          const data = await vscode.workspace.fs.readFile(yamlUri);
+          text = new TextDecoder().decode(data);
+        } catch {
+          void vscode.window.showErrorMessage(
+            `AIDev: cannot find ${yamlPath}. Run "AIDev: Generate Config File" first.`,
+          );
+          return;
+        }
+        const updated = setActiveProviderInYaml(text, providerName);
+        if (updated === text) {
+          void vscode.window.showWarningMessage(
+            `AIDev: no top-level \`provider:\` line found in ${yamlPath}.`,
+          );
+          return;
+        }
+        await vscode.workspace.fs.writeFile(
+          yamlUri,
+          new TextEncoder().encode(updated),
+        );
+        // The file watcher will fire loadProvider() which broadcasts
+        // a fresh providerStatus. Nothing more to do here.
+      },
+    ),
   );
 
   // ---- Config loader (YAML + VS Code settings fallback) -------------
@@ -443,8 +501,13 @@ export async function activate(
    */
   const loadProvider = async (): Promise<void> => {
     setStatusLoading();
+    chatViewProvider?.broadcastProviderStatus({
+      state: "loading",
+      available: [],
+    });
+    let yamlConfig: AidevConfig | null = null;
     try {
-      const yamlConfig = await resolveConfig();
+      yamlConfig = await resolveConfig();
       const newProvider = yamlConfig
         ? await factory.createFromAidevConfig(yamlConfig, context.secrets)
         : await factory.createFromConfig(
@@ -466,6 +529,12 @@ export async function activate(
       inlineProvider.setProvider(newProvider);
       inlineProviderRef.current = newProvider;
       setStatusReady(newProvider);
+      chatViewProvider?.broadcastProviderStatus({
+        state: "ready",
+        providerName: newProvider.name,
+        modelName: newProvider.config.model,
+        available: buildAvailableModels(yamlConfig),
+      });
       chatViewProvider?.postMessage({
         type: "conversationHistory",
         messages: [],
@@ -473,6 +542,11 @@ export async function activate(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatusError(message);
+      chatViewProvider?.broadcastProviderStatus({
+        state: "error",
+        errorMessage: message,
+        available: buildAvailableModels(yamlConfig),
+      });
       chatViewProvider?.postMessage({
         type: "error",
         message: `AIDev provider not ready: ${message}\n\nOpen settings (gear icon in the status bar) to configure the active provider, or create a .aidev/config.yaml file.`,
@@ -671,6 +745,49 @@ userRules: |
 #       env:
 #         GITHUB_TOKEN: \${env:GITHUB_TOKEN}
 `;
+}
+
+/**
+ * Build the list of provider+model combinations that the bottom-bar
+ * model dropdown should display. Each entry under `providers:` in the
+ * YAML config becomes one row, formatted as "provider: model" so the
+ * webview can render it directly.
+ *
+ * Returns an empty list when no YAML config is available — the legacy
+ * VS Code settings path doesn't enumerate providers, so the dropdown
+ * is hidden in that case.
+ */
+function buildAvailableModels(
+  yamlConfig: AidevConfig | null,
+): AvailableProviderModel[] {
+  if (!yamlConfig?.providers) return [];
+  const out: AvailableProviderModel[] = [];
+  for (const [providerName, conf] of Object.entries(yamlConfig.providers)) {
+    if (!conf) continue;
+    const modelName = conf.model ?? "default";
+    out.push({
+      providerName,
+      modelName,
+      label: `${providerName}: ${modelName}`,
+    });
+  }
+  return out;
+}
+
+/**
+ * Surgically rewrite the top-level `provider:` line in a YAML config
+ * file. Comments, indentation, and the rest of the file are preserved
+ * exactly — only the provider name on that one line changes. Returns
+ * the original text unchanged if no top-level `provider:` line exists.
+ *
+ * The regex anchors to start-of-line so nested `provider:` keys (e.g.
+ * `autocomplete.provider`) are never touched.
+ */
+function setActiveProviderInYaml(
+  yamlText: string,
+  newProvider: string,
+): string {
+  return yamlText.replace(/^provider:[^\n]*$/m, `provider: ${newProvider}`);
 }
 
 /**

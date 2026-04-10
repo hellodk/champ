@@ -580,4 +580,122 @@ describe("ChatViewProvider", () => {
       expect(msg.suggestions).toHaveLength(3);
     });
   });
+
+  describe("Chat UI v2 — settings, help, setModel, providerStatus", () => {
+    it("openSettingsRequest fires the workbench.action.openSettings command", async () => {
+      const vscode = await import("vscode");
+      const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
+      exec.mockClear();
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({ type: "openSettingsRequest" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(exec).toHaveBeenCalledWith(
+        "workbench.action.openSettings",
+        "aidev",
+      );
+    });
+
+    it("showHelpRequest fires the aidev.showHelp command", async () => {
+      const vscode = await import("vscode");
+      const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
+      exec.mockClear();
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({ type: "showHelpRequest" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(exec).toHaveBeenCalledWith("aidev.showHelp");
+    });
+
+    it("setModelRequest fires aidev.setActiveModel with the providerName", async () => {
+      const vscode = await import("vscode");
+      const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
+      exec.mockClear();
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({
+        type: "setModelRequest",
+        providerName: "vllm",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(exec).toHaveBeenCalledWith("aidev.setActiveModel", "vllm");
+    });
+
+    it("broadcastProviderStatus posts a providerStatus message to the webview", () => {
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      provider.broadcastProviderStatus({
+        state: "ready",
+        providerName: "ollama",
+        modelName: "qwen2.5-coder:14b",
+        available: [
+          {
+            providerName: "ollama",
+            modelName: "qwen2.5-coder:14b",
+            label: "ollama: qwen2.5-coder:14b",
+          },
+        ],
+      });
+
+      const posts = postMessage.mock.calls.filter(
+        (args) => (args[0] as { type: string }).type === "providerStatus",
+      );
+      expect(posts).toHaveLength(1);
+      const msg = posts[0][0] as {
+        state: string;
+        providerName?: string;
+        modelName?: string;
+        available: Array<{ providerName: string }>;
+      };
+      expect(msg.state).toBe("ready");
+      expect(msg.providerName).toBe("ollama");
+      expect(msg.modelName).toBe("qwen2.5-coder:14b");
+      expect(msg.available).toHaveLength(1);
+    });
+
+    it("broadcastProviderStatus state=loading carries no provider info", () => {
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      provider.broadcastProviderStatus({ state: "loading", available: [] });
+
+      const posts = postMessage.mock.calls.filter(
+        (args) => (args[0] as { type: string }).type === "providerStatus",
+      );
+      const msg = posts[0][0] as {
+        state: string;
+        providerName?: string;
+      };
+      expect(msg.state).toBe("loading");
+      expect(msg.providerName).toBeUndefined();
+    });
+
+    it("broadcastProviderStatus state=error includes errorMessage", () => {
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      provider.broadcastProviderStatus({
+        state: "error",
+        errorMessage: "Connection refused",
+        available: [],
+      });
+
+      const posts = postMessage.mock.calls.filter(
+        (args) => (args[0] as { type: string }).type === "providerStatus",
+      );
+      const msg = posts[0][0] as { state: string; errorMessage?: string };
+      expect(msg.state).toBe("error");
+      expect(msg.errorMessage).toBe("Connection refused");
+    });
+  });
 });

@@ -18,6 +18,7 @@ import {
   createError,
   createConversationHistory,
   createSkillAutocompleteResponse,
+  createProviderStatus,
   isUserMessage,
   isSetMode,
   isNewChat,
@@ -25,8 +26,13 @@ import {
   isRequestHistory,
   isApprovalResponse,
   isSkillAutocompleteRequest,
+  isOpenSettingsRequest,
+  isShowHelpRequest,
+  isSetModelRequest,
   type ExtensionToWebviewMessage,
   type WebviewToExtensionMessage,
+  type AvailableProviderModel,
+  type ProviderStatusState,
 } from "./messages";
 import type { StreamDelta } from "../providers/types";
 
@@ -182,6 +188,26 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
+   * Broadcast a provider status update to the webview. Called by
+   * extension.ts after every loadProvider() invocation so the chat
+   * header indicator and the bottom-bar model dropdown stay in sync
+   * with the actual active provider.
+   *
+   * Safe to call before the webview has resolved — postMessage is
+   * a silent no-op when there's no view yet, and the webview
+   * re-requests state on its next "ready" handshake.
+   */
+  broadcastProviderStatus(opts: {
+    state: ProviderStatusState;
+    providerName?: string;
+    modelName?: string;
+    errorMessage?: string;
+    available: AvailableProviderModel[];
+  }): void {
+    this.postMessage(createProviderStatus(opts));
+  }
+
+  /**
    * Handle a message from the webview. Dispatches to the appropriate
    * action based on the discriminated-union type.
    */
@@ -210,6 +236,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
       } else if (isSkillAutocompleteRequest(msg)) {
         this.handleSkillAutocompleteRequest(msg.prefix);
+      } else if (isOpenSettingsRequest(msg)) {
+        // The gear icon in the chat header. Opens VS Code Settings
+        // filtered to `aidev.*` so the user lands directly on the
+        // extension's settings group.
+        void vscode.commands.executeCommand(
+          "workbench.action.openSettings",
+          "aidev",
+        );
+      } else if (isShowHelpRequest(msg)) {
+        // The `?` icon in the chat header. Opens docs/USER_GUIDE.md
+        // as an editor tab via a dedicated extension command.
+        void vscode.commands.executeCommand("aidev.showHelp");
+      } else if (isSetModelRequest(msg)) {
+        // The model dropdown in the bottom bar. Routes to a command
+        // that surgically rewrites the active YAML config's
+        // top-level `provider:` line. The file watcher then triggers
+        // a fresh loadProvider().
+        void vscode.commands.executeCommand(
+          "aidev.setActiveModel",
+          msg.providerName,
+        );
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

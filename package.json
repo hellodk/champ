@@ -2,7 +2,7 @@
   "name": "aidev",
   "displayName": "AIDev - AI Coding Agent",
   "description": "Cursor-like AI coding experience with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "publisher": "aidev-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -83,6 +83,14 @@
       {
         "command": "aidev.generateConfig",
         "title": "AIDev: Generate Config File"
+      },
+      {
+        "command": "aidev.showHelp",
+        "title": "AIDev: Show User Guide"
+      },
+      {
+        "command": "aidev.setActiveModel",
+        "title": "AIDev: Set Active Model"
       }
     ],
     "configuration": {

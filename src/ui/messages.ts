@@ -82,6 +82,39 @@ export interface SkillAutocompleteResponseMessage {
   suggestions: SkillSuggestion[];
 }
 
+/**
+ * Provider lifecycle state — used to drive the chat header indicator
+ * and the model dropdown in the bottom bar. The extension broadcasts
+ * a ProviderStatus on every loadProvider() call so the webview always
+ * has the latest active provider info.
+ */
+export type ProviderStatusState = "loading" | "ready" | "error";
+
+/**
+ * One entry in the model dropdown. Built from the configured
+ * providers in the YAML config — the user can pick any of these to
+ * switch the active provider.
+ */
+export interface AvailableProviderModel {
+  providerName: string;
+  modelName: string;
+  /** Pre-formatted user-facing label, e.g. "ollama: qwen2.5-coder:14b". */
+  label: string;
+}
+
+export interface ProviderStatusMessage {
+  type: "providerStatus";
+  state: ProviderStatusState;
+  /** Active provider name when state === "ready". */
+  providerName?: string;
+  /** Active model name when state === "ready". */
+  modelName?: string;
+  /** Error message when state === "error". */
+  errorMessage?: string;
+  /** Every provider+model combination defined in the YAML config. */
+  available: AvailableProviderModel[];
+}
+
 export type ExtensionToWebviewMessage =
   | StreamDeltaMessage
   | StreamEndMessage
@@ -92,7 +125,8 @@ export type ExtensionToWebviewMessage =
   | ModeChangedMessage
   | ConversationHistoryMessage
   | ReadyMessage
-  | SkillAutocompleteResponseMessage;
+  | SkillAutocompleteResponseMessage
+  | ProviderStatusMessage;
 
 // ---------------------------------------------------------------------------
 // Webview -> Extension Host
@@ -132,6 +166,32 @@ export interface SkillAutocompleteRequest {
   prefix: string;
 }
 
+/**
+ * The settings gear in the chat header was clicked. The host opens
+ * VS Code's settings UI filtered to `aidev.*`.
+ */
+export interface OpenSettingsRequest {
+  type: "openSettingsRequest";
+}
+
+/**
+ * The help button in the chat header was clicked. The host opens
+ * docs/USER_GUIDE.md as an editor tab.
+ */
+export interface ShowHelpRequest {
+  type: "showHelpRequest";
+}
+
+/**
+ * The user picked a different provider from the model dropdown in the
+ * bottom bar. The host rewrites the active YAML config's `provider:`
+ * line and the file watcher reloads the agent.
+ */
+export interface SetModelRequest {
+  type: "setModelRequest";
+  providerName: string;
+}
+
 export type WebviewToExtensionMessage =
   | UserMessageRequest
   | SetModeRequest
@@ -139,7 +199,10 @@ export type WebviewToExtensionMessage =
   | CancelRequest
   | ApprovalResponseRequest
   | RequestHistoryRequest
-  | SkillAutocompleteRequest;
+  | SkillAutocompleteRequest
+  | OpenSettingsRequest
+  | ShowHelpRequest
+  | SetModelRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)
@@ -188,6 +251,28 @@ export function createSkillAutocompleteResponse(
   return { type: "skillAutocompleteResponse", prefix, suggestions };
 }
 
+/**
+ * Build a providerStatus message. The single options object lets the
+ * caller pass only the fields relevant to the current state — for
+ * loading and error states, providerName/modelName can be omitted.
+ */
+export function createProviderStatus(opts: {
+  state: ProviderStatusState;
+  providerName?: string;
+  modelName?: string;
+  errorMessage?: string;
+  available: AvailableProviderModel[];
+}): ProviderStatusMessage {
+  return {
+    type: "providerStatus",
+    state: opts.state,
+    providerName: opts.providerName,
+    modelName: opts.modelName,
+    errorMessage: opts.errorMessage,
+    available: opts.available,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Type guards (Webview -> Extension)
 // ---------------------------------------------------------------------------
@@ -232,4 +317,22 @@ export function isSkillAutocompleteRequest(
   msg: WebviewToExtensionMessage,
 ): msg is SkillAutocompleteRequest {
   return msg.type === "skillAutocompleteRequest";
+}
+
+export function isOpenSettingsRequest(
+  msg: WebviewToExtensionMessage,
+): msg is OpenSettingsRequest {
+  return msg.type === "openSettingsRequest";
+}
+
+export function isShowHelpRequest(
+  msg: WebviewToExtensionMessage,
+): msg is ShowHelpRequest {
+  return msg.type === "showHelpRequest";
+}
+
+export function isSetModelRequest(
+  msg: WebviewToExtensionMessage,
+): msg is SetModelRequest {
+  return msg.type === "setModelRequest";
 }

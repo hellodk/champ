@@ -1,10 +1,26 @@
 /*
  * AIDev chat UI — vanilla JS webview entry point.
  *
+ * Layout (Chat UI v2 — Phase A):
+ *
+ *   ┌──────────────────────────────────────────┐
+ *   │ Top header                               │
+ *   │   AIDev                       [+] [⚙] [?]│
+ *   │   <provider:model> indicator             │
+ *   ├──────────────────────────────────────────┤
+ *   │ Messages                                 │
+ *   │  ...                                     │
+ *   ├──────────────────────────────────────────┤
+ *   │ Input area                               │
+ *   │  [skill autocomplete dropdown]           │
+ *   │  textarea                                │
+ *   │  ── bottom bar ──                        │
+ *   │  [Mode ▾] [Model ▾]        [Cancel][Send]│
+ *   └──────────────────────────────────────────┘
+ *
  * Handles message routing between the host and the DOM. Intentionally
  * framework-free to keep the bundle tiny and avoid a webview build
- * step. A React version can be added later without changing the
- * message protocol.
+ * step.
  */
 (function () {
   'use strict';
@@ -23,16 +39,67 @@
     skillHighlight: -1,
     /** Last prefix we asked the host for, used to ignore stale responses. */
     lastSkillPrefix: null,
+    /** Last providerStatus we received — used to render the header indicator
+     *  and the bottom-bar model dropdown. */
+    providerStatus: {
+      state: 'loading',
+      providerName: undefined,
+      modelName: undefined,
+      errorMessage: undefined,
+      available: /** @type {Array<{providerName: string, modelName: string, label: string}>} */ ([]),
+    },
   };
 
   // -------------------------------------------------------------------
-  // DOM construction
+  // DOM construction — top header
   // -------------------------------------------------------------------
 
   const root = document.getElementById('app');
 
-  const toolbar = el('div', { class: 'toolbar' });
-  const modeSelect = el('select', {}, [
+  // Top header: app title + model indicator on the left, icon buttons on the right.
+  const header = el('div', { class: 'header' });
+  const headerLeft = el('div', { class: 'header-left' });
+  const headerTitle = el('div', { class: 'header-title' }, ['AIDev']);
+  const headerSubtitle = el('div', { class: 'header-subtitle' }, ['loading…']);
+  headerLeft.append(headerTitle, headerSubtitle);
+
+  const headerRight = el('div', { class: 'header-right' });
+  const newChatBtn = iconButton('+', 'New chat', () => {
+    vscode.postMessage({ type: 'newChat' });
+  });
+  const settingsBtn = iconButton('⚙', 'Open settings', () => {
+    vscode.postMessage({ type: 'openSettingsRequest' });
+  });
+  const helpBtn = iconButton('?', 'Show user guide', () => {
+    vscode.postMessage({ type: 'showHelpRequest' });
+  });
+  headerRight.append(newChatBtn, settingsBtn, helpBtn);
+
+  header.append(headerLeft, headerRight);
+
+  // -------------------------------------------------------------------
+  // DOM construction — messages list
+  // -------------------------------------------------------------------
+
+  const messagesContainer = el('div', { class: 'messages' });
+  renderEmptyState();
+
+  // -------------------------------------------------------------------
+  // DOM construction — input area + bottom bar
+  // -------------------------------------------------------------------
+
+  const inputArea = el('div', { class: 'input-area' });
+  const textarea = el('textarea', {
+    placeholder: 'Ask AIDev anything... (/ for slash commands, Cmd/Ctrl+Enter to send)',
+  });
+  // Slash-command autocomplete dropdown — hidden until the user types
+  // a / at the start of the input.
+  const skillDropdown = el('div', { class: 'skill-dropdown', hidden: 'true' });
+
+  // Bottom bar: Mode select, Model select, Cancel/Send buttons.
+  const bottomBar = el('div', { class: 'bottom-bar' });
+
+  const modeSelect = el('select', { class: 'mode-select', title: 'Agent mode' }, [
     option('agent', 'Agent'),
     option('ask', 'Ask'),
     option('manual', 'Manual'),
@@ -45,24 +112,18 @@
     vscode.postMessage({ type: 'setMode', mode: state.mode });
   });
 
-  const newChatBtn = el('button', {}, ['New Chat']);
-  newChatBtn.addEventListener('click', () => {
-    vscode.postMessage({ type: 'newChat' });
+  const modelSelect = el('select', {
+    class: 'model-select',
+    title: 'Active model — pick a different one to switch providers',
+  });
+  modelSelect.addEventListener('change', () => {
+    const providerName = modelSelect.value;
+    if (!providerName) return;
+    vscode.postMessage({ type: 'setModelRequest', providerName });
   });
 
-  toolbar.append(modeSelect, el('span', { class: 'spacer' }), newChatBtn);
+  const bottomSpacer = el('div', { class: 'bottom-spacer' });
 
-  const messagesContainer = el('div', { class: 'messages' });
-  renderEmptyState();
-
-  const inputArea = el('div', { class: 'input-area' });
-  const textarea = el('textarea', {
-    placeholder: 'Ask AIDev anything... (/ for slash commands, Cmd/Ctrl+Enter to send)',
-  });
-  // Slash-command autocomplete dropdown — hidden until the user types
-  // a / at the start of the input.
-  const skillDropdown = el('div', { class: 'skill-dropdown', hidden: 'true' });
-  const actions = el('div', { class: 'actions' });
   const cancelBtn = el('button', { class: 'secondary', disabled: 'true' }, ['Cancel']);
   const sendBtn = el('button', {}, ['Send']);
 
@@ -71,6 +132,8 @@
     vscode.postMessage({ type: 'cancelRequest' });
     setStreaming(false);
   });
+
+  bottomBar.append(modeSelect, modelSelect, bottomSpacer, cancelBtn, sendBtn);
 
   textarea.addEventListener('input', () => {
     handleSkillInput();
@@ -106,10 +169,61 @@
     }
   });
 
-  actions.append(cancelBtn, sendBtn);
-  inputArea.append(skillDropdown, textarea, actions);
+  inputArea.append(skillDropdown, textarea, bottomBar);
 
-  root.append(toolbar, messagesContainer, inputArea);
+  root.append(header, messagesContainer, inputArea);
+
+  // -------------------------------------------------------------------
+  // Provider status rendering — header indicator + model dropdown
+  // -------------------------------------------------------------------
+
+  /**
+   * Re-render the header subtitle and the bottom-bar model dropdown
+   * from the latest providerStatus snapshot. Idempotent — safe to call
+   * on every providerStatus message.
+   */
+  function renderProviderStatus() {
+    const ps = state.providerStatus;
+
+    // Header subtitle
+    if (ps.state === 'loading') {
+      headerSubtitle.textContent = 'loading…';
+      headerSubtitle.classList.remove('error');
+    } else if (ps.state === 'error') {
+      headerSubtitle.textContent = `error: ${ps.errorMessage || 'provider not ready'}`;
+      headerSubtitle.classList.add('error');
+    } else {
+      const label =
+        ps.providerName && ps.modelName
+          ? `${ps.providerName}: ${ps.modelName}`
+          : ps.providerName || 'ready';
+      headerSubtitle.textContent = label;
+      headerSubtitle.classList.remove('error');
+    }
+
+    // Model dropdown — populate from `available` and select the active row.
+    modelSelect.innerHTML = '';
+    if (!ps.available || ps.available.length === 0) {
+      // Hide the dropdown when there's nothing to choose. The legacy
+      // VS Code settings path doesn't enumerate providers so this is
+      // the expected state on a fresh install with no YAML config.
+      modelSelect.style.display = 'none';
+      return;
+    }
+    modelSelect.style.display = '';
+    for (const entry of ps.available) {
+      const o = document.createElement('option');
+      o.value = entry.providerName;
+      o.textContent = entry.label;
+      modelSelect.append(o);
+    }
+    if (ps.providerName) {
+      modelSelect.value = ps.providerName;
+    }
+  }
+
+  // Initial render so the user sees "loading…" immediately on open.
+  renderProviderStatus();
 
   // -------------------------------------------------------------------
   // Message handling
@@ -339,6 +453,16 @@
       case 'skillAutocompleteResponse':
         renderSkillDropdown(msg.suggestions || [], msg.prefix || '');
         break;
+      case 'providerStatus':
+        state.providerStatus = {
+          state: msg.state,
+          providerName: msg.providerName,
+          modelName: msg.modelName,
+          errorMessage: msg.errorMessage,
+          available: msg.available || [],
+        };
+        renderProviderStatus();
+        break;
     }
   });
 
@@ -369,6 +493,17 @@
     o.value = value;
     o.textContent = label;
     return o;
+  }
+
+  /**
+   * Build a header icon button. Uses a single character glyph rather
+   * than an SVG to keep the bundle tiny — VS Code's font already
+   * includes glyphs that look reasonable in any theme.
+   */
+  function iconButton(glyph, ariaLabel, onClick) {
+    const btn = el('button', { class: 'icon-btn', title: ariaLabel, 'aria-label': ariaLabel }, [glyph]);
+    btn.addEventListener('click', onClick);
+    return btn;
   }
 
   // Signal readiness to the host.
