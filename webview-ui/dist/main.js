@@ -678,13 +678,6 @@
 
   function renderEmptyState() {
     messagesContainer.innerHTML = '';
-    const empty = el('div', { class: 'empty-state' });
-    empty.append(
-      el('div', { class: 'title' }, ['Welcome to Champ-1.0.0']),
-      el('div', {}, ['Start by asking a question about your code,']),
-      el('div', {}, ['requesting a fix, or asking for a refactor.']),
-    );
-    messagesContainer.append(empty);
   }
 
   // -------------------------------------------------------------------
