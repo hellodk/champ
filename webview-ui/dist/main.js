@@ -286,15 +286,58 @@
     vscode.postMessage({ type: 'setMode', mode: state.mode });
   });
 
-  const modelSelect = el('select', {
-    class: 'model-select',
-    title: 'Active model — pick a different one to switch providers',
+  // Model picker — Cursor-style popup instead of native <select>.
+  const modelPickerBtn = el('button', { class: 'model-picker-btn', title: 'Switch model' }, ['Auto']);
+  const modelPickerPopup = el('div', { class: 'model-picker-popup', hidden: 'true' });
+  const modelSearchInput = el('input', { type: 'text', class: 'model-search', placeholder: 'Search models' });
+  const modelListEl = el('div', { class: 'model-list' });
+  modelPickerPopup.append(modelSearchInput, modelListEl);
+
+  // Toggle popup on button click.
+  modelPickerBtn.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    if (modelPickerPopup.hidden) {
+      modelPickerPopup.removeAttribute('hidden');
+      modelSearchInput.value = '';
+      renderModelList('');
+      modelSearchInput.focus();
+    } else {
+      modelPickerPopup.setAttribute('hidden', 'true');
+    }
   });
-  modelSelect.addEventListener('change', () => {
-    const providerName = modelSelect.value;
-    if (!providerName) return;
-    vscode.postMessage({ type: 'setModelRequest', providerName });
-  });
+  // Close on outside click.
+  document.addEventListener('click', () => modelPickerPopup.setAttribute('hidden', 'true'));
+  modelPickerPopup.addEventListener('click', (ev) => ev.stopPropagation());
+  // Filter on search input.
+  modelSearchInput.addEventListener('input', () => renderModelList(modelSearchInput.value));
+
+  function renderModelList(filter) {
+    modelListEl.innerHTML = '';
+    const available = state.providerStatus.available || [];
+    const query = filter.toLowerCase();
+    for (const m of available) {
+      if (query && !m.label.toLowerCase().includes(query) && !m.providerName.toLowerCase().includes(query)) continue;
+      const row = el('div', { class: 'model-row' });
+      const isActive = m.providerName === state.providerStatus.providerName;
+      if (isActive) row.classList.add('active');
+      const nameEl = el('span', { class: 'model-name' }, [m.modelName || m.providerName]);
+      const tagEl = el('span', { class: 'model-tag' }, [m.providerName]);
+      if (isActive) {
+        const check = el('span', { class: 'model-check' }, ['✓']);
+        row.append(nameEl, tagEl, check);
+      } else {
+        row.append(nameEl, tagEl);
+      }
+      row.addEventListener('click', () => {
+        vscode.postMessage({ type: 'setModelRequest', providerName: m.providerName });
+        modelPickerPopup.setAttribute('hidden', 'true');
+      });
+      modelListEl.append(row);
+    }
+    if (modelListEl.children.length === 0) {
+      modelListEl.append(el('div', { class: 'model-empty' }, ['No models match']));
+    }
+  }
 
   const bottomSpacer = el('div', { class: 'bottom-spacer' });
 
@@ -307,7 +350,7 @@
     setStreaming(false);
   });
 
-  bottomBar.append(modeSelect, modelSelect, bottomSpacer, cancelBtn, sendBtn);
+  bottomBar.append(modeSelect, modelPickerBtn, bottomSpacer, cancelBtn, sendBtn);
 
   textarea.addEventListener('input', () => {
     handleSkillInput();
@@ -362,7 +405,7 @@
     metricsFooter.textContent = `${m.totalRequests} req · ${tokensIn} in · ${tokensOut} out · ${m.averageLatency}ms avg${m.totalFailures > 0 ? ` · ${m.totalFailures} err` : ''}`;
   }
 
-  inputArea.append(skillDropdown, attachChips, textareaRow, bottomBar, metricsFooter);
+  inputArea.append(skillDropdown, attachChips, textareaRow, modelPickerPopup, bottomBar, metricsFooter);
 
   // Wrap messages + scroll pill in a positioned container.
   const messagesWrapper = el('div', { class: 'messages-wrapper' });
@@ -398,24 +441,15 @@
       headerSubtitle.classList.remove('error');
     }
 
-    // Model dropdown — populate from `available` and select the active row.
-    modelSelect.innerHTML = '';
+    // Model picker button label.
     if (!ps.available || ps.available.length === 0) {
-      // Hide the dropdown when there's nothing to choose. The legacy
-      // VS Code settings path doesn't enumerate providers so this is
-      // the expected state on a fresh install with no YAML config.
-      modelSelect.style.display = 'none';
-      return;
-    }
-    modelSelect.style.display = '';
-    for (const entry of ps.available) {
-      const o = document.createElement('option');
-      o.value = entry.providerName;
-      o.textContent = entry.label;
-      modelSelect.append(o);
-    }
-    if (ps.providerName) {
-      modelSelect.value = ps.providerName;
+      modelPickerBtn.style.display = 'none';
+    } else {
+      modelPickerBtn.style.display = '';
+      const activeLabel = ps.providerName && ps.modelName
+        ? `${ps.modelName}`
+        : ps.providerName || 'Auto';
+      modelPickerBtn.textContent = activeLabel + ' ▾';
     }
   }
 
