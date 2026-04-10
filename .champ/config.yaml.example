@@ -1,0 +1,103 @@
+# Champ configuration — copy this file to config.yaml and edit.
+# User-level overrides live in ~/.champ/config.yaml.
+# API keys are NEVER stored here — use the 'Champ: Set API Key' command.
+# See docs/CONFIG.md for the full schema reference.
+
+# ──────────────────────────────────────────────────────────────────
+# Active provider — must match a key under 'providers:' below.
+# ──────────────────────────────────────────────────────────────────
+provider: ollama
+
+# ──────────────────────────────────────────────────────────────────
+# Provider configurations
+# Uncomment and configure whichever backends you use.
+# ──────────────────────────────────────────────────────────────────
+providers:
+  # ── Local providers (no API key needed) ──────────────────────────
+
+  ollama:
+    baseUrl: http://localhost:11434
+    model: qwen2.5-coder:7b-instruct
+
+  # llamacpp:
+  #   baseUrl: http://localhost:8080/v1
+  #   model: default
+
+  # vllm:
+  #   baseUrl: http://localhost:8000/v1
+  #   model: meta-llama/Llama-3.1-8B
+
+  # ── Cloud providers (API key via 'Champ: Set API Key') ──────────
+
+  # claude:
+  #   model: claude-sonnet-4-20250514
+
+  # openai:
+  #   model: gpt-4o
+
+  # gemini:
+  #   model: gemini-2.0-flash
+
+  # ── Custom endpoint ─────────────────────────────────────────────
+
+  # openai-compatible:
+  #   baseUrl: http://my-server:9000/v1
+  #   model: custom-model
+
+# ──────────────────────────────────────────────────────────────────
+# Inline ghost-text autocomplete
+# ──────────────────────────────────────────────────────────────────
+autocomplete:
+  enabled: true
+  debounceMs: 300
+  # Optional: use a different (smaller, faster) provider/model.
+  # provider: ollama
+  # model: qwen2.5-coder:1.5b
+
+# ──────────────────────────────────────────────────────────────────
+# Agent behavior
+# ──────────────────────────────────────────────────────────────────
+agent:
+  # Skip approval prompts for destructive tools (use with caution).
+  yoloMode: false
+  # Default mode when a chat session starts.
+  # Options: agent, ask, manual, plan, composer
+  defaultMode: agent
+  # Auto-fix loop after edits — re-prompts the model with LSP errors.
+  autoFix:
+    enabled: true
+    maxIterations: 3
+
+# ──────────────────────────────────────────────────────────────────
+# Codebase indexing (for @Codebase and semantic search)
+# ──────────────────────────────────────────────────────────────────
+indexing:
+  enabled: true
+  embeddingProvider: ollama
+  ignore:
+    - node_modules/**
+    - dist/**
+    - .git/**
+    - test-reports/**
+
+# ──────────────────────────────────────────────────────────────────
+# User rules — always injected into the system prompt.
+# ──────────────────────────────────────────────────────────────────
+userRules: |
+  Always write tests first.
+  Use TypeScript strict mode where applicable.
+  Prefer composition over inheritance.
+
+# ──────────────────────────────────────────────────────────────────
+# MCP server connections — extend the agent with external tools.
+# ──────────────────────────────────────────────────────────────────
+# mcp:
+#   servers:
+#     - name: github
+#       command: npx
+#       args: ["-y", "@modelcontextprotocol/server-github"]
+#       env:
+#         GITHUB_TOKEN: ${env:GITHUB_TOKEN}
+#     - name: filesystem
+#       command: npx
+#       args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]

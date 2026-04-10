@@ -121,6 +121,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private skillRegistry: ChatSkillRegistry | undefined;
   private skillContextProvider: SkillContextProvider | undefined;
   private skillVariableResolver: SkillVariableResolver | undefined;
+  private userMessageCallback: ((text: string) => void) | undefined;
   /**
    * Files attached via the paperclip button, accumulated until the
    * next user message is sent. Each entry stores the filename and
@@ -184,6 +185,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   ): void {
     this.skillContextProvider = provider;
     this.skillVariableResolver = resolver;
+  }
+
+  /**
+   * Register a callback fired on every user message. Used by
+   * extension.ts to auto-label the active session from the first
+   * message text.
+   */
+  onUserMessage(callback: (text: string) => void): void {
+    this.userMessageCallback = callback;
   }
 
   resolveWebviewView(
@@ -387,6 +397,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     const controller = new AbortController();
     this.activeAbortController = controller;
+
+    // Notify the extension host so it can auto-label sessions, etc.
+    this.userMessageCallback?.(text);
 
     // First, expand slash commands. /<name> at the start of the message
     // is looked up in the skill registry; the matching skill's template

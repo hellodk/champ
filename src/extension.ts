@@ -120,9 +120,12 @@ export async function activate(
       });
       // Broadcast updated metrics to the webview after each completion.
       broadcastMetrics();
+      // Persist the active session's conversation history to disk.
+      saveActiveSession();
     } else if (delta.type === "error" && delta.error) {
       metrics?.recordFailure(delta.error);
       broadcastMetrics();
+      saveActiveSession();
     }
   });
 
@@ -225,6 +228,14 @@ export async function activate(
     },
     (template, ctx) => VariableResolver.resolve(template, ctx),
   );
+  // Auto-label sessions from the first user message.
+  chatViewProvider.onUserMessage((text) => {
+    const active = agentManager?.getActive();
+    if (active && active.metadata.label === "New chat") {
+      agentManager?.autoLabelSession(active.metadata.id, text);
+      broadcastSessionList();
+    }
+  });
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       ChatViewProvider.viewType,
@@ -506,6 +517,9 @@ export async function activate(
       (sessionId: string) => {
         if (!agentManager) return;
         try {
+          // Save the outgoing session's history before switching.
+          const outgoingId = agentManager.getActiveId();
+          if (outgoingId) void saveSession(outgoingId);
           agentManager.setActive(sessionId);
           const session = agentManager.getActive();
           if (session) {
@@ -753,7 +767,7 @@ export async function activate(
     });
   }
 
-  /** Save a session to disk (debounced in practice). */
+  /** Save a session to disk. */
   async function saveSession(id: string): Promise<void> {
     if (!agentManager || !sessionStore) return;
     try {
@@ -763,6 +777,20 @@ export async function activate(
       // Non-fatal — session will be lost on restart but the user
       // can keep working.
     }
+  }
+
+  /**
+   * Save the currently active session. Debounced so rapid-fire
+   * stream deltas don't hammer the filesystem.
+   */
+  let saveActiveTimeout: ReturnType<typeof setTimeout> | null = null;
+  function saveActiveSession(): void {
+    if (saveActiveTimeout) clearTimeout(saveActiveTimeout);
+    saveActiveTimeout = setTimeout(() => {
+      saveActiveTimeout = null;
+      const id = agentManager?.getActiveId();
+      if (id) void saveSession(id);
+    }, 500);
   }
 
   // Initial load. Failures here are non-fatal — the chat panel will
@@ -926,54 +954,36 @@ function createStubProvider(name: string): LLMProvider {
  * local-first setup. Uncommented blocks show every available knob.
  */
 function generateDefaultConfigYaml(): string {
-  return `# Champ configuration — committed to git, shared with the team.
-# User-level overrides live in ~/.champ/config.yaml.
-# API keys are NEVER stored here — use the 'Champ: Set API Key' command.
-# See docs/CONFIG.md for the full schema reference.
+  return `# Champ configuration
+# See .champ/config.yaml.example for all available options.
+# API keys: use the 'Champ: Set API Key' command (never put keys here).
 
-# Active provider — must match a key under 'providers:' below.
 provider: ollama
 
 providers:
-  claude:
-    model: claude-sonnet-4-20250514
-
-  openai:
-    model: gpt-4o
-
-  gemini:
-    model: gemini-2.0-flash
-
   ollama:
     baseUrl: http://localhost:11434
-    model: llama3.1
+    model: qwen2.5-coder:7b-instruct
 
-  llamacpp:
-    baseUrl: http://localhost:8080/v1
-    model: default
+  # Uncomment to add more providers:
+  # claude:
+  #   model: claude-sonnet-4-20250514
+  # openai:
+  #   model: gpt-4o
+  # llamacpp:
+  #   baseUrl: http://localhost:8080/v1
+  #   model: default
+  # vllm:
+  #   baseUrl: http://localhost:8000/v1
+  #   model: meta-llama/Llama-3.1-8B
 
-  vllm:
-    baseUrl: http://localhost:8000/v1
-    model: meta-llama/Llama-3.1-8B
-
-  openai-compatible:
-    baseUrl: http://localhost:9000/v1
-    model: custom-model
-
-# Inline ghost-text autocomplete settings.
 autocomplete:
   enabled: true
   debounceMs: 300
-  # Optional: use a different (smaller) provider for autocomplete.
-  # provider: ollama
-  # model: qwen2.5-coder:1.5b
 
 agent:
-  # Skip approval prompts for destructive tools (use with caution).
   yoloMode: false
-  # Default mode when a chat session starts.
   defaultMode: agent
-  # Auto-fix loop after edits — re-prompts the model with LSP errors.
   autoFix:
     enabled: true
     maxIterations: 3
@@ -985,23 +995,6 @@ indexing:
     - node_modules/**
     - dist/**
     - .git/**
-    - test-reports/**
-
-# User-level rules — always injected into the system prompt.
-userRules: |
-  Always write tests first.
-  Use TypeScript strict mode where applicable.
-  Prefer composition over inheritance.
-
-# MCP server connections — extend the agent with external tools.
-# Uncomment to enable.
-# mcp:
-#   servers:
-#     - name: github
-#       command: npx
-#       args: ["-y", "@modelcontextprotocol/server-github"]
-#       env:
-#         GITHUB_TOKEN: \${env:GITHUB_TOKEN}
 `;
 }
 
