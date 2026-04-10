@@ -122,6 +122,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private skillContextProvider: SkillContextProvider | undefined;
   private skillVariableResolver: SkillVariableResolver | undefined;
   private userMessageCallback: ((text: string) => void) | undefined;
+  private streamCompletedCallback:
+    | ((usage?: { inputTokens: number; outputTokens: number }) => void)
+    | undefined;
+  private streamErrorCallback: ((error: string) => void) | undefined;
   /**
    * Files attached via the paperclip button, accumulated until the
    * next user message is sent. Each entry stores the filename and
@@ -194,6 +198,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
    */
   onUserMessage(callback: (text: string) => void): void {
     this.userMessageCallback = callback;
+  }
+
+  /**
+   * Register a callback fired when the agent finishes a response
+   * (success or error). Used by extension.ts to save session history
+   * and record metrics after each turn.
+   */
+  onStreamCompleted(
+    callback: (usage?: { inputTokens: number; outputTokens: number }) => void,
+  ): void {
+    this.streamCompletedCallback = callback;
+  }
+
+  onStreamError(callback: (error: string) => void): void {
+    this.streamErrorCallback = callback;
   }
 
   resolveWebviewView(
@@ -429,6 +448,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         requestApproval: this.buildApprovalCallback(),
       });
       this.postMessage(createStreamEnd());
+      // Notify extension host — triggers save + metrics.
+      this.streamCompletedCallback?.(undefined);
       // Emit any trailing text that the listener may have missed
       // (e.g., if the listener was wired too late).
       if (result && "text" in result && result.text) {
@@ -437,6 +458,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.postMessage(createError(message));
+      this.streamErrorCallback?.(message);
     } finally {
       if (this.activeAbortController === controller) {
         this.activeAbortController = null;
@@ -580,9 +602,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         break;
       case "done":
         this.postMessage(createStreamEnd(delta.usage));
+        // Fire callback with usage for metrics + save.
+        this.streamCompletedCallback?.(delta.usage);
         break;
       case "error":
-        if (delta.error) this.postMessage(createError(delta.error));
+        if (delta.error) {
+          this.postMessage(createError(delta.error));
+          this.streamErrorCallback?.(delta.error);
+        }
         break;
       default:
         break;

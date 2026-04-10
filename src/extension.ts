@@ -110,24 +110,10 @@ export async function activate(
     path.join(workspaceRoot, ".champ", "sessions"),
   );
 
-  agentController.onStreamDelta((delta) => {
-    if (delta.type === "done" && delta.usage) {
-      metrics?.recordRequest({
-        requestLatency: 0,
-        totalLatency: 0,
-        inputTokens: delta.usage.inputTokens,
-        outputTokens: delta.usage.outputTokens,
-      });
-      // Broadcast updated metrics to the webview after each completion.
-      broadcastMetrics();
-      // Persist the active session's conversation history to disk.
-      saveActiveSession();
-    } else if (delta.type === "error" && delta.error) {
-      metrics?.recordFailure(delta.error);
-      broadcastMetrics();
-      saveActiveSession();
-    }
-  });
+  // Stream metrics and session persistence are wired via
+  // ChatViewProvider callbacks below (after chatViewProvider is created)
+  // rather than on the standalone agentController, because the active
+  // session's controller changes when the user switches sessions.
 
   // ---- Indexing services for grounding -------------------------------
   // Repo map: built lazily on first chat turn from the workspace's
@@ -235,6 +221,24 @@ export async function activate(
       agentManager?.autoLabelSession(active.metadata.id, text);
       broadcastSessionList();
     }
+  });
+  // Metrics + session persistence — fires on every LLM turn completion.
+  chatViewProvider.onStreamCompleted((usage) => {
+    if (usage) {
+      metrics?.recordRequest({
+        requestLatency: 0,
+        totalLatency: 0,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+      });
+    }
+    broadcastMetrics();
+    saveActiveSession();
+  });
+  chatViewProvider.onStreamError((error) => {
+    metrics?.recordFailure(error);
+    broadcastMetrics();
+    saveActiveSession();
   });
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
