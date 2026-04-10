@@ -240,6 +240,21 @@ export async function activate(
     broadcastMetrics();
     saveActiveSession();
   });
+  // When the webview resolves, re-broadcast all state that may have
+  // been sent before it was ready (provider status, session list).
+  chatViewProvider.onWebviewReady(() => {
+    const provider = inlineProviderRef.current;
+    if (provider.name !== "not-configured") {
+      const yamlConfig = null; // Re-resolve would be async; use cached available models.
+      chatViewProvider?.broadcastProviderStatus({
+        state: "ready",
+        providerName: provider.name,
+        modelName: provider.config.model,
+        available: buildAvailableModels(yamlConfig),
+      });
+    }
+    broadcastSessionList();
+  });
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       ChatViewProvider.viewType,

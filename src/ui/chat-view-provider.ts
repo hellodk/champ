@@ -122,6 +122,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private skillContextProvider: SkillContextProvider | undefined;
   private skillVariableResolver: SkillVariableResolver | undefined;
   private userMessageCallback: ((text: string) => void) | undefined;
+  private webviewReadyCallback: (() => void) | undefined;
   private streamCompletedCallback:
     | ((usage?: { inputTokens: number; outputTokens: number }) => void)
     | undefined;
@@ -215,6 +216,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.streamErrorCallback = callback;
   }
 
+  /**
+   * Register a callback fired when the webview sends its first
+   * "requestHistory" message (the "I'm ready" signal). Used by
+   * extension.ts to re-broadcast provider status, session list,
+   * and other state that may have been sent before the webview resolved.
+   */
+  onWebviewReady(callback: () => void): void {
+    this.webviewReadyCallback = callback;
+  }
+
   resolveWebviewView(
     webviewView: vscode.WebviewView,
     _context: vscode.WebviewViewResolveContext,
@@ -306,6 +317,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.postMessage({ type: "modeChanged", mode: msg.mode });
       } else if (isRequestHistory(msg)) {
         this.postMessage(createConversationHistory(this.agent.getHistory()));
+        // The webview just resolved — re-broadcast all state so it
+        // picks up provider status, session list, etc. that were
+        // sent before the webview was ready.
+        this.webviewReadyCallback?.();
       } else if (isApprovalResponse(msg)) {
         const resolve = this.pendingApprovals.get(msg.id);
         if (resolve) {

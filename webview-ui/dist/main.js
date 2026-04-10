@@ -83,25 +83,32 @@
 
   const sessionPanel = el('div', { class: 'session-panel' });
 
-  // "New Agent" button at the top.
+  // Search bar + "New Agent" button.
+  const sessionSearchInput = el('input', {
+    type: 'text', class: 'session-search', placeholder: 'Search Agents...',
+  });
   const newAgentBtn = el('button', { class: 'new-agent-btn' }, ['New Agent']);
   newAgentBtn.addEventListener('click', () => {
     vscode.postMessage({ type: 'newSessionRequest' });
   });
 
   const sessionListEl = el('div', { class: 'session-list' });
-  sessionPanel.append(newAgentBtn, sessionListEl);
+  sessionPanel.append(sessionSearchInput, newAgentBtn, sessionListEl);
 
-  // Right-click context menu
+  // Filter sessions on search input.
+  let lastSessionData = { sessions: [], activeSessionId: null };
+  sessionSearchInput.addEventListener('input', () => {
+    renderSessionList(lastSessionData.sessions, lastSessionData.activeSessionId);
+  });
+
+  // Right-click / three-dot context menu
   const ctxMenu = el('div', { class: 'ctx-menu', hidden: 'true' });
-  let ctxSessionId = null;
   document.addEventListener('click', () => ctxMenu.setAttribute('hidden', 'true'));
   sessionPanel.append(ctxMenu);
 
   function showContextMenu(ev, sessionId) {
     ev.preventDefault();
     ev.stopPropagation();
-    ctxSessionId = sessionId;
     ctxMenu.innerHTML = '';
     const items = [
       { label: 'Rename', action: () => {
@@ -112,7 +119,6 @@
         vscode.postMessage({ type: 'deleteSessionRequest', sessionId });
       }},
       { label: 'Archive', action: () => {
-        // Archive is handled as delete for now — future: archiveSessionRequest
         vscode.postMessage({ type: 'deleteSessionRequest', sessionId });
       }},
     ];
@@ -125,17 +131,45 @@
       });
       ctxMenu.append(row);
     }
-    ctxMenu.style.top = ev.clientY + 'px';
-    ctxMenu.style.left = ev.clientX + 'px';
+    // Position near the click.
+    const rect = sessionPanel.getBoundingClientRect();
+    ctxMenu.style.top = (ev.clientY - rect.top) + 'px';
+    ctxMenu.style.left = Math.min(ev.clientX, rect.right - 170) + 'px';
     ctxMenu.removeAttribute('hidden');
+  }
+
+  /** Format relative age: "2m", "3h", "5d", "2w" */
+  function relativeAge(timestamp) {
+    const diff = Date.now() - timestamp;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'now';
+    if (mins < 60) return mins + 'm';
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + 'h';
+    const days = Math.floor(hrs / 24);
+    if (days < 7) return days + 'd';
+    const weeks = Math.floor(days / 7);
+    return weeks + 'w';
   }
 
   /**
    * Group sessions by time period and render, matching Cursor's style.
    */
   function renderSessionList(sessions, activeSessionId) {
+    lastSessionData = { sessions, activeSessionId };
     sessionListEl.innerHTML = '';
     if (!sessions || sessions.length === 0) return;
+
+    // Apply search filter.
+    const query = (sessionSearchInput.value || '').toLowerCase();
+    const filtered = query
+      ? sessions.filter(s => (s.label || '').toLowerCase().includes(query))
+      : sessions;
+
+    if (filtered.length === 0) {
+      sessionListEl.append(el('div', { class: 'session-empty' }, ['No matching sessions']));
+      return;
+    }
 
     const now = Date.now();
     const dayMs = 86400000;
@@ -143,16 +177,16 @@
     const weekAgo = now - 7 * dayMs;
 
     const groups = { today: [], last7: [], older: [] };
-    for (const s of sessions) {
+    for (const s of filtered) {
       const t = s.lastActivityAt || s.createdAt || 0;
       if (t >= todayStart) groups.today.push(s);
       else if (t >= weekAgo) groups.last7.push(s);
       else groups.older.push(s);
     }
 
-    function renderGroup(label, items) {
+    function renderGroup(groupLabel, items) {
       if (items.length === 0) return;
-      const header = el('div', { class: 'session-group-header' }, [label]);
+      const header = el('div', { class: 'session-group-header' }, [groupLabel]);
       sessionListEl.append(header);
       for (const s of items) {
         const row = el('div', {
@@ -166,9 +200,24 @@
         else icon.textContent = '○';
         icon.classList.add('state-' + s.state);
 
-        const label = el('span', { class: 'session-label' }, [s.label || 'New chat']);
+        const labelEl = el('span', { class: 'session-label' }, [s.label || 'New chat']);
 
-        row.append(icon, label);
+        // Hover actions: age + archive + three-dot menu (hidden until hover).
+        const hoverActions = el('span', { class: 'session-hover-actions' });
+        const ageEl = el('span', { class: 'session-age' }, [relativeAge(s.lastActivityAt || s.createdAt)]);
+        const archiveBtn = el('button', { class: 'session-action-btn', title: 'Archive' }, ['⊟']);
+        archiveBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          vscode.postMessage({ type: 'deleteSessionRequest', sessionId: s.id });
+        });
+        const menuBtn = el('button', { class: 'session-action-btn', title: 'More actions' }, ['⋯']);
+        menuBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          showContextMenu(ev, s.id);
+        });
+        hoverActions.append(ageEl, archiveBtn, menuBtn);
+
+        row.append(icon, labelEl, hoverActions);
         row.addEventListener('click', () => {
           if (s.id !== activeSessionId) {
             vscode.postMessage({ type: 'switchSessionRequest', sessionId: s.id });

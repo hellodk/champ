@@ -396,6 +396,28 @@ html, body {
   position: relative;
 }
 
+.session-search {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 8px auto 4px;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-input-foreground);
+  background-color: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 8px;
+  outline: none;
+}
+
+.session-search:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+.session-search::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
 .new-agent-btn {
   display: block;
   width: calc(100% - 16px);
@@ -490,6 +512,53 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Hover actions: age + archive + three-dot menu */
+.session-hover-actions {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.session-row:hover .session-hover-actions {
+  display: flex;
+}
+
+.session-age {
+  font-size: calc(var(--vscode-font-size) - 2px);
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.7;
+  min-width: 20px;
+  text-align: right;
+}
+
+.session-action-btn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--vscode-font-size) - 1px);
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.session-action-btn:hover {
+  background-color: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+  color: var(--vscode-foreground);
+}
+
+.session-empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--vscode-descriptionForeground);
+  font-size: calc(var(--vscode-font-size) - 1px);
 }
 
 /* -------------------------------------------------------------------
