@@ -1,20 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-  <!-- AIDev marketplace icon: stylized "A" with code brackets on a rounded-square background -->
+  <!-- Champ marketplace icon: trophy on a rounded-square background -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#1e1e2e"/>
       <stop offset="1" stop-color="#2d2d44"/>
     </linearGradient>
-    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#89b4fa"/>
-      <stop offset="1" stop-color="#b4befe"/>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f9e2af"/>
+      <stop offset="1" stop-color="#fab387"/>
     </linearGradient>
   </defs>
   <rect x="0" y="0" width="128" height="128" rx="22" fill="url(#bg)"/>
-  <!-- Left bracket: < -->
-  <path d="M 28 52 L 18 64 L 28 76" fill="none" stroke="url(#accent)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-  <!-- Right bracket: > -->
-  <path d="M 100 52 L 110 64 L 100 76" fill="none" stroke="url(#accent)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-  <!-- Stylized "A" in the middle -->
-  <path d="M 64 30 L 42 98 L 52 98 L 57 84 L 71 84 L 76 98 L 86 98 L 64 30 z M 60 74 L 64 62 L 68 74 L 60 74 z" fill="url(#accent)"/>
+  <!-- Trophy cup -->
+  <path d="M38 28h52v10c0 16-11.6 29-26 29S38 54 38 38V28z" fill="url(#gold)"/>
+  <!-- Left handle -->
+  <path d="M38 32h-6c-4 0-7 3-7 7v4c0 4 3 7 7 7h6" fill="none" stroke="url(#gold)" stroke-width="5" stroke-linecap="round"/>
+  <!-- Right handle -->
+  <path d="M90 32h6c4 0 7 3 7 7v4c0 4-3 7-7 7h-6" fill="none" stroke="url(#gold)" stroke-width="5" stroke-linecap="round"/>
+  <!-- Stem -->
+  <rect x="58" y="67" width="12" height="12" rx="2" fill="url(#gold)"/>
+  <!-- Base -->
+  <rect x="44" y="82" width="40" height="6" rx="3" fill="url(#gold)"/>
+  <rect x="40" y="90" width="48" height="8" rx="3" fill="url(#gold)"/>
+  <!-- Star on trophy -->
+  <path d="M64 38l3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z" fill="#1e1e2e" opacity="0.6"/>
 </svg>
