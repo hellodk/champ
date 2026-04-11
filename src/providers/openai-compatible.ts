@@ -96,9 +96,18 @@ export class OpenAICompatibleProvider implements LLMProvider {
       });
 
       if (!response.ok || !response.body) {
+        let hint = "";
+        if (response.status === 500) {
+          hint =
+            " — likely a context window overflow or the model crashed. Try 'New chat' to clear history.";
+        } else if (response.status === 400) {
+          hint = " — malformed request. Check the model name in your config.";
+        } else if (response.status === 404) {
+          hint = " — endpoint not found. Check the baseUrl in your config.";
+        }
         yield {
           type: "error",
-          error: `Request failed: ${response.status} ${response.statusText}`,
+          error: `Request failed: ${response.status} ${response.statusText}${hint}`,
         };
         yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
         return;
@@ -291,19 +300,67 @@ export class OpenAICompatibleProvider implements LLMProvider {
   private convertMessages(
     messages: LLMMessage[],
   ): Array<Record<string, unknown>> {
-    return messages.map((msg) => {
-      if (msg.role === "tool") {
-        return {
-          role: "tool",
-          tool_call_id: msg.toolCallId,
-          content: this.flattenContent(msg.content),
-        };
+    // Trim to fit the context window — llama.cpp and small vLLM
+    // instances return 500 Internal Server Error when exceeded.
+    // Keep a generous budget for the response, trim from the start
+    // (oldest user/assistant pairs) while preserving the system message
+    // and the last few turns.
+    const trimmed = this.trimForContext(messages);
+    const result: Array<Record<string, unknown>> = [];
+    for (const msg of trimmed) {
+      const content = this.flattenContent(msg.content);
+      // Skip empty-content messages (e.g. assistant turns that only
+      // contained tool calls). Many OpenAI-compatible servers reject
+      // them with 400/500.
+      if (!content.trim()) continue;
+      // Normalize 'tool' role to 'user' for broad compatibility —
+      // llama.cpp and some vLLM builds don't accept 'tool' role.
+      let role: string = msg.role;
+      if (role === "tool") role = "user";
+      if (role !== "system" && role !== "user" && role !== "assistant") {
+        role = "user";
       }
-      return {
-        role: msg.role,
-        content: this.flattenContent(msg.content),
-      };
-    });
+      result.push({ role, content });
+    }
+    return result;
+  }
+
+  /**
+   * Trim messages to fit within the context window. Keeps the system
+   * message (if any) plus the most recent turns up to ~75% of the
+   * context budget, leaving room for the response.
+   */
+  private trimForContext(messages: LLMMessage[]): LLMMessage[] {
+    // Rough token estimate: 4 chars per token. Conservative.
+    const estimate = (m: LLMMessage): number => {
+      const content =
+        typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+      return Math.ceil(content.length / 4) + 10; // +10 for role/overhead
+    };
+    // Budget: 75% of model's contextWindow, or default 3000 tokens
+    // if no contextWindow is known.
+    const modelInfo = this.modelInfo();
+    const ctxWindow = modelInfo.contextWindow || 4096;
+    const budget = Math.floor(ctxWindow * 0.75);
+
+    let totalTokens = 0;
+    const kept: LLMMessage[] = [];
+    // Always keep the system message if it's first.
+    let startIdx = 0;
+    if (messages[0]?.role === "system") {
+      kept.push(messages[0]);
+      totalTokens += estimate(messages[0]);
+      startIdx = 1;
+    }
+    // Walk backwards from the newest message, keeping what fits.
+    const recent: LLMMessage[] = [];
+    for (let i = messages.length - 1; i >= startIdx; i--) {
+      const tokens = estimate(messages[i]);
+      if (totalTokens + tokens > budget) break;
+      totalTokens += tokens;
+      recent.unshift(messages[i]);
+    }
+    return [...kept, ...recent];
   }
 
   private flattenContent(content: string | ContentBlock[]): string {

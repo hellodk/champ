@@ -356,11 +356,12 @@ export class OllamaProvider implements LLMProvider {
     role: string;
     content: string;
   }> {
+    // Trim for context window first (Ollama returns 500 on overflow).
+    const trimmed = this.trimForContext(messages);
     // Ollama's chat API only accepts system/user/assistant roles.
-    // Map 'tool' role messages (from native tool mode) to 'user' so
-    // stale history doesn't cause 400 Bad Request. Skip empty messages.
+    // Map 'tool' role to 'user' and skip empty messages.
     const result: Array<{ role: string; content: string }> = [];
-    for (const msg of messages) {
+    for (const msg of trimmed) {
       const content = this.flattenContent(msg.content);
       if (!content.trim()) continue;
       let role: string = msg.role;
@@ -371,6 +372,33 @@ export class OllamaProvider implements LLMProvider {
       result.push({ role, content });
     }
     return result;
+  }
+
+  private trimForContext(messages: LLMMessage[]): LLMMessage[] {
+    const estimate = (m: LLMMessage): number => {
+      const content =
+        typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+      return Math.ceil(content.length / 4) + 10;
+    };
+    const ctxWindow = this.modelInfo().contextWindow || 8192;
+    const budget = Math.floor(ctxWindow * 0.75);
+
+    let totalTokens = 0;
+    const kept: LLMMessage[] = [];
+    let startIdx = 0;
+    if (messages[0]?.role === "system") {
+      kept.push(messages[0]);
+      totalTokens += estimate(messages[0]);
+      startIdx = 1;
+    }
+    const recent: LLMMessage[] = [];
+    for (let i = messages.length - 1; i >= startIdx; i--) {
+      const tokens = estimate(messages[i]);
+      if (totalTokens + tokens > budget) break;
+      totalTokens += tokens;
+      recent.unshift(messages[i]);
+    }
+    return [...kept, ...recent];
   }
 
   private flattenContent(content: string | ContentBlock[]): string {
