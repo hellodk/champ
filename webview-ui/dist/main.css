@@ -131,6 +131,7 @@ html, body {
   border-radius: 16px 16px 4px 16px;
   max-width: 85%;
   padding: 10px 14px;
+  font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
   line-height: 1.5;
 }
@@ -146,8 +147,15 @@ html, body {
   border-radius: 0;
   padding: 2px 0;
   max-width: 100%;
+  font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
   line-height: 1.65;
+}
+
+/* Force codicon font-family to only apply to codicon elements themselves,
+ * never leak into their text-containing siblings or ancestors. */
+.messages, .messages .body, .messages .message {
+  font-family: var(--vscode-font-family);
 }
 
 /* Error messages */
