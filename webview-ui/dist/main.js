@@ -59,7 +59,7 @@
   // Top header: app title + model indicator on the left, icon buttons on the right.
   const header = el('div', { class: 'header' });
   const headerLeft = el('div', { class: 'header-left' });
-  const headerTitle = el('div', { class: 'header-title' }, ['Champ-1.3.1']);
+  const headerTitle = el('div', { class: 'header-title' }, ['Champ-1.3.2']);
   const headerSubtitle = el('div', { class: 'header-subtitle' }, ['loading…']);
   headerLeft.append(headerTitle, headerSubtitle);
 
@@ -67,13 +67,23 @@
   const newChatBtn = iconButton('codicon-add', 'New chat', () => {
     vscode.postMessage({ type: 'newSessionRequest' });
   });
+  const historyBtn = iconButton('codicon-history', 'Chat history', (ev) => {
+    ev.stopPropagation();
+    // Toggle the tab overflow menu which shows all sessions.
+    if (tabOverflowMenu.hidden) {
+      renderOverflowMenu();
+      tabOverflowMenu.removeAttribute('hidden');
+    } else {
+      tabOverflowMenu.setAttribute('hidden', 'true');
+    }
+  });
   const settingsBtn = iconButton('codicon-settings', 'Open settings', () => {
     vscode.postMessage({ type: 'openSettingsRequest' });
   });
   const helpBtn = iconButton('codicon-question', 'Show user guide', () => {
     vscode.postMessage({ type: 'showHelpRequest' });
   });
-  headerRight.append(newChatBtn, settingsBtn, helpBtn);
+  headerRight.append(newChatBtn, historyBtn, settingsBtn, helpBtn);
 
   header.append(headerLeft, headerRight);
 
@@ -846,7 +856,7 @@
     messagesContainer.innerHTML = '';
     const panel = el('div', { class: 'onboarding-panel' });
     panel.append(
-      el('div', { class: 'onboarding-title' }, ['Welcome to Champ-1.3.1']),
+      el('div', { class: 'onboarding-title' }, ['Welcome to Champ-1.3.2']),
       el('div', { class: 'onboarding-subtitle' }, [
         'No configuration found. Pick a starter template to create .champ/config.yaml:',
       ]),

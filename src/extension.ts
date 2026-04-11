@@ -83,7 +83,7 @@ export async function activate(
     100,
   );
   statusBarItem.command = "champ.openSettings";
-  statusBarItem.text = "$(loading~spin) Champ-1.3.1";
+  statusBarItem.text = "$(loading~spin) Champ-1.3.2";
   statusBarItem.tooltip = "Champ — click to open settings";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
@@ -309,44 +309,40 @@ export async function activate(
 
   // ---- Chat participant (VS Code native Chat view) -------------------
   // Registers Champ as @champ in VS Code's built-in Chat view,
-  // alongside Continue, Codex, Claude, etc. The handler routes the
-  // prompt to the active session's AgentController and streams the
-  // response back via the ChatResponseStream API.
+  // alongside Continue, Codex, Claude, etc. Uses the stable
+  // vscode.chat.createChatParticipant API (available since 1.93).
   try {
-    if ((vscode as unknown as { chat?: unknown }).chat) {
-      const participant = (
-        vscode as unknown as {
-          chat: {
-            createChatParticipant: (
-              id: string,
-              handler: (
-                request: { prompt: string },
-                context: unknown,
-                stream: {
-                  markdown: (value: string) => void;
-                  progress?: (value: string) => void;
-                },
-                token: vscode.CancellationToken,
-              ) => Promise<void> | void,
-            ) => { iconPath?: vscode.Uri; dispose: () => void };
-          };
-        }
-      ).chat.createChatParticipant(
+    const chatApi = (
+      vscode as typeof vscode & {
+        chat?: {
+          createChatParticipant: (
+            id: string,
+            handler: vscode.ChatRequestHandler,
+          ) => vscode.ChatParticipant;
+        };
+      }
+    ).chat;
+    if (chatApi && typeof chatApi.createChatParticipant === "function") {
+      const participant = chatApi.createChatParticipant(
         "champ.default",
         async (request, _chatContext, stream, token) => {
-          const activeSession = agentManager?.getActive();
+          console.log("Champ chat participant invoked:", request.prompt);
+          let activeSession = agentManager?.getActive();
+          if (!activeSession && agentManager) {
+            activeSession = agentManager.createSession();
+          }
           if (!activeSession) {
-            stream.markdown("Champ: no active session.");
+            stream.markdown("Champ: session unavailable.");
             return;
           }
           const controller = activeSession.controller;
           const abort = new AbortController();
           token.onCancellationRequested(() => abort.abort());
-          const buffer: string[] = [];
           const dispose = controller.onStreamDelta((delta) => {
             if (delta.type === "text" && delta.text) {
-              buffer.push(delta.text);
               stream.markdown(delta.text);
+            } else if (delta.type === "error" && delta.error) {
+              stream.markdown(`\n\n**Error:** ${delta.error}`);
             }
           });
           try {
@@ -354,22 +350,27 @@ export async function activate(
               abortSignal: abort.signal,
               requestApproval: async () => true,
             });
+          } catch (err) {
+            stream.markdown(
+              `\n\n**Error:** ${err instanceof Error ? err.message : String(err)}`,
+            );
           } finally {
             dispose();
           }
         },
       );
-      if (participant) {
-        participant.iconPath = vscode.Uri.joinPath(
-          context.extensionUri,
-          "media",
-          "icon.svg",
-        );
-        context.subscriptions.push({ dispose: () => participant.dispose() });
-      }
+      participant.iconPath = vscode.Uri.joinPath(
+        context.extensionUri,
+        "media",
+        "icon.png",
+      );
+      context.subscriptions.push(participant);
+      console.log("Champ: chat participant registered as @champ");
+    } else {
+      console.warn("Champ: vscode.chat API unavailable (need VS Code 1.93+)");
     }
   } catch (err) {
-    console.warn("Champ: chat participant registration failed:", err);
+    console.error("Champ: chat participant registration failed:", err);
   }
 
   // ---- Inline completion ----------------------------------------------
@@ -904,19 +905,19 @@ export async function activate(
 
   function setStatusLoading(): void {
     if (!statusBarItem) return;
-    statusBarItem.text = "$(loading~spin) Champ-1.3.1";
+    statusBarItem.text = "$(loading~spin) Champ-1.3.2";
     statusBarItem.tooltip = "Champ — loading provider…";
   }
 
   function setStatusReady(provider: LLMProvider): void {
     if (!statusBarItem) return;
-    statusBarItem.text = `$(robot) Champ-1.3.1: ${provider.name}`;
+    statusBarItem.text = `$(robot) Champ-1.3.2: ${provider.name}`;
     statusBarItem.tooltip = `Champ provider: ${provider.name} (${provider.config.model})\nClick to open settings`;
   }
 
   function setStatusError(message: string): void {
     if (!statusBarItem) return;
-    statusBarItem.text = "$(error) Champ-1.3.1: error";
+    statusBarItem.text = "$(error) Champ-1.3.2: error";
     statusBarItem.tooltip = `Champ provider error: ${message}\nClick to open settings`;
   }
 
