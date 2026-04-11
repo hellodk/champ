@@ -2,12 +2,12 @@
   "name": "champ",
   "displayName": "Champ - AI Coding Agent",
   "description": "Cursor-like AI coding experience with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "publisher": "champ-oss",
   "license": "MIT",
   "icon": "media/icon.png",
   "engines": {
-    "vscode": "^1.93.0"
+    "vscode": "^1.95.0"
   },
   "categories": [
     "AI",
@@ -33,7 +33,8 @@
   },
   "homepage": "https://github.com/champ-oss/champ#readme",
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onChatParticipant:champ.default"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -287,7 +288,7 @@
     "@google/generative-ai": "^0.21.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.11.0",
-    "@types/vscode": "^1.93.0",
+    "@types/vscode": "^1.95.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "@vscode/test-electron": "^2.4.0",
