@@ -5,6 +5,55 @@ All notable changes to Champ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] — 2026-04-11
+
+First marketplace release. Full-featured AI coding agent with local
+LLM support, multi-session chat history, and Cursor-parity UI.
+
+### Added
+- **VS Code Chat participant** — `@champ` now appears in the built-in
+  Chat view alongside Continue, Codex, and GitHub Copilot Chat.
+- **History icon** in the chat header — toggles the session overflow
+  menu showing all past conversations.
+- **Tabbed session UI** — browser-style tabs, time-grouped history,
+  rename/delete/archive via context menu.
+- **Model picker popup** — Cursor-style search + auto-detected models
+  with `(autodetected)` tags.
+- **Mode picker popup** — Chat / Agent / Plan / Manual / Composer with
+  icons and descriptions.
+- **Per-message action bar** — copy, delete, retry, helpful/not-helpful
+  buttons on hover.
+- **4-option approval dialog** — Allow / Allow for Session / Deny /
+  Deny & Stop.
+- **Auto-detected models** — queries Ollama `/api/tags` and
+  OpenAI-compatible `/v1/models` to populate the picker automatically.
+- **Historical chat persistence** — all sessions save to
+  `.champ/sessions/*.json` and restore on VS Code reload.
+- **Codicon icons** — replaced all emoji with VS Code's native icon
+  font for a polished IDE-native look.
+
+### Fixed
+- **Startup performance** — moved provider loading, skill loading, and
+  session restore to fire-and-forget background work so `activate()`
+  returns immediately.
+- **Ollama 400 Bad Request** — stale `tool` role messages in restored
+  history are now mapped to `user` role.
+- **Qwen raw tokens leaking** — removed Qwen from the native tool
+  calling list; added defensive stripping of `<｜tool▁...｜>` tokens
+  in the text stream forwarder.
+- **Session persistence wiring** — stream delta listener is now on the
+  active session's controller, not the standalone agent. Sessions
+  actually save after every message.
+- **Mutually exclusive pickers** — opening one picker now closes the
+  other.
+- **File upload** — webview CSP blocked native `<input type="file">`;
+  attach now routes through `vscode.window.showOpenDialog` via an
+  `openFilePickerRequest` message.
+- **Approval dialog missing** — webview had no handler for
+  `approvalRequest`, causing tools to hang on "Running..." forever.
+- **Message body tofu rendering** — codicon font was leaking into
+  `.message .body` via CSS inheritance.
+
 ## [0.1.6] — 2026-04-08
 
 Skills Phase D — slash-command autocomplete dropdown in the chat

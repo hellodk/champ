@@ -25,9 +25,9 @@ eslint.config.mjs
 vitest.config.ts
 vitest.integration.config.ts
 package-lock.json
-**/*.map
 **/*.ts
-!dist/**
+**/*.map
+!dist/extension.js
 !webview-ui/dist/**
 !media/icon.png
 !media/icon.svg
