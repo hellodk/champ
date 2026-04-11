@@ -59,7 +59,7 @@
   // Top header: app title + model indicator on the left, icon buttons on the right.
   const header = el('div', { class: 'header' });
   const headerLeft = el('div', { class: 'header-left' });
-  const headerTitle = el('div', { class: 'header-title' }, ['Champ-1.3.3']);
+  const headerTitle = el('div', { class: 'header-title' }, ['Champ-1.3.4']);
   const headerSubtitle = el('div', { class: 'header-subtitle' }, ['loading…']);
   headerLeft.append(headerTitle, headerSubtitle);
 
@@ -648,7 +648,17 @@
     state.messages.push(msg);
 
     const messageEl = el('div', { class: `message ${role}` });
-    const bodyEl = el('div', { class: 'body' }, [text]);
+    const bodyEl = el('div', { class: 'body' });
+    // Render markdown for assistant messages; user messages stay as
+    // plain text (what the user typed).
+    if (text) {
+      if (role === 'assistant') {
+        bodyEl.dataset.rawText = text;
+        bodyEl.innerHTML = renderMarkdown(text);
+      } else {
+        bodyEl.textContent = text;
+      }
+    }
     // Only show the blinking cursor on the CURRENT streaming message —
     // not on restored/completed ones. The caller sets
     // state.currentAssistantMessage after this returns, which is only
@@ -717,13 +727,117 @@
     }
     const body = state.currentAssistantMessage.querySelector('.body');
     if (body) {
-      body.textContent = (body.textContent || '') + text;
+      // Buffer the raw markdown text and re-render on every delta.
+      // This is O(n) per delta but fine for typical message sizes.
+      const raw = (body.dataset.rawText || '') + text;
+      body.dataset.rawText = raw;
+      body.innerHTML = renderMarkdown(raw);
       if (userScrolledUp) {
         scrollPill.removeAttribute('hidden');
       } else {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
       }
     }
+  }
+
+  /**
+   * Minimal markdown-to-HTML renderer. Handles the patterns LLMs
+   * most commonly produce: headings, code blocks, inline code,
+   * bold, italic, links, unordered/ordered lists, and paragraphs.
+   * Escapes HTML in text to prevent XSS.
+   */
+  function renderMarkdown(md) {
+    if (!md) return '';
+    // HTML-escape first, then apply markdown rules.
+    const esc = (s) => s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    // Extract fenced code blocks first so their content isn't touched
+    // by inline rules.
+    const codeBlocks = [];
+    let text = md.replace(/```([\w-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
+      const idx = codeBlocks.length;
+      codeBlocks.push({ lang, code });
+      return `\x00CODE${idx}\x00`;
+    });
+
+    // Escape remaining HTML.
+    text = esc(text);
+
+    // Inline code (after escaping, so backticks are still literal).
+    text = text.replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>');
+
+    // Bold + italic.
+    text = text.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+
+    // Links: [text](url)
+    text = text.replace(
+      /\[([^\]]+)\]\(([^)]+)\)/g,
+      '<a href="$2">$1</a>',
+    );
+
+    // Headings (ATX).
+    text = text.replace(/^######\s+(.+)$/gm, '<h6>$1</h6>');
+    text = text.replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>');
+    text = text.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>');
+    text = text.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
+    text = text.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
+    text = text.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
+
+    // Lists: group consecutive - or * lines into <ul>, 1. lines into <ol>.
+    const lines = text.split('\n');
+    const out = [];
+    let listType = null;
+    let listBuffer = [];
+    const flushList = () => {
+      if (listBuffer.length > 0) {
+        const tag = listType === 'ul' ? 'ul' : 'ol';
+        out.push(`<${tag}>${listBuffer.map((i) => `<li>${i}</li>`).join('')}</${tag}>`);
+        listBuffer = [];
+        listType = null;
+      }
+    };
+    for (const line of lines) {
+      const ulMatch = line.match(/^\s*[-*]\s+(.+)$/);
+      const olMatch = line.match(/^\s*\d+\.\s+(.+)$/);
+      if (ulMatch) {
+        if (listType !== 'ul') flushList();
+        listType = 'ul';
+        listBuffer.push(ulMatch[1]);
+      } else if (olMatch) {
+        if (listType !== 'ol') flushList();
+        listType = 'ol';
+        listBuffer.push(olMatch[1]);
+      } else {
+        flushList();
+        out.push(line);
+      }
+    }
+    flushList();
+    text = out.join('\n');
+
+    // Paragraphs: split on double-newline, wrap non-block lines in <p>.
+    const blocks = text.split(/\n\n+/);
+    const htmlBlocks = blocks.map((b) => {
+      const trimmed = b.trim();
+      if (!trimmed) return '';
+      // Already a block-level element? pass through.
+      if (/^<(h\d|ul|ol|pre|blockquote|table|div)/.test(trimmed)) return trimmed;
+      // Otherwise wrap in <p>, converting single newlines to <br>.
+      return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
+    });
+    text = htmlBlocks.join('\n');
+
+    // Restore code blocks.
+    text = text.replace(/\x00CODE(\d+)\x00/g, (_, idx) => {
+      const { lang, code } = codeBlocks[parseInt(idx, 10)];
+      return `<pre class="code-block"><code class="lang-${esc(lang || 'text')}">${esc(code)}</code></pre>`;
+    });
+
+    return text;
   }
 
   function appendToolCallCard(toolName, args) {
@@ -856,7 +970,7 @@
     messagesContainer.innerHTML = '';
     const panel = el('div', { class: 'onboarding-panel' });
     panel.append(
-      el('div', { class: 'onboarding-title' }, ['Welcome to Champ-1.3.3']),
+      el('div', { class: 'onboarding-title' }, ['Welcome to Champ-1.3.4']),
       el('div', { class: 'onboarding-subtitle' }, [
         'No configuration found. Pick a starter template to create .champ/config.yaml:',
       ]),
