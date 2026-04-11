@@ -2,7 +2,7 @@
   "name": "champ",
   "displayName": "Champ - AI Coding Agent",
   "description": "Cursor-like AI coding experience with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "publisher": "champ-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -36,12 +36,22 @@
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
+  "enabledApiProposals": [],
   "contributes": {
+    "chatParticipants": [
+      {
+        "id": "champ.default",
+        "name": "champ",
+        "fullName": "Champ",
+        "description": "AI coding agent with local LLM support",
+        "isSticky": true
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {
           "id": "champ-sidebar",
-          "title": "Champ-1.2.0",
+          "title": "Champ-1.3.0",
           "icon": "media/icon.svg"
         }
       ]

@@ -83,7 +83,7 @@ export async function activate(
     100,
   );
   statusBarItem.command = "champ.openSettings";
-  statusBarItem.text = "$(loading~spin) Champ-1.2.1";
+  statusBarItem.text = "$(loading~spin) Champ-1.3.0";
   statusBarItem.tooltip = "Champ — click to open settings";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
@@ -175,12 +175,14 @@ export async function activate(
       console.error("Champ: failed to load built-in skill:", err);
     }
   }
-  await loadSkillsFromDirectory(
+  // Skill loading is fire-and-forget — built-in skills are already
+  // registered, disk skills are async bonuses that don't need to block.
+  void loadSkillsFromDirectory(
     skillRegistry,
     workspaceRoot ? path.join(workspaceRoot, ".champ", "skills") : null,
     "workspace",
   );
-  await loadSkillsFromDirectory(
+  void loadSkillsFromDirectory(
     skillRegistry,
     path.join(os.homedir(), ".champ", "skills"),
     "user",
@@ -304,6 +306,71 @@ export async function activate(
       chatViewProvider,
     ),
   );
+
+  // ---- Chat participant (VS Code native Chat view) -------------------
+  // Registers Champ as @champ in VS Code's built-in Chat view,
+  // alongside Continue, Codex, Claude, etc. The handler routes the
+  // prompt to the active session's AgentController and streams the
+  // response back via the ChatResponseStream API.
+  try {
+    if ((vscode as unknown as { chat?: unknown }).chat) {
+      const participant = (
+        vscode as unknown as {
+          chat: {
+            createChatParticipant: (
+              id: string,
+              handler: (
+                request: { prompt: string },
+                context: unknown,
+                stream: {
+                  markdown: (value: string) => void;
+                  progress?: (value: string) => void;
+                },
+                token: vscode.CancellationToken,
+              ) => Promise<void> | void,
+            ) => { iconPath?: vscode.Uri; dispose: () => void };
+          };
+        }
+      ).chat.createChatParticipant(
+        "champ.default",
+        async (request, _chatContext, stream, token) => {
+          const activeSession = agentManager?.getActive();
+          if (!activeSession) {
+            stream.markdown("Champ: no active session.");
+            return;
+          }
+          const controller = activeSession.controller;
+          const abort = new AbortController();
+          token.onCancellationRequested(() => abort.abort());
+          const buffer: string[] = [];
+          const dispose = controller.onStreamDelta((delta) => {
+            if (delta.type === "text" && delta.text) {
+              buffer.push(delta.text);
+              stream.markdown(delta.text);
+            }
+          });
+          try {
+            await controller.processMessage(request.prompt, {
+              abortSignal: abort.signal,
+              requestApproval: async () => true,
+            });
+          } finally {
+            dispose();
+          }
+        },
+      );
+      if (participant) {
+        participant.iconPath = vscode.Uri.joinPath(
+          context.extensionUri,
+          "media",
+          "icon.svg",
+        );
+        context.subscriptions.push({ dispose: () => participant.dispose() });
+      }
+    }
+  } catch (err) {
+    console.warn("Champ: chat participant registration failed:", err);
+  }
 
   // ---- Inline completion ----------------------------------------------
   // The inline provider holds a *reference* to the active provider, so
@@ -837,19 +904,19 @@ export async function activate(
 
   function setStatusLoading(): void {
     if (!statusBarItem) return;
-    statusBarItem.text = "$(loading~spin) Champ-1.2.1";
+    statusBarItem.text = "$(loading~spin) Champ-1.3.0";
     statusBarItem.tooltip = "Champ — loading provider…";
   }
 
   function setStatusReady(provider: LLMProvider): void {
     if (!statusBarItem) return;
-    statusBarItem.text = `$(robot) Champ-1.2.1: ${provider.name}`;
+    statusBarItem.text = `$(robot) Champ-1.3.0: ${provider.name}`;
     statusBarItem.tooltip = `Champ provider: ${provider.name} (${provider.config.model})\nClick to open settings`;
   }
 
   function setStatusError(message: string): void {
     if (!statusBarItem) return;
-    statusBarItem.text = "$(error) Champ-1.2.1: error";
+    statusBarItem.text = "$(error) Champ-1.3.0: error";
     statusBarItem.tooltip = `Champ provider error: ${message}\nClick to open settings`;
   }
 
@@ -902,21 +969,21 @@ export async function activate(
     }, 500);
   }
 
-  // Initial load. Failures here are non-fatal — the chat panel will
-  // show the error and the user can fix it from settings.
-  await loadProvider();
+  // ---- Background initialization ----------------------------------------
+  // All the slow stuff (disk I/O, provider loading, HTTP calls for
+  // auto-detect) runs AFTER activate() returns. This means the Champ
+  // sidebar icon appears instantly; the user can open it and see
+  // "loading..." while the provider and sessions come online.
+  void (async () => {
+    // 1. Load provider (reads YAML, creates provider, auto-detects models).
+    await loadProvider();
 
-  // ---- First-run detection (onboarding) ---------------------------------
-  // If no config exists at all and the user hasn't dismissed onboarding
-  // before, broadcast a firstRunWelcome so the chat panel shows the
-  // onboarding picker with starter templates.
-  const onboardingDismissed = context.globalState.get<boolean>(
-    "champ.onboardingDismissed",
-    false,
-  );
-  if (!onboardingDismissed) {
-    const hasConfig = await resolveConfig();
-    if (!hasConfig) {
+    // 2. First-run detection. Use cached config (loadProvider already read it).
+    const onboardingDismissed = context.globalState.get<boolean>(
+      "champ.onboardingDismissed",
+      false,
+    );
+    if (!onboardingDismissed && !cachedYamlConfig) {
       chatViewProvider?.broadcastFirstRunWelcome(
         SAMPLE_CONFIGS.map((c) => ({
           id: c.id,
@@ -925,56 +992,48 @@ export async function activate(
         })),
       );
     }
-  }
 
-  // ---- Restore persisted sessions ---------------------------------------
-  // Load any saved sessions from disk, or create a default session if
-  // none exist. This ensures the user always has at least one session.
-  if (sessionStore && agentManager) {
-    try {
-      const persisted = await sessionStore.loadAll();
-      for (const s of persisted) {
-        agentManager.importSession(s);
+    // 3. Restore persisted sessions from .champ/sessions/.
+    if (sessionStore && agentManager) {
+      try {
+        const persisted = await sessionStore.loadAll();
+        for (const s of persisted) {
+          agentManager.importSession(s);
+        }
+        if (persisted.length > 0) {
+          const sorted = persisted.sort(
+            (a, b) => b.metadata.lastActivityAt - a.metadata.lastActivityAt,
+          );
+          agentManager.setActive(sorted[0].metadata.id);
+        }
+      } catch {
+        /* non-fatal */
       }
-      if (persisted.length > 0) {
-        // Activate the most recently used session.
-        const sorted = persisted.sort(
-          (a, b) => b.metadata.lastActivityAt - a.metadata.lastActivityAt,
-        );
-        agentManager.setActive(sorted[0].metadata.id);
+      if (agentManager.listSessions(true).length === 0) {
+        agentManager.createSession();
       }
-    } catch {
-      // Non-fatal — start fresh.
-    }
-    // Ensure at least one session exists.
-    if (agentManager.listSessions(true).length === 0) {
-      agentManager.createSession();
-    }
+      const activeSession = agentManager.getActive();
+      if (activeSession) {
+        chatViewProvider?.setAgent(activeSession.controller);
+        chatViewProvider?.postMessage({
+          type: "conversationHistory",
+          messages: activeSession.controller.getHistory(),
+        });
+      }
+      broadcastSessionList();
 
-    // Point the ChatViewProvider at the active session's controller.
-    const activeSession = agentManager.getActive();
-    if (activeSession) {
-      chatViewProvider?.setAgent(activeSession.controller);
-      chatViewProvider?.postMessage({
-        type: "conversationHistory",
-        messages: activeSession.controller.getHistory(),
+      agentManager.onChange((event) => {
+        broadcastSessionList();
+        if (
+          event.type === "sessionCreated" ||
+          event.type === "sessionStateChanged" ||
+          event.type === "sessionUpdated"
+        ) {
+          void saveSession(event.id);
+        }
       });
     }
-    broadcastSessionList();
-
-    // Auto-broadcast session list on every manager event, and
-    // auto-save sessions after state changes.
-    agentManager.onChange((event) => {
-      broadcastSessionList();
-      if (
-        event.type === "sessionCreated" ||
-        event.type === "sessionStateChanged" ||
-        event.type === "sessionUpdated"
-      ) {
-        void saveSession(event.id);
-      }
-    });
-  }
+  })();
 
   // ---- Config change watchers -----------------------------------------
   // Watch VS Code champ.* settings (legacy path).
