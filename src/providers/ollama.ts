@@ -74,20 +74,60 @@ export class OllamaProvider implements LLMProvider {
     return Math.max(1, Math.ceil(text.length / 4));
   }
 
+  private detectedContextWindow: number | null = null;
+  private contextDetectionPromise: Promise<void> | null = null;
+
   modelInfo(): ModelInfo {
-    // Ollama does not expose context window metadata in a standard way per
-    // model. We default to 8K and expect the user to configure larger values
-    // via Modelfile for specific models.
+    if (this.detectedContextWindow === null && !this.contextDetectionPromise) {
+      this.contextDetectionPromise = this.detectContextWindow();
+    }
     return {
       id: this.config.model,
       name: this.config.model,
       provider: "ollama",
-      contextWindow: 8192,
+      contextWindow: this.detectedContextWindow ?? 8192,
       maxOutputTokens: this.config.maxTokens,
       supportsToolUse: this.supportsToolUse(),
       supportsImages: false,
       supportsStreaming: true,
     };
+  }
+
+  /**
+   * Query Ollama's /api/show endpoint for model metadata including
+   * the context length. Returns something like:
+   *   { model_info: { "llama.context_length": 32768, ... } }
+   */
+  private async detectContextWindow(): Promise<void> {
+    try {
+      const res = await fetch(`${this.config.baseUrl}/api/show`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: this.config.model }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as {
+          model_info?: Record<string, unknown>;
+          parameters?: string;
+        };
+        // Look for *.context_length in model_info (key prefix varies:
+        // llama.context_length, qwen2.context_length, etc.)
+        if (data.model_info) {
+          for (const [key, value] of Object.entries(data.model_info)) {
+            if (key.endsWith(".context_length") && typeof value === "number") {
+              this.detectedContextWindow = value;
+              console.log(
+                `Champ: detected Ollama context window ${value} from /api/show (${key})`,
+              );
+              return;
+            }
+          }
+        }
+      }
+    } catch {
+      // Fallback to default.
+    }
+    this.detectedContextWindow = 8192;
   }
 
   async *chat(

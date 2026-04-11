@@ -46,17 +46,79 @@ export class OpenAICompatibleProvider implements LLMProvider {
     return Math.max(1, Math.ceil(text.length / 4));
   }
 
+  // Cached context window detected via /props (llama.cpp) or /v1/models.
+  private detectedContextWindow: number | null = null;
+  private contextDetectionPromise: Promise<void> | null = null;
+
   modelInfo(): ModelInfo {
+    // Kick off detection on first call if not already running.
+    if (this.detectedContextWindow === null && !this.contextDetectionPromise) {
+      this.contextDetectionPromise = this.detectContextWindow();
+    }
     return {
       id: this.config.model,
       name: this.config.model,
       provider: this.name,
-      contextWindow: DEFAULT_CONTEXT_WINDOW,
+      contextWindow: this.detectedContextWindow ?? DEFAULT_CONTEXT_WINDOW,
       maxOutputTokens: this.config.maxTokens,
       supportsToolUse: this.supportsToolUse(),
       supportsImages: false,
       supportsStreaming: true,
     };
+  }
+
+  /**
+   * Query the llama.cpp /props endpoint (or OpenAI /v1/models fallback)
+   * to detect the live context window the server was started with.
+   * Caches the result so it's only fetched once per session.
+   */
+  private async detectContextWindow(): Promise<void> {
+    // Try llama.cpp's /props endpoint first — this gives the exact
+    // n_ctx the server was started with.
+    try {
+      const base = (this.config.baseUrl ?? "").replace(/\/v1\/?$/, "");
+      const res = await fetch(`${base}/props`);
+      if (res.ok) {
+        const data = (await res.json()) as {
+          default_generation_settings?: { n_ctx?: number };
+          n_ctx?: number;
+        };
+        const nCtx = data.default_generation_settings?.n_ctx ?? data.n_ctx;
+        if (typeof nCtx === "number" && nCtx > 0) {
+          this.detectedContextWindow = nCtx;
+          console.log(
+            `Champ: detected context window ${nCtx} from /props on ${base}`,
+          );
+          return;
+        }
+      }
+    } catch {
+      // /props not supported — fall through.
+    }
+    // Fallback: try /v1/models for OpenAI-compatible servers that
+    // expose max_context_length in the model object.
+    try {
+      const res = await fetch(this.joinUrl("/models"));
+      if (res.ok) {
+        const data = (await res.json()) as {
+          data?: Array<{ id: string; max_context_length?: number }>;
+        };
+        const model = data.data?.find((m) => m.id === this.config.model);
+        if (model?.max_context_length) {
+          this.detectedContextWindow = model.max_context_length;
+          console.log(
+            `Champ: detected context window ${model.max_context_length} from /v1/models`,
+          );
+          return;
+        }
+      }
+    } catch {
+      // ignore — fall back to default.
+    }
+    this.detectedContextWindow = DEFAULT_CONTEXT_WINDOW;
+    console.log(
+      `Champ: using default context window ${DEFAULT_CONTEXT_WINDOW} (no /props or /v1/models info)`,
+    );
   }
 
   async *chat(
