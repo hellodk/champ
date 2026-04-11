@@ -705,10 +705,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       );
       const codiconPath = vscode.Uri.joinPath(
         this.extensionUri,
-        "node_modules",
-        "@vscode",
-        "codicons",
+        "webview-ui",
         "dist",
+        "codicons",
         "codicon.css",
       );
       scriptUri = webview.asWebviewUri(scriptPath).toString();

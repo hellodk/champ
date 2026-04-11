@@ -9,7 +9,6 @@ test-reports/**
 scripts/**
 webview-ui/src/**
 node_modules/**
-!node_modules/@vscode/codicons/dist/**
 docs/ARCHITECTURE.md
 docs/API_REFERENCE.md
 docs/IMPLEMENTATION_ROADMAP.md

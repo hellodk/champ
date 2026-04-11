@@ -355,13 +355,22 @@ export class OllamaProvider implements LLMProvider {
   private convertMessages(messages: LLMMessage[]): Array<{
     role: string;
     content: string;
-    tool_call_id?: string;
   }> {
-    return messages.map((msg) => ({
-      role: msg.role,
-      content: this.flattenContent(msg.content),
-      tool_call_id: msg.toolCallId,
-    }));
+    // Ollama's chat API only accepts system/user/assistant roles.
+    // Map 'tool' role messages (from native tool mode) to 'user' so
+    // stale history doesn't cause 400 Bad Request. Skip empty messages.
+    const result: Array<{ role: string; content: string }> = [];
+    for (const msg of messages) {
+      const content = this.flattenContent(msg.content);
+      if (!content.trim()) continue;
+      let role: string = msg.role;
+      if (role === "tool") role = "user";
+      if (role !== "system" && role !== "user" && role !== "assistant") {
+        role = "user";
+      }
+      result.push({ role, content });
+    }
+    return result;
   }
 
   private flattenContent(content: string | ContentBlock[]): string {
