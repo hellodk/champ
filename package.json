@@ -1,7 +1,7 @@
 {
   "name": "champ",
   "displayName": "Champ - AI Coding Agent",
-  "description": "Cursor-like AI coding experience with local LLM support, multi-agent orchestration, and autonomous workflows",
+  "description": "AI coding agent with local LLM support, multi-agent orchestration, and autonomous workflows",
   "version": "1.4.0",
   "publisher": "champ-oss",
   "license": "MIT",
@@ -26,12 +26,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/champ-oss/champ"
+    "url": "https://github.com/hellodk/champ"
   },
   "bugs": {
-    "url": "https://github.com/champ-oss/champ/issues"
+    "url": "https://github.com/hellodk/champ/issues"
   },
-  "homepage": "https://github.com/champ-oss/champ#readme",
+  "homepage": "https://github.com/hellodk/champ#readme",
   "activationEvents": [
     "onStartupFinished",
     "onChatParticipant:champ.default"

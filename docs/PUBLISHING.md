@@ -1,6 +1,6 @@
 # Publishing Champ to the Marketplace
 
-Complete walkthrough from zero to published, for both the **VS Code Marketplace** (official) and **Open VSX** (VSCodium / Cursor / other forks).
+Complete walkthrough from zero to published, for both the **VS Code Marketplace** (official) and **Open VSX** (VSCodium / other forks).
 
 ---
 
@@ -150,7 +150,7 @@ Or search "Champ" in the VS Code Extensions view.
 
 ## Part 2 — Publish to Open VSX Registry
 
-Open VSX is a vendor-neutral marketplace used by **VSCodium, Cursor, Gitpod, Theia**, and other VS Code forks.
+Open VSX is a vendor-neutral marketplace used by **VSCodium, Gitpod, Theia**, and other VS Code forks.
 
 ### Step 1: Create an Eclipse Foundation account
 

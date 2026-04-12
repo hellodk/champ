@@ -4,6 +4,7 @@ out/
 .vscode-test/
 *.vsix
 .aidev/
+.champ/sessions/
 test-reports/
 .DS_Store
 .env

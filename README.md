@@ -1,6 +1,6 @@
 # Champ — AI Coding Agent for VS Code
 
-Open-source VS Code extension that delivers a Cursor-like AI coding experience with multi-agent orchestration, full local LLM support, and strong safety controls. Built in pure TypeScript with a TDD-first workflow.
+Open-source VS Code extension that delivers a AI coding agent with multi-agent orchestration, full local LLM support, and strong safety controls. Built in pure TypeScript with a TDD-first workflow.
 
 ## Features
 

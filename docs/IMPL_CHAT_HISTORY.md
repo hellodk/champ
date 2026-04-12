@@ -15,7 +15,7 @@ Today Champ runs a **single in-memory chat session**. The conversation history (
 - Wants to revisit yesterday's debugging session, they can't
 - Needs two parallel tasks (long refactor + quick question), they must choose one
 
-**Goal**: Persistent, multi-session chat history that survives reloads, supports switching, and provides a browsable sidebar list — matching what Cursor, Windsurf, and GitHub Copilot Chat offer.
+**Goal**: Persistent, multi-session chat history that survives reloads, supports switching, and provides a browsable sidebar list — matching what modern AI coding tools offer.
 
 ---
 

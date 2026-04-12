@@ -1,12 +1,12 @@
-# Analysis: Tabbed Chat UI — Continue.dev Pattern
+# Analysis: Tabbed Chat UI — open-source alternatives Pattern
 
 Status: **analysis complete, ready for implementation review**
 
-Reference: Continue.dev VS Code extension screenshot (2026-04-10)
+Reference: open-source alternatives VS Code extension screenshot (2026-04-10)
 
 ---
 
-## What Continue.dev Does Differently
+## What open-source alternatives Does Differently
 
 ### 1. Tabbed Sessions (Browser-Style)
 
@@ -22,7 +22,7 @@ Reference: Continue.dev VS Code extension screenshot (2026-04-10)
 
 **Current Champ approach**: Collapsible sidebar session list with time groups.
 
-**Continue.dev approach**: Horizontal tabs like browser tabs. Each chat is a tab. Click to switch, ✕ to close, + to create new.
+**open-source alternatives approach**: Horizontal tabs like browser tabs. Each chat is a tab. Click to switch, ✕ to close, + to create new.
 
 **Why it's better**:
 - **Familiar metaphor** — every user understands browser tabs
@@ -31,7 +31,7 @@ Reference: Continue.dev VS Code extension screenshot (2026-04-10)
 - **Less vertical space** — a tab bar is 30px vs a session list that can be 200px+
 - **Multiple chats visible** — you can see how many are open at a glance
 
-**Trade-off**: Tab bar gets cramped with 10+ sessions. Continue.dev handles this with overflow scrolling + a dropdown menu for older chats.
+**Trade-off**: Tab bar gets cramped with 10+ sessions. open-source alternatives handles this with overflow scrolling + a dropdown menu for older chats.
 
 ### 2. Conversation Action Bar
 
@@ -43,7 +43,7 @@ Reference: Continue.dev VS Code extension screenshot (2026-04-10)
 
 **Current Champ approach**: Settings via header ⚙ icon, no per-conversation actions.
 
-**Continue.dev approach**: A horizontal action bar below the tabs with:
+**open-source alternatives approach**: A horizontal action bar below the tabs with:
 - **History** — opens a session history browser (like our session list, but as a full panel)
 - **Settings** — opens provider/model settings inline
 - **Compact conversation** — collapses tool call cards and long messages to summaries
@@ -71,7 +71,7 @@ Reference: Continue.dev VS Code extension screenshot (2026-04-10)
 
 **Current Champ approach**: Native `<select>` in the bottom bar.
 
-**Continue.dev approach**: A styled dropdown button in the input area, showing the current mode with a clear label.
+**open-source alternatives approach**: A styled dropdown button in the input area, showing the current mode with a clear label.
 
 **Why it's better**:
 - **More prominent** — mode is a critical choice that affects behavior dramatically
@@ -96,7 +96,7 @@ Reference: Continue.dev VS Code extension screenshot (2026-04-10)
 
 **Current Champ approach**: Models defined in `.champ/config.yaml` → listed in model picker.
 
-**Continue.dev approach**: Queries each configured provider's API for available models:
+**open-source alternatives approach**: Queries each configured provider's API for available models:
 - **Ollama**: `GET /api/tags` → lists all pulled models
 - **llama.cpp**: The loaded model is the only model (single model server)
 - **vLLM**: `GET /v1/models` → lists served models
@@ -114,7 +114,7 @@ Reference: Continue.dev VS Code extension screenshot (2026-04-10)
 
 **Current Champ approach**: Session list in a collapsible sidebar above messages.
 
-**Continue.dev approach**: History is a **separate panel/tab** that shows all past conversations with search, not inline above the chat.
+**open-source alternatives approach**: History is a **separate panel/tab** that shows all past conversations with search, not inline above the chat.
 
 **Why it's better**:
 - **Doesn't steal space** from the active conversation
@@ -354,7 +354,7 @@ Auto-detect models requires adding `listModels()` to the provider interface. Exi
 
 ## Conclusion
 
-The Continue.dev pattern is **objectively better** for these reasons:
+The open-source alternatives pattern is **objectively better** for these reasons:
 
 1. **Tabs > sidebar list** — more familiar, less space, faster switching
 2. **Auto-detect models > manual YAML** — zero friction for new models

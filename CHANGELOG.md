@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.3.2] — 2026-04-11
 
 First marketplace release. Full-featured AI coding agent with local
-LLM support, multi-session chat history, and Cursor-parity UI.
+LLM support, multi-session chat history, and UI.
 
 ### Added
 - **VS Code Chat participant** — `@champ` now appears in the built-in
@@ -17,7 +17,7 @@ LLM support, multi-session chat history, and Cursor-parity UI.
   menu showing all past conversations.
 - **Tabbed session UI** — browser-style tabs, time-grouped history,
   rename/delete/archive via context menu.
-- **Model picker popup** — Cursor-style search + auto-detected models
+- **Model picker popup** — search + auto-detected models
   with `(autodetected)` tags.
 - **Mode picker popup** — Chat / Agent / Plan / Manual / Composer with
   icons and descriptions.
@@ -237,7 +237,7 @@ P0 hallucination mitigations from `docs/HALLUCINATION_MITIGATION.md`.
   for Champ's local agent workflow. Tier 1 / Tier 2 / Tier 0 (autocomplete)
   recommendations with Apple Silicon hardware notes.
 - **`docs/HALLUCINATION_MITIGATION.md`** — deep analysis of why coding
-  agents hallucinate and how Cursor, Aider, Continue.dev, Cline, and
+  agents hallucinate and how Aider, Continue.dev, Cline, and
   Codeium address it. Maps each pattern to Champ's implementation
   priority.
 
