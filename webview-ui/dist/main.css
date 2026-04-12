@@ -801,11 +801,22 @@ html, body {
  * Message hover actions (copy, retry)
  * ---------------------------------------------------------------- */
 
+/* Action bar floats at top-right of the message — never shifts text. */
+.message {
+  position: relative;
+}
+
 .msg-actions {
   display: none;
   gap: 2px;
-  margin-top: 4px;
-  justify-content: flex-end;
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 2px;
+  background-color: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 6px;
+  z-index: 5;
 }
 
 .message:hover .msg-actions {
