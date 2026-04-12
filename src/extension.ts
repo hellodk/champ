@@ -42,6 +42,7 @@ import type { AvailableProviderModel } from "./ui/messages";
 import { SAMPLE_CONFIGS } from "./config/sample-configs";
 import { AgentManager } from "./agent-manager/agent-manager";
 import { SessionStore } from "./agent-manager/session-store";
+import { SmartRouter } from "./providers/smart-router";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -53,6 +54,7 @@ let metrics: MetricsCollector | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
 let agentManager: AgentManager | undefined;
 let sessionStore: SessionStore | undefined;
+let smartRouter: SmartRouter | undefined;
 let cachedYamlConfig: import("./config/config-loader").ChampConfig | null =
   null;
 
@@ -83,7 +85,7 @@ export async function activate(
     100,
   );
   statusBarItem.command = "champ.openSettings";
-  statusBarItem.text = "$(loading~spin) Champ-1.3.7";
+  statusBarItem.text = "$(loading~spin) Champ-1.4.0";
   statusBarItem.tooltip = "Champ — click to open settings";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
@@ -111,6 +113,27 @@ export async function activate(
   sessionStore = new SessionStore(
     path.join(workspaceRoot, ".champ", "sessions"),
   );
+
+  // ---- Smart Router (multi-provider model discovery) ----------------
+  smartRouter = new SmartRouter();
+  // When the router discovers models, broadcast to the webview.
+  smartRouter.onChange(() => {
+    const models = smartRouter!.getModels();
+    if (models.length > 0 && chatViewProvider) {
+      const available = models.map((m) => ({
+        providerName: m.providerName,
+        modelName: m.id,
+        label: `${m.id} (${m.providerName}) ${m.capabilities.join(", ")}`,
+      }));
+      const activeProvider = inlineProviderRef?.current;
+      chatViewProvider.broadcastProviderStatus({
+        state: "ready",
+        providerName: activeProvider?.name ?? models[0].providerName,
+        modelName: activeProvider?.config.model ?? models[0].id,
+        available,
+      });
+    }
+  });
 
   // Stream metrics and session persistence are wired via
   // ChatViewProvider callbacks below (after chatViewProvider is created)
@@ -849,11 +872,56 @@ export async function activate(
         type: "conversationHistory",
         messages: [],
       });
+      // Register all configured providers with the smart router and
+      // kick off background discovery. This populates the model picker
+      // with all available models across all reachable providers.
+      if (smartRouter) {
+        smartRouter.registerProvider(
+          newProvider.name,
+          newProvider,
+          newProvider.name,
+          yamlConfig?.providers?.[
+            newProvider.name as keyof typeof yamlConfig.providers
+          ]?.baseUrl ?? (newProvider.config as { baseUrl?: string }).baseUrl,
+        );
+        // Also register any OTHER configured providers beyond the active one.
+        if (yamlConfig?.providers) {
+          for (const [pName, pConf] of Object.entries(yamlConfig.providers)) {
+            if (!pConf?.baseUrl || pName === newProvider.name) continue;
+            smartRouter.registerProvider(
+              pName,
+              newProvider,
+              pName,
+              pConf.baseUrl,
+            );
+          }
+        }
+        void smartRouter.discover();
+      }
       // Auto-detect models from provider APIs in the background.
       // If no YAML config, try the active provider directly.
       if (yamlConfig) {
         void autoDetectModels(yamlConfig, newProvider, staticModels);
-      } else if (
+      } else {
+        // No YAML config — register the active provider from VS Code settings
+        // and try to discover its models.
+        if (smartRouter) {
+          const vsConfig = vscode.workspace.getConfiguration("champ");
+          const baseUrl = (
+            vsConfig.get<string>(`${newProvider.name}.baseUrl`) ?? ""
+          ).replace(/\/+$/, "");
+          if (baseUrl) {
+            smartRouter.registerProvider(
+              newProvider.name,
+              newProvider,
+              newProvider.name,
+              baseUrl,
+            );
+            void smartRouter.discover();
+          }
+        }
+      }
+      if (
         "listModels" in newProvider &&
         typeof (newProvider as { listModels: () => Promise<unknown> })
           .listModels === "function"
@@ -905,19 +973,19 @@ export async function activate(
 
   function setStatusLoading(): void {
     if (!statusBarItem) return;
-    statusBarItem.text = "$(loading~spin) Champ-1.3.7";
+    statusBarItem.text = "$(loading~spin) Champ-1.4.0";
     statusBarItem.tooltip = "Champ — loading provider…";
   }
 
   function setStatusReady(provider: LLMProvider): void {
     if (!statusBarItem) return;
-    statusBarItem.text = `$(robot) Champ-1.3.7: ${provider.name}`;
+    statusBarItem.text = `$(robot) Champ-1.4.0: ${provider.name}`;
     statusBarItem.tooltip = `Champ provider: ${provider.name} (${provider.config.model})\nClick to open settings`;
   }
 
   function setStatusError(message: string): void {
     if (!statusBarItem) return;
-    statusBarItem.text = "$(error) Champ-1.3.7: error";
+    statusBarItem.text = "$(error) Champ-1.4.0: error";
     statusBarItem.tooltip = `Champ provider error: ${message}\nClick to open settings`;
   }
 
