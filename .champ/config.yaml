@@ -1,0 +1,100 @@
+# Champ configuration
+# Champ auto-discovers all models from every provider listed below.
+# API keys: use 'Champ: Set API Key' command or set env vars below.
+
+# ── Active provider (Smart Router overrides this per task) ─────────
+provider: llamacpp
+
+# ── Providers ──────────────────────────────────────────────────────
+# Add baseUrl for any backend you have running. Champ scans each
+# one on startup and shows all discovered models in the picker.
+
+providers:
+  # ── Local providers (no API key needed) ──────────────────────────
+
+  ollama:
+    baseUrl: http://127.0.0.1:11434
+    model: qwen2.5-coder:7b-instruct
+
+  llamacpp:
+    baseUrl: http://192.168.1.24:21434/v1
+    model: default
+
+  # vllm:
+  #   baseUrl: http://localhost:8000/v1
+  #   model: meta-llama/Llama-3.1-8B
+
+  # ── Cloud providers (API key required) ───────────────────────────
+  # API keys are stored securely via VS Code SecretStorage.
+  # Set them with: Ctrl+Shift+P → "Champ: Set API Key"
+  #
+  # Alternatively, set environment variables:
+  #   export ANTHROPIC_API_KEY=sk-ant-...
+  #   export OPENAI_API_KEY=sk-...
+  #   export GEMINI_API_KEY=AI...
+
+  # claude:
+  #   model: claude-sonnet-4-20250514
+  #   # API key via 'Champ: Set API Key' or env ANTHROPIC_API_KEY
+
+  # openai:
+  #   model: gpt-4o
+  #   # API key via 'Champ: Set API Key' or env OPENAI_API_KEY
+
+  # gemini:
+  #   model: gemini-2.0-flash
+  #   # API key via 'Champ: Set API Key' or env GEMINI_API_KEY
+
+  # ── Custom OpenAI-compatible endpoint ────────────────────────────
+  # openai-compatible:
+  #   baseUrl: http://my-server:9000/v1
+  #   model: custom-model
+  #   # If your server needs a key, set it via 'Champ: Set API Key'
+
+# ── Smart Routing ──────────────────────────────────────────────────
+# Champ auto-picks the best model per task. Override here if needed.
+# routing:
+#   mode: smart           # "smart" (auto) or "manual" (you pick)
+#   coding: null          # force a specific model for coding tasks
+#   chat: null            # force a specific model for chat
+#   completion: null      # force a specific model for ghost-text
+#   embedding: null       # force a specific model for embeddings
+
+# ── Autocomplete (ghost-text) ──────────────────────────────────────
+autocomplete:
+  enabled: true
+  debounceMs: 300
+  # Use a fast small model for completions:
+  # provider: ollama
+  # model: qwen2.5-coder:1.5b
+
+# ── Agent behavior ─────────────────────────────────────────────────
+agent:
+  yoloMode: false
+  defaultMode: agent
+  autoFix:
+    enabled: true
+    maxIterations: 3
+
+# ── Codebase indexing ──────────────────────────────────────────────
+indexing:
+  enabled: true
+  embeddingProvider: ollama
+  ignore:
+    - node_modules/**
+    - dist/**
+    - .git/**
+
+# ── User rules (injected into system prompt) ──────────────────────
+# userRules: |
+#   Always write tests first.
+#   Prefer TypeScript strict mode.
+
+# ── MCP servers (extend agent with external tools) ─────────────────
+# mcp:
+#   servers:
+#     - name: github
+#       command: npx
+#       args: ["-y", "@modelcontextprotocol/server-github"]
+#       env:
+#         GITHUB_TOKEN: ${env:GITHUB_TOKEN}

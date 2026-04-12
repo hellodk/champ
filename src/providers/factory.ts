@@ -102,24 +102,34 @@ export class ProviderFactory {
     const providerName = config.provider ?? "claude";
     const providerEntry = config.providers?.[providerName] ?? {};
 
+    // Helper: try SecretStorage first, then environment variable.
+    const getKey = async (
+      secretKey: string,
+      envVar: string,
+    ): Promise<string | undefined> => {
+      const fromSecrets = await secrets.get(secretKey);
+      if (fromSecrets) return fromSecrets;
+      return process.env[envVar] || undefined;
+    };
+
     switch (providerName) {
       case "claude":
         return new ClaudeProvider({
           ...this.baseConfig("claude"),
           model: providerEntry.model ?? "claude-sonnet-4-20250514",
-          apiKey: await secrets.get("champ.claude.apiKey"),
+          apiKey: await getKey("champ.claude.apiKey", "ANTHROPIC_API_KEY"),
         });
       case "openai":
         return new OpenAIProvider({
           ...this.baseConfig("openai"),
           model: providerEntry.model ?? "gpt-4o",
-          apiKey: await secrets.get("champ.openai.apiKey"),
+          apiKey: await getKey("champ.openai.apiKey", "OPENAI_API_KEY"),
         });
       case "gemini":
         return new GeminiProvider({
           ...this.baseConfig("gemini"),
           model: providerEntry.model ?? "gemini-2.0-flash",
-          apiKey: await secrets.get("champ.gemini.apiKey"),
+          apiKey: await getKey("champ.gemini.apiKey", "GEMINI_API_KEY"),
         });
       case "ollama":
         return new OllamaProvider({
@@ -138,17 +148,19 @@ export class ProviderFactory {
           ...this.baseConfig("vllm"),
           model: providerEntry.model ?? "",
           baseUrl: providerEntry.baseUrl ?? "http://localhost:8000/v1",
-          apiKey: await secrets.get("champ.vllm.apiKey"),
+          apiKey: await getKey("champ.vllm.apiKey", "VLLM_API_KEY"),
         });
       case "openai-compatible":
         return new OpenAICompatibleProvider({
           ...this.baseConfig("openai-compatible"),
           model: providerEntry.model ?? "default",
           baseUrl: providerEntry.baseUrl ?? "",
-          apiKey: await secrets.get("champ.openaiCompatible.apiKey"),
+          apiKey: await getKey(
+            "champ.openaiCompatible.apiKey",
+            "OPENAI_COMPATIBLE_API_KEY",
+          ),
         });
       default: {
-        // Exhaustiveness check — TS will complain if a ProviderName is missed.
         const _exhaustive: never = providerName as never;
         throw new Error(`Unknown provider: "${_exhaustive as string}"`);
       }
