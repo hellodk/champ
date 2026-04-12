@@ -1043,6 +1043,24 @@ html, body {
   font-size: calc(var(--vscode-font-size) - 1px);
 }
 
+/* Auto mode row at the top of the model picker */
+.model-row.auto-row {
+  border-bottom: 1px solid var(--vscode-panel-border);
+  margin-bottom: 4px;
+  padding-bottom: 8px;
+}
+
+/* Offline / unreachable models — greyed out, not clickable */
+.model-row.offline {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+
+.model-group-header.offline {
+  opacity: 0.5;
+}
+
 .model-group-header {
   padding: 6px 12px 2px;
   font-size: calc(var(--vscode-font-size) - 2px);

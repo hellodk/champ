@@ -118,21 +118,37 @@ export async function activate(
   smartRouter = new SmartRouter();
   // When the router discovers models, broadcast to the webview.
   smartRouter.onChange(() => {
-    const models = smartRouter!.getModels();
-    if (models.length > 0 && chatViewProvider) {
-      const available = models.map((m) => ({
-        providerName: m.providerName,
-        modelName: m.id,
-        label: `${m.id} (${m.providerName}) ${m.capabilities.join(", ")}`,
-      }));
-      const activeProvider = inlineProviderRef?.current;
-      chatViewProvider.broadcastProviderStatus({
-        state: "ready",
-        providerName: activeProvider?.name ?? models[0].providerName,
-        modelName: activeProvider?.config.model ?? models[0].id,
-        available,
-      });
+    if (!chatViewProvider) return;
+    const discovered = smartRouter!.getModels();
+    const discoveredProviders = new Set(discovered.map((m) => m.providerName));
+
+    // Build the available list: only auto-detected (reachable) models.
+    const available: AvailableProviderModel[] = discovered.map((m) => ({
+      providerName: m.providerName,
+      modelName: m.id,
+      label: `${m.id} (${m.providerName}) ${m.capabilities.join(", ")}`,
+    }));
+
+    // Append config-defined but unreachable providers as disabled entries
+    // so the user sees them greyed out (label starts with "[offline]").
+    if (cachedYamlConfig?.providers) {
+      for (const [pName, pConf] of Object.entries(cachedYamlConfig.providers)) {
+        if (!pConf || discoveredProviders.has(pName)) continue;
+        available.push({
+          providerName: pName,
+          modelName: pConf.model ?? "default",
+          label: `[offline] ${pConf.model ?? "default"} (${pName})`,
+        });
+      }
     }
+
+    const activeProvider = inlineProviderRef?.current;
+    chatViewProvider.broadcastProviderStatus({
+      state: "ready",
+      providerName: activeProvider?.name ?? (discovered[0]?.providerName || ""),
+      modelName: activeProvider?.config.model ?? (discovered[0]?.id || ""),
+      available,
+    });
   });
 
   // Stream metrics and session persistence are wired via
@@ -855,22 +871,14 @@ export async function activate(
       inlineProvider.setProvider(newProvider);
       inlineProviderRef.current = newProvider;
       setStatusReady(newProvider);
-      let staticModels = buildAvailableModels(yamlConfig);
-      // If no YAML config, create a fallback entry from the active provider.
-      if (staticModels.length === 0) {
-        staticModels = [
-          {
-            providerName: newProvider.name,
-            modelName: newProvider.config.model,
-            label: `${newProvider.config.model} (${newProvider.name})`,
-          },
-        ];
-      }
+      // Broadcast a minimal status immediately (SmartRouter's onChange
+      // will replace the model list once discovery completes with only
+      // the models from reachable providers).
       chatViewProvider?.broadcastProviderStatus({
         state: "ready",
         providerName: newProvider.name,
         modelName: newProvider.config.model,
-        available: staticModels,
+        available: [],
       });
       chatViewProvider?.postMessage({
         type: "conversationHistory",
@@ -902,58 +910,22 @@ export async function activate(
         }
         void smartRouter.discover();
       }
-      // Auto-detect models from provider APIs in the background.
-      // If no YAML config, try the active provider directly.
-      if (yamlConfig) {
-        void autoDetectModels(yamlConfig, newProvider, staticModels);
-      } else {
-        // No YAML config — register the active provider from VS Code settings
-        // and try to discover its models.
-        if (smartRouter) {
-          const vsConfig = vscode.workspace.getConfiguration("champ");
-          const baseUrl = (
-            vsConfig.get<string>(`${newProvider.name}.baseUrl`) ?? ""
-          ).replace(/\/+$/, "");
-          if (baseUrl) {
-            smartRouter.registerProvider(
-              newProvider.name,
-              newProvider,
-              newProvider.name,
-              baseUrl,
-            );
-            void smartRouter.discover();
-          }
+      // SmartRouter.discover() handles all model detection. If no YAML,
+      // also register the active provider from VS Code settings.
+      if (!yamlConfig && smartRouter) {
+        const vsConfig = vscode.workspace.getConfiguration("champ");
+        const baseUrl = (
+          vsConfig.get<string>(`${newProvider.name}.baseUrl`) ?? ""
+        ).replace(/\/+$/, "");
+        if (baseUrl) {
+          smartRouter.registerProvider(
+            newProvider.name,
+            newProvider,
+            newProvider.name,
+            baseUrl,
+          );
+          void smartRouter.discover();
         }
-      }
-      if (
-        "listModels" in newProvider &&
-        typeof (newProvider as { listModels: () => Promise<unknown> })
-          .listModels === "function"
-      ) {
-        void (async () => {
-          try {
-            const models = await (
-              newProvider as {
-                listModels: () => Promise<Array<{ id: string; name: string }>>;
-              }
-            ).listModels();
-            if (models.length > 0) {
-              const detected = models.map((m) => ({
-                providerName: newProvider.name,
-                modelName: m.name,
-                label: `${m.name} (${newProvider.name})`,
-              }));
-              chatViewProvider?.broadcastProviderStatus({
-                state: "ready",
-                providerName: newProvider.name,
-                modelName: newProvider.config.model,
-                available: detected,
-              });
-            }
-          } catch {
-            /* provider offline */
-          }
-        })();
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

@@ -359,16 +359,32 @@
   // Filter on search input.
   modelSearchInput.addEventListener('input', () => renderModelList(modelSearchInput.value));
 
+  let modelAutoMode = true;  // true = smart routing, false = manual pick
+
   function renderModelList(filter) {
     modelListEl.innerHTML = '';
-    let available = state.providerStatus.available || [];
-    if (available.length === 0 && state.providerStatus.providerName) {
-      available = [{
-        providerName: state.providerStatus.providerName,
-        modelName: state.providerStatus.modelName || 'default',
-        label: `${state.providerStatus.modelName || 'default'} (${state.providerStatus.providerName})`,
-      }];
+    const available = state.providerStatus.available || [];
+
+    // ── "Auto" option at the top ──
+    const autoRow = el('div', { class: `model-row auto-row${modelAutoMode ? ' active' : ''}` });
+    const autoIcon = codicon('sparkle');
+    autoIcon.style.marginRight = '6px';
+    const autoName = el('span', { class: 'model-name' }, ['Auto']);
+    const autoDesc = el('span', { class: 'model-tag' }, ['best model per task']);
+    if (modelAutoMode) {
+      const check = el('span', { class: 'model-check' }, ['✓']);
+      autoRow.append(autoIcon, autoName, autoDesc, check);
+    } else {
+      autoRow.append(autoIcon, autoName, autoDesc);
     }
+    autoRow.addEventListener('click', () => {
+      modelAutoMode = true;
+      modelPickerBtn.textContent = 'Auto ▾';
+      modelPickerPopup.setAttribute('hidden', 'true');
+    });
+    modelListEl.append(autoRow);
+
+    // ── Filter ──
     const query = filter.toLowerCase();
     const filtered = query
       ? available.filter(m =>
@@ -377,9 +393,13 @@
           (m.modelName || '').toLowerCase().includes(query))
       : available;
 
-    // Group by provider for cleaner display.
+    // Separate reachable vs offline models.
+    const reachable = filtered.filter(m => !(m.label || '').startsWith('[offline]'));
+    const offline = filtered.filter(m => (m.label || '').startsWith('[offline]'));
+
+    // ── Group reachable by provider ──
     const groups = {};
-    for (const m of filtered) {
+    for (const m of reachable) {
       const key = m.providerName || 'unknown';
       if (!groups[key]) groups[key] = [];
       groups[key].push(m);
@@ -390,11 +410,11 @@
       modelListEl.append(groupHeader);
       for (const m of models) {
         const row = el('div', { class: 'model-row' });
-        const isActive = m.providerName === state.providerStatus.providerName &&
-          (m.modelName === state.providerStatus.modelName || available.length === 1);
+        const isActive = !modelAutoMode &&
+          m.providerName === state.providerStatus.providerName &&
+          m.modelName === state.providerStatus.modelName;
         if (isActive) row.classList.add('active');
         const nameEl = el('span', { class: 'model-name' }, [m.modelName || m.providerName]);
-        // Extract capability tags from the label if present.
         const capMatch = m.label.match(/\)(.*)/);
         const capText = capMatch ? capMatch[1].trim() : 'autodetected';
         const tagEl = el('span', { class: 'model-tag' }, [capText || 'autodetected']);
@@ -405,14 +425,31 @@
           row.append(nameEl, tagEl);
         }
         row.addEventListener('click', () => {
+          modelAutoMode = false;
           vscode.postMessage({ type: 'setModelRequest', providerName: m.providerName });
+          modelPickerBtn.textContent = (m.modelName || m.providerName) + ' ▾';
           modelPickerPopup.setAttribute('hidden', 'true');
         });
         modelListEl.append(row);
       }
     }
-    if (modelListEl.children.length === 0) {
-      modelListEl.append(el('div', { class: 'model-empty' }, ['No models found']));
+
+    // ── Offline / unreachable models (greyed out) ──
+    if (offline.length > 0) {
+      const offlineHeader = el('div', { class: 'model-group-header offline' }, ['Offline']);
+      modelListEl.append(offlineHeader);
+      for (const m of offline) {
+        const row = el('div', { class: 'model-row offline' });
+        const nameEl = el('span', { class: 'model-name' }, [m.modelName || m.providerName]);
+        const tagEl = el('span', { class: 'model-tag' }, [`${m.providerName} — unreachable`]);
+        row.append(nameEl, tagEl);
+        // No click handler — disabled.
+        modelListEl.append(row);
+      }
+    }
+
+    if (reachable.length === 0 && offline.length === 0) {
+      modelListEl.append(el('div', { class: 'model-empty' }, ['Scanning providers...']));
     }
     // Footer: + Add model + shortcut hint.
     const footer = el('div', { class: 'model-footer' });
@@ -535,11 +572,15 @@
       headerSubtitle.classList.remove('error');
     }
 
-    // Model picker button — always visible, shows current model.
-    const activeLabel = ps.providerName && ps.modelName
-      ? `${ps.modelName}`
-      : ps.providerName || 'Auto';
-    modelPickerBtn.textContent = activeLabel + ' ▾';
+    // Model picker button — show "Auto" in smart mode, specific model in manual.
+    if (modelAutoMode) {
+      modelPickerBtn.textContent = 'Auto ▾';
+    } else {
+      const activeLabel = ps.providerName && ps.modelName
+        ? `${ps.modelName}`
+        : ps.providerName || 'Auto';
+      modelPickerBtn.textContent = activeLabel + ' ▾';
+    }
     modelPickerBtn.style.display = '';
   }
 
