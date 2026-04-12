@@ -527,18 +527,14 @@ export async function activate(
       const targetUri = vscode.Uri.file(
         path.join(workspaceRoot, ".champ", "config.yaml"),
       );
-      // Don't overwrite an existing file silently.
+      // If file exists, just open it (don't prompt to overwrite).
       try {
         await vscode.workspace.fs.stat(targetUri);
-        const choice = await vscode.window.showWarningMessage(
-          ".champ/config.yaml already exists. Overwrite?",
-          { modal: true },
-          "Overwrite",
-          "Cancel",
-        );
-        if (choice !== "Overwrite") return;
+        const doc = await vscode.workspace.openTextDocument(targetUri);
+        await vscode.window.showTextDocument(doc);
+        return;
       } catch {
-        // File doesn't exist — fall through.
+        // File doesn't exist — create it below.
       }
       const template = generateDefaultConfigYaml();
       try {
@@ -743,6 +739,14 @@ export async function activate(
       void vscode.window.showInformationMessage(
         `Champ: cleaned up ${pruned} session(s) older than 30 days.`,
       );
+    }),
+    vscode.commands.registerCommand("champ.rescanModels", () => {
+      if (smartRouter) {
+        void smartRouter.discover();
+        void vscode.window.showInformationMessage(
+          "Champ: re-scanning all providers for models...",
+        );
+      }
     }),
   );
 
@@ -1192,27 +1196,42 @@ function createStubProvider(name: string): LLMProvider {
  */
 function generateDefaultConfigYaml(): string {
   return `# Champ configuration
-# See .champ/config.yaml.example for all available options.
 # API keys: use the 'Champ: Set API Key' command (never put keys here).
+# Champ auto-discovers all models from every provider listed below.
+# Just add the baseUrl — Champ scans for available models automatically.
 
+# Active provider for chat (Champ's Smart Router can override per-task).
 provider: ollama
 
+# ── Add ALL your inference backends here. ──────────────────────────
+# Champ will scan each one for available models on startup.
+# Models appear automatically in the model picker.
 providers:
   ollama:
     baseUrl: http://localhost:11434
     model: qwen2.5-coder:7b-instruct
 
-  # Uncomment to add more providers:
-  # claude:
-  #   model: claude-sonnet-4-20250514
-  # openai:
-  #   model: gpt-4o
-  # llamacpp:
-  #   baseUrl: http://localhost:8080/v1
-  #   model: default
+  # Uncomment any provider you have running:
+  llamacpp:
+    baseUrl: http://localhost:8080/v1
+    model: default
+
   # vllm:
   #   baseUrl: http://localhost:8000/v1
   #   model: meta-llama/Llama-3.1-8B
+
+  # claude:
+  #   model: claude-sonnet-4-20250514
+
+  # openai:
+  #   model: gpt-4o
+
+# ── Smart Routing (auto-picks best model per task) ─────────────────
+# routing:
+#   mode: smart      # "smart" (auto) or "manual" (you pick)
+#   coding: null      # override: force this model for coding
+#   chat: null        # override: force this model for chat
+#   completion: null  # override: force this model for ghost-text
 
 autocomplete:
   enabled: true

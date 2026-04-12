@@ -424,6 +424,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           msg.sessionId,
           msg.newLabel,
         );
+      } else if ((msg as { type: string }).type === "openConfigFile") {
+        void vscode.commands.executeCommand("champ.generateConfig");
+      } else if ((msg as { type: string }).type === "rescanModels") {
+        void vscode.commands.executeCommand("champ.rescanModels");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

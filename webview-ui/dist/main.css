@@ -1043,6 +1043,23 @@ html, body {
   font-size: calc(var(--vscode-font-size) - 1px);
 }
 
+.model-group-header {
+  padding: 6px 12px 2px;
+  font-size: calc(var(--vscode-font-size) - 2px);
+  color: var(--vscode-descriptionForeground);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  font-weight: 600;
+  user-select: none;
+  border-top: 1px solid var(--vscode-panel-border);
+  margin-top: 4px;
+}
+
+.model-group-header:first-child {
+  border-top: none;
+  margin-top: 0;
+}
+
 .model-empty {
   padding: 12px;
   text-align: center;

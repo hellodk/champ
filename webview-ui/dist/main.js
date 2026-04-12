@@ -370,38 +370,63 @@
       }];
     }
     const query = filter.toLowerCase();
-    for (const m of available) {
-      if (query && !m.label.toLowerCase().includes(query) && !m.providerName.toLowerCase().includes(query) && !(m.modelName || '').toLowerCase().includes(query)) continue;
-      const row = el('div', { class: 'model-row' });
-      const isActive = m.providerName === state.providerStatus.providerName &&
-        (m.modelName === state.providerStatus.modelName || available.length === 1);
-      if (isActive) row.classList.add('active');
-      const nameEl = el('span', { class: 'model-name' }, [m.modelName || m.providerName]);
-      const tagEl = el('span', { class: 'model-tag' }, ['(autodetected)']);
-      if (isActive) {
-        const check = el('span', { class: 'model-check' }, ['✓']);
-        row.append(nameEl, tagEl, check);
-      } else {
-        row.append(nameEl, tagEl);
+    const filtered = query
+      ? available.filter(m =>
+          (m.label || '').toLowerCase().includes(query) ||
+          (m.providerName || '').toLowerCase().includes(query) ||
+          (m.modelName || '').toLowerCase().includes(query))
+      : available;
+
+    // Group by provider for cleaner display.
+    const groups = {};
+    for (const m of filtered) {
+      const key = m.providerName || 'unknown';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(m);
+    }
+
+    for (const [providerName, models] of Object.entries(groups)) {
+      const groupHeader = el('div', { class: 'model-group-header' }, [`${providerName}`]);
+      modelListEl.append(groupHeader);
+      for (const m of models) {
+        const row = el('div', { class: 'model-row' });
+        const isActive = m.providerName === state.providerStatus.providerName &&
+          (m.modelName === state.providerStatus.modelName || available.length === 1);
+        if (isActive) row.classList.add('active');
+        const nameEl = el('span', { class: 'model-name' }, [m.modelName || m.providerName]);
+        // Extract capability tags from the label if present.
+        const capMatch = m.label.match(/\)(.*)/);
+        const capText = capMatch ? capMatch[1].trim() : 'autodetected';
+        const tagEl = el('span', { class: 'model-tag' }, [capText || 'autodetected']);
+        if (isActive) {
+          const check = el('span', { class: 'model-check' }, ['✓']);
+          row.append(nameEl, tagEl, check);
+        } else {
+          row.append(nameEl, tagEl);
+        }
+        row.addEventListener('click', () => {
+          vscode.postMessage({ type: 'setModelRequest', providerName: m.providerName });
+          modelPickerPopup.setAttribute('hidden', 'true');
+        });
+        modelListEl.append(row);
       }
-      row.addEventListener('click', () => {
-        vscode.postMessage({ type: 'setModelRequest', providerName: m.providerName });
-        modelPickerPopup.setAttribute('hidden', 'true');
-      });
-      modelListEl.append(row);
     }
     if (modelListEl.children.length === 0) {
       modelListEl.append(el('div', { class: 'model-empty' }, ['No models found']));
     }
     // Footer: + Add model + shortcut hint.
     const footer = el('div', { class: 'model-footer' });
-    const addBtn = el('div', { class: 'model-add' }, ['+ Add Chat model']);
+    const addBtn = el('div', { class: 'model-add' }, ['+ Configure providers']);
     addBtn.addEventListener('click', () => {
-      vscode.postMessage({ type: 'openSettingsRequest' });
+      vscode.postMessage({ type: 'openConfigFile' });
       modelPickerPopup.setAttribute('hidden', 'true');
     });
-    const shortcutHint = el('div', { class: 'picker-hint' }, ["Ctrl+' to toggle model"]);
-    footer.append(addBtn, shortcutHint);
+    const rescanBtn = el('div', { class: 'model-add' }, ['↻ Re-scan models']);
+    rescanBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'rescanModels' });
+      modelPickerPopup.setAttribute('hidden', 'true');
+    });
+    footer.append(addBtn, rescanBtn);
     modelListEl.append(footer);
   }
 
