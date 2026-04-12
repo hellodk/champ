@@ -257,12 +257,34 @@ export async function activate(
     },
     (template, ctx) => VariableResolver.resolve(template, ctx),
   );
-  // Auto-label sessions from the first user message.
+  // Auto-label sessions + Smart Router model selection.
   chatViewProvider.onUserMessage((text) => {
     const active = agentManager?.getActive();
     if (active && active.metadata.label === "New chat") {
       agentManager?.autoLabelSession(active.metadata.id, text);
       broadcastSessionList();
+    }
+
+    // ── SmartRouter: swap provider before each message ──
+    // Determine the task type from the current agent mode and route
+    // to the best model. Only in Auto mode — manual overrides skip.
+    if (smartRouter && smartRouter.getMode() === "smart") {
+      const session = agentManager?.getActive();
+      if (session) {
+        const mode = session.controller.getMode();
+        let taskType: import("./providers/smart-router").TaskType = "chat";
+        if (mode === "agent" || mode === "composer") taskType = "coding";
+        else if (mode === "plan") taskType = "chat";
+        else if (mode === "ask") taskType = "chat";
+
+        const route = smartRouter.select(taskType);
+        if (route) {
+          session.controller.setProvider(route.provider);
+          console.log(
+            `Champ SmartRouter: ${taskType} → ${route.model.id} (${route.model.providerName}) [${route.reason}]`,
+          );
+        }
+      }
     }
   });
   // Metrics + session persistence — fires on every LLM turn completion.
@@ -590,6 +612,18 @@ export async function activate(
     vscode.commands.registerCommand(
       "champ.setActiveModel",
       async (providerName: string) => {
+        // Tell SmartRouter to switch to manual mode for this model.
+        if (smartRouter) {
+          // Find the model id for this provider from discovered models.
+          const models = smartRouter.getModels();
+          const match = models.find((m) => m.providerName === providerName);
+          if (match) {
+            smartRouter.setManualModel(match.id);
+            console.log(
+              `Champ: manual model selection → ${match.id} (${providerName})`,
+            );
+          }
+        }
         // Surgically rewrite the workspace YAML's top-level
         // `provider:` line. Comments and the rest of the file are
         // preserved. The file watcher fires loadProvider() which
@@ -884,9 +918,8 @@ export async function activate(
         type: "conversationHistory",
         messages: [],
       });
-      // Register all configured providers with the smart router and
-      // kick off background discovery. This populates the model picker
-      // with all available models across all reachable providers.
+      // Register all configured providers with SmartRouter — each gets
+      // its OWN provider instance so routing actually switches backends.
       if (smartRouter) {
         smartRouter.registerProvider(
           newProvider.name,
@@ -896,16 +929,28 @@ export async function activate(
             newProvider.name as keyof typeof yamlConfig.providers
           ]?.baseUrl ?? (newProvider.config as { baseUrl?: string }).baseUrl,
         );
-        // Also register any OTHER configured providers beyond the active one.
         if (yamlConfig?.providers) {
           for (const [pName, pConf] of Object.entries(yamlConfig.providers)) {
             if (!pConf?.baseUrl || pName === newProvider.name) continue;
-            smartRouter.registerProvider(
-              pName,
-              newProvider,
-              pName,
-              pConf.baseUrl,
-            );
+            // Create a dedicated provider instance for this backend.
+            try {
+              const otherProvider = await factory.createFromChampConfig(
+                {
+                  ...yamlConfig,
+                  provider:
+                    pName as import("./config/config-loader").ProviderName,
+                },
+                context.secrets,
+              );
+              smartRouter.registerProvider(
+                pName,
+                otherProvider,
+                pName,
+                pConf.baseUrl,
+              );
+            } catch {
+              // Provider creation failed — skip (will show as offline).
+            }
           }
         }
         void smartRouter.discover();
