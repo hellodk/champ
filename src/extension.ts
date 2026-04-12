@@ -85,7 +85,7 @@ export async function activate(
     100,
   );
   statusBarItem.command = "champ.openSettings";
-  statusBarItem.text = "$(loading~spin) Champ-1.4.0";
+  statusBarItem.text = "$(loading~spin) Champ";
   statusBarItem.tooltip = "Champ — click to open settings";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
@@ -973,19 +973,19 @@ export async function activate(
 
   function setStatusLoading(): void {
     if (!statusBarItem) return;
-    statusBarItem.text = "$(loading~spin) Champ-1.4.0";
+    statusBarItem.text = "$(loading~spin) Champ";
     statusBarItem.tooltip = "Champ — loading provider…";
   }
 
   function setStatusReady(provider: LLMProvider): void {
     if (!statusBarItem) return;
-    statusBarItem.text = `$(robot) Champ-1.4.0: ${provider.name}`;
+    statusBarItem.text = `$(robot) Champ: ${provider.name}`;
     statusBarItem.tooltip = `Champ provider: ${provider.name} (${provider.config.model})\nClick to open settings`;
   }
 
   function setStatusError(message: string): void {
     if (!statusBarItem) return;
-    statusBarItem.text = "$(error) Champ-1.4.0: error";
+    statusBarItem.text = "$(error) Champ: error";
     statusBarItem.tooltip = `Champ provider error: ${message}\nClick to open settings`;
   }
 
