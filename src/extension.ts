@@ -641,10 +641,20 @@ export async function activate(
           const data = await vscode.workspace.fs.readFile(yamlUri);
           text = new TextDecoder().decode(data);
         } catch {
-          void vscode.window.showErrorMessage(
-            `Champ: cannot find ${yamlPath}. Run "Champ: Generate Config File" first.`,
+          // Config doesn't exist — create it silently with defaults.
+          const template = generateDefaultConfigYaml();
+          try {
+            await vscode.workspace.fs.createDirectory(
+              vscode.Uri.file(path.join(workspaceRoot, ".champ")),
+            );
+          } catch {
+            /* exists */
+          }
+          await vscode.workspace.fs.writeFile(
+            yamlUri,
+            new TextEncoder().encode(template),
           );
-          return;
+          text = template;
         }
         const updated = setActiveProviderInYaml(text, providerName);
         if (updated === text) {
