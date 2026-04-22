@@ -93,6 +93,17 @@ export interface RoutingConfig {
   embedding?: string | null;
 }
 
+export interface TelemetryConfig {
+  enabled?: boolean;
+  endpoint: string;
+  format?: "json" | "otlp";
+  userId?: string;
+  headers?: Record<string, string>;
+  bufferMaxEvents?: number;
+  bufferMaxBytes?: number;
+  timeoutMs?: number;
+}
+
 export interface ChampConfig {
   provider?: ProviderName;
   providers?: Partial<Record<ProviderName, ProviderConfig>>;
@@ -102,6 +113,7 @@ export interface ChampConfig {
   userRules?: string;
   mcp?: MCPConfig;
   routing?: RoutingConfig;
+  telemetry?: TelemetryConfig;
 }
 
 const VALID_PROVIDERS: ProviderName[] = [
@@ -149,29 +161,41 @@ export class ConfigLoader {
       throw new Error("Config must be a YAML object at the top level");
     }
 
-    return ConfigLoader.validate(parsed as Record<string, unknown>);
+    const validated = ConfigLoader.validate(parsed as Record<string, unknown>);
+    if (validated.errors.length > 0) {
+      throw new Error(validated.errors[0]);
+    }
+    return validated.config;
   }
 
   /**
-   * Validate a parsed config object. Throws with a clear, actionable
-   * message on the first violation found. Returns the validated config
-   * with the correct TypeScript shape.
+   * Validate a parsed config object. Returns an object with `errors`
+   * (validation messages) and `config` (the validated config). Use
+   * parseYaml() to get a ChampConfig directly (it throws on errors).
    */
-  static validate(raw: Record<string, unknown>): ChampConfig {
+  static validate(raw: Record<string, unknown>): {
+    errors: string[];
+    config: ChampConfig;
+  } {
+    const errors: string[] = [];
     const result: ChampConfig = {};
+
+    const pushError = (msg: string): void => {
+      errors.push(msg);
+    };
 
     // provider
     if ("provider" in raw) {
       const v = raw.provider;
       if (typeof v !== "string") {
-        throw new Error("`provider` must be a string");
-      }
-      if (!VALID_PROVIDERS.includes(v as ProviderName)) {
-        throw new Error(
+        pushError("`provider` must be a string");
+      } else if (!VALID_PROVIDERS.includes(v as ProviderName)) {
+        pushError(
           `Invalid provider "${v}". Must be one of: ${VALID_PROVIDERS.join(", ")}`,
         );
+      } else {
+        result.provider = v as ProviderName;
       }
-      result.provider = v as ProviderName;
     }
 
     // providers
@@ -182,41 +206,51 @@ export class ConfigLoader {
         providers === null ||
         Array.isArray(providers)
       ) {
-        throw new Error("`providers` must be an object");
-      }
-      result.providers = {};
-      for (const [name, conf] of Object.entries(
-        providers as Record<string, unknown>,
-      )) {
-        if (!VALID_PROVIDERS.includes(name as ProviderName)) {
-          throw new Error(
-            `Unknown provider "${name}" under providers:. Must be one of: ${VALID_PROVIDERS.join(", ")}`,
-          );
-        }
-        if (typeof conf !== "object" || conf === null || Array.isArray(conf)) {
-          throw new Error(`providers.${name} must be an object`);
-        }
-        const c = conf as Record<string, unknown>;
-        if ("apiKey" in c) {
-          throw new Error(
-            `providers.${name}.apiKey is not allowed in YAML. ` +
-              `Store API keys via the 'Champ: Set API Key' command (SecretStorage).`,
-          );
-        }
-        const pc: ProviderConfig = {};
-        if ("baseUrl" in c) {
-          if (typeof c.baseUrl !== "string") {
-            throw new Error(`providers.${name}.baseUrl must be a string`);
+        pushError("`providers` must be an object");
+      } else {
+        result.providers = {};
+        for (const [name, conf] of Object.entries(
+          providers as Record<string, unknown>,
+        )) {
+          if (!VALID_PROVIDERS.includes(name as ProviderName)) {
+            pushError(
+              `Unknown provider "${name}" under providers:. Must be one of: ${VALID_PROVIDERS.join(", ")}`,
+            );
+            continue;
           }
-          pc.baseUrl = c.baseUrl;
-        }
-        if ("model" in c) {
-          if (typeof c.model !== "string") {
-            throw new Error(`providers.${name}.model must be a string`);
+          if (
+            typeof conf !== "object" ||
+            conf === null ||
+            Array.isArray(conf)
+          ) {
+            pushError(`providers.${name} must be an object`);
+            continue;
           }
-          pc.model = c.model;
+          const c = conf as Record<string, unknown>;
+          if ("apiKey" in c) {
+            pushError(
+              `providers.${name}.apiKey is not allowed in YAML. ` +
+                `Store API keys via the 'Champ: Set API Key' command (SecretStorage).`,
+            );
+            continue;
+          }
+          const pc: ProviderConfig = {};
+          if ("baseUrl" in c) {
+            if (typeof c.baseUrl !== "string") {
+              pushError(`providers.${name}.baseUrl must be a string`);
+            } else {
+              pc.baseUrl = c.baseUrl;
+            }
+          }
+          if ("model" in c) {
+            if (typeof c.model !== "string") {
+              pushError(`providers.${name}.model must be a string`);
+            } else {
+              pc.model = c.model;
+            }
+          }
+          result.providers[name as ProviderName] = pc;
         }
-        result.providers[name as ProviderName] = pc;
       }
     }
 
@@ -224,234 +258,298 @@ export class ConfigLoader {
     if ("autocomplete" in raw) {
       const ac = raw.autocomplete;
       if (typeof ac !== "object" || ac === null || Array.isArray(ac)) {
-        throw new Error("`autocomplete` must be an object");
-      }
-      const a = ac as Record<string, unknown>;
-      const out: AutocompleteConfig = {};
-      if ("enabled" in a) {
-        if (typeof a.enabled !== "boolean") {
-          throw new Error("autocomplete.enabled must be a boolean");
+        pushError("`autocomplete` must be an object");
+      } else {
+        const a = ac as Record<string, unknown>;
+        const out: AutocompleteConfig = {};
+        if ("enabled" in a) {
+          if (typeof a.enabled !== "boolean") {
+            pushError("autocomplete.enabled must be a boolean");
+          } else {
+            out.enabled = a.enabled;
+          }
         }
-        out.enabled = a.enabled;
-      }
-      if ("debounceMs" in a) {
-        if (typeof a.debounceMs !== "number") {
-          throw new Error("autocomplete.debounceMs must be a number");
+        if ("debounceMs" in a) {
+          if (typeof a.debounceMs !== "number") {
+            pushError("autocomplete.debounceMs must be a number");
+          } else {
+            out.debounceMs = a.debounceMs;
+          }
         }
-        out.debounceMs = a.debounceMs;
-      }
-      if ("provider" in a) {
-        if (
-          typeof a.provider !== "string" ||
-          !VALID_PROVIDERS.includes(a.provider as ProviderName)
-        ) {
-          throw new Error(
-            `autocomplete.provider must be one of: ${VALID_PROVIDERS.join(", ")}`,
-          );
+        if ("provider" in a) {
+          if (
+            typeof a.provider !== "string" ||
+            !VALID_PROVIDERS.includes(a.provider as ProviderName)
+          ) {
+            pushError(
+              `autocomplete.provider must be one of: ${VALID_PROVIDERS.join(", ")}`,
+            );
+          } else {
+            out.provider = a.provider as ProviderName;
+          }
         }
-        out.provider = a.provider as ProviderName;
-      }
-      if ("model" in a) {
-        if (typeof a.model !== "string") {
-          throw new Error("autocomplete.model must be a string");
+        if ("model" in a) {
+          if (typeof a.model !== "string") {
+            pushError("autocomplete.model must be a string");
+          } else {
+            out.model = a.model;
+          }
         }
-        out.model = a.model;
+        result.autocomplete = out;
       }
-      result.autocomplete = out;
     }
 
     // agent
     if ("agent" in raw) {
       const ag = raw.agent;
       if (typeof ag !== "object" || ag === null || Array.isArray(ag)) {
-        throw new Error("`agent` must be an object");
-      }
-      const a = ag as Record<string, unknown>;
-      const out: AgentConfig = {};
-      if ("yoloMode" in a) {
-        if (typeof a.yoloMode !== "boolean") {
-          throw new Error("agent.yoloMode must be a boolean");
-        }
-        out.yoloMode = a.yoloMode;
-      }
-      if ("defaultMode" in a) {
-        if (
-          typeof a.defaultMode !== "string" ||
-          !VALID_MODES.includes(a.defaultMode as AgentModeName)
-        ) {
-          throw new Error(
-            `agent.defaultMode must be one of: ${VALID_MODES.join(", ")}`,
-          );
-        }
-        out.defaultMode = a.defaultMode as AgentModeName;
-      }
-      if ("autoFix" in a) {
-        const af = a.autoFix;
-        if (typeof af !== "object" || af === null || Array.isArray(af)) {
-          throw new Error("agent.autoFix must be an object");
-        }
-        const f = af as Record<string, unknown>;
-        const fix: AutoFixConfig = {};
-        if ("enabled" in f) {
-          if (typeof f.enabled !== "boolean") {
-            throw new Error("agent.autoFix.enabled must be a boolean");
+        pushError("`agent` must be an object");
+      } else {
+        const a = ag as Record<string, unknown>;
+        const out: AgentConfig = {};
+        if ("yoloMode" in a) {
+          if (typeof a.yoloMode !== "boolean") {
+            pushError("agent.yoloMode must be a boolean");
+          } else {
+            out.yoloMode = a.yoloMode;
           }
-          fix.enabled = f.enabled;
         }
-        if ("maxIterations" in f) {
-          if (typeof f.maxIterations !== "number" || f.maxIterations < 1) {
-            throw new Error(
-              "agent.autoFix.maxIterations must be a number >= 1",
+        if ("defaultMode" in a) {
+          if (
+            typeof a.defaultMode !== "string" ||
+            !VALID_MODES.includes(a.defaultMode as AgentModeName)
+          ) {
+            pushError(
+              `agent.defaultMode must be one of: ${VALID_MODES.join(", ")}`,
             );
+          } else {
+            out.defaultMode = a.defaultMode as AgentModeName;
           }
-          fix.maxIterations = f.maxIterations;
         }
-        out.autoFix = fix;
+        if ("autoFix" in a) {
+          const af = a.autoFix;
+          if (typeof af !== "object" || af === null || Array.isArray(af)) {
+            pushError("agent.autoFix must be an object");
+          } else {
+            const f = af as Record<string, unknown>;
+            const fix: AutoFixConfig = {};
+            if ("enabled" in f) {
+              if (typeof f.enabled !== "boolean") {
+                pushError("agent.autoFix.enabled must be a boolean");
+              } else {
+                fix.enabled = f.enabled;
+              }
+            }
+            if ("maxIterations" in f) {
+              if (typeof f.maxIterations !== "number" || f.maxIterations < 1) {
+                pushError("agent.autoFix.maxIterations must be a number >= 1");
+              } else {
+                fix.maxIterations = f.maxIterations;
+              }
+            }
+            out.autoFix = fix;
+          }
+        }
+        result.agent = out;
       }
-      result.agent = out;
     }
 
     // indexing
     if ("indexing" in raw) {
       const ix = raw.indexing;
       if (typeof ix !== "object" || ix === null || Array.isArray(ix)) {
-        throw new Error("`indexing` must be an object");
-      }
-      const i = ix as Record<string, unknown>;
-      const out: IndexingConfig = {};
-      if ("enabled" in i) {
-        if (typeof i.enabled !== "boolean") {
-          throw new Error("indexing.enabled must be a boolean");
+        pushError("`indexing` must be an object");
+      } else {
+        const i = ix as Record<string, unknown>;
+        const out: IndexingConfig = {};
+        if ("enabled" in i) {
+          if (typeof i.enabled !== "boolean") {
+            pushError("indexing.enabled must be a boolean");
+          } else {
+            out.enabled = i.enabled;
+          }
         }
-        out.enabled = i.enabled;
-      }
-      if ("embeddingProvider" in i) {
-        if (
-          typeof i.embeddingProvider !== "string" ||
-          !(EMBEDDING_PROVIDERS as readonly string[]).includes(
-            i.embeddingProvider,
-          )
-        ) {
-          throw new Error(
-            `indexing.embeddingProvider must be one of: ${EMBEDDING_PROVIDERS.join(", ")}`,
-          );
+        if ("embeddingProvider" in i) {
+          if (
+            typeof i.embeddingProvider !== "string" ||
+            !(EMBEDDING_PROVIDERS as readonly string[]).includes(
+              i.embeddingProvider,
+            )
+          ) {
+            pushError(
+              `indexing.embeddingProvider must be one of: ${EMBEDDING_PROVIDERS.join(", ")}`,
+            );
+          } else {
+            out.embeddingProvider = i.embeddingProvider as ProviderName;
+          }
         }
-        out.embeddingProvider = i.embeddingProvider as ProviderName;
-      }
-      if ("ignore" in i) {
-        if (
-          !Array.isArray(i.ignore) ||
-          i.ignore.some((x) => typeof x !== "string")
-        ) {
-          throw new Error("indexing.ignore must be an array of strings");
+        if ("ignore" in i) {
+          if (
+            !Array.isArray(i.ignore) ||
+            i.ignore.some((x) => typeof x !== "string")
+          ) {
+            pushError("indexing.ignore must be an array of strings");
+          } else {
+            out.ignore = i.ignore as string[];
+          }
         }
-        out.ignore = i.ignore as string[];
+        result.indexing = out;
       }
-      result.indexing = out;
     }
 
     // userRules
     if ("userRules" in raw) {
       if (typeof raw.userRules !== "string") {
-        throw new Error("`userRules` must be a string");
+        pushError("`userRules` must be a string");
+      } else {
+        result.userRules = raw.userRules;
       }
-      result.userRules = raw.userRules;
     }
 
     // mcp
     if ("mcp" in raw) {
       const mc = raw.mcp;
       if (typeof mc !== "object" || mc === null || Array.isArray(mc)) {
-        throw new Error("`mcp` must be an object");
-      }
-      const m = mc as Record<string, unknown>;
-      const out: MCPConfig = {};
-      if ("servers" in m) {
-        if (!Array.isArray(m.servers)) {
-          throw new Error("mcp.servers must be an array");
-        }
-        out.servers = m.servers.map((s, idx) => {
-          if (typeof s !== "object" || s === null || Array.isArray(s)) {
-            throw new Error(`mcp.servers[${idx}] must be an object`);
-          }
-          const srv = s as Record<string, unknown>;
-          if (typeof srv.name !== "string") {
-            throw new Error(`mcp.servers[${idx}].name must be a string`);
-          }
-          if (typeof srv.command !== "string") {
-            throw new Error(`mcp.servers[${idx}].command must be a string`);
-          }
-          const out2: MCPServerConfig = {
-            name: srv.name,
-            command: srv.command,
-          };
-          if ("args" in srv) {
-            if (
-              !Array.isArray(srv.args) ||
-              srv.args.some((a) => typeof a !== "string")
-            ) {
-              throw new Error(
-                `mcp.servers[${idx}].args must be an array of strings`,
-              );
-            }
-            out2.args = srv.args as string[];
-          }
-          if ("env" in srv) {
-            if (
-              typeof srv.env !== "object" ||
-              srv.env === null ||
-              Array.isArray(srv.env)
-            ) {
-              throw new Error(`mcp.servers[${idx}].env must be an object`);
-            }
-            const env: Record<string, string> = {};
-            for (const [k, v] of Object.entries(srv.env)) {
-              if (typeof v !== "string") {
-                throw new Error(
-                  `mcp.servers[${idx}].env.${k} must be a string`,
-                );
+        pushError("`mcp` must be an object");
+      } else {
+        const m = mc as Record<string, unknown>;
+        const out: MCPConfig = {};
+        if ("servers" in m) {
+          if (!Array.isArray(m.servers)) {
+            pushError("mcp.servers must be an array");
+          } else {
+            out.servers = [];
+            for (let idx = 0; idx < m.servers.length; idx++) {
+              const s = m.servers[idx];
+              if (typeof s !== "object" || s === null || Array.isArray(s)) {
+                pushError(`mcp.servers[${idx}] must be an object`);
+                continue;
               }
-              env[k] = v;
+              const srv = s as Record<string, unknown>;
+              if (typeof srv.name !== "string") {
+                pushError(`mcp.servers[${idx}].name must be a string`);
+                continue;
+              }
+              if (typeof srv.command !== "string") {
+                pushError(`mcp.servers[${idx}].command must be a string`);
+                continue;
+              }
+              const out2: MCPServerConfig = {
+                name: srv.name,
+                command: srv.command,
+              };
+              if ("args" in srv) {
+                if (
+                  !Array.isArray(srv.args) ||
+                  srv.args.some((a) => typeof a !== "string")
+                ) {
+                  pushError(
+                    `mcp.servers[${idx}].args must be an array of strings`,
+                  );
+                } else {
+                  out2.args = srv.args as string[];
+                }
+              }
+              if ("env" in srv) {
+                if (
+                  typeof srv.env !== "object" ||
+                  srv.env === null ||
+                  Array.isArray(srv.env)
+                ) {
+                  pushError(`mcp.servers[${idx}].env must be an object`);
+                } else {
+                  const env: Record<string, string> = {};
+                  for (const [k, v] of Object.entries(srv.env)) {
+                    if (typeof v !== "string") {
+                      pushError(
+                        `mcp.servers[${idx}].env.${k} must be a string`,
+                      );
+                    } else {
+                      env[k] = v;
+                    }
+                  }
+                  out2.env = env;
+                }
+              }
+              out.servers.push(out2);
             }
-            out2.env = env;
           }
-          return out2;
-        });
+        }
+        result.mcp = out;
       }
-      result.mcp = out;
     }
 
     // routing
     if ("routing" in raw) {
       const rt = raw.routing;
       if (typeof rt !== "object" || rt === null || Array.isArray(rt)) {
-        throw new Error("`routing` must be an object");
-      }
-      const r = rt as Record<string, unknown>;
-      const out: RoutingConfig = {};
-      if ("mode" in r) {
-        if (r.mode !== "smart" && r.mode !== "manual") {
-          throw new Error('routing.mode must be "smart" or "manual"');
-        }
-        out.mode = r.mode as "smart" | "manual";
-      }
-      for (const key of [
-        "coding",
-        "chat",
-        "completion",
-        "embedding",
-      ] as const) {
-        if (key in r) {
-          if (r[key] !== null && typeof r[key] !== "string") {
-            throw new Error(`routing.${key} must be a string or null`);
+        pushError("`routing` must be an object");
+      } else {
+        const r = rt as Record<string, unknown>;
+        const out: RoutingConfig = {};
+        if ("mode" in r) {
+          if (r.mode !== "smart" && r.mode !== "manual") {
+            pushError('routing.mode must be "smart" or "manual"');
+          } else {
+            out.mode = r.mode as "smart" | "manual";
           }
-          out[key] = r[key] as string | null;
         }
+        for (const key of [
+          "coding",
+          "chat",
+          "completion",
+          "embedding",
+        ] as const) {
+          if (key in r) {
+            if (r[key] !== null && typeof r[key] !== "string") {
+              pushError(`routing.${key} must be a string or null`);
+            } else {
+              out[key] = r[key] as string | null;
+            }
+          }
+        }
+        result.routing = out;
       }
-      result.routing = out;
     }
 
-    return result;
+    // telemetry
+    if (raw.telemetry !== undefined && raw.telemetry !== null) {
+      if (typeof raw.telemetry !== "object" || Array.isArray(raw.telemetry)) {
+        errors.push("telemetry must be an object");
+      } else {
+        const tel = raw.telemetry as Record<string, unknown>;
+        if (tel.endpoint !== undefined && typeof tel.endpoint !== "string") {
+          errors.push("telemetry.endpoint must be a string");
+        }
+        if (
+          tel.format !== undefined &&
+          tel.format !== "json" &&
+          tel.format !== "otlp"
+        ) {
+          errors.push('telemetry.format must be "json" or "otlp"');
+        }
+        if (
+          tel.bufferMaxEvents !== undefined &&
+          typeof tel.bufferMaxEvents !== "number"
+        ) {
+          errors.push("telemetry.bufferMaxEvents must be a number");
+        }
+        if (
+          tel.bufferMaxBytes !== undefined &&
+          typeof tel.bufferMaxBytes !== "number"
+        ) {
+          errors.push("telemetry.bufferMaxBytes must be a number");
+        }
+        if (tel.timeoutMs !== undefined && typeof tel.timeoutMs !== "number") {
+          errors.push("telemetry.timeoutMs must be a number");
+        }
+        if (errors.length === 0) {
+          result.telemetry = raw.telemetry as TelemetryConfig;
+        }
+      }
+    }
+
+    return { errors, config: result };
   }
 
   /**
@@ -503,6 +601,10 @@ export class ConfigLoader {
 
     if (override.routing) {
       result.routing = { ...result.routing, ...override.routing };
+    }
+
+    if (override.telemetry) {
+      result.telemetry = { ...result.telemetry, ...override.telemetry };
     }
 
     return result;
