@@ -5,6 +5,59 @@ All notable changes to Champ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] — 2026-04-22
+
+Full audit pass: routing config, smart autocomplete model, cloud provider
+display, and a sweep of bugs found in an external audit of the extension.
+
+### Added
+
+- **Smart routing config in YAML** — `routing:` block supports `mode: smart|manual`
+  and per-task model overrides (`coding:`, `chat:`, `completion:`, `embedding:`).
+  SmartRouter now reads this on every config reload.
+- **Autocomplete-specific provider/model** — `autocomplete.provider` and
+  `autocomplete.model` in YAML are now wired to the inline completion provider,
+  so ghost-text can use a fast small model while chat uses a larger one.
+- **`withModel` on all providers** — `OllamaProvider`, `OpenAICompatibleProvider`
+  (covers llama.cpp + vLLM) now implement `withModel(id)` so SmartRouter can
+  route to the actual running model name without creating a full new instance.
+- **Model name persists on selection** — when the user picks a model from the
+  picker, the `providers.{name}.model` field in `.champ/config.yaml` is updated
+  so the choice survives a restart.
+
+### Fixed
+
+- **Ollama 404 shows the real error** — previously showed "404 Not Found"; now
+  reads the response body and surfaces Ollama's message (e.g. "model not found,
+  try pulling it first").
+- **Cloud providers no longer show `[offline]`** — claude, openai, and gemini
+  entries in the model picker now appear normally (they don't need a `baseUrl`);
+  only unreachable local servers are labelled `[offline]`.
+- **Settings gear opens config file** — the gear icon in the chat panel now runs
+  `Champ: Generate Config File` (opens `.champ/config.yaml`) instead of the
+  VS Code settings panel.
+- **Removed dead plain-text API key settings** — `champ.claude.apiKey`,
+  `champ.openai.apiKey`, and `champ.gemini.apiKey` were never read (keys live
+  in SecretStorage); removed to avoid confusion.
+- **Fixed `llamacpp.baseUrl` default** — was `http://localhost:8080`, now
+  correctly `http://localhost:8080/v1`.
+- **Fixed `ollama.model` default** — was `llama3.1`, now `qwen2.5-coder:7b-instruct`
+  to match the onboarding template and YAML generator.
+- **Added `vllm.apiKey` setting** — was missing from the VS Code settings schema.
+- **SmartRouter emits once on first discovery** then only on list changes,
+  preventing noisy UI redraws when the model list doesn't change.
+- **SmartRouter discovery timeout** increased 3 s → 5 s for slower machines.
+- **Removed duplicate model detection** — `autoDetectModels()` was running
+  alongside SmartRouter's own discovery; removed the duplicate.
+- **`inlineProviderRef` moved before `AgentManager`** creation to match usage order.
+- **`createStubProvider` typed correctly** — generators were cast to
+  `AsyncIterable<never>` via `as never`; fixed to `AsyncIterable<StreamDelta>`.
+- **`activeProviderConfig()` no longer throws** for cloud providers with no
+  `providers:` entry in YAML (returns empty config instead).
+- **`maxIterations` validated as ≥ 1** in ConfigLoader (was accepting 0 or negative).
+- **Onboarding template descriptions** now include the prerequisite install
+  command so first-time users know what to run.
+
 ## [1.3.2] — 2026-04-11
 
 First marketplace release. Full-featured AI coding agent with local
