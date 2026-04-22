@@ -112,6 +112,14 @@ export class AgentOrchestrator {
       output: "Workflow initialized",
     };
 
+    const fireProgress = (event: AgentProgressEvent): void => {
+      try {
+        options.onAgentProgress?.(event);
+      } catch {
+        // Callback errors must not crash the workflow.
+      }
+    };
+
     let i = 0;
     while (i < sequence.length) {
       if (options.abortSignal?.aborted) {
@@ -136,7 +144,7 @@ export class AgentOrchestrator {
         };
       }
 
-      options.onAgentProgress?.({
+      fireProgress({
         type: "agent_started",
         agentName: name,
         step: i + 1,
@@ -171,7 +179,7 @@ export class AgentOrchestrator {
       });
 
       if (output.success) {
-        options.onAgentProgress?.({
+        fireProgress({
           type: "agent_completed",
           agentName: name,
           durationMs: endTime - startTime,
@@ -179,7 +187,7 @@ export class AgentOrchestrator {
           output: output.output,
         });
       } else {
-        options.onAgentProgress?.({
+        fireProgress({
           type: "agent_failed",
           agentName: name,
           error: output.error ?? output.output,
