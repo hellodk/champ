@@ -64,6 +64,7 @@ let cachedYamlConfig: import("./config/config-loader").ChampConfig | null =
   null;
 let lastAnalyticsReport: AgentRunReport | null = null;
 let sessionAnalytics: AgentAnalytics | undefined;
+let analyticsChannel: vscode.OutputChannel | undefined;
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -98,6 +99,9 @@ export async function activate(
   statusBarItem.tooltip = "Champ — click to open settings";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
+
+  analyticsChannel = vscode.window.createOutputChannel("Champ Analytics");
+  context.subscriptions.push(analyticsChannel);
 
   // ---- Agent controller (created with a placeholder provider) --------
   // We use a stub provider until the real one loads. This way the chat
@@ -801,6 +805,8 @@ export async function activate(
         } else {
           // No sessions left — create a fresh one.
           const fresh = agentManager.createSession();
+          if (sessionAnalytics)
+            fresh.controller.setAnalytics(sessionAnalytics, "champ");
           chatViewProvider?.setAgent(fresh.controller);
           chatViewProvider?.postMessage({
             type: "conversationHistory",
@@ -914,7 +920,7 @@ export async function activate(
         );
         return;
       }
-      const channel = vscode.window.createOutputChannel("Champ Analytics");
+      const channel = analyticsChannel!;
       channel.clear();
       channel.appendLine("# Champ Analytics Report");
       channel.appendLine("");
@@ -1309,6 +1315,15 @@ export async function activate(
         });
       }
       broadcastSessionList();
+
+      // Wire analytics into all sessions that were restored at boot.
+      // loadProvider() ran before sessions existed, so we wire them here.
+      if (sessionAnalytics && agentManager) {
+        agentManager.listSessions(true).forEach((meta) => {
+          const sess = agentManager!.getSession(meta.id);
+          sess?.controller.setAnalytics(sessionAnalytics!, "champ");
+        });
+      }
 
       agentManager.onChange((event) => {
         broadcastSessionList();
