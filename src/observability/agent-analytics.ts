@@ -20,6 +20,11 @@ export class AgentAnalytics {
   >();
 
   startTask(agentName: string): void {
+    if (this.activeTasks.has(agentName)) {
+      throw new Error(
+        `AgentAnalytics: task "${agentName}" is already in progress`,
+      );
+    }
     this.activeTasks.set(agentName, {
       startTime: Date.now(),
       inputTokens: 0,
@@ -70,7 +75,7 @@ export class AgentAnalytics {
       totalDurationMs: now - this.startTime,
       totalInputTokens: this.tasks.reduce((s, a) => s + a.inputTokens, 0),
       totalOutputTokens: this.tasks.reduce((s, a) => s + a.outputTokens, 0),
-      success: this.tasks.every((a) => a.success),
+      success: this.tasks.length > 0 && this.tasks.every((a) => a.success),
       agents: [...this.tasks],
     };
   }
