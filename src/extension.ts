@@ -37,7 +37,7 @@ import { SkillRegistry } from "./skills/skill-registry";
 import { SkillLoader } from "./skills/skill-loader";
 import { VariableResolver } from "./skills/variable-resolver";
 import { BUILT_IN_SKILL_TEXTS } from "./skills/built-in";
-import type { LLMProvider } from "./providers/types";
+import type { LLMProvider, StreamDelta } from "./providers/types";
 import type { AvailableProviderModel } from "./ui/messages";
 import { SAMPLE_CONFIGS } from "./config/sample-configs";
 import { AgentManager } from "./agent-manager/agent-manager";
@@ -98,6 +98,7 @@ export async function activate(
     vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
 
   const stubProvider = createStubProvider("not-configured");
+  const inlineProviderRef: { current: LLMProvider } = { current: stubProvider };
   const agentController = new AgentController(
     stubProvider,
     toolRegistry,
@@ -129,15 +130,19 @@ export async function activate(
       label: `${m.id} (${m.providerName}) ${m.capabilities.join(", ")}`,
     }));
 
-    // Append config-defined but unreachable providers as disabled entries
-    // so the user sees them greyed out (label starts with "[offline]").
+    // Append config-defined but unreachable providers.
+    // Cloud providers (no baseUrl) show normally — they just need an API key.
+    // Local providers that are down show as [offline].
     if (cachedYamlConfig?.providers) {
       for (const [pName, pConf] of Object.entries(cachedYamlConfig.providers)) {
         if (!pConf || discoveredProviders.has(pName)) continue;
+        const isCloud = ["claude", "openai", "gemini"].includes(pName);
         available.push({
           providerName: pName,
           modelName: pConf.model ?? "default",
-          label: `[offline] ${pConf.model ?? "default"} (${pName})`,
+          label: isCloud
+            ? `${pConf.model ?? "default"} (${pName})`
+            : `[offline] ${pConf.model ?? "default"} (${pName})`,
         });
       }
     }
@@ -279,7 +284,15 @@ export async function activate(
 
         const route = smartRouter.select(taskType);
         if (route) {
-          session.controller.setProvider(route.provider);
+          // If SmartRouter picked a model whose ID differs from the
+          // provider's configured model (e.g., Ollama has a different
+          // model installed than what YAML specifies), clone the provider
+          // for the selected model so the request uses the correct name.
+          const routeProvider =
+            route.model.id !== route.provider.config.model
+              ? (route.provider.withModel?.(route.model.id) ?? route.provider)
+              : route.provider;
+          session.controller.setProvider(routeProvider);
           console.log(
             `Champ SmartRouter: ${taskType} → ${route.model.id} (${route.model.providerName}) [${route.reason}]`,
           );
@@ -310,54 +323,44 @@ export async function activate(
   chatViewProvider.onWebviewReady(() => {
     const provider = inlineProviderRef.current;
     if (provider.name !== "not-configured") {
-      let staticModels = buildAvailableModels(cachedYamlConfig);
-      if (staticModels.length === 0) {
-        staticModels = [
-          {
-            providerName: provider.name,
-            modelName: provider.config.model,
-            label: `${provider.config.model} (${provider.name})`,
-          },
-        ];
+      // Rebuild current available list from SmartRouter state + YAML static models.
+      const discovered = smartRouter?.getModels() ?? [];
+      const discoveredProviders = new Set(
+        discovered.map((m) => m.providerName),
+      );
+      const available: AvailableProviderModel[] = discovered.map((m) => ({
+        providerName: m.providerName,
+        modelName: m.id,
+        label: `${m.id} (${m.providerName}) ${m.capabilities.join(", ")}`,
+      }));
+      if (cachedYamlConfig?.providers) {
+        for (const [pName, pConf] of Object.entries(
+          cachedYamlConfig.providers,
+        )) {
+          if (!pConf || discoveredProviders.has(pName)) continue;
+          const isCloud = ["claude", "openai", "gemini"].includes(pName);
+          available.push({
+            providerName: pName,
+            modelName: pConf.model ?? "default",
+            label: isCloud
+              ? `${pConf.model ?? "default"} (${pName})`
+              : `[offline] ${pConf.model ?? "default"} (${pName})`,
+          });
+        }
+      }
+      if (available.length === 0) {
+        available.push({
+          providerName: provider.name,
+          modelName: provider.config.model,
+          label: `${provider.config.model} (${provider.name})`,
+        });
       }
       chatViewProvider?.broadcastProviderStatus({
         state: "ready",
         providerName: provider.name,
         modelName: provider.config.model,
-        available: staticModels,
+        available,
       });
-      // Re-trigger auto-detection in the background.
-      if (cachedYamlConfig) {
-        void autoDetectModels(cachedYamlConfig, provider, staticModels);
-      } else if (
-        "listModels" in provider &&
-        typeof (provider as { listModels: () => Promise<unknown> })
-          .listModels === "function"
-      ) {
-        void (async () => {
-          try {
-            const models = await (
-              provider as {
-                listModels: () => Promise<Array<{ id: string; name: string }>>;
-              }
-            ).listModels();
-            if (models.length > 0) {
-              chatViewProvider?.broadcastProviderStatus({
-                state: "ready",
-                providerName: provider.name,
-                modelName: provider.config.model,
-                available: models.map((m) => ({
-                  providerName: provider.name,
-                  modelName: m.name,
-                  label: `${m.name} (${provider.name})`,
-                })),
-              });
-            }
-          } catch {
-            /* offline */
-          }
-        })();
-      }
     }
     broadcastSessionList();
   });
@@ -437,7 +440,6 @@ export async function activate(
   // ---- Inline completion ----------------------------------------------
   // The inline provider holds a *reference* to the active provider, so
   // when we hot-swap below the same instance picks it up.
-  const inlineProviderRef: { current: LLMProvider } = { current: stubProvider };
   const inlineProvider = new ChampInlineCompletionProvider(stubProvider);
   context.subscriptions.push(
     vscode.languages.registerInlineCompletionItemProvider(
@@ -613,11 +615,13 @@ export async function activate(
       "champ.setActiveModel",
       async (providerName: string) => {
         // Tell SmartRouter to switch to manual mode for this model.
+        let selectedModelId: string | null = null;
         if (smartRouter) {
           // Find the model id for this provider from discovered models.
           const models = smartRouter.getModels();
           const match = models.find((m) => m.providerName === providerName);
           if (match) {
+            selectedModelId = match.id;
             smartRouter.setManualModel(match.id);
             console.log(
               `Champ: manual model selection → ${match.id} (${providerName})`,
@@ -663,9 +667,14 @@ export async function activate(
           );
           return;
         }
+        // Also write the selected model name into providers.{name}.model so it
+        // persists through the next loadProvider() call.
+        const finalText = selectedModelId
+          ? setProviderModelInYaml(updated, providerName, selectedModelId)
+          : updated;
         await vscode.workspace.fs.writeFile(
           yamlUri,
-          new TextEncoder().encode(updated),
+          new TextEncoder().encode(finalText),
         );
         // The file watcher will fire loadProvider() which broadcasts
         // a fresh providerStatus. Nothing more to do here.
@@ -914,6 +923,38 @@ export async function activate(
       agentManager?.swapProvider(newProvider);
       inlineProvider.setProvider(newProvider);
       inlineProviderRef.current = newProvider;
+      // If YAML configures a separate autocomplete provider or model, wire it.
+      if (
+        yamlConfig?.autocomplete?.provider &&
+        yamlConfig.autocomplete.provider !== newProvider.name
+      ) {
+        try {
+          const acProvider = await factory.createFromChampConfig(
+            {
+              ...yamlConfig,
+              provider: yamlConfig.autocomplete
+                .provider as import("./config/config-loader").ProviderName,
+            },
+            context.secrets,
+          );
+          const acModel = yamlConfig.autocomplete.model;
+          inlineProvider.setProvider(
+            acModel && acProvider.withModel
+              ? acProvider.withModel(acModel)
+              : acProvider,
+          );
+        } catch {
+          // Autocomplete provider unavailable — keep main provider.
+        }
+      } else if (
+        yamlConfig?.autocomplete?.model &&
+        yamlConfig.autocomplete.model !== newProvider.config.model
+      ) {
+        const acProvider = newProvider.withModel?.(
+          yamlConfig.autocomplete.model,
+        );
+        if (acProvider) inlineProvider.setProvider(acProvider);
+      }
       setStatusReady(newProvider);
       // Broadcast a minimal status immediately (SmartRouter's onChange
       // will replace the model list once discovery completes with only
@@ -962,6 +1003,20 @@ export async function activate(
               // Provider creation failed — skip (will show as offline).
             }
           }
+        }
+        // Apply routing config from YAML before first discovery.
+        if (yamlConfig?.routing) {
+          const { mode, coding, chat, completion, embedding } =
+            yamlConfig.routing;
+          if (mode) smartRouter.setMode(mode);
+          if (coding !== undefined)
+            smartRouter.setTaskModel("coding", coding ?? null);
+          if (chat !== undefined)
+            smartRouter.setTaskModel("chat", chat ?? null);
+          if (completion !== undefined)
+            smartRouter.setTaskModel("completion", completion ?? null);
+          if (embedding !== undefined)
+            smartRouter.setTaskModel("embedding", embedding ?? null);
         }
         void smartRouter.discover();
       }
@@ -1182,22 +1237,22 @@ function createStubProvider(name: string): LLMProvider {
       maxTokens: 0,
       temperature: 0,
     },
-    async *chat(): AsyncIterable<never> {
+    async *chat(): AsyncIterable<StreamDelta> {
       yield {
-        type: "error",
+        type: "error" as const,
         error:
           "No LLM provider is configured. Click the Champ status bar item or run 'Champ: Settings' to choose a provider.",
-      } as never;
+      };
       yield {
-        type: "done",
+        type: "done" as const,
         usage: { inputTokens: 0, outputTokens: 0 },
-      } as never;
+      };
     },
-    async *complete(): AsyncIterable<never> {
+    async *complete(): AsyncIterable<StreamDelta> {
       yield {
-        type: "done",
+        type: "done" as const,
         usage: { inputTokens: 0, outputTokens: 0 },
-      } as never;
+      };
     },
     supportsToolUse: () => false,
     supportsStreaming: () => true,
@@ -1291,109 +1346,6 @@ indexing:
  * VS Code settings path doesn't enumerate providers, so the dropdown
  * is hidden in that case.
  */
-/**
- * Query each configured provider's API for available models and
- * re-broadcast the merged list to the webview. Non-blocking — called
- * in the background after the initial provider load.
- */
-async function autoDetectModels(
-  yamlConfig: ChampConfig | null,
-  activeProvider: LLMProvider,
-  staticModels: AvailableProviderModel[],
-): Promise<void> {
-  if (!yamlConfig?.providers) return;
-  const detected: AvailableProviderModel[] = [];
-  for (const [providerName, conf] of Object.entries(yamlConfig.providers)) {
-    if (!conf) continue;
-    try {
-      // Use the active provider's listModels if it's the same provider,
-      // otherwise construct a temporary URL-based query.
-      let models: Array<{ id: string; name: string }> = [];
-      if (
-        providerName === activeProvider.name &&
-        "listModels" in activeProvider &&
-        typeof (activeProvider as { listModels: () => Promise<unknown> })
-          .listModels === "function"
-      ) {
-        models =
-          (await (
-            activeProvider as {
-              listModels: () => Promise<Array<{ id: string; name: string }>>;
-            }
-          ).listModels()) ?? [];
-      } else if (conf.baseUrl) {
-        // Try OpenAI-compatible /v1/models endpoint.
-        try {
-          const res = await fetch(
-            `${conf.baseUrl.replace(/\/$/, "")}/v1/models`,
-          );
-          if (res.ok) {
-            const data = (await res.json()) as { data?: Array<{ id: string }> };
-            models = (data.data ?? []).map((m) => ({ id: m.id, name: m.id }));
-          }
-        } catch {
-          /* offline */
-        }
-        // Try Ollama /api/tags endpoint.
-        if (models.length === 0) {
-          try {
-            const res = await fetch(
-              `${conf.baseUrl.replace(/\/$/, "")}/api/tags`,
-            );
-            if (res.ok) {
-              const data = (await res.json()) as {
-                models?: Array<{ name: string }>;
-              };
-              models = (data.models ?? []).map((m) => ({
-                id: m.name,
-                name: m.name,
-              }));
-            }
-          } catch {
-            /* offline */
-          }
-        }
-      }
-      for (const m of models) {
-        // Avoid duplicates with static list.
-        if (
-          !detected.some(
-            (d) => d.providerName === providerName && d.modelName === m.name,
-          )
-        ) {
-          detected.push({
-            providerName,
-            modelName: m.name,
-            label: `${m.name} (${providerName})`,
-          });
-        }
-      }
-    } catch {
-      /* skip failed providers */
-    }
-  }
-  if (detected.length > 0) {
-    // Merge: detected models first (they're real), then any static-only entries.
-    const merged = [...detected];
-    for (const s of staticModels) {
-      if (
-        !merged.some(
-          (d) =>
-            d.providerName === s.providerName && d.modelName === s.modelName,
-        )
-      ) {
-        merged.push(s);
-      }
-    }
-    chatViewProvider?.broadcastProviderStatus({
-      state: "ready",
-      providerName: activeProvider.name,
-      modelName: activeProvider.config.model,
-      available: merged,
-    });
-  }
-}
-
 function buildAvailableModels(
   yamlConfig: ChampConfig | null,
 ): AvailableProviderModel[] {
@@ -1425,6 +1377,39 @@ function setActiveProviderInYaml(
   newProvider: string,
 ): string {
   return yamlText.replace(/^provider:[^\n]*$/m, `provider: ${newProvider}`);
+}
+
+/**
+ * Rewrite the `model:` line under a specific provider section in YAML.
+ * Preserves comments and all other content. Returns text unchanged if
+ * the provider section or model line is not found.
+ */
+function setProviderModelInYaml(
+  yamlText: string,
+  providerName: string,
+  modelId: string,
+): string {
+  const lines = yamlText.split("\n");
+  let inProvider = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (
+      /^\s{2}/.test(line) &&
+      line.trimStart().startsWith(`${providerName}:`)
+    ) {
+      inProvider = true;
+      continue;
+    }
+    if (inProvider) {
+      if (line.length > 0 && !/^\s/.test(line)) break;
+      if (/^\s{2}[^\s]/.test(line)) break;
+      if (/^\s{4,}model:\s*/.test(line)) {
+        lines[i] = line.replace(/^(\s+model:\s*).*$/, `$1${modelId}`);
+        break;
+      }
+    }
+  }
+  return lines.join("\n");
 }
 
 /**

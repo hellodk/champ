@@ -582,7 +582,7 @@ describe("ChatViewProvider", () => {
   });
 
   describe("Chat UI v2 — settings, help, setModel, providerStatus", () => {
-    it("openSettingsRequest fires the workbench.action.openSettings command", async () => {
+    it("openSettingsRequest fires the champ.generateConfig command", async () => {
       const vscode = await import("vscode");
       const exec = vscode.commands.executeCommand as ReturnType<typeof vi.fn>;
       exec.mockClear();
@@ -593,10 +593,7 @@ describe("ChatViewProvider", () => {
       view.fireMessage({ type: "openSettingsRequest" });
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(exec).toHaveBeenCalledWith(
-        "workbench.action.openSettings",
-        "champ",
-      );
+      expect(exec).toHaveBeenCalledWith("champ.generateConfig");
     });
 
     it("showHelpRequest fires the champ.showHelp command", async () => {
