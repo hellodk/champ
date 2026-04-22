@@ -28,7 +28,7 @@ export const SAMPLE_CONFIGS: ReadonlyArray<SampleConfig> = [
     id: "ollama-basic",
     label: "Local: Ollama (recommended)",
     description:
-      "Privacy-first, no API key needed. Uses Ollama at localhost with qwen2.5-coder.",
+      "Privacy-first, no API key needed. Requires Ollama — install from ollama.com, then run: ollama pull qwen2.5-coder:7b-instruct",
     yaml: `# Champ — Ollama configuration (created by onboarding)
 # Edit freely. The file watcher reloads on save.
 
@@ -55,7 +55,7 @@ autocomplete:
     id: "llamacpp",
     label: "Local: llama.cpp",
     description:
-      "Direct llama.cpp server connection. Good for custom GGUF models.",
+      "Direct llama.cpp server connection. Requires llama-server running: llama-server -m model.gguf --port 8080",
     yaml: `# Champ — llama.cpp configuration (created by onboarding)
 
 provider: llamacpp
@@ -81,7 +81,7 @@ autocomplete:
     id: "vllm-basic",
     label: "Local: vLLM",
     description:
-      "High-throughput local inference with vLLM. Great for multi-GPU setups.",
+      "High-throughput local inference with vLLM. Requires: pip install vllm && vllm serve meta-llama/Llama-3.1-8B",
     yaml: `# Champ — vLLM configuration (created by onboarding)
 
 provider: vllm
@@ -107,7 +107,7 @@ autocomplete:
     id: "claude",
     label: "Cloud: Claude",
     description:
-      "Anthropic Claude API. Requires an API key (set via Champ: Set API Key).",
+      "Anthropic Claude via API. Requires an API key — run 'Champ: Set API Key' after selecting this template.",
     yaml: `# Champ — Claude configuration (created by onboarding)
 # Set your API key with the "Champ: Set API Key" command.
 

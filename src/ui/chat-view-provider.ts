@@ -331,13 +331,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       } else if (isSkillAutocompleteRequest(msg)) {
         this.handleSkillAutocompleteRequest(msg.prefix);
       } else if (isOpenSettingsRequest(msg)) {
-        // The gear icon in the chat header. Opens VS Code Settings
-        // filtered to `champ.*` so the user lands directly on the
-        // extension's settings group.
-        void vscode.commands.executeCommand(
-          "workbench.action.openSettings",
-          "champ",
-        );
+        // The gear icon in the chat header. Opens .champ/config.yaml (creating
+        // it if needed) — that's the primary config surface. Falls back to
+        // VS Code settings if no workspace is open (generateConfig handles it).
+        void vscode.commands.executeCommand("champ.generateConfig");
       } else if (isShowHelpRequest(msg)) {
         // The `?` icon in the chat header. Opens docs/USER_GUIDE.md
         // as an editor tab via a dedicated extension command.
