@@ -158,25 +158,11 @@ export class AgentManager {
       this.toolRegistry,
       this.workspaceRoot,
     );
-    // Rebuild the controller's history by replaying messages.
-    // AgentController stores history internally; we use a package-
-    // private approach: reset + manually set. Since we can't set
-    // history directly, we expose the serialized history in metadata
-    // and the controller starts fresh. The session list shows the
-    // message count from metadata, and the actual messages are
-    // loaded lazily when the session becomes active.
-    //
-    // For now, we replay via the internal method. Since AgentController
-    // doesn't expose a setHistory, we store history alongside.
+    controller.setHistory(serialized.history ?? []);
     const session: AgentSession = {
       metadata: { ...serialized.metadata },
       controller,
     };
-    // Inject history into the controller via the internal array.
-    // This is safe because we control both classes.
-    (controller as unknown as { history: unknown[] }).history = [
-      ...serialized.history,
-    ];
     this.sessions.set(serialized.metadata.id, session);
     this.emit({ type: "sessionCreated", id: serialized.metadata.id });
     return session;

@@ -178,6 +178,10 @@ export class AgentController {
    * turn). See docs/HALLUCINATION_MITIGATION.md and src/safety/.
    */
   private readonly secretScanner = new SecretScanner();
+  private analyticsInstance:
+    | import("../observability/agent-analytics").AgentAnalytics
+    | null = null;
+  private analyticsAgentName = "champ";
   /**
    * Files the model has read in this session. Used to enforce the
    * "read before edit" rule from docs/HALLUCINATION_MITIGATION.md —
@@ -215,6 +219,14 @@ export class AgentController {
 
   getMode(): AgentMode {
     return this.mode;
+  }
+
+  setAnalytics(
+    analytics: import("../observability/agent-analytics").AgentAnalytics,
+    agentName = "champ",
+  ): void {
+    this.analyticsInstance = analytics;
+    this.analyticsAgentName = agentName;
   }
 
   /**
@@ -264,6 +276,11 @@ export class AgentController {
     this.filesReadThisSession.clear();
   }
 
+  /** Replace conversation history (used when restoring persisted sessions). */
+  setHistory(messages: LLMMessage[]): void {
+    this.history = [...messages];
+  }
+
   /**
    * Lazily fetch the repo map from the configured provider, caching
    * the result for the session. Returns empty string if no provider
@@ -305,6 +322,15 @@ export class AgentController {
     // first call. Empty string if no provider attached.
     const repoMap = await this.getRepoMap();
 
+    // Analytics tracking
+    const toolStartTimes = new Map<string, number>();
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let hadError = false;
+    if (this.analyticsInstance) {
+      this.analyticsInstance.startTask(this.analyticsAgentName);
+    }
+
     for (let iteration = 0; iteration < maxIterations; iteration++) {
       if (options.abortSignal?.aborted) break;
 
@@ -338,10 +364,13 @@ export class AgentController {
           // the <tool_call> XML before showing it to the user.
         } else if (delta.type === "tool_call_start" && delta.toolCall) {
           pendingToolCalls.push(delta.toolCall);
+          toolStartTimes.set(delta.toolCall.id, Date.now());
           this.emit(delta);
         } else if (delta.type === "tool_call_end") {
           this.emit(delta);
         } else if (delta.type === "done") {
+          totalInputTokens += delta.usage.inputTokens;
+          totalOutputTokens += delta.usage.outputTokens;
           this.emit(delta);
           break;
         } else if (delta.type === "error") {
@@ -354,6 +383,7 @@ export class AgentController {
       }
 
       if (errorOccurred) {
+        hadError = true;
         return {
           text: collectedText.join(""),
           toolCalls: collectedToolCalls,
@@ -439,6 +469,21 @@ export class AgentController {
           toolSuccess: result.success,
         });
 
+        // Record tool call for analytics
+        if (this.analyticsInstance) {
+          const toolStart = toolStartTimes.get(call.id) ?? Date.now();
+          toolStartTimes.delete(call.id);
+          this.analyticsInstance.recordToolCall(this.analyticsAgentName, {
+            toolName: call.name,
+            args: call.arguments,
+            startTime: toolStart,
+            durationMs: Date.now() - toolStart,
+            success: result.success,
+            result: result.success ? result.output.slice(0, 200) : undefined,
+            error: result.success ? undefined : result.output,
+          });
+        }
+
         if (usePromptBased) {
           // For prompt-based providers, the next user message contains
           // the tool result wrapped in <tool_result> so the model can
@@ -461,6 +506,16 @@ export class AgentController {
           });
         }
       }
+    }
+
+    // Finalize analytics for this processMessage call
+    if (this.analyticsInstance) {
+      this.analyticsInstance.recordTokens(
+        this.analyticsAgentName,
+        totalInputTokens,
+        totalOutputTokens,
+      );
+      this.analyticsInstance.endTask(this.analyticsAgentName, !hadError);
     }
 
     return {

@@ -668,6 +668,41 @@ describe("AgentController", () => {
     });
   });
 
+  it("setHistory replaces the conversation history", () => {
+    const ctrl = new AgentController(
+      createMockProvider([
+        [{ type: "done", usage: { inputTokens: 0, outputTokens: 0 } }],
+      ]),
+      createMockToolRegistry(),
+      "/ws",
+    );
+    ctrl.setHistory([
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "hi" },
+    ]);
+    expect(ctrl.getHistory()).toHaveLength(2);
+    expect(ctrl.getHistory()[0].content).toBe("hello");
+  });
+
+  it("setAnalytics wires token recording after processMessage", async () => {
+    const { AgentAnalytics } =
+      await import("../../../src/observability/agent-analytics");
+    const provider = createMockProvider([
+      [
+        { type: "text", text: "hi" },
+        { type: "done", usage: { inputTokens: 7, outputTokens: 3 } },
+      ],
+    ]);
+    const analytics = new AgentAnalytics();
+    const ctrl = new AgentController(provider, createMockToolRegistry(), "/ws");
+    ctrl.setAnalytics(analytics, "test-agent");
+    await ctrl.processMessage("hi", {});
+    const report = analytics.toReport();
+    expect(report.agents).toHaveLength(1);
+    expect(report.agents[0].agentName).toBe("test-agent");
+    expect(report.agents[0].success).toBe(true);
+  });
+
   describe("secret redaction in tool results", () => {
     /**
      * Build a registry whose execute() returns a result containing a
