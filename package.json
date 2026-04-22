@@ -127,43 +127,37 @@
             "vllm",
             "openai-compatible"
           ],
-          "description": "Active LLM provider"
-        },
-        "champ.claude.apiKey": {
-          "type": "string",
-          "description": "Anthropic API key"
+          "markdownDescription": "Active LLM provider. Edit **`.champ/config.yaml`** for full control (YAML overrides these settings)."
         },
         "champ.claude.model": {
           "type": "string",
-          "default": "claude-sonnet-4-20250514"
-        },
-        "champ.openai.apiKey": {
-          "type": "string",
-          "description": "OpenAI API key"
+          "default": "claude-sonnet-4-20250514",
+          "markdownDescription": "Claude model ID. API key is stored securely — run **Champ: Set API Key** to configure it."
         },
         "champ.openai.model": {
           "type": "string",
-          "default": "gpt-4o"
-        },
-        "champ.gemini.apiKey": {
-          "type": "string",
-          "description": "Google Gemini API key"
+          "default": "gpt-4o",
+          "markdownDescription": "OpenAI model ID. API key is stored securely — run **Champ: Set API Key** to configure it."
         },
         "champ.gemini.model": {
           "type": "string",
-          "default": "gemini-2.0-flash"
+          "default": "gemini-2.0-flash",
+          "markdownDescription": "Gemini model ID. API key is stored securely — run **Champ: Set API Key** to configure it."
         },
         "champ.ollama.baseUrl": {
           "type": "string",
-          "default": "http://localhost:11434"
+          "default": "http://localhost:11434",
+          "markdownDescription": "Ollama server base URL. Default is local; set to a remote address if Ollama runs on another machine."
         },
         "champ.ollama.model": {
           "type": "string",
-          "default": "llama3.1"
+          "default": "qwen2.5-coder:7b-instruct",
+          "markdownDescription": "Ollama model tag. Must match an installed model — run `ollama pull <model>` to install."
         },
         "champ.llamacpp.baseUrl": {
           "type": "string",
-          "default": "http://localhost:8080"
+          "default": "http://localhost:8080/v1",
+          "markdownDescription": "llama.cpp server base URL **including `/v1`** (e.g. `http://localhost:8080/v1`)."
         },
         "champ.llamacpp.model": {
           "type": "string",
@@ -171,36 +165,48 @@
         },
         "champ.vllm.baseUrl": {
           "type": "string",
-          "default": "http://localhost:8000"
+          "default": "http://localhost:8000/v1",
+          "markdownDescription": "vLLM server base URL **including `/v1`** (e.g. `http://localhost:8000/v1`)."
         },
         "champ.vllm.model": {
-          "type": "string"
+          "type": "string",
+          "markdownDescription": "vLLM model ID (e.g. `meta-llama/Llama-3.1-8B`)."
+        },
+        "champ.vllm.apiKey": {
+          "type": "string",
+          "markdownDescription": "vLLM API key (if your server requires authentication). Store securely via **Champ: Set API Key** command."
         },
         "champ.openaiCompatible.baseUrl": {
-          "type": "string"
+          "type": "string",
+          "markdownDescription": "Base URL for an OpenAI-compatible server **including `/v1`**."
         },
         "champ.openaiCompatible.model": {
           "type": "string"
         },
         "champ.openaiCompatible.apiKey": {
-          "type": "string"
+          "type": "string",
+          "markdownDescription": "API key for the OpenAI-compatible server. Store securely via **Champ: Set API Key** command."
         },
         "champ.yoloMode": {
           "type": "boolean",
           "default": false,
-          "description": "Skip approval for terminal commands and file edits"
+          "markdownDescription": "Skip approval prompts for terminal commands and file edits. **Use with caution.**"
         },
         "champ.autoFix.enabled": {
           "type": "boolean",
-          "default": true
+          "default": true,
+          "description": "Re-prompt the model with LSP errors after edits to auto-fix issues."
         },
         "champ.autoFix.maxIterations": {
           "type": "number",
-          "default": 3
+          "default": 3,
+          "minimum": 1,
+          "description": "Maximum auto-fix iterations per edit cycle."
         },
         "champ.indexing.enabled": {
           "type": "boolean",
-          "default": true
+          "default": true,
+          "description": "Enable codebase indexing for @Codebase semantic search."
         },
         "champ.indexing.embeddingProvider": {
           "type": "string",
@@ -208,24 +214,28 @@
           "enum": [
             "ollama",
             "openai"
-          ]
+          ],
+          "markdownDescription": "Provider for codebase embedding (semantic search). Only `ollama` and `openai` support embeddings."
         },
         "champ.autocomplete.enabled": {
           "type": "boolean",
-          "default": true
+          "default": true,
+          "description": "Enable inline ghost-text autocomplete."
         },
         "champ.autocomplete.debounceMs": {
           "type": "number",
-          "default": 300
+          "default": 300,
+          "description": "Debounce delay (ms) before triggering a completion request."
         },
         "champ.autocomplete.model": {
           "type": "string",
-          "default": "qwen2.5-coder:1.5b"
+          "default": "qwen2.5-coder:1.5b",
+          "description": "Model to use for inline autocomplete (can be a smaller/faster model than chat)."
         },
         "champ.userRules": {
           "type": "string",
           "default": "",
-          "description": "Global rules applied to all projects"
+          "description": "Global rules always injected into the agent system prompt."
         },
         "champ.mcp.servers": {
           "type": "array",
@@ -249,7 +259,7 @@
               }
             }
           },
-          "description": "MCP server configurations"
+          "markdownDescription": "MCP server configurations. Each server extends the agent with external tools."
         }
       }
     },
