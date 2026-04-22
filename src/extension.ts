@@ -401,6 +401,7 @@ export async function activate(
     vscode.window.registerWebviewViewProvider(
       ChatViewProvider.viewType,
       chatViewProvider,
+      { webviewOptions: { retainContextWhenHidden: true } },
     ),
   );
 

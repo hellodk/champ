@@ -33,6 +33,8 @@
     messages: /** @type {Array<{role: string, text: string, toolCalls?: Array<any>}>} */ ([]),
     streaming: false,
     currentAssistantMessage: /** @type {HTMLElement|null} */ (null),
+    /** Messages typed while a response is in-flight; sent in order after stream ends. */
+    messageQueue: /** @type {string[]} */ ([]),
     /** @type {Array<{name: string, description: string}>} */
     skillSuggestions: [],
     /** Index of the highlighted dropdown row, -1 when closed. */
@@ -471,6 +473,8 @@
 
   const cancelBtn = el('button', { class: 'secondary', disabled: 'true' }, ['Cancel']);
   const sendBtn = el('button', {}, ['Send']);
+  const queueBadge = el('span', { class: 'queue-badge' });
+  queueBadge.style.cssText = 'display:none;font-size:11px;opacity:0.7;padding:0 6px;white-space:nowrap;align-self:center;';
 
   sendBtn.addEventListener('click', sendCurrentInput);
   cancelBtn.addEventListener('click', () => {
@@ -481,7 +485,7 @@
   const sendBtnLabel = el('span', {}, ['↵ Enter']);
   sendBtn.innerHTML = '';
   sendBtn.append(sendBtnLabel);
-  bottomBar.append(modePickerBtn, modelPickerBtn, bottomSpacer, cancelBtn, sendBtn);
+  bottomBar.append(modePickerBtn, modelPickerBtn, bottomSpacer, queueBadge, cancelBtn, sendBtn);
 
   textarea.addEventListener('input', () => {
     handleSkillInput();
@@ -591,9 +595,22 @@
   // Message handling
   // -------------------------------------------------------------------
 
+  function updateQueueBadge() {
+    const n = state.messageQueue.length;
+    queueBadge.style.display = n === 0 ? 'none' : '';
+    queueBadge.textContent = n === 1 ? '1 queued' : `${n} queued`;
+  }
+
   function sendCurrentInput() {
     const text = textarea.value.trim();
-    if (!text || state.streaming) return;
+    if (!text) return;
+    // While a response is in-flight, queue the message instead of dropping it.
+    if (state.streaming) {
+      state.messageQueue.push(text);
+      textarea.value = '';
+      updateQueueBadge();
+      return;
+    }
     closeSkillDropdown();
     vscode.postMessage({ type: 'userMessage', text });
     appendMessage('user', text);
@@ -696,12 +713,21 @@
 
   function setStreaming(streaming) {
     state.streaming = streaming;
-    sendBtn.disabled = streaming;
+    // Send is always enabled — pressing it while streaming queues the message.
     cancelBtn.disabled = !streaming;
     if (!streaming && state.currentAssistantMessage) {
       const body = state.currentAssistantMessage.querySelector('.body');
       if (body) body.classList.remove('streaming-cursor');
       state.currentAssistantMessage = null;
+    }
+    // Drain the queue: send the next message automatically after stream ends.
+    if (!streaming && state.messageQueue.length > 0) {
+      const next = state.messageQueue.shift();
+      updateQueueBadge();
+      setTimeout(() => {
+        textarea.value = next;
+        sendCurrentInput();
+      }, 50);
     }
   }
 
@@ -1128,6 +1154,8 @@
         // show the empty welcome state.
         state.messages = [];
         state.currentAssistantMessage = null;
+        state.messageQueue = [];
+        updateQueueBadge();
         // Reset per-session auto-approve on session switch/new chat.
         sessionAutoApprove = false;
         if (msg.messages && msg.messages.length > 0) {
