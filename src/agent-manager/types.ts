@@ -39,3 +39,37 @@ export type ManagerEvent =
   | { type: "activeChanged"; id: string | null }
   | { type: "sessionDeleted"; id: string }
   | { type: "sessionUpdated"; id: string };
+
+// ── Analytics types ────────────────────────────────────────────────
+
+export interface ToolCallRecord {
+  toolName: string;
+  args: Record<string, unknown>;
+  startTime: number;
+  durationMs: number;
+  success: boolean;
+  result?: string;
+  error?: string;
+}
+
+export interface AgentTaskRecord {
+  agentName: string;
+  startTime: number;
+  endTime: number;
+  durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  toolCalls: ToolCallRecord[];
+  success: boolean;
+  error?: string;
+}
+
+export interface AgentRunReport {
+  runId: string;
+  startTime: number;
+  totalDurationMs: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  success: boolean;
+  agents: AgentTaskRecord[];
+}
