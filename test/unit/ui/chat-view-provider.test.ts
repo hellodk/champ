@@ -806,6 +806,57 @@ describe("ChatViewProvider", () => {
       expect(sentText).not.toContain("a.txt");
       expect(sentText).toBe("second");
     });
+
+    it("sends image attachments as ContentBlock[] with type=image", async () => {
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      // A tiny 1x1 PNG encoded as base64 (real PNG header).
+      const fakePngBase64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+      // Attach an image via attachFileRequest with mimeType image/png.
+      view.fireMessage({
+        type: "attachFileRequest",
+        filename: "screenshot.png",
+        mimeType: "image/png",
+        contentBase64: fakePngBase64,
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // Send a user message — should trigger processMessage with ContentBlock[].
+      view.fireMessage({ type: "userMessage", text: "describe this image" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const processCalls = (agent.processMessage as ReturnType<typeof vi.fn>)
+        .mock.calls;
+      expect(processCalls.length).toBeGreaterThan(0);
+
+      // The first argument must be a ContentBlock[] array (not a plain string).
+      const sentContent = processCalls[0][0] as unknown[];
+      expect(Array.isArray(sentContent)).toBe(true);
+
+      // It must include an image block.
+      const imageBlock = sentContent.find(
+        (b) => (b as { type: string }).type === "image",
+      );
+      expect(imageBlock).toBeDefined();
+      expect((imageBlock as { type: string; mimeType: string }).mimeType).toBe(
+        "image/png",
+      );
+      expect(
+        (imageBlock as { type: string; imageData: string }).imageData,
+      ).toBe(fakePngBase64);
+
+      // There must also be a text block containing the user's message.
+      const textBlock = sentContent.find(
+        (b) => (b as { type: string }).type === "text",
+      );
+      expect(textBlock).toBeDefined();
+      expect((textBlock as { type: string; text: string }).text).toContain(
+        "describe this image",
+      );
+    });
   });
 
   describe("Session management handlers (History)", () => {

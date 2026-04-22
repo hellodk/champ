@@ -307,7 +307,7 @@ export class AgentController {
    * Process a user message through the full agent loop.
    */
   async processMessage(
-    userText: string,
+    userText: string | import("../providers/types").ContentBlock[],
     options: ProcessMessageOptions = {},
   ): Promise<ProcessMessageResult> {
     const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;

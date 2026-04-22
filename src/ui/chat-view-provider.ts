@@ -136,6 +136,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private pendingAttachments: Array<{
     filename: string;
     content: string;
+    mimeType: string;
+    isImage: boolean;
+    imageData?: string;
   }> = [];
   /**
    * Pending approval requests keyed by id. Each entry is the
@@ -365,18 +368,33 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // Decode the base64 content and store it until the next
         // user message is sent. The enrichment happens in
         // handleUserMessage → enrichWithAttachments.
-        try {
-          const content = Buffer.from(msg.contentBase64, "base64").toString(
-            "utf-8",
-          );
+        const isImage = /^image\/(png|jpe?g|gif|webp)$/i.test(
+          msg.mimeType ?? "",
+        );
+        if (isImage) {
           this.pendingAttachments.push({
             filename: msg.filename,
-            content,
+            content: "",
+            mimeType: msg.mimeType,
+            isImage: true,
+            imageData: msg.contentBase64,
           });
-        } catch {
-          this.postMessage(
-            createError(`Failed to decode attached file: ${msg.filename}`),
-          );
+        } else {
+          try {
+            const content = Buffer.from(msg.contentBase64, "base64").toString(
+              "utf-8",
+            );
+            this.pendingAttachments.push({
+              filename: msg.filename,
+              content,
+              mimeType: msg.mimeType ?? "text/plain",
+              isImage: false,
+            });
+          } catch {
+            this.postMessage(
+              createError(`Failed to decode attached file: ${msg.filename}`),
+            );
+          }
         }
       } else if (isOpenFilePickerRequest(msg)) {
         // VS Code webview CSP blocks native <input type="file">.
@@ -390,9 +408,35 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           for (const uri of uris) {
             try {
               const data = await vscode.workspace.fs.readFile(uri);
-              const content = new TextDecoder().decode(data);
               const filename = uri.path.split("/").pop() ?? "file";
-              this.pendingAttachments.push({ filename, content });
+              const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+              const imageMimeMap: Record<string, string> = {
+                png: "image/png",
+                jpg: "image/jpeg",
+                jpeg: "image/jpeg",
+                gif: "image/gif",
+                webp: "image/webp",
+              };
+              const mimeType = imageMimeMap[ext] ?? "text/plain";
+              const isImage = ext in imageMimeMap;
+              if (isImage) {
+                const imageData = Buffer.from(data).toString("base64");
+                this.pendingAttachments.push({
+                  filename,
+                  content: "",
+                  mimeType,
+                  isImage: true,
+                  imageData,
+                });
+              } else {
+                const content = new TextDecoder().decode(data);
+                this.pendingAttachments.push({
+                  filename,
+                  content,
+                  mimeType,
+                  isImage: false,
+                });
+              }
               // Tell webview to show the chip.
               this.postMessage({
                 type: "attachFileAdded" as never,
@@ -473,7 +517,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const contextResolved = await this.resolveContextReferences(skillExpanded);
 
     // Append any pending file attachments and clear the buffer.
-    const enrichedText = this.enrichWithAttachments(contextResolved);
+    const enrichedContent = this.enrichWithAttachments(contextResolved);
 
     // Wire the agent's stream events to the webview for live rendering.
     // Dispose the prior listener first so we don't leak subscriptions.
@@ -485,7 +529,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     );
 
     try {
-      const result = await this.agent.processMessage(enrichedText, {
+      const result = await this.agent.processMessage(enrichedContent, {
         abortSignal: controller.signal,
         requestApproval: this.buildApprovalCallback(),
       });
@@ -606,20 +650,44 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * If there are pending file attachments, append them to the message
-   * text as a `# Attached files` section and clear the buffer. Returns
-   * the original text unchanged when no attachments are pending.
+   * If there are pending file attachments, either append them to the
+   * message text (text-only attachments) or return a ContentBlock[]
+   * array (when any attachment is an image). Clears the buffer.
+   * Returns the original text unchanged when no attachments are pending.
    */
-  private enrichWithAttachments(text: string): string {
+  private enrichWithAttachments(
+    text: string,
+  ): string | import("../providers/types").ContentBlock[] {
     if (this.pendingAttachments.length === 0) return text;
 
-    const sections = this.pendingAttachments
-      .map((a) => `--- ${a.filename} ---\n${a.content}`)
-      .join("\n\n");
+    const hasImages = this.pendingAttachments.some((a) => a.isImage);
+    if (!hasImages) {
+      const sections = this.pendingAttachments
+        .map((a) => `--- ${a.filename} ---\n${a.content}`)
+        .join("\n\n");
+      this.pendingAttachments = [];
+      return `${text}\n\n# Attached files\n\n${sections}`;
+    }
 
+    const blocks: import("../providers/types").ContentBlock[] = [
+      { type: "text", text },
+    ];
+    for (const att of this.pendingAttachments) {
+      if (att.isImage && att.imageData) {
+        blocks.push({
+          type: "image",
+          imageData: att.imageData,
+          mimeType: att.mimeType,
+        });
+      } else {
+        blocks.push({
+          type: "text",
+          text: `\n\n--- ${att.filename} ---\n${att.content}`,
+        });
+      }
+    }
     this.pendingAttachments = [];
-
-    return `${text}\n\n# Attached files\n\n${sections}`;
+    return blocks;
   }
 
   /**
