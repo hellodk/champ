@@ -43,6 +43,11 @@ import { SAMPLE_CONFIGS } from "./config/sample-configs";
 import { AgentManager } from "./agent-manager/agent-manager";
 import { SessionStore } from "./agent-manager/session-store";
 import { SmartRouter } from "./providers/smart-router";
+import { generateDiagramTool } from "./tools/generate-diagram";
+import { generateDocTool } from "./tools/generate-doc";
+import { MultiAgentRunner } from "./agent/multi-agent-runner";
+import { AgentAnalytics } from "./observability/agent-analytics";
+import type { AgentRunReport } from "./agent-manager/types";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -57,6 +62,8 @@ let sessionStore: SessionStore | undefined;
 let smartRouter: SmartRouter | undefined;
 let cachedYamlConfig: import("./config/config-loader").ChampConfig | null =
   null;
+let lastAnalyticsReport: AgentRunReport | null = null;
+let sessionAnalytics: AgentAnalytics | undefined;
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -78,6 +85,8 @@ export async function activate(
   toolRegistry.register(runTerminalTool);
   toolRegistry.register(grepSearchTool);
   toolRegistry.register(fileSearchTool);
+  toolRegistry.register(generateDiagramTool);
+  toolRegistry.register(generateDocTool);
 
   // ---- Status bar item -----------------------------------------------
   statusBarItem = vscode.window.createStatusBarItem(
@@ -311,6 +320,9 @@ export async function activate(
       });
     }
     broadcastMetrics();
+    if (sessionAnalytics) {
+      lastAnalyticsReport = sessionAnalytics.toReport();
+    }
     saveActiveSession();
   });
   chatViewProvider.onStreamError((error) => {
@@ -492,6 +504,8 @@ export async function activate(
     vscode.commands.registerCommand("champ.newChat", () => {
       if (agentManager) {
         const session = agentManager.createSession();
+        if (sessionAnalytics)
+          session.controller.setAnalytics(sessionAnalytics, "champ");
         chatViewProvider?.setAgent(session.controller);
         void saveSession(session.metadata.id);
         broadcastSessionList();
@@ -759,6 +773,9 @@ export async function activate(
     vscode.commands.registerCommand("champ.newSession", (label?: string) => {
       if (!agentManager) return;
       const session = agentManager.createSession(label);
+      if (sessionAnalytics) {
+        session.controller.setAnalytics(sessionAnalytics, "champ");
+      }
       // Swap the chat view to the new session's controller.
       chatViewProvider?.setAgent(session.controller);
       void saveSession(session.metadata.id);
@@ -816,6 +833,116 @@ export async function activate(
           "Champ: re-scanning all providers for models...",
         );
       }
+    }),
+    vscode.commands.registerCommand("champ.runMultiAgent", async () => {
+      const userRequest = await vscode.window.showInputBox({
+        prompt: "Describe the feature or task for the multi-agent workflow",
+        placeHolder:
+          "e.g. Add JWT authentication with refresh tokens and tests",
+        ignoreFocusOut: true,
+      });
+      if (!userRequest) return;
+
+      const provider = inlineProviderRef.current;
+      if (provider.name === "not-configured") {
+        void vscode.window.showErrorMessage(
+          "Champ: configure a provider first.",
+        );
+        return;
+      }
+
+      const runAnalytics = new AgentAnalytics();
+
+      chatViewProvider?.postMessage({
+        type: "streamDelta",
+        text: `**Multi-agent workflow started**\n\n> ${userRequest}\n\n`,
+      });
+
+      const runner = MultiAgentRunner.buildDefaultPipeline(
+        provider,
+        toolRegistry,
+        workspaceRoot ?? "",
+      );
+
+      try {
+        await runner.run(userRequest, {
+          analytics: runAnalytics,
+          onProgress: (event) => {
+            if (event.type === "agent_started") {
+              chatViewProvider?.postMessage({
+                type: "toolCallStart",
+                toolName: event.agentName,
+                args: { step: `${event.step}/${event.totalSteps}` },
+              });
+            } else if (event.type === "agent_completed") {
+              chatViewProvider?.postMessage({
+                type: "toolCallResult",
+                toolName: event.agentName,
+                result: event.output.slice(0, 300),
+                success: true,
+              });
+            } else if (event.type === "agent_failed") {
+              chatViewProvider?.postMessage({
+                type: "toolCallResult",
+                toolName: event.agentName,
+                result: `Failed (attempt ${event.attempt}): ${event.error}`,
+                success: false,
+              });
+            } else if (event.type === "workflow_complete") {
+              lastAnalyticsReport = event.report;
+              const md = runAnalytics.formatMarkdown();
+              chatViewProvider?.postMessage({
+                type: "streamDelta",
+                text: `\n\n${md}\n`,
+              });
+              chatViewProvider?.postMessage({ type: "streamEnd" });
+            }
+          },
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        chatViewProvider?.postMessage({
+          type: "error",
+          message: `Multi-agent workflow failed: ${msg}`,
+        });
+      }
+    }),
+    vscode.commands.registerCommand("champ.showAnalytics", () => {
+      if (!lastAnalyticsReport) {
+        void vscode.window.showInformationMessage(
+          "Champ: no analytics data yet — send a message first.",
+        );
+        return;
+      }
+      const channel = vscode.window.createOutputChannel("Champ Analytics");
+      channel.clear();
+      channel.appendLine("# Champ Analytics Report");
+      channel.appendLine("");
+      channel.appendLine(`Run ID:     ${lastAnalyticsReport.runId}`);
+      channel.appendLine(
+        `Start:      ${new Date(lastAnalyticsReport.startTime).toLocaleTimeString()}`,
+      );
+      channel.appendLine(
+        `Duration:   ${(lastAnalyticsReport.totalDurationMs / 1000).toFixed(1)}s`,
+      );
+      channel.appendLine(`Tokens in:  ${lastAnalyticsReport.totalInputTokens}`);
+      channel.appendLine(
+        `Tokens out: ${lastAnalyticsReport.totalOutputTokens}`,
+      );
+      channel.appendLine(`Success:    ${lastAnalyticsReport.success}`);
+      channel.appendLine("");
+      channel.appendLine("## Per-agent tasks");
+      for (const a of lastAnalyticsReport.agents) {
+        channel.appendLine(
+          `  ${a.success ? "✓" : "✗"} ${a.agentName.padEnd(14)} ${(a.durationMs / 1000).toFixed(1)}s  in=${a.inputTokens}  out=${a.outputTokens}  tools=${a.toolCalls.length}`,
+        );
+        for (const t of a.toolCalls) {
+          channel.appendLine(
+            `      [${t.success ? "ok" : "fail"}] ${t.toolName.padEnd(20)} ${t.durationMs}ms`,
+          );
+        }
+      }
+      channel.show(true);
     }),
   );
 
@@ -921,6 +1048,12 @@ export async function activate(
       agentController.setProvider(newProvider);
       // Push the new provider into all session controllers too.
       agentManager?.swapProvider(newProvider);
+      // Wire a fresh AgentAnalytics instance into every session's controller.
+      sessionAnalytics = new AgentAnalytics();
+      agentManager?.listSessions(true).forEach((meta) => {
+        const sess = agentManager!.getSession(meta.id);
+        sess?.controller.setAnalytics(sessionAnalytics!, "champ");
+      });
       inlineProvider.setProvider(newProvider);
       inlineProviderRef.current = newProvider;
       // If YAML configures a separate autocomplete provider or model, wire it.

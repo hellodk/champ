@@ -110,6 +110,14 @@
       {
         "command": "champ.cleanupSessions",
         "title": "Champ: Clean Up Old Sessions"
+      },
+      {
+        "command": "champ.runMultiAgent",
+        "title": "Champ: Run Multi-Agent Workflow"
+      },
+      {
+        "command": "champ.showAnalytics",
+        "title": "Champ: Show Analytics"
       }
     ],
     "configuration": {
