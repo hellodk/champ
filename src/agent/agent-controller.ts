@@ -384,6 +384,18 @@ export class AgentController {
 
       if (errorOccurred) {
         hadError = true;
+        if (this.analyticsInstance) {
+          this.analyticsInstance.recordTokens(
+            this.analyticsAgentName,
+            totalInputTokens,
+            totalOutputTokens,
+          );
+          this.analyticsInstance.endTask(
+            this.analyticsAgentName,
+            false,
+            "stream error",
+          );
+        }
         return {
           text: collectedText.join(""),
           toolCalls: collectedToolCalls,
