@@ -29,6 +29,22 @@ export interface WorkflowResult extends AgentOutput {
   executionLog: ExecutionLogEntry[];
 }
 
+export type AgentProgressEvent =
+  | {
+      type: "agent_started";
+      agentName: string;
+      step: number;
+      totalSteps: number;
+    }
+  | {
+      type: "agent_completed";
+      agentName: string;
+      durationMs: number;
+      success: boolean;
+      output: string;
+    }
+  | { type: "agent_failed"; agentName: string; error: string; attempt: number };
+
 export interface WorkflowOptions {
   /** Maximum retries per agent (or per branch in retry-from mode). */
   maxRetries?: number;
@@ -42,6 +58,8 @@ export interface WorkflowOptions {
   context?: ContextChunk[];
   /** Abort signal to cancel the workflow mid-execution. */
   abortSignal?: AbortSignal;
+  /** Called before and after each agent executes. */
+  onAgentProgress?: (event: AgentProgressEvent) => void;
 }
 
 const DEFAULT_MAX_RETRIES = 3;
@@ -118,6 +136,13 @@ export class AgentOrchestrator {
         };
       }
 
+      options.onAgentProgress?.({
+        type: "agent_started",
+        agentName: name,
+        step: i + 1,
+        totalSteps: sequence.length,
+      });
+
       const startTime = Date.now();
       let output: AgentOutput;
       try {
@@ -144,6 +169,23 @@ export class AgentOrchestrator {
         output: output.output,
         attempt: attemptNumber,
       });
+
+      if (output.success) {
+        options.onAgentProgress?.({
+          type: "agent_completed",
+          agentName: name,
+          durationMs: endTime - startTime,
+          success: true,
+          output: output.output,
+        });
+      } else {
+        options.onAgentProgress?.({
+          type: "agent_failed",
+          agentName: name,
+          error: output.error ?? output.output,
+          attempt: attemptNumber,
+        });
+      }
 
       memory.setOutput(name, output);
       lastOutput = output;
