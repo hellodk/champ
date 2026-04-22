@@ -84,6 +84,15 @@ export interface MCPConfig {
   servers?: MCPServerConfig[];
 }
 
+export interface RoutingConfig {
+  mode?: "smart" | "manual";
+  /** Force a specific model ID for coding tasks. null = auto. */
+  coding?: string | null;
+  chat?: string | null;
+  completion?: string | null;
+  embedding?: string | null;
+}
+
 export interface ChampConfig {
   provider?: ProviderName;
   providers?: Partial<Record<ProviderName, ProviderConfig>>;
@@ -92,6 +101,7 @@ export interface ChampConfig {
   indexing?: IndexingConfig;
   userRules?: string;
   mcp?: MCPConfig;
+  routing?: RoutingConfig;
 }
 
 const VALID_PROVIDERS: ProviderName[] = [
@@ -103,6 +113,8 @@ const VALID_PROVIDERS: ProviderName[] = [
   "vllm",
   "openai-compatible",
 ];
+
+const EMBEDDING_PROVIDERS = ["ollama", "openai"] as const;
 
 const VALID_MODES: AgentModeName[] = [
   "agent",
@@ -287,8 +299,10 @@ export class ConfigLoader {
           fix.enabled = f.enabled;
         }
         if ("maxIterations" in f) {
-          if (typeof f.maxIterations !== "number") {
-            throw new Error("agent.autoFix.maxIterations must be a number");
+          if (typeof f.maxIterations !== "number" || f.maxIterations < 1) {
+            throw new Error(
+              "agent.autoFix.maxIterations must be a number >= 1",
+            );
           }
           fix.maxIterations = f.maxIterations;
         }
@@ -314,10 +328,12 @@ export class ConfigLoader {
       if ("embeddingProvider" in i) {
         if (
           typeof i.embeddingProvider !== "string" ||
-          !VALID_PROVIDERS.includes(i.embeddingProvider as ProviderName)
+          !(EMBEDDING_PROVIDERS as readonly string[]).includes(
+            i.embeddingProvider,
+          )
         ) {
           throw new Error(
-            `indexing.embeddingProvider must be one of: ${VALID_PROVIDERS.join(", ")}`,
+            `indexing.embeddingProvider must be one of: ${EMBEDDING_PROVIDERS.join(", ")}`,
           );
         }
         out.embeddingProvider = i.embeddingProvider as ProviderName;
@@ -405,6 +421,36 @@ export class ConfigLoader {
       result.mcp = out;
     }
 
+    // routing
+    if ("routing" in raw) {
+      const rt = raw.routing;
+      if (typeof rt !== "object" || rt === null || Array.isArray(rt)) {
+        throw new Error("`routing` must be an object");
+      }
+      const r = rt as Record<string, unknown>;
+      const out: RoutingConfig = {};
+      if ("mode" in r) {
+        if (r.mode !== "smart" && r.mode !== "manual") {
+          throw new Error('routing.mode must be "smart" or "manual"');
+        }
+        out.mode = r.mode as "smart" | "manual";
+      }
+      for (const key of [
+        "coding",
+        "chat",
+        "completion",
+        "embedding",
+      ] as const) {
+        if (key in r) {
+          if (r[key] !== null && typeof r[key] !== "string") {
+            throw new Error(`routing.${key} must be a string or null`);
+          }
+          out[key] = r[key] as string | null;
+        }
+      }
+      result.routing = out;
+    }
+
     return result;
   }
 
@@ -453,6 +499,10 @@ export class ConfigLoader {
 
     if (override.mcp) {
       result.mcp = { ...result.mcp, ...override.mcp };
+    }
+
+    if (override.routing) {
+      result.routing = { ...result.routing, ...override.routing };
     }
 
     return result;
@@ -523,8 +573,10 @@ export class ConfigLoader {
   }
 
   /**
-   * Look up the active provider's settings. Throws if no provider is
-   * configured under providers: for the active provider name.
+   * Look up the active provider's settings. Returns name + empty config
+   * when the provider has no entry under providers: (e.g. cloud providers
+   * that only need an API key and don't require baseUrl/model overrides).
+   * Throws only when no active provider is set at all.
    */
   static activeProviderConfig(config: ChampConfig): {
     name: ProviderName;
@@ -535,12 +587,7 @@ export class ConfigLoader {
     if (!name) {
       throw new Error("No active provider — set `provider:` in your config");
     }
-    const entry = config.providers?.[name];
-    if (!entry) {
-      throw new Error(
-        `Active provider "${name}" is not configured under providers: in your config`,
-      );
-    }
+    const entry = config.providers?.[name] ?? {};
     return { name, baseUrl: entry.baseUrl, model: entry.model };
   }
 }

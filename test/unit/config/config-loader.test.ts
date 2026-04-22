@@ -287,11 +287,15 @@ providers:
       expect(active.model).toBe("qwen.gguf");
     });
 
-    it("throws when the active provider has no entry under providers:", () => {
+    it("returns name with empty config when provider has no entry under providers:", () => {
+      // A cloud provider (e.g. claude) often has no providers: entry because
+      // it only needs an API key. activeProviderConfig should not throw in
+      // that case — it returns the name with undefined baseUrl/model.
       const config: ChampConfig = { provider: "ollama" };
-      expect(() => ConfigLoader.activeProviderConfig(config)).toThrow(
-        /not configured/i,
-      );
+      const active = ConfigLoader.activeProviderConfig(config);
+      expect(active.name).toBe("ollama");
+      expect(active.baseUrl).toBeUndefined();
+      expect(active.model).toBeUndefined();
     });
   });
 });
