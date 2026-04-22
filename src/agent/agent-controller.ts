@@ -178,6 +178,8 @@ export class AgentController {
    * turn). See docs/HALLUCINATION_MITIGATION.md and src/safety/.
    */
   private readonly secretScanner = new SecretScanner();
+  // Inline import type avoids a top-level circular-dependency risk; analytics
+  // is optional infrastructure and should not be in the core import chain.
   private analyticsInstance:
     | import("../observability/agent-analytics").AgentAnalytics
     | null = null;
@@ -221,6 +223,7 @@ export class AgentController {
     return this.mode;
   }
 
+  /** Attach an analytics recorder for this controller's sessions. Called once after construction. */
   setAnalytics(
     analytics: import("../observability/agent-analytics").AgentAnalytics,
     agentName = "champ",
@@ -322,17 +325,25 @@ export class AgentController {
     // first call. Empty string if no provider attached.
     const repoMap = await this.getRepoMap();
 
-    // Analytics tracking
+    // Analytics tracking — optional; must not affect message processing if it fails.
     const toolStartTimes = new Map<string, number>();
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let hadError = false;
+    let analyticsActive = false;
     if (this.analyticsInstance) {
-      this.analyticsInstance.startTask(this.analyticsAgentName);
+      try {
+        this.analyticsInstance.startTask(this.analyticsAgentName);
+        analyticsActive = true;
+      } catch {
+        // ignore — analytics failure must not break the message path
+      }
     }
 
+    let iterationRan = false;
     for (let iteration = 0; iteration < maxIterations; iteration++) {
       if (options.abortSignal?.aborted) break;
+      iterationRan = true;
 
       const pendingToolCalls: ToolCall[] = [];
       let assistantText = "";
@@ -384,17 +395,21 @@ export class AgentController {
 
       if (errorOccurred) {
         hadError = true;
-        if (this.analyticsInstance) {
-          this.analyticsInstance.recordTokens(
-            this.analyticsAgentName,
-            totalInputTokens,
-            totalOutputTokens,
-          );
-          this.analyticsInstance.endTask(
-            this.analyticsAgentName,
-            false,
-            "stream error",
-          );
+        if (analyticsActive && this.analyticsInstance) {
+          try {
+            this.analyticsInstance.recordTokens(
+              this.analyticsAgentName,
+              totalInputTokens,
+              totalOutputTokens,
+            );
+            this.analyticsInstance.endTask(
+              this.analyticsAgentName,
+              false,
+              "stream error",
+            );
+          } catch {
+            // ignore — analytics failure must not break the message path
+          }
         }
         return {
           text: collectedText.join(""),
@@ -407,8 +422,10 @@ export class AgentController {
       // user sees prose without the XML noise.
       if (usePromptBased && assistantText) {
         const parsed = parseToolCallsFromText(assistantText);
+        const promptToolStart = Date.now();
         for (const call of parsed) {
           pendingToolCalls.push(call);
+          toolStartTimes.set(call.id, promptToolStart);
         }
         const cleaned = extractTextContent(assistantText);
         if (cleaned) {
@@ -482,7 +499,7 @@ export class AgentController {
         });
 
         // Record tool call for analytics
-        if (this.analyticsInstance) {
+        if (analyticsActive && this.analyticsInstance) {
           const toolStart = toolStartTimes.get(call.id) ?? Date.now();
           toolStartTimes.delete(call.id);
           this.analyticsInstance.recordToolCall(this.analyticsAgentName, {
@@ -521,13 +538,21 @@ export class AgentController {
     }
 
     // Finalize analytics for this processMessage call
-    if (this.analyticsInstance) {
-      this.analyticsInstance.recordTokens(
-        this.analyticsAgentName,
-        totalInputTokens,
-        totalOutputTokens,
-      );
-      this.analyticsInstance.endTask(this.analyticsAgentName, !hadError);
+    if (analyticsActive && this.analyticsInstance) {
+      try {
+        this.analyticsInstance.recordTokens(
+          this.analyticsAgentName,
+          totalInputTokens,
+          totalOutputTokens,
+        );
+        this.analyticsInstance.endTask(
+          this.analyticsAgentName,
+          iterationRan && !hadError,
+          iterationRan ? undefined : "aborted before first iteration",
+        );
+      } catch {
+        // ignore — analytics failure must not break the message path
+      }
     }
 
     return {
