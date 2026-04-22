@@ -5,9 +5,13 @@
  * mkfs, dd to disk devices, curl-piped-to-shell, sudo). Supports a
  * strict allowlist-only mode for high-trust environments.
  *
- * This is not a sandbox in the OS sense — it's a pattern-match filter
- * to catch obvious footguns. Real isolation should still come from
- * running the extension in a container or VM for untrusted workloads.
+ * ⚠️  SECURITY LIMITATION: this is a best-effort denylist, NOT a real
+ * sandbox. Any command not matching a deny pattern executes unrestricted
+ * via `bash -c`. It cannot prevent data exfiltration, file enumeration,
+ * or arbitrary code execution by a compromised or malicious LLM.
+ * The approval dialog (`requiresApproval: true` on run_terminal) is the
+ * primary defence — do not rely on this filter alone for untrusted
+ * workloads. Use `allowlistOnly: true` in high-security contexts.
  */
 
 export interface SandboxOptions {

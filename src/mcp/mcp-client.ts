@@ -51,7 +51,11 @@ interface MCPConnection {
   nextId: number;
   pendingRequests: Map<
     number,
-    { resolve: (value: unknown) => void; reject: (err: Error) => void }
+    {
+      resolve: (value: unknown) => void;
+      reject: (err: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
   >;
   buffer: string;
 }
@@ -97,8 +101,9 @@ export class MCPClientManager {
       console.log(
         `Champ MCP: server "${config.name}" exited with code ${code}`,
       );
-      // Reject all pending requests.
+      // Reject and clean up all pending requests.
       for (const [, pending] of connection.pendingRequests) {
+        clearTimeout(pending.timer);
         pending.reject(new Error(`MCP server exited with code ${code}`));
       }
       connection.pendingRequests.clear();
@@ -219,16 +224,14 @@ export class MCPClientManager {
     });
 
     return new Promise((resolve, reject) => {
-      connection.pendingRequests.set(id, { resolve, reject });
-      connection.process!.stdin!.write(message + "\n");
-
-      // Timeout after 30 seconds.
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         if (connection.pendingRequests.has(id)) {
           connection.pendingRequests.delete(id);
           reject(new Error(`MCP request ${method} timed out after 30s`));
         }
       }, 30_000);
+      connection.pendingRequests.set(id, { resolve, reject, timer });
+      connection.process!.stdin!.write(message + "\n");
     });
   }
 
@@ -266,6 +269,7 @@ export class MCPClientManager {
         if (msg.id !== undefined) {
           const pending = connection.pendingRequests.get(msg.id);
           if (pending) {
+            clearTimeout(pending.timer);
             connection.pendingRequests.delete(msg.id);
             if (msg.error) {
               pending.reject(

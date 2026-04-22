@@ -6,6 +6,7 @@
  * resolve outside the workspace root.
  */
 import * as path from "path";
+import * as fs from "fs";
 
 /**
  * Resolve a user-supplied relative path against the workspace root and
@@ -18,15 +19,30 @@ export function resolveInWorkspace(
 ): string | null {
   // Normalize the workspace root to an absolute path.
   const root = path.resolve(workspaceRoot);
-  // Resolve the relative path against the root.
+  // Resolve the relative path against the root (string-only, no I/O).
   const resolved = path.resolve(root, relativePath);
 
-  // Ensure the resolved path is within the workspace. We compare with a
-  // trailing separator on the root so "workspace2" isn't considered inside
-  // "workspace".
+  // String-level boundary check — catches plain traversal like ../../etc.
   const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
   if (resolved !== root && !resolved.startsWith(rootWithSep)) {
     return null;
+  }
+
+  // Symlink check: resolve the real path on disk and re-verify the boundary.
+  // This blocks symlinks inside the workspace pointing outside it.
+  // If the path doesn't exist yet (new file), realpathSync will throw —
+  // in that case the string check above is sufficient.
+  try {
+    const real = fs.realpathSync(resolved);
+    const realRoot = fs.realpathSync(root);
+    const realRootWithSep = realRoot.endsWith(path.sep)
+      ? realRoot
+      : realRoot + path.sep;
+    if (real !== realRoot && !real.startsWith(realRootWithSep)) {
+      return null;
+    }
+  } catch {
+    // Path doesn't exist yet — string check is sufficient.
   }
 
   return resolved;

@@ -565,6 +565,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.activeAbortController.abort();
       this.activeAbortController = null;
     }
+    // Reject all pending tool-approval promises so they don't leak.
+    for (const resolve of this.pendingApprovals.values()) {
+      resolve(false);
+    }
+    this.pendingApprovals.clear();
   }
 
   /**
@@ -807,12 +812,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private generateNonce(): string {
-    const chars =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let out = "";
-    for (let i = 0; i < 32; i++) {
-      out += chars[Math.floor(Math.random() * chars.length)];
-    }
-    return out;
+    const { randomBytes } = require("crypto") as typeof import("crypto");
+    return randomBytes(32).toString("base64url");
   }
 }

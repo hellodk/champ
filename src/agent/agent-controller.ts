@@ -495,6 +495,11 @@ export class AgentController {
           call.arguments,
           toolContext,
         );
+
+        // Re-check after tool execution — user may have cancelled during a
+        // long-running tool. Don't commit the result to history if aborted.
+        if (options.abortSignal?.aborted) break;
+
         collectedToolCalls.push({ call, result });
 
         // Redact secrets from the tool output before adding it to
@@ -553,6 +558,20 @@ export class AgentController {
             toolCallId: call.id,
           });
         }
+      }
+    }
+
+    // Warn the user if the loop was cut short by the iteration cap.
+    if (iterationRan && !hadError && !options.abortSignal?.aborted) {
+      // If the loop ran maxIterations without breaking early (no-tool-call
+      // break), the for-loop simply exhausted — notify the user.
+      const reachedCap =
+        collectedToolCalls.length > 0 && collectedText.join("").trim() === "";
+      if (reachedCap) {
+        this.emit({
+          type: "text",
+          text: `\n\n⚠️ Reached the ${maxIterations}-iteration limit. The task may be incomplete — try continuing with a follow-up message.`,
+        });
       }
     }
 

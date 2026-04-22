@@ -70,6 +70,7 @@ let lastAnalyticsReport: AgentRunReport | null = null;
 let analyticsExporter: AnalyticsExporter | undefined;
 let sessionAnalytics: AgentAnalytics | undefined;
 let analyticsChannel: vscode.OutputChannel | undefined;
+let saveActiveTimeout: ReturnType<typeof setTimeout> | null = null;
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -1305,7 +1306,6 @@ export async function activate(
    * Save the currently active session. Debounced so rapid-fire
    * stream deltas don't hammer the filesystem.
    */
-  let saveActiveTimeout: ReturnType<typeof setTimeout> | null = null;
   function saveActiveSession(): void {
     if (saveActiveTimeout) clearTimeout(saveActiveTimeout);
     saveActiveTimeout = setTimeout(() => {
@@ -1416,7 +1416,12 @@ export async function activate(
 }
 
 export function deactivate(): void {
+  if (saveActiveTimeout) {
+    clearTimeout(saveActiveTimeout);
+    saveActiveTimeout = null;
+  }
   analyticsExporter?.dispose();
+  analyticsChannel?.dispose();
   providerRegistry?.disposeAll();
   providerRegistry = undefined;
   chatViewProvider = undefined;
