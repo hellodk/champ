@@ -265,6 +265,13 @@ export class OpenAICompatibleProvider implements LLMProvider {
     }
   }
 
+  withModel(modelId: string): OpenAICompatibleProvider {
+    return new OpenAICompatibleProvider(
+      { ...this.config, model: modelId },
+      this.name,
+    );
+  }
+
   dispose(): void {
     // Stateless fetch; nothing to release.
   }
