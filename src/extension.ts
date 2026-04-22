@@ -696,12 +696,15 @@ export async function activate(
           );
           text = template;
         }
-        const updated = setActiveProviderInYaml(text, providerName);
-        if (updated === text) {
+        if (!/^provider:/m.test(text)) {
           void vscode.window.showWarningMessage(
             `Champ: no top-level \`provider:\` line found in ${yamlPath}.`,
           );
           return;
+        }
+        const updated = setActiveProviderInYaml(text, providerName);
+        if (updated === text) {
+          // Same provider already active — update the model line only.
         }
         // Also write the selected model name into providers.{name}.model so it
         // persists through the next loadProvider() call.
