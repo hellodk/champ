@@ -34,15 +34,17 @@ interface ProviderEntry {
   baseUrl?: string;
 }
 
-const DISCOVERY_TIMEOUT_MS = 3000;
+const DISCOVERY_TIMEOUT_MS = 5000;
 
 export class SmartRouter {
   private models: DiscoveredModel[] = [];
   private providerMap = new Map<string, ProviderEntry>();
   private mode: "smart" | "manual" = "smart";
   private manualModelId: string | null = null;
+  private taskOverrides = new Map<TaskType, string | null>();
   private listeners = new Set<() => void>();
   private discovered = false;
+  private lastModelsSig = "";
 
   /**
    * Register a provider that can be scanned for models.
@@ -73,9 +75,20 @@ export class SmartRouter {
       }
     }
 
+    const wasDiscovered = this.discovered;
     this.models = allModels;
     this.discovered = true;
-    this.emit();
+
+    const sig = allModels
+      .map((m) => `${m.providerName}:${m.id}`)
+      .sort()
+      .join("|");
+    // Always emit on first discovery (signals readiness); after that only
+    // emit when the model list actually changes (prevents UI chatter).
+    if (!wasDiscovered || sig !== this.lastModelsSig) {
+      this.lastModelsSig = sig;
+      this.emit();
+    }
 
     if (allModels.length > 0) {
       console.log(
@@ -89,6 +102,24 @@ export class SmartRouter {
    * locked selection. In smart mode, scores all models and picks the best.
    */
   select(taskType: TaskType): RouteResult | null {
+    // Per-task model override from routing config (routing.coding, etc.)
+    if (this.taskOverrides.has(taskType)) {
+      const override = this.taskOverrides.get(taskType);
+      if (override !== null && override !== undefined) {
+        const model = this.models.find((m) => m.id === override);
+        if (model) {
+          const entry = this.providerMap.get(model.providerName);
+          if (entry) {
+            return {
+              model,
+              provider: entry.provider,
+              reason: `routing.${taskType} override`,
+            };
+          }
+        }
+      }
+    }
+
     if (this.mode === "manual" && this.manualModelId) {
       const model = this.models.find((m) => m.id === this.manualModelId);
       if (model) {
@@ -145,6 +176,14 @@ export class SmartRouter {
   setManualModel(modelId: string): void {
     this.manualModelId = modelId;
     this.mode = "manual";
+  }
+
+  /**
+   * Override which model is used for a specific task type. Pass null to
+   * revert to automatic selection. Used to wire the `routing:` YAML config.
+   */
+  setTaskModel(task: TaskType, modelId: string | null): void {
+    this.taskOverrides.set(task, modelId);
   }
 
   onChange(listener: () => void): () => void {
