@@ -307,10 +307,29 @@ export class AgentController {
    * Process a user message through the full agent loop.
    */
   async processMessage(
-    userText: string | import("../providers/types").ContentBlock[],
+    userText: string | ContentBlock[],
     options: ProcessMessageOptions = {},
   ): Promise<ProcessMessageResult> {
     const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+
+    // If the provider doesn't support images, strip image blocks to avoid
+    // silent data loss — image blocks would otherwise be silently dropped.
+    if (Array.isArray(userText)) {
+      const supportsImages = this.provider.modelInfo().supportsImages;
+      if (!supportsImages) {
+        const textParts = userText
+          .filter(
+            (b): b is ContentBlock & { type: "text" } => b.type === "text",
+          )
+          .map((b) => b.text)
+          .join("\n");
+        const imageCount = userText.filter((b) => b.type === "image").length;
+        userText =
+          imageCount > 0
+            ? `${textParts}\n\n[${imageCount} image(s) attached — this provider does not support image input]`
+            : textParts;
+      }
+    }
 
     this.history.push({ role: "user", content: userText });
 

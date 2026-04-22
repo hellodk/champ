@@ -45,7 +45,7 @@ import {
   type ProviderStatusState,
   type FirstRunTemplate,
 } from "./messages";
-import type { StreamDelta } from "../providers/types";
+import type { StreamDelta, ContentBlock } from "../providers/types";
 
 /**
  * Minimal interface that ChatViewProvider needs from a context resolver.
@@ -655,9 +655,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
    * array (when any attachment is an image). Clears the buffer.
    * Returns the original text unchanged when no attachments are pending.
    */
-  private enrichWithAttachments(
-    text: string,
-  ): string | import("../providers/types").ContentBlock[] {
+  private enrichWithAttachments(text: string): string | ContentBlock[] {
     if (this.pendingAttachments.length === 0) return text;
 
     const hasImages = this.pendingAttachments.some((a) => a.isImage);
@@ -669,9 +667,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return `${text}\n\n# Attached files\n\n${sections}`;
     }
 
-    const blocks: import("../providers/types").ContentBlock[] = [
-      { type: "text", text },
-    ];
+    const blocks: ContentBlock[] = [{ type: "text", text }];
     for (const att of this.pendingAttachments) {
       if (att.isImage && att.imageData) {
         blocks.push({
