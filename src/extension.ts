@@ -48,6 +48,10 @@ import { generateDocTool } from "./tools/generate-doc";
 import { MultiAgentRunner } from "./agent/multi-agent-runner";
 import { AgentAnalytics } from "./observability/agent-analytics";
 import type { AgentRunReport } from "./agent-manager/types";
+import {
+  AnalyticsExporter,
+  type TelemetryEvent,
+} from "./telemetry/analytics-exporter";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -63,6 +67,7 @@ let smartRouter: SmartRouter | undefined;
 let cachedYamlConfig: import("./config/config-loader").ChampConfig | null =
   null;
 let lastAnalyticsReport: AgentRunReport | null = null;
+let analyticsExporter: AnalyticsExporter | undefined;
 let sessionAnalytics: AgentAnalytics | undefined;
 let analyticsChannel: vscode.OutputChannel | undefined;
 
@@ -326,6 +331,18 @@ export async function activate(
     broadcastMetrics();
     if (sessionAnalytics) {
       lastAnalyticsReport = sessionAnalytics.toReport();
+    }
+    if (analyticsExporter && lastAnalyticsReport) {
+      const event: TelemetryEvent = {
+        runId: lastAnalyticsReport.runId,
+        timestamp: new Date(lastAnalyticsReport.startTime).toISOString(),
+        userId: analyticsExporter.userId,
+        sessionId: agentManager?.getActiveId() ?? "unknown",
+        workspaceId: analyticsExporter.workspaceId,
+        extensionVersion: context.extension.packageJSON.version as string,
+        report: lastAnalyticsReport,
+      };
+      void analyticsExporter.export(event);
     }
     saveActiveSession();
   });
@@ -896,6 +913,19 @@ export async function activate(
               });
             } else if (event.type === "workflow_complete") {
               lastAnalyticsReport = event.report;
+              if (analyticsExporter) {
+                const telEvent: TelemetryEvent = {
+                  runId: event.report.runId,
+                  timestamp: new Date(event.report.startTime).toISOString(),
+                  userId: analyticsExporter.userId,
+                  sessionId: "multi-agent",
+                  workspaceId: analyticsExporter.workspaceId,
+                  extensionVersion: context.extension.packageJSON
+                    .version as string,
+                  report: event.report,
+                };
+                void analyticsExporter.export(telEvent);
+              }
               const md = runAnalytics.formatMarkdown();
               chatViewProvider?.postMessage({
                 type: "streamDelta",
@@ -1159,6 +1189,24 @@ export async function activate(
         }
         void smartRouter.discover();
       }
+      // Rebuild telemetry exporter whenever config reloads.
+      analyticsExporter?.dispose();
+      analyticsExporter = undefined;
+      if (
+        yamlConfig?.telemetry?.enabled !== false &&
+        yamlConfig?.telemetry?.endpoint
+      ) {
+        const machineId: string = vscode.env.machineId;
+        const resolvedUserId = yamlConfig.telemetry.userId ?? machineId;
+        const wsHash = workspaceRoot
+          ? Buffer.from(workspaceRoot).toString("base64").slice(0, 8)
+          : "unknown";
+        analyticsExporter = new AnalyticsExporter(
+          yamlConfig.telemetry,
+          resolvedUserId,
+          wsHash,
+        );
+      }
       // SmartRouter.discover() handles all model detection. If no YAML,
       // also register the active provider from VS Code settings.
       if (!yamlConfig && smartRouter) {
@@ -1364,6 +1412,7 @@ export async function activate(
 }
 
 export function deactivate(): void {
+  analyticsExporter?.dispose();
   providerRegistry?.disposeAll();
   providerRegistry = undefined;
   chatViewProvider = undefined;
@@ -1481,6 +1530,18 @@ indexing:
     - node_modules/**
     - dist/**
     - .git/**
+
+# Telemetry (optional — export run analytics to OTLP or JSON endpoint)
+# telemetry:
+#   enabled: false
+#   endpoint: "http://localhost:4318/v1/traces"
+#   format: "otlp"          # "otlp" | "json"
+#   # userId: "team-name"
+#   # headers:
+#   #   Authorization: "Bearer <token>"
+#   # bufferMaxEvents: 1000
+#   # bufferMaxBytes: 5242880   # 5 MB
+#   # timeoutMs: 5000
 `;
 }
 
