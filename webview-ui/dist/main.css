@@ -549,6 +549,40 @@ html, body {
   background-color: var(--vscode-button-secondaryHoverBackground);
 }
 
+/* Stop button — subtle when idle, red when LLM is running */
+.bottom-bar button.stop-btn {
+  background-color: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  transition: background-color 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+.bottom-bar button.stop-btn:disabled {
+  opacity: 0.35;
+}
+
+.bottom-bar button.stop-btn--active {
+  background-color: #c0392b;
+  color: #fff;
+  opacity: 1;
+  box-shadow: 0 0 0 2px rgba(192, 57, 43, 0.35);
+  animation: stop-pulse 2s ease-in-out infinite;
+}
+
+.bottom-bar button.stop-btn--active:hover {
+  background-color: #e74c3c;
+  box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.45);
+}
+
+.stop-icon {
+  font-size: 9px;
+  vertical-align: middle;
+}
+
+@keyframes stop-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(192, 57, 43, 0.35); }
+  50%       { box-shadow: 0 0 0 4px rgba(192, 57, 43, 0.15); }
+}
+
 .bottom-bar button:disabled {
   opacity: 0.5;
   cursor: not-allowed;

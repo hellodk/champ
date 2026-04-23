@@ -472,7 +472,8 @@
 
   const bottomSpacer = el('div', { class: 'bottom-spacer' });
 
-  const cancelBtn = el('button', { class: 'secondary', disabled: 'true' }, ['Cancel']);
+  const cancelBtn = el('button', { class: 'stop-btn', disabled: 'true' });
+  cancelBtn.append(el('span', { class: 'stop-icon' }, ['■']), document.createTextNode(' Stop'));
   const sendBtn = el('button', {}, ['Send']);
   const queueBadge = el('span', { class: 'queue-badge' });
   queueBadge.style.cssText = 'display:none;font-size:11px;opacity:0.7;padding:0 6px;white-space:nowrap;align-self:center;';
@@ -725,8 +726,8 @@
 
   function setStreaming(streaming) {
     state.streaming = streaming;
-    // Send is always enabled — pressing it while streaming queues the message.
     cancelBtn.disabled = !streaming;
+    cancelBtn.classList.toggle('stop-btn--active', streaming);
     if (!streaming && state.currentAssistantMessage) {
       const body = state.currentAssistantMessage.querySelector('.body');
       if (body) {
