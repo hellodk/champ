@@ -45,6 +45,8 @@ import { SessionStore } from "./agent-manager/session-store";
 import { SmartRouter } from "./providers/smart-router";
 import { generateDiagramTool } from "./tools/generate-diagram";
 import { generateDocTool } from "./tools/generate-doc";
+import { createCodebaseSearchTool } from "./tools/codebase-search";
+import { IndexingService } from "./indexing/indexing-service";
 import { MultiAgentRunner } from "./agent/multi-agent-runner";
 import { AgentAnalytics } from "./observability/agent-analytics";
 import type { AgentRunReport } from "./agent-manager/types";
@@ -71,6 +73,7 @@ let analyticsExporter: AnalyticsExporter | undefined;
 let sessionAnalytics: AgentAnalytics | undefined;
 let analyticsChannel: vscode.OutputChannel | undefined;
 let saveActiveTimeout: ReturnType<typeof setTimeout> | null = null;
+let indexingService: IndexingService | undefined;
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -94,6 +97,9 @@ export async function activate(
   toolRegistry.register(fileSearchTool);
   toolRegistry.register(generateDiagramTool);
   toolRegistry.register(generateDocTool);
+  toolRegistry.register(
+    createCodebaseSearchTool(() => indexingService ?? null),
+  );
 
   // ---- Status bar item -----------------------------------------------
   statusBarItem = vscode.window.createStatusBarItem(
@@ -136,8 +142,24 @@ export async function activate(
 
   // ---- Smart Router (multi-provider model discovery) ----------------
   smartRouter = new SmartRouter();
-  // When the router discovers models, broadcast to the webview.
+  // When the router discovers models, (re-)initialize the indexing service
+  // so it can pick up a newly available embedding model automatically.
   smartRouter.onChange(() => {
+    if (cachedYamlConfig?.indexing?.enabled !== false && smartRouter) {
+      indexingService?.dispose();
+      indexingService = new IndexingService(
+        workspaceRoot,
+        smartRouter,
+        cachedYamlConfig ?? {},
+      );
+      void indexingService.initialize().then((stats) => {
+        if (stats) {
+          console.log(
+            `Champ: semantic index ready — ${stats.chunksIndexed} chunks from ${stats.filesIndexed} files (${stats.embeddingModel})`,
+          );
+        }
+      });
+    }
     if (!chatViewProvider) return;
     const discovered = smartRouter!.getModels();
     const discoveredProviders = new Set(discovered.map((m) => m.providerName));
@@ -1420,6 +1442,7 @@ export function deactivate(): void {
     clearTimeout(saveActiveTimeout);
     saveActiveTimeout = null;
   }
+  indexingService?.dispose();
   analyticsExporter?.dispose();
   analyticsChannel?.dispose();
   providerRegistry?.disposeAll();

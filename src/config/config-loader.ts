@@ -70,6 +70,7 @@ export interface AgentConfig {
 export interface IndexingConfig {
   enabled?: boolean;
   embeddingProvider?: ProviderName;
+  embeddingModel?: string;
   ignore?: string[];
 }
 
