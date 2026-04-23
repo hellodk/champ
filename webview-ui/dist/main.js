@@ -32,6 +32,7 @@
     mode: 'agent',
     messages: /** @type {Array<{role: string, text: string, toolCalls?: Array<any>}>} */ ([]),
     streaming: false,
+    streamingHasText: false,
     currentAssistantMessage: /** @type {HTMLElement|null} */ (null),
     /** Messages typed while a response is in-flight; sent in order after stream ends. */
     messageQueue: /** @type {string[]} */ ([]),
@@ -487,8 +488,17 @@
   sendBtn.append(sendBtnLabel);
   bottomBar.append(modePickerBtn, modelPickerBtn, bottomSpacer, queueBadge, cancelBtn, sendBtn);
 
+  let skillDebounceTimer = null;
   textarea.addEventListener('input', () => {
-    handleSkillInput();
+    // Close dropdown immediately if no longer a slash-command prefix.
+    const value = textarea.value;
+    if (!value.match(/^\/([A-Za-z][\w-]*)?$/)) {
+      closeSkillDropdown();
+      return;
+    }
+    // Debounce the extension-host round-trip so rapid typing doesn't lag.
+    clearTimeout(skillDebounceTimer);
+    skillDebounceTimer = setTimeout(() => handleSkillInput(), 150);
   });
 
   textarea.addEventListener('keydown', (ev) => {
@@ -615,9 +625,10 @@
     vscode.postMessage({ type: 'userMessage', text });
     appendMessage('user', text);
     state.currentAssistantMessage = appendMessage('assistant', '');
-    // Show blinking cursor only on the active streaming message.
+    state.streamingHasText = false;
+    // Show thinking dots until first token arrives.
     const cursorBody = state.currentAssistantMessage.querySelector('.body');
-    if (cursorBody) cursorBody.classList.add('streaming-cursor');
+    if (cursorBody) cursorBody.classList.add('thinking');
     textarea.value = '';
     // Clear pending attachment chips after sending.
     pendingFiles.length = 0;
@@ -704,6 +715,7 @@
   }
 
   function closeSkillDropdown() {
+    if (skillDropdown.hasAttribute('hidden') && state.skillSuggestions.length === 0) return;
     state.skillSuggestions = [];
     state.skillHighlight = -1;
     state.lastSkillPrefix = null;
@@ -717,8 +729,12 @@
     cancelBtn.disabled = !streaming;
     if (!streaming && state.currentAssistantMessage) {
       const body = state.currentAssistantMessage.querySelector('.body');
-      if (body) body.classList.remove('streaming-cursor');
+      if (body) {
+        body.classList.remove('streaming-cursor');
+        body.classList.remove('thinking');
+      }
       state.currentAssistantMessage = null;
+      state.streamingHasText = false;
     }
     // Drain the queue: send the next message automatically after stream ends.
     if (!streaming && state.messageQueue.length > 0) {
@@ -818,6 +834,12 @@
       if (b) b.classList.add('streaming-cursor');
     }
     const body = state.currentAssistantMessage.querySelector('.body');
+    // First token — swap thinking dots for the streaming cursor.
+    if (!state.streamingHasText && body) {
+      state.streamingHasText = true;
+      body.classList.remove('thinking');
+      body.classList.add('streaming-cursor');
+    }
     if (body) {
       // Buffer the raw markdown text and re-render on every delta.
       // This is O(n) per delta but fine for typical message sizes.

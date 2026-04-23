@@ -585,6 +585,20 @@ html, body {
   50% { opacity: 0; }
 }
 
+/* Thinking dots — shown before the first token arrives */
+.thinking::before {
+  content: '● ● ●';
+  letter-spacing: 3px;
+  font-size: 9px;
+  color: var(--vscode-descriptionForeground);
+  animation: thinking-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes thinking-pulse {
+  0%, 100% { opacity: 0.25; }
+  50%       { opacity: 1; }
+}
+
 /* -------------------------------------------------------------------
  * Tab bar (browser-style session tabs)
  * ---------------------------------------------------------------- */
