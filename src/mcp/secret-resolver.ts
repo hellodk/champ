@@ -14,21 +14,13 @@ export async function resolveEnvSecrets(
   const result: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(env)) {
-    if (!SECRET_TOKEN.test(value)) {
-      // Reset lastIndex after test() on a global regex.
-      SECRET_TOKEN.lastIndex = 0;
-      result[key] = value;
-      continue;
-    }
-
-    SECRET_TOKEN.lastIndex = 0;
-
     let resolved = value;
-    const matches = [...value.matchAll(SECRET_TOKEN)];
-    for (const match of matches) {
+    for (const match of value.matchAll(SECRET_TOKEN)) {
       const secretKey = match[1];
       const secretValue = (await secretStorage.get(secretKey)) ?? "";
-      resolved = resolved.replace(match[0], secretValue);
+      // Use a replacer function so $ special chars in secretValue
+      // (e.g. pa$$word) are not interpreted as replacement patterns.
+      resolved = resolved.replace(match[0], () => secretValue);
     }
     result[key] = resolved;
   }

@@ -109,7 +109,7 @@ describe("McpRegistry", () => {
     await mcpRegistry.loadServers([{ name: "srv", command: "cmd", args: [] }]);
     await mcpRegistry.disposeAll();
 
-    expect(manager.disconnectAll).toHaveBeenCalledOnce();
+    expect(manager.disconnect).toHaveBeenCalledWith("srv");
     expect(registry.unregister).toHaveBeenCalledWith("mcp_srv_t1");
   });
 

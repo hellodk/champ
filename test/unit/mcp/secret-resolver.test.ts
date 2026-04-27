@@ -56,4 +56,22 @@ describe("resolveEnvSecrets", () => {
     );
     expect(result).toEqual({ X: "secret" });
   });
+
+  it("handles mixed token+literal: 'Bearer ${{ secrets.TOKEN }}'", async () => {
+    const storage = makeSecretStorage({ TOKEN: "tok123" });
+    const result = await resolveEnvSecrets(
+      { AUTH: "Bearer ${{ secrets.TOKEN }}" },
+      storage as never,
+    );
+    expect(result).toEqual({ AUTH: "Bearer tok123" });
+  });
+
+  it("does not corrupt secret values containing $ special chars", async () => {
+    const storage = makeSecretStorage({ PASS: "pa$$word" });
+    const result = await resolveEnvSecrets(
+      { PWD: "${{ secrets.PASS }}" },
+      storage as never,
+    );
+    expect(result).toEqual({ PWD: "pa$$word" });
+  });
 });

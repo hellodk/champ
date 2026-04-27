@@ -14,6 +14,7 @@ import type { ToolRegistry } from "../tools/registry";
 export class McpRegistry {
   /** serverName → tool names registered from that server */
   private registeredTools = new Map<string, string[]>();
+  private loading = false;
 
   constructor(
     private readonly manager: MCPClientManager,
@@ -26,44 +27,47 @@ export class McpRegistry {
    * Idempotent — safe to call on every config reload.
    */
   async loadServers(servers: MCPServerConfig[]): Promise<void> {
-    const desired = new Map(servers.map((s) => [s.name, s]));
-    const connected = new Set(this.manager.getConnectedServers());
+    if (this.loading) return;
+    this.loading = true;
+    try {
+      const desired = new Map(servers.map((s) => [s.name, s]));
+      const connected = new Set(this.manager.getConnectedServers());
 
-    // Disconnect servers no longer in config.
-    for (const name of connected) {
-      if (!desired.has(name)) {
-        await this.disconnectServer(name);
+      for (const name of connected) {
+        if (!desired.has(name)) {
+          await this.disconnectServer(name);
+        }
       }
-    }
 
-    // Connect new servers (skip already connected).
-    for (const [name, config] of desired) {
-      if (connected.has(name)) continue;
+      for (const [name, config] of desired) {
+        if (connected.has(name)) continue;
 
-      try {
-        const resolvedEnv = config.env
-          ? await resolveEnvSecrets(config.env, this.secretStorage)
-          : undefined;
+        try {
+          const resolvedEnv = config.env
+            ? await resolveEnvSecrets(config.env, this.secretStorage)
+            : undefined;
 
-        await this.manager.connect({ ...config, env: resolvedEnv });
-        await this.registerServerTools(name);
+          await this.manager.connect({ ...config, env: resolvedEnv });
+          await this.registerServerTools(name);
 
-        console.log(`Champ MCP: connected "${name}"`);
-      } catch (err) {
-        console.error(
-          `Champ MCP: failed to connect "${name}":`,
-          err instanceof Error ? err.message : String(err),
-        );
-        // Continue — one failure must not block other servers.
+          console.log(`Champ MCP: connected "${name}"`);
+        } catch (err) {
+          console.error(
+            `Champ MCP: failed to connect "${name}":`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
       }
+    } finally {
+      this.loading = false;
     }
   }
 
   async disposeAll(): Promise<void> {
-    for (const name of [...this.registeredTools.keys()]) {
-      this.unregisterServerTools(name);
+    const names = [...this.registeredTools.keys()];
+    for (const name of names) {
+      await this.disconnectServer(name);
     }
-    await this.manager.disconnectAll();
   }
 
   private async registerServerTools(serverName: string): Promise<void> {
