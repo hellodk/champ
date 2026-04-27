@@ -48,6 +48,12 @@ export interface ErrorMessage {
   message: string;
 }
 
+export interface PiiNoticeMessage {
+  type: "piiNotice";
+  /** e.g. "2 value(s) redacted before sending (email, phone)" */
+  summary: string;
+}
+
 export interface ModeChangedMessage {
   type: "modeChanged";
   mode: AgentMode;
@@ -161,6 +167,7 @@ export type ExtensionToWebviewMessage =
   | ToolCallResultMessage
   | ApprovalRequestMessage
   | ErrorMessage
+  | PiiNoticeMessage
   | ModeChangedMessage
   | ConversationHistoryMessage
   | ReadyMessage
@@ -346,6 +353,10 @@ export function createToolCallResult(
 
 export function createError(message: string): ErrorMessage {
   return { type: "error", message };
+}
+
+export function createPiiNotice(summary: string): PiiNoticeMessage {
+  return { type: "piiNotice", summary };
 }
 
 export function createConversationHistory(

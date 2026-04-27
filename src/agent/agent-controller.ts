@@ -139,6 +139,8 @@ export interface ProcessMessageOptions {
   maxIterations?: number;
   /** Approval callback invoked before destructive tool calls. */
   requestApproval?: (description: string) => Promise<boolean>;
+  /** Called after user input PII is redacted, before the LLM is called. */
+  onPiiRedacted?: (summary: string) => void;
 }
 
 export interface ProcessMessageResult {
@@ -420,20 +422,30 @@ export class AgentController {
     if (typeof userText === "string") {
       const piiResult = this.piiScanner.scan(userText);
       if (piiResult.hasFindings) {
-        console.log(
-          `Champ PII: redacted ${piiResult.findings.length} finding(s) from user input: ${piiResult.findings.map((f) => f.type).join(", ")}`,
+        const types = [...new Set(piiResult.findings.map((f) => f.type))].join(
+          ", ",
         );
+        const summary = `${piiResult.findings.length} value(s) redacted before sending (${types})`;
+        console.log(`Champ PII: ${summary}`);
+        options.onPiiRedacted?.(summary);
         userText = piiResult.redacted;
       }
     } else {
-      // For ContentBlock arrays, redact text blocks only.
+      const allFindings: import("../safety/pii-scanner").PiiFinding[] = [];
       userText = userText.map((block) => {
         if (block.type !== "text") return block;
         const piiResult = this.piiScanner.scan(block.text);
+        if (piiResult.hasFindings) allFindings.push(...piiResult.findings);
         return piiResult.hasFindings
           ? { ...block, text: piiResult.redacted }
           : block;
       });
+      if (allFindings.length > 0) {
+        const types = [...new Set(allFindings.map((f) => f.type))].join(", ");
+        const summary = `${allFindings.length} value(s) redacted before sending (${types})`;
+        console.log(`Champ PII: ${summary}`);
+        options.onPiiRedacted?.(summary);
+      }
     }
 
     // ── Image stripping for non-vision providers ──────────────────────────

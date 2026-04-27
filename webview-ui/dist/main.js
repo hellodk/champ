@@ -1049,6 +1049,14 @@
     setStreaming(false);
   }
 
+  function showPiiNotice(summary) {
+    const notice = el('div', { class: 'pii-notice' });
+    notice.innerHTML = '🔒 <em>' + summary + '</em>';
+    messagesContainer.append(notice);
+    if (!userScrolledUp) messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    setTimeout(() => { if (notice.parentNode) notice.remove(); }, 8000);
+  }
+
   // Per-session auto-approve flag. When true, all subsequent approval
   // requests are auto-allowed without showing a dialog.
   let sessionAutoApprove = false;
@@ -1203,6 +1211,9 @@
       case 'attachFileAdded':
         pendingFiles.push({ filename: msg.filename });
         renderAttachChips();
+        break;
+      case 'piiNotice':
+        showPiiNotice(msg.summary);
         break;
       case 'error':
         showError(msg.message);

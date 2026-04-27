@@ -19,6 +19,7 @@ import {
   createToolCallStart,
   createToolCallResult,
   createError,
+  createPiiNotice,
   createConversationHistory,
   createSkillAutocompleteResponse,
   createProviderStatus,
@@ -538,6 +539,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       const result = await this.agent.processMessage(enrichedContent, {
         abortSignal: controller.signal,
         requestApproval: this.buildApprovalCallback(),
+        onPiiRedacted: (summary) => {
+          this.postMessage(createPiiNotice(summary));
+        },
       });
       this.postMessage(createStreamEnd());
       // Notify extension host — triggers save + metrics.

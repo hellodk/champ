@@ -1428,3 +1428,13 @@ html, body {
 .onboarding-skip:hover {
   background-color: var(--vscode-button-secondaryHoverBackground);
 }
+
+/* PII redaction notice — shown briefly above the response */
+.pii-notice {
+  font-size: calc(var(--vscode-font-size) - 1px);
+  color: var(--vscode-descriptionForeground);
+  padding: 3px 12px 3px 10px;
+  border-left: 2px solid var(--vscode-textLink-foreground);
+  margin: 4px 0 4px 8px;
+  opacity: 0.85;
+}
