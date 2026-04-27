@@ -2,6 +2,22 @@ import type { MCPClientManager, MCPTool } from "./mcp-client";
 import type { Tool, ToolExecutionContext, ToolResult } from "../tools/types";
 import type { ToolParameterSchema } from "../providers/types";
 
+function toToolParameterSchema(raw: unknown): ToolParameterSchema {
+  if (
+    raw !== null &&
+    typeof raw === "object" &&
+    (raw as Record<string, unknown>).type === "object"
+  ) {
+    const r = raw as Record<string, unknown>;
+    return {
+      type: "object",
+      properties: (r.properties as ToolParameterSchema["properties"]) ?? {},
+      required: Array.isArray(r.required) ? (r.required as string[]) : [],
+    };
+  }
+  return { type: "object", properties: {}, required: [] };
+}
+
 /**
  * Wrap a single MCPTool as a Tool that the ToolRegistry can dispatch.
  * Naming: `mcp_{serverName}_{toolName}` — prefix prevents collisions with
@@ -12,15 +28,13 @@ export function createMcpToolAdapter(
   mcpTool: MCPTool,
   manager: MCPClientManager,
 ): Tool {
-  const name = `mcp_${serverName}_${mcpTool.name}`;
-  const description = `${mcpTool.description} [MCP: ${serverName}]`;
+  const sanitise = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, "_");
+  const name = `mcp_${sanitise(serverName)}_${sanitise(mcpTool.name)}`;
+  const description = `${mcpTool.description ?? mcpTool.name} [MCP: ${serverName}]`;
 
-  const parameters: ToolParameterSchema =
-    mcpTool.inputSchema &&
-    typeof mcpTool.inputSchema === "object" &&
-    mcpTool.inputSchema.type === "object"
-      ? (mcpTool.inputSchema as unknown as ToolParameterSchema)
-      : { type: "object", properties: {}, required: [] };
+  const parameters: ToolParameterSchema = toToolParameterSchema(
+    mcpTool.inputSchema,
+  );
 
   return {
     name,
@@ -35,8 +49,13 @@ export function createMcpToolAdapter(
       const result = await manager.invokeTool(serverName, mcpTool.name, args);
 
       const output = result.content
-        .filter((b) => b.type === "text" && b.text)
-        .map((b) => b.text!)
+        .filter(
+          (b): b is typeof b & { type: "text"; text: string } =>
+            b.type === "text" &&
+            typeof b.text === "string" &&
+            b.text.length > 0,
+        )
+        .map((b) => b.text)
         .join("\n");
 
       return {
