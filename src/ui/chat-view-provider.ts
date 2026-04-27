@@ -470,6 +470,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         void vscode.commands.executeCommand("champ.generateConfig");
       } else if ((msg as { type: string }).type === "rescanModels") {
         void vscode.commands.executeCommand("champ.rescanModels");
+      } else if ((msg as { type: string }).type === "resetToAutoRequest") {
+        void vscode.commands.executeCommand("champ.resetToAuto");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

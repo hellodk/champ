@@ -178,6 +178,11 @@ export class SmartRouter {
     this.mode = "manual";
   }
 
+  resetToAuto(): void {
+    this.mode = "smart";
+    this.manualModelId = null;
+  }
+
   /**
    * Override which model is used for a specific task type. Pass null to
    * revert to automatic selection. Used to wire the `routing:` YAML config.
@@ -349,7 +354,11 @@ function classify(name: string): {
   ) {
     capabilities.push("coding");
   }
-  if (/embed|nomic|bge|e5|gte|jina/.test(lower)) {
+  if (
+    /embed|nomic|bge|e5-|gte|jina|minilm|all-mini|mxbai|voyage|rerank/.test(
+      lower,
+    )
+  ) {
     capabilities.push("embedding");
   }
   if (/instruct|chat/.test(lower)) {

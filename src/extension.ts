@@ -885,6 +885,12 @@ export async function activate(
         );
       }
     }),
+    vscode.commands.registerCommand("champ.resetToAuto", () => {
+      if (smartRouter) {
+        smartRouter.resetToAuto();
+        void loadProvider();
+      }
+    }),
     vscode.commands.registerCommand("champ.runMultiAgent", async () => {
       const userRequest = await vscode.window.showInputBox({
         prompt: "Describe the feature or task for the multi-agent workflow",

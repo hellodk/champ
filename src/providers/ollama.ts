@@ -21,6 +21,22 @@ import type {
 const DEFAULT_BASE_URL = "http://localhost:11434";
 
 /**
+ * Strip <think>...</think> blocks produced by Qwen3, DeepSeek-R1, and
+ * similar reasoning models. These are internal scratchpad tokens that
+ * must not appear in the chat UI or be sent back as conversation history.
+ * Handles both complete blocks and partial mid-stream fragments.
+ */
+function stripThinkingTokens(text: string): string {
+  // Remove complete <think>...</think> blocks (multi-line).
+  let out = text.replace(/<think>[\s\S]*?<\/think>/g, "");
+  // Remove an opening <think> tag with no closing — mid-stream fragment.
+  out = out.replace(/<think>[\s\S]*/g, "");
+  // Remove a dangling </think> tag left over from a previous chunk.
+  out = out.replace(/[\s\S]*<\/think>/g, "");
+  return out;
+}
+
+/**
  * Known models that support native tool calling in Ollama. For unknown
  * models, the prompt-based XML tool calling fallback should be used.
  */
@@ -321,7 +337,11 @@ export class OllamaProvider implements LLMProvider {
             };
 
             if (json.message?.content) {
-              yield { type: "text", text: json.message.content };
+              // Strip Qwen3 / DeepSeek thinking blocks before surfacing text.
+              // These models wrap internal reasoning in <think>...</think> tags
+              // that must not be shown to the user or sent back as conversation.
+              const cleaned = stripThinkingTokens(json.message.content);
+              if (cleaned) yield { type: "text", text: cleaned };
             }
 
             if (json.message?.tool_calls) {

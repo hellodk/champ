@@ -388,6 +388,7 @@
       modelAutoMode = true;
       modelPickerBtn.textContent = 'Auto ▾';
       modelPickerPopup.setAttribute('hidden', 'true');
+      vscode.postMessage({ type: 'resetToAutoRequest' });
     });
     modelListEl.append(autoRow);
 
