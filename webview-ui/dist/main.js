@@ -705,9 +705,9 @@
 
   function saveInputHistory() {
     try {
+      const sessionId = state.activeSessionId || lastSessionData.activeSessionId;
+      if (!sessionId) return; // no session ID yet — skip to avoid 'default' key corruption
       const s = vscode.getState() || {};
-      // Store per-session, keyed by session ID. Keep last 50 per session.
-      const sessionId = state.activeSessionId || 'default';
       const histories = s.inputHistories || {};
       histories[sessionId] = state.inputHistory.slice(-50);
       vscode.setState({ ...s, inputHistories: histories });
@@ -1331,7 +1331,9 @@
         state.currentAssistantMessage = null;
         state.messageQueue = [];
         state.streaming = false;
-        state.inputHistory = [];
+        // Restore persisted history for the active session rather than clearing it.
+        const _chId = state.activeSessionId || lastSessionData.activeSessionId;
+        state.inputHistory = _chId ? loadInputHistory(_chId) : [];
         state.historyIndex = -1;
         state.historyDraft = '';
         textarea.classList.remove('history-mode');

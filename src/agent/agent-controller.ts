@@ -567,6 +567,18 @@ export class AgentController {
           // In prompt-based mode we buffer the text so we can strip out
           // the <tool_call> XML before showing it to the user.
         } else if (delta.type === "tool_call_start" && delta.toolCall) {
+          // In native mode, if no text has been streamed yet, emit a synthetic
+          // prefix so the user sees activity rather than a silent spinner.
+          if (
+            !usePromptBased &&
+            assistantText.length === 0 &&
+            pendingToolCalls.length === 0
+          ) {
+            this.emit({
+              type: "text",
+              text: `Using \`${delta.toolCall.name}\`…\n`,
+            });
+          }
           pendingToolCalls.push(delta.toolCall);
           toolStartTimes.set(delta.toolCall.id, Date.now());
           this.emit(delta);
@@ -649,12 +661,12 @@ export class AgentController {
         break;
       }
 
-      // If the model called tools without any preceding narration, emit a
-      // synthetic prefix so the user is never watching a silent spinner.
+      // Prompt-based mode: if the model produced tool calls with no visible
+      // text, emit a synthetic prefix so the user isn't watching a silent spinner.
       if (usePromptBased && pendingToolCalls.length > 0) {
         const hasNarration =
           (extractTextContent(assistantText) || "").trim().length > 0;
-        if (!hasNarration && pendingToolCalls.length > 0) {
+        if (!hasNarration) {
           const toolNames = pendingToolCalls
             .map((c) => `\`${c.name}\``)
             .join(", ");
