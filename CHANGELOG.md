@@ -5,6 +5,22 @@ All notable changes to Champ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.5] — 2026-04-27
+
+### Added
+
+- **MCP full integration** — tools from any MCP server configured in
+  `.champ/config.yaml` under `mcp.servers` are now registered in the
+  tool registry and available to the agent as `mcp_{server}_{tool}` calls.
+- **Secret interpolation** — MCP server `env:` values support
+  `${{ secrets.KEY }}` syntax, resolved from VS Code SecretStorage.
+- **Dynamic reconnect** — changing `mcp.servers` in the YAML config
+  reconnects new servers and disconnects removed ones without restart.
+- **Approval gating** — all MCP tool calls require user approval by
+  default (same as `run_terminal_cmd`).
+- **Reentrancy guard** — rapid config reloads cannot double-connect the
+  same MCP server.
+
 ## [1.6.3] — 2026-04-27
 
 Security and reliability fixes from external audit.

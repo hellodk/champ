@@ -2,7 +2,7 @@
   "name": "champ",
   "displayName": "Champ - AI Coding Agent",
   "description": "AI coding agent with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "1.6.4",
+  "version": "1.6.5",
   "publisher": "champ-oss",
   "license": "MIT",
   "icon": "media/icon.png",
