@@ -48,9 +48,9 @@ const PII_PATTERNS: PiiPattern[] = [
   },
   {
     type: "credit_card",
-    // 16-digit cards (Visa/MC/Amex/Discover) with optional spaces or dashes.
-    // Luhn check not performed — pattern match is enough to redact.
-    pattern: /\b(?:\d[ \-]?){13,16}\b/g,
+    // Require 4-4-4-4 grouping separated by spaces or dashes.
+    // Avoids matching plain integer literals, timestamps, and variable values.
+    pattern: /\b\d{4}[\s\-]\d{4}[\s\-]\d{4}[\s\-]\d{4}\b/g,
   },
   {
     type: "ssn",
@@ -59,9 +59,13 @@ const PII_PATTERNS: PiiPattern[] = [
   },
   {
     type: "phone",
-    // Covers: +1 (xxx) xxx-xxxx, xxx-xxx-xxxx, (xxx) xxx xxxx, +44 7xxx xxxxxx, etc.
+    // Requires unambiguous phone formatting:
+    //   US with parens: (555) 867-5309
+    //   US with dashes: 555-867-5309
+    //   International: +1 555-867-5309, +44 7700 900123
+    // Does NOT match semver, dates (2026-04-27), or bare digit sequences.
     pattern:
-      /(?:\+?\d{1,3}[\s\-.]?)?\(?\d{2,4}\)?[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}(?:[\s\-.]?\d{1,4})?/g,
+      /(?:\+\d{1,3}[\s\-]\(?\d{1,4}\)?[\s\-]\d{2,6}(?:[\s\-]\d{2,6})?(?:[\s\-]\d{1,4})?|\(\d{3}\)\s?\d{3}[\s\-]\d{4}|\b\d{3}-\d{3}-\d{4}\b)/g,
   },
   {
     type: "ip_address",
