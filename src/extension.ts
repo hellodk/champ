@@ -77,6 +77,7 @@ let analyticsChannel: vscode.OutputChannel | undefined;
 let saveActiveTimeout: ReturnType<typeof setTimeout> | null = null;
 let indexingService: IndexingService | undefined;
 let mcpRegistry: McpRegistry | undefined;
+let mcpClientManager: MCPClientManager | undefined;
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -144,7 +145,7 @@ export async function activate(
   );
 
   // ---- MCP (Model Context Protocol) server connections ----------------
-  const mcpClientManager = new MCPClientManager();
+  mcpClientManager = new MCPClientManager();
   mcpRegistry = new McpRegistry(
     mcpClientManager,
     toolRegistry,
@@ -1280,10 +1281,6 @@ export async function activate(
           void smartRouter.discover();
         }
       }
-      // Reconnect MCP servers whenever config changes.
-      if (mcpRegistry) {
-        void mcpRegistry.loadServers(yamlConfig?.mcp?.servers ?? []);
-      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatusError(message);
@@ -1297,6 +1294,10 @@ export async function activate(
         message: `Champ provider not ready: ${message}\n\nOpen settings (gear icon in the status bar) to configure the active provider, or create a .champ/config.yaml file.`,
       });
       console.error("Champ: provider load failed:", err);
+    }
+    // MCP reconnect runs independently — never blocks or corrupts provider load.
+    if (mcpRegistry) {
+      void mcpRegistry.loadServers(cachedYamlConfig?.mcp?.servers ?? []);
     }
   };
 
@@ -1497,6 +1498,8 @@ export async function activate(
 
 export function deactivate(): void {
   void mcpRegistry?.disposeAll();
+  mcpClientManager = undefined;
+  mcpRegistry = undefined;
   if (saveActiveTimeout) {
     clearTimeout(saveActiveTimeout);
     saveActiveTimeout = null;
