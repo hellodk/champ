@@ -206,7 +206,7 @@ export class AgentController {
    */
   private readonly secretScanner = new SecretScanner();
   private readonly piiScanner = new PiiScanner();
-  private readonly promptGuard = new PromptGuard();
+  private promptGuard = new PromptGuard();
   private smartRouter: SmartRouter | null = null;
   // Inline import type avoids a top-level circular-dependency risk; analytics
   // is optional infrastructure and should not be in the core import chain.
@@ -264,6 +264,10 @@ export class AgentController {
 
   setSmartRouter(router: SmartRouter): void {
     this.smartRouter = router;
+  }
+
+  setPromptGuardEnabled(enabled: boolean): void {
+    this.promptGuard = new PromptGuard(enabled);
   }
 
   /** Map agent mode to a SmartRouter task type for model selection. */

@@ -38,85 +38,59 @@ interface InjectionPattern {
 }
 
 const INJECTION_PATTERNS: InjectionPattern[] = [
-  // ── Override instructions ──────────────────────────────────────────
+  // ── Override instructions ─────────────────────────────────────────
   {
     category: "override_instructions",
     pattern:
       /ignore\s+(all\s+)?(previous|prior|above|earlier|the\s+above|your\s+previous)\s+(instructions?|rules?|guidelines?|directives?|prompts?)/i,
-    reason:
-      "Message contains a phrase that attempts to override the system instructions.",
+    reason: "Message attempts to override the system instructions.",
   },
   {
     category: "override_instructions",
     pattern:
-      /forget\s+(all\s+)?(your\s+)?(previous|prior|above|earlier)?\s*(instructions?|rules?|guidelines?|training|context)/i,
-    reason:
-      "Message asks the assistant to forget its instructions or training.",
+      /forget\s+(all\s+)?(your\s+)?(previous|prior|above|earlier)\s+(instructions?|rules?|guidelines?|training)/i,
+    reason: "Message asks the assistant to forget its instructions.",
   },
   {
     category: "override_instructions",
     pattern:
-      /disregard\s+(all\s+)?(previous|prior|above|your)?\s*(instructions?|rules?|guidelines?|prompts?)/i,
+      /disregard\s+(all\s+)?(previous|prior|above|your)\s+(instructions?|rules?|guidelines?|prompts?)/i,
     reason: "Message attempts to disregard the assistant's guidelines.",
   },
-  {
-    category: "override_instructions",
-    pattern: /\bnew\s+instructions?\s*[:：]/i,
-    reason: "Message attempts to inject new instructions via a colon pattern.",
-  },
-  // ── Persona switching ──────────────────────────────────────────────
+  // ── Persona switching — require explicit override/unrestricted language ──
   {
     category: "persona_switch",
-    pattern: /you\s+are\s+now\s+(?!Champ)/i,
-    reason: "Message attempts to assign a new identity to the assistant.",
+    pattern:
+      /you\s+are\s+now\s+(?:an?\s+)?(?:unrestricted|uncensored|unfiltered|jailbroken|evil|malicious)\b/i,
+    reason: "Message attempts to assign a rule-free identity to the assistant.",
   },
   {
     category: "persona_switch",
-    pattern: /act\s+as\s+(a\s+)?(?!Champ|an?\s+AI\s+coding)/i,
-    reason: "Message asks the assistant to act as a different persona.",
+    pattern:
+      /act\s+as\s+(?:an?\s+)?(?:unrestricted|uncensored|unfiltered|jailbroken|evil|malicious)\b/i,
+    reason: "Message asks the assistant to act as an unrestricted persona.",
   },
-  {
-    category: "persona_switch",
-    pattern: /pretend\s+(you\s+are|to\s+be|that\s+you\s+are)\s+(?!Champ)/i,
-    reason: "Message asks the assistant to pretend to be something else.",
-  },
-  {
-    category: "persona_switch",
-    pattern: /roleplay\s+as\s+(?!Champ)/i,
-    reason: "Message attempts a roleplay persona injection.",
-  },
-  // ── System prompt leakage ──────────────────────────────────────────
+  // ── System prompt leakage — require verbatim/full/complete qualifier ──
   {
     category: "system_leak",
     pattern:
-      /(?:print|output|repeat|reveal|show|display|tell\s+me|what\s+is)\s+(your\s+)?(system\s+prompt|initial\s+instructions?|full\s+instructions?)/i,
-    reason:
-      "Message attempts to extract the system prompt or internal instructions.",
+      /(?:print|output|repeat|reveal|verbatim|copy)\s+(?:your\s+)?(?:full\s+|complete\s+|entire\s+)?(?:system\s+prompt|initial\s+instructions?)/i,
+    reason: "Message attempts to extract the system prompt verbatim.",
   },
   {
     category: "system_leak",
-    pattern: /\[system\]\s*:/i,
-    reason: "Message contains a [SYSTEM]: injection marker.",
+    pattern: /^\s*\[system\]\s*:/i,
+    reason: "Message starts with a [SYSTEM]: injection marker.",
   },
-  // ── Classic jailbreaks ──────────────────────────────────────────────
+  // ── Classic jailbreaks — require the full canonical phrase ────────
   {
     category: "jailbreak",
-    pattern: /\bD\.?A\.?N\b/, // "Do Anything Now"
-    reason: "Message contains a known jailbreak keyword (DAN).",
-  },
-  {
-    category: "jailbreak",
-    pattern: /do\s+anything\s+now/i,
+    pattern: /\bdo\s+anything\s+now\b/i,
     reason: "Message contains the DAN jailbreak phrase.",
   },
   {
     category: "jailbreak",
-    pattern: /jailbreak/i,
-    reason: "Message contains the word 'jailbreak'.",
-  },
-  {
-    category: "jailbreak",
-    pattern: /developer\s+mode\s+enabled/i,
+    pattern: /developer\s+mode\s+(?:enabled|activated|on)\b/i,
     reason: "Message contains the 'developer mode enabled' jailbreak phrase.",
   },
 ];
@@ -124,8 +98,10 @@ const INJECTION_PATTERNS: InjectionPattern[] = [
 const SAFE_RESULT: GuardResult = { safe: true, reason: null, category: null };
 
 export class PromptGuard {
+  constructor(private readonly enabled: boolean = true) {}
+
   check(text: string): GuardResult {
-    if (!text) return SAFE_RESULT;
+    if (!this.enabled || !text) return SAFE_RESULT;
 
     for (const { pattern, reason, category } of INJECTION_PATTERNS) {
       pattern.lastIndex = 0;

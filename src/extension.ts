@@ -1112,6 +1112,13 @@ export async function activate(
       if (yamlConfig?.agent?.defaultMode) {
         agentController.setMode(yamlConfig.agent.defaultMode);
       }
+      const guardEnabled = yamlConfig?.agent?.promptGuard?.enabled !== false;
+      agentController.setPromptGuardEnabled(guardEnabled);
+      agentManager?.listSessions(true).forEach((meta) => {
+        agentManager!
+          .getSession(meta.id)
+          ?.controller.setPromptGuardEnabled(guardEnabled);
+      });
       // Replace any prior real provider in the registry.
       try {
         providerRegistry?.unregister(inlineProviderRef.current.name);

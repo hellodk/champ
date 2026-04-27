@@ -65,6 +65,10 @@ export interface AgentConfig {
   yoloMode?: boolean;
   defaultMode?: AgentModeName;
   autoFix?: AutoFixConfig;
+  promptGuard?: {
+    /** Set to false to disable prompt injection blocking (e.g. for security research). Default: true. */
+    enabled?: boolean;
+  };
 }
 
 export interface IndexingConfig {
@@ -349,6 +353,18 @@ export class ConfigLoader {
               }
             }
             out.autoFix = fix;
+          }
+        }
+        if (
+          "promptGuard" in a &&
+          a.promptGuard !== null &&
+          typeof a.promptGuard === "object"
+        ) {
+          const pg = a.promptGuard as Record<string, unknown>;
+          if ("enabled" in pg && typeof pg.enabled !== "boolean") {
+            pushError("agent.promptGuard.enabled must be a boolean");
+          } else {
+            out.promptGuard = { enabled: (pg.enabled as boolean) ?? true };
           }
         }
         result.agent = out;
