@@ -54,6 +54,8 @@ import {
   AnalyticsExporter,
   type TelemetryEvent,
 } from "./telemetry/analytics-exporter";
+import { MCPClientManager } from "./mcp/mcp-client";
+import { McpRegistry } from "./mcp/mcp-registry";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -74,6 +76,7 @@ let sessionAnalytics: AgentAnalytics | undefined;
 let analyticsChannel: vscode.OutputChannel | undefined;
 let saveActiveTimeout: ReturnType<typeof setTimeout> | null = null;
 let indexingService: IndexingService | undefined;
+let mcpRegistry: McpRegistry | undefined;
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -138,6 +141,14 @@ export async function activate(
   );
   sessionStore = new SessionStore(
     path.join(workspaceRoot, ".champ", "sessions"),
+  );
+
+  // ---- MCP (Model Context Protocol) server connections ----------------
+  const mcpClientManager = new MCPClientManager();
+  mcpRegistry = new McpRegistry(
+    mcpClientManager,
+    toolRegistry,
+    context.secrets,
   );
 
   // ---- Smart Router (multi-provider model discovery) ----------------
@@ -1269,6 +1280,10 @@ export async function activate(
           void smartRouter.discover();
         }
       }
+      // Reconnect MCP servers whenever config changes.
+      if (mcpRegistry) {
+        void mcpRegistry.loadServers(yamlConfig?.mcp?.servers ?? []);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatusError(message);
@@ -1481,6 +1496,7 @@ export async function activate(
 }
 
 export function deactivate(): void {
+  void mcpRegistry?.disposeAll();
   if (saveActiveTimeout) {
     clearTimeout(saveActiveTimeout);
     saveActiveTimeout = null;
