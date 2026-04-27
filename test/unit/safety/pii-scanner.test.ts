@@ -29,6 +29,16 @@ describe("PiiScanner — credit card", () => {
     const r = scanner.scan("ts = 1714183200000");
     expect(r.hasFindings).toBe(false);
   });
+
+  it("redacts Amex 15-digit card (4-6-5 format)", () => {
+    const r = scanner.scan("amex 3714 496353 98431 charged");
+    expect(r.redacted).toContain("[REDACTED:credit_card]");
+  });
+
+  it("does NOT redact longer dash-separated ID (C1 fix)", () => {
+    const r = scanner.scan("order 4321-1234-1234-1234-5678 placed");
+    expect(r.hasFindings).toBe(false);
+  });
 });
 
 describe("PiiScanner — phone", () => {

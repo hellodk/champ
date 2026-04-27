@@ -48,9 +48,14 @@ const PII_PATTERNS: PiiPattern[] = [
   },
   {
     type: "credit_card",
-    // Require 4-4-4-4 grouping separated by spaces or dashes.
-    // Avoids matching plain integer literals, timestamps, and variable values.
-    pattern: /\b\d{4}[\s\-]\d{4}[\s\-]\d{4}[\s\-]\d{4}\b/g,
+    // Covers major card formats separated by spaces or dashes:
+    //   4-4-4-4 (Visa 16-digit, Mastercard, Discover)
+    //   4-6-5   (Amex 15-digit)
+    //   4-3-3-3 (Visa 13-digit)
+    // Negative lookahead prevents matching the first 16 digits of a longer
+    // dash-separated ID like 4321-1234-1234-1234-5678.
+    pattern:
+      /(?<![0-9-])\b\d{4}[\s-](?:\d{6}[\s-]\d{5}|\d{4}[\s-]\d{4}[\s-]\d{4}|\d{3}[\s-]\d{3}[\s-]\d{3})(?![\s-]\d)\b/g,
   },
   {
     type: "ssn",
