@@ -5,6 +5,28 @@ All notable changes to Champ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.3] — 2026-04-27
+
+Security and reliability fixes from external audit.
+
+### Fixed
+
+- **PII credit card regex** — tightened to require 4-4-4-4 grouping with separators; no longer matches arbitrary integer literals, timestamps, or variable values in code
+- **PII Amex coverage** — added detection for 15-digit Amex (4-6-5 format) and 13-digit Visa (4-3-3-3), which the previous pattern missed
+- **PII phone regex** — requires explicit formatting (dashes, parens, or `+CC` prefix); no longer matches semver strings, dates, or function arguments
+- **Prompt guard false positives** — tightened 8 over-broad patterns; "act as a code reviewer", "how do I prevent jailbreaks", and "New instructions for deployment:" no longer blocked
+- **Prompt guard restored-session gap** — sessions restored from disk at boot now receive the correct `promptGuard.enabled` setting from config
+- **PromptGuard SAFE_RESULT mutation** — guard now returns a fresh object on every safe result, preventing callers from corrupting subsequent checks
+- **Context window compression** — `ContextWindowManager.fitMessages` now wired into `processMessage`; long conversations no longer overflow the model's context window and corrupt responses
+- **Smart routing history corruption** — routing to a provider with a different tool calling format (native JSON vs. XML prompt-based) is now blocked when conversation history exists
+- **Indirect injection** — tool output (file contents, command results) now scanned for prompt injection payloads before being added to conversation history
+- **PII redaction notice** — a `🔒 N value(s) redacted` notice appears in the chat when user input is cleaned before sending to the LLM
+- **Session auto-pruning** — sessions are automatically pruned on startup to the 100 most recent; sessions older than 90 days are removed
+
+### Added
+
+- `agent.promptGuard.enabled: false` config option to disable prompt injection blocking for security research workflows
+
 ## [1.6.0] — 2026-04-22
 
 Multi-agent workflows, rich content (images + generated docs/diagrams),
