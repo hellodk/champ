@@ -640,7 +640,19 @@ export class AgentController {
         // file contents and command output from leaking to the LLM
         // on the next turn. The user-visible result (collected above)
         // intentionally retains the unredacted output for display.
-        const redactedOutput = this.secretScanner.scan(result.output).redacted;
+        // 1. Redact secrets from tool output before sending to LLM.
+        const secretScan = this.secretScanner.scan(result.output);
+        // 2. Check tool output for indirect prompt injection (e.g. malicious
+        //    instructions embedded in workspace files or command output).
+        const injectionCheck = this.promptGuard.check(secretScan.redacted);
+        const redactedOutput = injectionCheck.safe
+          ? secretScan.redacted
+          : `[Tool output blocked — possible prompt injection in ${call.name} output (${injectionCheck.category ?? "unknown"})]`;
+        if (!injectionCheck.safe) {
+          console.warn(
+            `Champ PromptGuard: blocked indirect injection in ${call.name} output — ${injectionCheck.reason}`,
+          );
+        }
         const redactedResult: ToolResult = {
           ...result,
           output: redactedOutput,
