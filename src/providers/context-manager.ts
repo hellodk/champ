@@ -17,9 +17,14 @@ export class ContextWindowManager {
   ) {}
 
   /**
-   * Returns the token budget available for input messages. The reserved
-   * output size defaults to 4096 tokens or 25% of the context window,
-   * whichever is smaller (so small context windows still have usable budget).
+   * Returns the token budget available for input messages.
+   *
+   * Reserved output defaults to `min(4096, contextWindow / 2)`:
+   *  - Large windows (≥ 8 192): reserves 4 096 tokens (~25–50%)
+   *  - Small windows (< 8 192): reserves up to 50% to keep a usable
+   *    output buffer even on tiny models
+   *
+   * Pass `reservedForOutput` to the constructor to override this.
    */
   availableTokens(_messages: LLMMessage[]): number {
     const info = this.provider.modelInfo();

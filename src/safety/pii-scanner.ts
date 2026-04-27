@@ -43,9 +43,12 @@ interface PiiPattern {
 const PII_PATTERNS: PiiPattern[] = [
   {
     type: "email",
-    // Standard email. Disallows consecutive dots in local part and domain
-    // to match RFC 5321 more closely and reduce false positives on
-    // patterns like "v1..v2" that contain @ symbols in unusual contexts.
+    // Matches standard email addresses. The negative lookbehinds prevent
+    // the local part or domain from ending in a dot immediately before @
+    // or the TLD separator (e.g. blocks "user.@" and "domain.@tld").
+    // NOTE: consecutive dots mid-string (user..name@) are still matched —
+    // this is intentional; over-redacting invalid emails is safer than
+    // missing real PII that happens to be malformed.
     pattern:
       /\b[a-zA-Z0-9][a-zA-Z0-9._%+\-]*(?<!\.)@[a-zA-Z0-9][a-zA-Z0-9.\-]*(?<!\.)\.[a-zA-Z]{2,}\b/g,
   },

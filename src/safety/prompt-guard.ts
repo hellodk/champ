@@ -104,9 +104,14 @@ export class PromptGuard {
     if (!this.enabled || !text)
       return { safe: true, reason: null, category: null };
 
+    // Normalise to NFC before pattern matching so that homograph attacks
+    // using lookalike Unicode characters (e.g. Cyrillic 'а' for Latin 'a')
+    // and zero-width joiners/non-joiners do not bypass detection.
+    const normalised = text.normalize("NFC").replace(/[​-‍﻿]/g, "");
+
     for (const { pattern, reason, category } of INJECTION_PATTERNS) {
       pattern.lastIndex = 0;
-      if (pattern.test(text)) {
+      if (pattern.test(normalised)) {
         return { safe: false, reason, category };
       }
     }
