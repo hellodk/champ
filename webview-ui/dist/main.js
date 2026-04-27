@@ -476,15 +476,16 @@
 
   const bottomSpacer = el('div', { class: 'bottom-spacer' });
 
-  // Single action button — shows Send (blue ▶) when text is present,
+  // Primary action button — shows Send (blue ▶) when text is present,
   // shows Stop (red ■) while streaming. Hidden when idle with no text.
-  const actionBtn = el('button', { class: 'action-btn', title: 'Send' });
-  actionBtn.style.display = 'none';
+  // Named primaryBtn to avoid collision with the existing actionBtn() helper above.
+  const primaryBtn = el('button', { class: 'primary-btn', title: 'Send' });
+  primaryBtn.style.display = 'none';
 
   const queueBadge = el('span', { class: 'queue-badge' });
   queueBadge.style.cssText = 'display:none;font-size:11px;opacity:0.7;padding:0 6px;white-space:nowrap;align-self:center;';
 
-  actionBtn.addEventListener('click', () => {
+  primaryBtn.addEventListener('click', () => {
     if (state.streaming) {
       vscode.postMessage({ type: 'cancelRequest' });
       setStreaming(false);
@@ -493,32 +494,29 @@
     }
   });
 
-  function updateActionBtn() {
+  function updatePrimaryBtn() {
     const hasText = textarea.value.trim().length > 0;
     if (state.streaming) {
-      actionBtn.style.display = '';
-      actionBtn.className = 'action-btn action-btn--stop';
-      actionBtn.title = 'Stop';
-      actionBtn.innerHTML = '■';
+      primaryBtn.style.display = '';
+      primaryBtn.className = 'primary-btn primary-btn--stop';
+      primaryBtn.title = 'Stop';
+      primaryBtn.innerHTML = '■';
     } else if (hasText) {
-      actionBtn.style.display = '';
-      actionBtn.className = 'action-btn action-btn--send';
-      actionBtn.title = 'Send (Enter)';
-      actionBtn.innerHTML = '▶';
+      primaryBtn.style.display = '';
+      primaryBtn.className = 'primary-btn primary-btn--send';
+      primaryBtn.title = 'Send (Enter)';
+      primaryBtn.innerHTML = '▶';
     } else {
-      actionBtn.style.display = 'none';
+      primaryBtn.style.display = 'none';
     }
   }
 
-  // Keep cancelBtn alias for legacy references inside setStreaming.
-  const cancelBtn = actionBtn;
-
-  bottomBar.append(modePickerBtn, modelPickerBtn, bottomSpacer, queueBadge, actionBtn);
+  bottomBar.append(modePickerBtn, modelPickerBtn, bottomSpacer, queueBadge, primaryBtn);
 
   let skillDebounceTimer = null;
   textarea.addEventListener('input', () => {
     autoResizeTextarea();
-    updateActionBtn();
+    updatePrimaryBtn();
     // Close dropdown immediately if no longer a slash-command prefix.
     const value = textarea.value;
     if (!value.match(/^\/([A-Za-z][\w-]*)?$/)) {
@@ -760,7 +758,7 @@
 
   function setStreaming(streaming) {
     state.streaming = streaming;
-    updateActionBtn();
+    updatePrimaryBtn();
     if (!streaming && state.currentAssistantMessage) {
       const body = state.currentAssistantMessage.querySelector('.body');
       if (body) {
@@ -1217,7 +1215,7 @@
         state.messageQueue = [];
         state.streaming = false;
         updateQueueBadge();
-        updateActionBtn();
+        updatePrimaryBtn();
         // Reset per-session auto-approve on session switch/new chat.
         sessionAutoApprove = false;
         if (msg.messages && msg.messages.length > 0) {

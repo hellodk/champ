@@ -564,8 +564,8 @@ html, body {
   background-color: var(--vscode-button-secondaryHoverBackground);
 }
 
-/* Single action button — circle, swaps between Send and Stop */
-.bottom-bar button.action-btn {
+/* Primary action button — circle, swaps between Send and Stop */
+.bottom-bar button.primary-btn {
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -580,22 +580,22 @@ html, body {
   transition: background-color 0.15s, box-shadow 0.15s;
 }
 
-.bottom-bar button.action-btn--send {
+.bottom-bar button.primary-btn--send {
   background-color: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
 }
 
-.bottom-bar button.action-btn--send:hover {
+.bottom-bar button.primary-btn--send:hover {
   background-color: var(--vscode-button-hoverBackground);
 }
 
-.bottom-bar button.action-btn--stop {
+.bottom-bar button.primary-btn--stop {
   background-color: #c0392b;
   color: #fff;
   animation: stop-pulse 2s ease-in-out infinite;
 }
 
-.bottom-bar button.action-btn--stop:hover {
+.bottom-bar button.primary-btn--stop:hover {
   background-color: #e74c3c;
 }
 
