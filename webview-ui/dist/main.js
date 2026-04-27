@@ -564,11 +564,15 @@
     }
   });
 
-  // Textarea row: attach button + textarea side by side.
-  const textareaRow = el('div', { class: 'textarea-row' });
-  textareaRow.append(attachBtn, textarea);
+  // Move attachBtn into the bottom bar (left-most item, before mode picker).
+  // The textarea now lives directly inside the unified chatBox.
+  bottomBar.prepend(attachBtn);
 
-  // Metrics footer — tiny status line below the bottom bar.
+  // Unified chat input box — textarea on top, bottom strip inside the same border.
+  const chatBox = el('div', { class: 'chat-box' });
+  chatBox.append(attachChips, textarea, bottomBar);
+
+  // Metrics footer — tiny status line below the chat box.
   const metricsFooter = el('div', { class: 'metrics-footer' });
   metricsFooter.textContent = '';
 
@@ -582,7 +586,7 @@
     metricsFooter.textContent = `${m.totalRequests} req · ${tokensIn} in · ${tokensOut} out · ${m.averageLatency}ms avg${m.totalFailures > 0 ? ` · ${m.totalFailures} err` : ''}`;
   }
 
-  inputArea.append(skillDropdown, attachChips, textareaRow, modePickerPopup, modelPickerPopup, bottomBar, metricsFooter);
+  inputArea.append(skillDropdown, chatBox, modePickerPopup, modelPickerPopup, metricsFooter);
 
   // Wrap messages + scroll pill in a positioned container.
   const messagesWrapper = el('div', { class: 'messages-wrapper' });

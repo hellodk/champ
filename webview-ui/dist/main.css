@@ -389,6 +389,22 @@ html, body {
   opacity: 0.85;
 }
 
+/* Unified chat input box — one rounded container for textarea + controls */
+.chat-box {
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 12px;
+  background-color: var(--vscode-input-background);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.chat-box:focus-within {
+  border-color: var(--vscode-focusBorder);
+}
+
+/* Textarea sits bare inside the box — no own border or background */
 .input-area textarea {
   resize: none;
   height: 60px;
@@ -398,26 +414,29 @@ html, body {
   font-family: inherit;
   font-size: var(--vscode-font-size);
   color: var(--vscode-input-foreground);
-  background-color: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border);
-  border-radius: 10px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
   padding: 10px 14px;
   outline: none;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .input-area textarea:focus {
-  border-color: var(--vscode-focusBorder);
+  outline: none;
 }
 
 /*
- * Bottom bar — Mode + Model on the left, Cancel/Send on the right.
- * Sits directly below the textarea, inside the input area.
+ * Bottom bar — lives inside .chat-box as the bottom strip.
+ * Attach button + mode/model pickers left; send/stop circle right.
  */
 .bottom-bar {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--vscode-panel-border);
 }
 
 /* Mode picker button */
@@ -1006,26 +1025,24 @@ html, body {
 }
 
 .attach-btn {
-  width: 34px;
-  height: 34px;
+  width: 26px;
+  height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: calc(var(--vscode-font-size) + 2px);
+  font-size: calc(var(--vscode-font-size) + 1px);
   color: var(--vscode-descriptionForeground);
   background: transparent;
-  border: 1px solid var(--vscode-input-border);
-  border-radius: 10px;
+  border: none;
+  border-radius: 6px;
   cursor: pointer;
   padding: 0;
-  margin-top: 6px;
   flex-shrink: 0;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+  transition: background-color 0.15s, color 0.15s;
 }
 
 .attach-btn:hover {
   background-color: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
-  border-color: var(--vscode-focusBorder);
   color: var(--vscode-foreground);
 }
 
@@ -1041,11 +1058,12 @@ html, body {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-bottom: 4px;
+  padding: 8px 14px 0;
 }
 
 .attach-chips:empty {
   display: none;
+  padding: 0;
 }
 
 .attach-chip {
