@@ -1417,6 +1417,17 @@ export async function activate(
         });
       }
 
+      // Wire promptGuard.enabled into all sessions restored at boot.
+      if (agentManager && cachedYamlConfig !== undefined) {
+        const guardEnabled =
+          cachedYamlConfig?.agent?.promptGuard?.enabled !== false;
+        agentManager.listSessions(true).forEach((meta) => {
+          agentManager!
+            .getSession(meta.id)
+            ?.controller.setPromptGuardEnabled(guardEnabled);
+        });
+      }
+
       agentManager.onChange((event) => {
         broadcastSessionList();
         if (

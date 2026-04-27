@@ -364,7 +364,7 @@ export class ConfigLoader {
           if ("enabled" in pg && typeof pg.enabled !== "boolean") {
             pushError("agent.promptGuard.enabled must be a boolean");
           } else {
-            out.promptGuard = { enabled: (pg.enabled as boolean) ?? true };
+            out.promptGuard = { enabled: pg.enabled !== false };
           }
         }
         result.agent = out;

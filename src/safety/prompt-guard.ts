@@ -95,13 +95,12 @@ const INJECTION_PATTERNS: InjectionPattern[] = [
   },
 ];
 
-const SAFE_RESULT: GuardResult = { safe: true, reason: null, category: null };
-
 export class PromptGuard {
   constructor(private readonly enabled: boolean = true) {}
 
   check(text: string): GuardResult {
-    if (!this.enabled || !text) return SAFE_RESULT;
+    if (!this.enabled || !text)
+      return { safe: true, reason: null, category: null };
 
     for (const { pattern, reason, category } of INJECTION_PATTERNS) {
       pattern.lastIndex = 0;
@@ -110,7 +109,7 @@ export class PromptGuard {
       }
     }
 
-    return SAFE_RESULT;
+    return { safe: true, reason: null, category: null };
   }
 }
 
