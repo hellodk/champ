@@ -443,6 +443,12 @@ html, body {
   outline: none;
 }
 
+/* Visual indicator that the user is navigating input history */
+.input-area textarea.history-mode {
+  border-bottom: 2px solid var(--vscode-textLink-foreground);
+  opacity: 0.9;
+}
+
 /*
  * Bottom bar — lives inside .chat-box as the bottom strip.
  * Attach button + mode/model pickers left; send/stop circle right.

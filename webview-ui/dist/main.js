@@ -42,6 +42,8 @@
     historyIndex: -1,
     /** Draft saved when the user starts navigating history. */
     historyDraft: '',
+    /** Active session ID, used to persist per-session input history. */
+    activeSessionId: null,
     /** @type {Array<{name: string, description: string}>} */
     skillSuggestions: [],
     /** Index of the highlighted dropdown row, -1 when closed. */
@@ -571,7 +573,7 @@
       const lines = textarea.value.split('\n');
       const cursorPos = textarea.selectionStart;
       const textBefore = textarea.value.slice(0, cursorPos);
-      const isOnFirstLine = !textBefore.includes('\n');
+      const isOnFirstLine = !textBefore.includes('\n') || textarea.selectionStart === 0;
       const isOnLastLine = !textarea.value.slice(cursorPos).includes('\n');
 
       if (ev.key === 'ArrowUp' && isOnFirstLine && state.inputHistory.length > 0) {
@@ -584,6 +586,7 @@
           state.historyIndex--;
         }
         textarea.value = state.inputHistory[state.historyIndex];
+        textarea.classList.add('history-mode');
         autoResizeTextarea();
         updatePrimaryBtn();
         // Move caret to end.
@@ -601,6 +604,7 @@
           state.historyIndex = -1;
           textarea.value = state.historyDraft;
           state.historyDraft = '';
+          textarea.classList.remove('history-mode');
         }
         autoResizeTextarea();
         updatePrimaryBtn();
@@ -699,9 +703,37 @@
     queueBadge.textContent = n === 1 ? '1 queued' : `${n} queued`;
   }
 
+  function saveInputHistory() {
+    try {
+      const s = vscode.getState() || {};
+      // Store per-session, keyed by session ID. Keep last 50 per session.
+      const sessionId = state.activeSessionId || 'default';
+      const histories = s.inputHistories || {};
+      histories[sessionId] = state.inputHistory.slice(-50);
+      vscode.setState({ ...s, inputHistories: histories });
+    } catch { /* storage failure must not break send */ }
+  }
+
+  function loadInputHistory(sessionId) {
+    try {
+      const s = vscode.getState() || {};
+      return (s.inputHistories || {})[sessionId] || [];
+    } catch { return []; }
+  }
+
   function sendCurrentInput() {
     const text = textarea.value.trim();
     if (!text) return;
+
+    // Record in history regardless of whether we send now or queue.
+    if (state.inputHistory[state.inputHistory.length - 1] !== text) {
+      state.inputHistory.push(text);
+      saveInputHistory();        // persist immediately
+    }
+    state.historyIndex = -1;
+    state.historyDraft = '';
+    textarea.classList.remove('history-mode');
+
     // While a response is in-flight, queue the message instead of dropping it.
     if (state.streaming) {
       state.messageQueue.push(text);
@@ -709,12 +741,6 @@
       updateQueueBadge();
       return;
     }
-    // Save to input history for up/down navigation (deduplicate consecutive dupes).
-    if (state.inputHistory[state.inputHistory.length - 1] !== text) {
-      state.inputHistory.push(text);
-    }
-    state.historyIndex = -1;
-    state.historyDraft = '';
     closeSkillDropdown();
     vscode.postMessage({ type: 'userMessage', text });
     appendMessage('user', text);
@@ -1296,6 +1322,8 @@
         modeSelect.value = msg.mode;
         break;
       case 'conversationHistory':
+        // Save current session history before switching.
+        if (state.activeSessionId) saveInputHistory();
         // Clear and re-render. If the host sent actual messages
         // (e.g. session restore/switch), render them; otherwise
         // show the empty welcome state.
@@ -1306,6 +1334,7 @@
         state.inputHistory = [];
         state.historyIndex = -1;
         state.historyDraft = '';
+        textarea.classList.remove('history-mode');
         updateQueueBadge();
         updatePrimaryBtn();
         // Reset per-session auto-approve on session switch/new chat.
@@ -1347,6 +1376,14 @@
         renderOnboardingPanel(msg.templates || []);
         break;
       case 'sessionList':
+        // Update active session and restore its history.
+        if (msg.activeSessionId && msg.activeSessionId !== state.activeSessionId) {
+          if (state.activeSessionId) saveInputHistory();
+          state.activeSessionId = msg.activeSessionId;
+          state.inputHistory = loadInputHistory(msg.activeSessionId);
+          state.historyIndex = -1;
+          state.historyDraft = '';
+        }
         renderSessionList(msg.sessions || [], msg.activeSessionId);
         break;
       case 'metricsUpdate':
@@ -1420,6 +1457,13 @@
     setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
   });
 
+  // Restore persisted input history if available.
+  try {
+    const s = vscode.getState() || {};
+    if (s.inputHistories) {
+      // Will be populated properly when sessionList arrives.
+    }
+  } catch {}
   // Signal readiness to the host.
   vscode.postMessage({ type: 'requestHistory' });
 })();
