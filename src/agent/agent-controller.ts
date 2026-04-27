@@ -373,10 +373,22 @@ export class AgentController {
       const taskType = this.modeToTaskType(this.mode);
       const routed = this.smartRouter.select(taskType);
       if (routed) {
-        activeProvider = routed.provider;
-        console.log(
-          `Champ SmartRouter: ${this.mode} → ${routed.model.id} [${routed.reason}]`,
-        );
+        const routedPromptBased = !routed.provider.supportsToolUse();
+        const currentPromptBased = !this.provider.supportsToolUse();
+        const hasHistory = this.history.length > 0;
+
+        if (routedPromptBased === currentPromptBased || !hasHistory) {
+          // Same tool format, or no history yet — safe to route.
+          activeProvider = routed.provider;
+          console.log(
+            `Champ SmartRouter: ${this.mode} → ${routed.model.id} [${routed.reason}]`,
+          );
+        } else {
+          console.log(
+            `Champ SmartRouter: skipping ${routed.model.id} — ` +
+              `tool format mismatch with existing history`,
+          );
+        }
       }
     }
 
