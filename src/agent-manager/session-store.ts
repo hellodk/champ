@@ -95,11 +95,32 @@ export class SessionStore {
     const sessions = await this.loadAll();
     if (sessions.length <= maxSessions) return 0;
 
-    // Sort newest-first, delete the tail.
     sessions.sort(
       (a, b) => b.metadata.lastActivityAt - a.metadata.lastActivityAt,
     );
     const toDelete = sessions.slice(maxSessions);
+    for (const s of toDelete) {
+      await this.delete(s.metadata.id);
+    }
+    return toDelete.length;
+  }
+
+  /**
+   * Run both prune operations in a single loadAll() pass.
+   * Drops sessions over `maxSessions` limit AND older than `days` days.
+   * Returns total pruned count.
+   */
+  async pruneStartup(maxSessions: number, days: number): Promise<number> {
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    const sessions = await this.loadAll();
+
+    sessions.sort(
+      (a, b) => b.metadata.lastActivityAt - a.metadata.lastActivityAt,
+    );
+
+    const toDelete = sessions.filter(
+      (s, i) => i >= maxSessions || s.metadata.lastActivityAt < cutoff,
+    );
     for (const s of toDelete) {
       await this.delete(s.metadata.id);
     }

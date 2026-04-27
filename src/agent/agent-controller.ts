@@ -478,6 +478,8 @@ export class AgentController {
     // Fetch the repo map once per session for grounding. Cached after
     // first call. Empty string if no provider attached.
     const repoMap = await this.getRepoMap();
+    // Context window manager — created once per message, reused across iterations.
+    const contextManager = new ContextWindowManager(activeProvider);
 
     // Analytics tracking — optional; must not affect message processing if it fails.
     const toolStartTimes = new Map<string, number>();
@@ -511,7 +513,6 @@ export class AgentController {
         : this.withGroundingSystemPrompt(this.history, repoMap);
 
       // Fit into context window — drops oldest non-system turns if needed.
-      const contextManager = new ContextWindowManager(activeProvider);
       const messagesToSend = contextManager.fitMessages(rawMessages);
       if (messagesToSend.length < rawMessages.length) {
         const dropped = rawMessages.length - messagesToSend.length;

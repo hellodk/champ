@@ -19,8 +19,10 @@ export type InjectionCategory =
   | "override_instructions" // "ignore previous instructions"
   | "persona_switch" // "you are now X", "act as X"
   | "system_leak" // "repeat your system prompt", "output your instructions"
-  | "jailbreak" // DAN, STAN, classic jailbreak keywords
-  | "indirect_injection"; // content in workspace files that contains injection
+  | "jailbreak"; // DAN, STAN, classic jailbreak keywords
+// NOTE: "indirect_injection" (content in workspace files) is detected
+// by running tool output through check() — it will produce one of the
+// above categories, not a separate bucket.
 
 export interface GuardResult {
   /** True if the message is safe to forward to the LLM. */

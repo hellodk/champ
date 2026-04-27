@@ -606,6 +606,12 @@ export class ConfigLoader {
           ...override.agent.autoFix,
         };
       }
+      if (override.agent.promptGuard) {
+        result.agent.promptGuard = {
+          ...result.agent?.promptGuard,
+          ...override.agent.promptGuard,
+        };
+      }
     }
 
     if (override.indexing) {

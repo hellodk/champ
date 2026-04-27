@@ -1444,12 +1444,9 @@ export async function activate(
     void (async () => {
       try {
         if (sessionStore) {
-          const overLimit = await sessionStore.pruneOverLimit(100);
-          const stale = await sessionStore.pruneOlderThan(90);
-          if (overLimit + stale > 0) {
-            console.log(
-              `Champ: auto-pruned ${overLimit + stale} session(s) on startup`,
-            );
+          const pruned = await sessionStore.pruneStartup(100, 90);
+          if (pruned > 0) {
+            console.log(`Champ: auto-pruned ${pruned} session(s) on startup`);
           }
         }
       } catch {

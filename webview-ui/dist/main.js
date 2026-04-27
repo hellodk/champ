@@ -1051,7 +1051,8 @@
 
   function showPiiNotice(summary) {
     const notice = el('div', { class: 'pii-notice' });
-    notice.innerHTML = '🔒 <em>' + summary + '</em>';
+    const em = el('em', {}, [summary]);
+    notice.append(document.createTextNode('🔒 '), em);
     messagesContainer.append(notice);
     if (!userScrolledUp) messagesContainer.scrollTop = messagesContainer.scrollHeight;
     setTimeout(() => { if (notice.parentNode) notice.remove(); }, 8000);

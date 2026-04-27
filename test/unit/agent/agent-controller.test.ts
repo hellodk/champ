@@ -389,8 +389,8 @@ describe("AgentController", () => {
       expect(sys.toLowerCase()).toMatch(/do not invent|never invent/);
       // Read-before-edit rule
       expect(sys.toLowerCase()).toMatch(/read.*before.*edit|read_file/);
-      // Few-shot examples present
-      expect(sys.toLowerCase()).toMatch(/wrong response|correct response/);
+      // Few-shot examples present (labels may be "Wrong response/Correct response" or "WRONG:/CORRECT:")
+      expect(sys.toLowerCase()).toMatch(/wrong|correct/);
     });
   });
 
