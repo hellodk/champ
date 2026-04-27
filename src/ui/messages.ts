@@ -529,3 +529,9 @@ export function isRenameSessionRequest(
 ): msg is RenameSessionRequest {
   return msg.type === "renameSessionRequest";
 }
+
+export function isOpenGeneratedFileRequest(
+  msg: WebviewToExtensionMessage,
+): msg is OpenGeneratedFileRequest {
+  return msg.type === "openGeneratedFileRequest";
+}
