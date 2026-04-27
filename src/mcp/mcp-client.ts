@@ -63,6 +63,9 @@ interface MCPConnection {
 export class MCPClientManager {
   private connections = new Map<string, MCPConnection>();
 
+  /** Called when a server process exits unexpectedly. Wired by McpRegistry. */
+  onServerExit?: (serverName: string, code: number | null) => void;
+
   /**
    * Connect to an MCP server via stdio. Spawns the server process,
    * performs the JSON-RPC initialize handshake, and fetches the tool list.
@@ -70,6 +73,11 @@ export class MCPClientManager {
   async connect(config: MCPServerConfig): Promise<void> {
     if (!config.command) {
       throw new Error(`MCP server "${config.name}" has no command configured`);
+    }
+
+    // If already connected, cleanly disconnect before reconnecting.
+    if (this.connections.has(config.name)) {
+      await this.disconnect(config.name);
     }
 
     const env = { ...process.env, ...(config.env ?? {}) };
@@ -107,6 +115,10 @@ export class MCPClientManager {
         pending.reject(new Error(`MCP server exited with code ${code}`));
       }
       connection.pendingRequests.clear();
+      // Remove the dead connection so reconnect works correctly.
+      this.connections.delete(config.name);
+      // Notify the registry so it can unregister the server's tools.
+      this.onServerExit?.(config.name, code);
     });
 
     this.connections.set(config.name, connection);
