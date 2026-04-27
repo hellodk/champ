@@ -201,4 +201,11 @@ export interface LLMProvider {
 
   /** Dispose of any held resources (HTTP connections, etc.). */
   dispose(): void;
+
+  /**
+   * Return a copy of this provider configured to use a different model.
+   * Used by SmartRouter to route a request to a specific discovered model
+   * without mutating the shared provider instance.
+   */
+  withModel?(modelId: string): LLMProvider;
 }

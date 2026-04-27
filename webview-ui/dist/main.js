@@ -62,9 +62,13 @@
   // Top header: app title + model indicator on the left, icon buttons on the right.
   const header = el('div', { class: 'header' });
   const headerLeft = el('div', { class: 'header-left' });
+  const headerTitleRow = el('div', { class: 'header-title-row' });
   const headerTitle = el('div', { class: 'header-title' }, ['Champ']);
+  const v = typeof window.__CHAMP_VERSION__ === 'string' && window.__CHAMP_VERSION__ ? window.__CHAMP_VERSION__ : '';
+  const headerVersion = el('span', { class: 'header-version' }, [v ? `v${v}` : '']);
+  headerTitleRow.append(headerTitle, headerVersion);
   const headerSubtitle = el('div', { class: 'header-subtitle' }, ['loading…']);
-  headerLeft.append(headerTitle, headerSubtitle);
+  headerLeft.append(headerTitleRow, headerSubtitle);
 
   const headerRight = el('div', { class: 'header-right' });
   const newChatBtn = iconButton('codicon-add', 'New chat', () => {
@@ -472,25 +476,49 @@
 
   const bottomSpacer = el('div', { class: 'bottom-spacer' });
 
-  const cancelBtn = el('button', { class: 'stop-btn', disabled: 'true' });
-  cancelBtn.append(el('span', { class: 'stop-icon' }, ['■']), document.createTextNode(' Stop'));
-  const sendBtn = el('button', {}, ['Send']);
+  // Single action button — shows Send (blue ▶) when text is present,
+  // shows Stop (red ■) while streaming. Hidden when idle with no text.
+  const actionBtn = el('button', { class: 'action-btn', title: 'Send' });
+  actionBtn.style.display = 'none';
+
   const queueBadge = el('span', { class: 'queue-badge' });
   queueBadge.style.cssText = 'display:none;font-size:11px;opacity:0.7;padding:0 6px;white-space:nowrap;align-self:center;';
 
-  sendBtn.addEventListener('click', sendCurrentInput);
-  cancelBtn.addEventListener('click', () => {
-    vscode.postMessage({ type: 'cancelRequest' });
-    setStreaming(false);
+  actionBtn.addEventListener('click', () => {
+    if (state.streaming) {
+      vscode.postMessage({ type: 'cancelRequest' });
+      setStreaming(false);
+    } else {
+      sendCurrentInput();
+    }
   });
 
-  const sendBtnLabel = el('span', {}, ['↵ Enter']);
-  sendBtn.innerHTML = '';
-  sendBtn.append(sendBtnLabel);
-  bottomBar.append(modePickerBtn, modelPickerBtn, bottomSpacer, queueBadge, cancelBtn, sendBtn);
+  function updateActionBtn() {
+    const hasText = textarea.value.trim().length > 0;
+    if (state.streaming) {
+      actionBtn.style.display = '';
+      actionBtn.className = 'action-btn action-btn--stop';
+      actionBtn.title = 'Stop';
+      actionBtn.innerHTML = '■';
+    } else if (hasText) {
+      actionBtn.style.display = '';
+      actionBtn.className = 'action-btn action-btn--send';
+      actionBtn.title = 'Send (Enter)';
+      actionBtn.innerHTML = '▶';
+    } else {
+      actionBtn.style.display = 'none';
+    }
+  }
+
+  // Keep cancelBtn alias for legacy references inside setStreaming.
+  const cancelBtn = actionBtn;
+
+  bottomBar.append(modePickerBtn, modelPickerBtn, bottomSpacer, queueBadge, actionBtn);
 
   let skillDebounceTimer = null;
   textarea.addEventListener('input', () => {
+    autoResizeTextarea();
+    updateActionBtn();
     // Close dropdown immediately if no longer a slash-command prefix.
     const value = textarea.value;
     if (!value.match(/^\/([A-Za-z][\w-]*)?$/)) {
@@ -501,6 +529,11 @@
     clearTimeout(skillDebounceTimer);
     skillDebounceTimer = setTimeout(() => handleSkillInput(), 150);
   });
+
+  function autoResizeTextarea() {
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+  }
 
   textarea.addEventListener('keydown', (ev) => {
     // Dropdown navigation takes priority over send-on-enter when open.
@@ -631,6 +664,7 @@
     const cursorBody = state.currentAssistantMessage.querySelector('.body');
     if (cursorBody) cursorBody.classList.add('thinking');
     textarea.value = '';
+    autoResizeTextarea();
     // Clear pending attachment chips after sending.
     pendingFiles.length = 0;
     renderAttachChips();
@@ -726,8 +760,7 @@
 
   function setStreaming(streaming) {
     state.streaming = streaming;
-    cancelBtn.disabled = !streaming;
-    cancelBtn.classList.toggle('stop-btn--active', streaming);
+    updateActionBtn();
     if (!streaming && state.currentAssistantMessage) {
       const body = state.currentAssistantMessage.querySelector('.body');
       if (body) {
@@ -946,10 +979,14 @@
     });
     text = htmlBlocks.join('\n');
 
-    // Restore code blocks.
+    // Restore code blocks with a copy button.
     text = text.replace(/\x00CODE(\d+)\x00/g, (_, idx) => {
       const { lang, code } = codeBlocks[parseInt(idx, 10)];
-      return `<pre class="code-block"><code class="lang-${esc(lang || 'text')}">${esc(code)}</code></pre>`;
+      const langLabel = lang ? `<span class="code-lang-label">${esc(lang)}</span>` : '';
+      return `<div class="code-block-wrapper">`
+        + `<div class="code-block-header">${langLabel}<button class="code-copy-btn">Copy</button></div>`
+        + `<pre class="code-block"><code class="lang-${esc(lang || 'text')}">${esc(code)}</code></pre>`
+        + `</div>`;
     });
 
     return text;
@@ -1178,7 +1215,9 @@
         state.messages = [];
         state.currentAssistantMessage = null;
         state.messageQueue = [];
+        state.streaming = false;
         updateQueueBadge();
+        updateActionBtn();
         // Reset per-session auto-approve on session switch/new chat.
         sessionAutoApprove = false;
         if (msg.messages && msg.messages.length > 0) {
@@ -1279,6 +1318,17 @@
     btn.addEventListener('click', onClick);
     return btn;
   }
+
+  // Delegated copy handler for code blocks.
+  messagesContainer.addEventListener('click', (e) => {
+    const btn = e.target.closest('.code-copy-btn');
+    if (!btn) return;
+    const code = btn.closest('.code-block-wrapper')?.querySelector('code');
+    if (!code) return;
+    navigator.clipboard.writeText(code.textContent || '').catch(() => {});
+    btn.textContent = '✓ Copied';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+  });
 
   // Signal readiness to the host.
   vscode.postMessage({ type: 'requestHistory' });

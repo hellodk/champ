@@ -151,6 +151,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly extensionUri: vscode.Uri,
     private agent: AgentController,
+    private readonly extensionVersion: string = "",
   ) {}
 
   /**
@@ -803,6 +804,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   ${codiconUri ? `<link href="${codiconUri}" rel="stylesheet" />` : ""}
   <link href="${styleUri}" rel="stylesheet" />
   <title>Champ Chat</title>
+  <script nonce="${nonce}">window.__CHAMP_VERSION__="${this.extensionVersion}";</script>
 </head>
 <body>
   <div id="app"></div>

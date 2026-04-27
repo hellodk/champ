@@ -294,6 +294,7 @@ export async function activate(
   chatViewProvider = new ChatViewProvider(
     context.extensionUri,
     agentController,
+    context.extension.packageJSON.version as string,
   );
   chatViewProvider.setContextResolver(contextResolver);
   chatViewProvider.setSkillRegistry(skillRegistry);

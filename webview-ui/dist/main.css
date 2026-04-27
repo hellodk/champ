@@ -46,11 +46,24 @@ html, body {
   min-width: 0;
 }
 
+.header-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
 .header-title {
   font-weight: 600;
   font-size: calc(var(--vscode-font-size) + 1px);
   color: var(--vscode-foreground);
   line-height: 1.2;
+}
+
+.header-version {
+  font-size: calc(var(--vscode-font-size) - 2px);
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.7;
+  font-weight: 400;
 }
 
 .header-subtitle {
@@ -378,8 +391,10 @@ html, body {
 
 .input-area textarea {
   resize: none;
-  min-height: 60px;
+  height: 60px;
+  min-height: 40px;
   max-height: 200px;
+  overflow-y: auto;
   font-family: inherit;
   font-size: var(--vscode-font-size);
   color: var(--vscode-input-foreground);
@@ -549,38 +564,90 @@ html, body {
   background-color: var(--vscode-button-secondaryHoverBackground);
 }
 
-/* Stop button — subtle when idle, red when LLM is running */
-.bottom-bar button.stop-btn {
-  background-color: var(--vscode-button-secondaryBackground);
-  color: var(--vscode-button-secondaryForeground);
-  transition: background-color 0.2s, color 0.2s, box-shadow 0.2s;
+/* Single action button — circle, swaps between Send and Stop */
+.bottom-bar button.action-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s, box-shadow 0.15s;
 }
 
-.bottom-bar button.stop-btn:disabled {
-  opacity: 0.35;
+.bottom-bar button.action-btn--send {
+  background-color: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
 }
 
-.bottom-bar button.stop-btn--active {
+.bottom-bar button.action-btn--send:hover {
+  background-color: var(--vscode-button-hoverBackground);
+}
+
+.bottom-bar button.action-btn--stop {
   background-color: #c0392b;
   color: #fff;
-  opacity: 1;
-  box-shadow: 0 0 0 2px rgba(192, 57, 43, 0.35);
   animation: stop-pulse 2s ease-in-out infinite;
 }
 
-.bottom-bar button.stop-btn--active:hover {
+.bottom-bar button.action-btn--stop:hover {
   background-color: #e74c3c;
-  box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.45);
-}
-
-.stop-icon {
-  font-size: 9px;
-  vertical-align: middle;
 }
 
 @keyframes stop-pulse {
-  0%, 100% { box-shadow: 0 0 0 2px rgba(192, 57, 43, 0.35); }
-  50%       { box-shadow: 0 0 0 4px rgba(192, 57, 43, 0.15); }
+  0%, 100% { box-shadow: 0 0 0 2px rgba(192, 57, 43, 0.3); }
+  50%       { box-shadow: 0 0 0 5px rgba(192, 57, 43, 0.08); }
+}
+
+/* Code block copy button */
+.code-block-wrapper {
+  margin: 8px 0;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--vscode-panel-border);
+}
+
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  background: var(--vscode-editor-background);
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.code-lang-label {
+  font-size: 11px;
+  opacity: 0.6;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.code-copy-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--vscode-panel-border);
+  background: transparent;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+  opacity: 0.7;
+  font-family: inherit;
+}
+
+.code-copy-btn:hover {
+  opacity: 1;
+  background: var(--vscode-list-hoverBackground);
+}
+
+.code-block-wrapper .code-block {
+  margin: 0;
+  border-radius: 0;
+  border: none;
 }
 
 .bottom-bar button:disabled {

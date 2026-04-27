@@ -168,11 +168,21 @@ export class OllamaProvider implements LLMProvider {
         signal: options?.abortSignal,
       });
 
-      if (!response.ok || !response.body) {
-        yield {
-          type: "error",
-          error: `Ollama request failed: ${response.status} ${response.statusText}`,
-        };
+      if (!response.ok) {
+        let errorDetail = `${response.status} ${response.statusText}`;
+        try {
+          const body = await response.text();
+          const parsed = JSON.parse(body) as { error?: string };
+          if (parsed.error) errorDetail = parsed.error;
+        } catch {
+          /* keep status text */
+        }
+        yield { type: "error", error: `Ollama request failed: ${errorDetail}` };
+        yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
+        return;
+      }
+      if (!response.body) {
+        yield { type: "error", error: "Ollama: empty response body" };
         yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
         return;
       }
@@ -215,11 +225,21 @@ export class OllamaProvider implements LLMProvider {
         signal: options?.abortSignal,
       });
 
-      if (!response.ok || !response.body) {
-        yield {
-          type: "error",
-          error: `Ollama request failed: ${response.status} ${response.statusText}`,
-        };
+      if (!response.ok) {
+        let errorDetail = `${response.status} ${response.statusText}`;
+        try {
+          const body = await response.text();
+          const parsed = JSON.parse(body) as { error?: string };
+          if (parsed.error) errorDetail = parsed.error;
+        } catch {
+          /* keep status text */
+        }
+        yield { type: "error", error: `Ollama request failed: ${errorDetail}` };
+        yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
+        return;
+      }
+      if (!response.body) {
+        yield { type: "error", error: "Ollama: empty response body" };
         yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
         return;
       }
@@ -246,6 +266,10 @@ export class OllamaProvider implements LLMProvider {
     } catch {
       return [];
     }
+  }
+
+  withModel(modelId: string): OllamaProvider {
+    return new OllamaProvider({ ...this.config, model: modelId });
   }
 
   dispose(): void {
