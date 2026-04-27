@@ -1,4 +1,4 @@
-import type { MCPClientManager, MCPTool } from "./mcp-client";
+import type { MCPClientManager, MCPContentBlock, MCPTool } from "./mcp-client";
 import type { Tool, ToolExecutionContext, ToolResult } from "../tools/types";
 import type { ToolParameterSchema } from "../providers/types";
 
@@ -11,7 +11,12 @@ function toToolParameterSchema(raw: unknown): ToolParameterSchema {
     const r = raw as Record<string, unknown>;
     return {
       type: "object",
-      properties: (r.properties as ToolParameterSchema["properties"]) ?? {},
+      properties:
+        r.properties !== null &&
+        typeof r.properties === "object" &&
+        !Array.isArray(r.properties)
+          ? (r.properties as ToolParameterSchema["properties"])
+          : {},
       required: Array.isArray(r.required) ? (r.required as string[]) : [],
     };
   }
@@ -29,7 +34,9 @@ export function createMcpToolAdapter(
   manager: MCPClientManager,
 ): Tool {
   const sanitise = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, "_");
-  const name = `mcp_${sanitise(serverName)}_${sanitise(mcpTool.name)}`;
+  const sanitisedServer = sanitise(serverName) || "unknown";
+  const sanitisedTool = sanitise(mcpTool.name) || "tool";
+  const name = `mcp_${sanitisedServer}_${sanitisedTool}`;
   const description = `${mcpTool.description ?? mcpTool.name} [MCP: ${serverName}]`;
 
   const parameters: ToolParameterSchema = toToolParameterSchema(
@@ -50,7 +57,7 @@ export function createMcpToolAdapter(
 
       const output = result.content
         .filter(
-          (b): b is typeof b & { type: "text"; text: string } =>
+          (b): b is MCPContentBlock & { type: "text"; text: string } =>
             b.type === "text" &&
             typeof b.text === "string" &&
             b.text.length > 0,
