@@ -9,6 +9,7 @@
 import { AgentController } from "../agent/agent-controller";
 import type { LLMProvider } from "../providers/types";
 import type { ToolRegistry } from "../tools/registry";
+import type { SmartRouter } from "../providers/smart-router";
 import type {
   SessionMetadata,
   SessionState,
@@ -34,12 +35,21 @@ export class AgentManager {
   private sessions = new Map<string, AgentSession>();
   private activeId: string | null = null;
   private listeners = new Set<(event: ManagerEvent) => void>();
+  private smartRouter: SmartRouter | null = null;
 
   constructor(
     private readonly toolRegistry: ToolRegistry,
     private readonly workspaceRoot: string,
     private readonly providerFactory: () => LLMProvider,
   ) {}
+
+  setSmartRouter(router: SmartRouter): void {
+    this.smartRouter = router;
+    // Wire into all existing sessions.
+    for (const session of this.sessions.values()) {
+      session.controller.setSmartRouter(router);
+    }
+  }
 
   createSession(label?: string): AgentSession {
     const id = generateId();
@@ -60,6 +70,7 @@ export class AgentManager {
       this.toolRegistry,
       this.workspaceRoot,
     );
+    if (this.smartRouter) controller.setSmartRouter(this.smartRouter);
     const session: AgentSession = { metadata, controller };
     this.sessions.set(id, session);
     this.activeId = id;

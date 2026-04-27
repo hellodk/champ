@@ -1,0 +1,115 @@
+/**
+ * PiiScanner: detect and redact personally identifiable information (PII)
+ * from user messages before they are sent to an LLM.
+ *
+ * Patterns covered: email addresses, phone numbers (international + US),
+ * US Social Security Numbers, credit/debit card numbers (all major networks),
+ * IPv4 addresses, and UK/EU national identity numbers.
+ *
+ * Design: redact the minimum necessary — only replace the matched value,
+ * preserving surrounding text intact so the LLM still has full context.
+ */
+
+export type PiiType =
+  | "email"
+  | "phone"
+  | "ssn"
+  | "credit_card"
+  | "ip_address"
+  | "national_id";
+
+export interface PiiFinding {
+  type: PiiType;
+  /** The exact matched text (for logging/telemetry — never sent to LLM). */
+  original: string;
+  /** Replacement token written into the redacted text. */
+  replacement: string;
+}
+
+export interface PiiScanResult {
+  /** Text with all PII values replaced by [REDACTED:type] tokens. */
+  redacted: string;
+  /** True when at least one PII value was found. */
+  hasFindings: boolean;
+  /** One entry per matched value (may include duplicates if the same value appears twice). */
+  findings: PiiFinding[];
+}
+
+interface PiiPattern {
+  type: PiiType;
+  pattern: RegExp;
+}
+
+const PII_PATTERNS: PiiPattern[] = [
+  {
+    type: "email",
+    // Standard email — anchored at word boundary, liberal local part.
+    pattern: /\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/g,
+  },
+  {
+    type: "credit_card",
+    // 16-digit cards (Visa/MC/Amex/Discover) with optional spaces or dashes.
+    // Luhn check not performed — pattern match is enough to redact.
+    pattern: /\b(?:\d[ \-]?){13,16}\b/g,
+  },
+  {
+    type: "ssn",
+    // US SSN: NNN-NN-NNNN. Require dashes to reduce false positives.
+    pattern: /\b\d{3}-\d{2}-\d{4}\b/g,
+  },
+  {
+    type: "phone",
+    // Covers: +1 (xxx) xxx-xxxx, xxx-xxx-xxxx, (xxx) xxx xxxx, +44 7xxx xxxxxx, etc.
+    pattern:
+      /(?:\+?\d{1,3}[\s\-.]?)?\(?\d{2,4}\)?[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}(?:[\s\-.]?\d{1,4})?/g,
+  },
+  {
+    type: "ip_address",
+    // IPv4 only. Excludes obvious non-IPs like version strings (1.0.0.1 still matches,
+    // which is conservative but safer than missing real IPs).
+    pattern:
+      /\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b/g,
+  },
+  {
+    type: "national_id",
+    // UK National Insurance: XX 99 99 99 X
+    pattern: /\b[A-CEGHJ-PR-TW-Z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-D]\b/gi,
+  },
+];
+
+export class PiiScanner {
+  scan(text: string): PiiScanResult {
+    if (!text) return { redacted: text, hasFindings: false, findings: [] };
+
+    let redacted = text;
+    const findings: PiiFinding[] = [];
+
+    // Apply patterns in order. Reset lastIndex before each global scan.
+    for (const { type, pattern } of PII_PATTERNS) {
+      pattern.lastIndex = 0;
+      redacted = redacted.replace(pattern, (match) => {
+        findings.push({
+          type,
+          original: match,
+          replacement: `[REDACTED:${type}]`,
+        });
+        return `[REDACTED:${type}]`;
+      });
+    }
+
+    return {
+      redacted,
+      hasFindings: findings.length > 0,
+      findings,
+    };
+  }
+
+  /** Convenience: return true if any PII is detected without full scan. */
+  hasFindings(text: string): boolean {
+    for (const { pattern } of PII_PATTERNS) {
+      pattern.lastIndex = 0;
+      if (pattern.test(text)) return true;
+    }
+    return false;
+  }
+}

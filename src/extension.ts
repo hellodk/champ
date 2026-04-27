@@ -142,6 +142,10 @@ export async function activate(
 
   // ---- Smart Router (multi-provider model discovery) ----------------
   smartRouter = new SmartRouter();
+  // Wire SmartRouter into AgentController and AgentManager for per-message
+  // model selection (coding tasks → best coding model, ask/plan → chat model).
+  agentController.setSmartRouter(smartRouter);
+  agentManager?.setSmartRouter(smartRouter);
   // When the router discovers models, (re-)initialize the indexing service
   // so it can pick up a newly available embedding model automatically.
   smartRouter.onChange(() => {

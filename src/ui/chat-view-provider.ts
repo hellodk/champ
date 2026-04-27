@@ -9,7 +9,10 @@
  *   - Manage per-request AbortController so cancel works.
  */
 import * as vscode from "vscode";
-import type { AgentController } from "../agent/agent-controller";
+import {
+  type AgentController,
+  PromptInjectionError,
+} from "../agent/agent-controller";
 import {
   createStreamDelta,
   createStreamEnd,
@@ -545,9 +548,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // No-op: deltas have already been forwarded.
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.postMessage(createError(message));
-      this.streamErrorCallback?.(message);
+      if (err instanceof PromptInjectionError) {
+        // Injection blocked — show clear UI message, fire stream-end so the
+        // UI returns to idle state, and report via the error callback for
+        // telemetry aggregation.
+        this.postMessage(createStreamEnd());
+        this.streamErrorCallback?.(
+          `injection_blocked:${err.guardResult.category ?? "unknown"}`,
+        );
+      } else {
+        const message = err instanceof Error ? err.message : String(err);
+        this.postMessage(createError(message));
+        this.streamErrorCallback?.(message);
+      }
     } finally {
       if (this.activeAbortController === controller) {
         this.activeAbortController = null;

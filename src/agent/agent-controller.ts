@@ -33,8 +33,13 @@ import {
   extractTextContent,
 } from "../providers/prompt-based-tools";
 import { SecretScanner } from "../safety/secret-scanner";
+import { PiiScanner } from "../safety/pii-scanner";
+import { PromptGuard, PromptInjectionError } from "../safety/prompt-guard";
+import type { SmartRouter, TaskType } from "../providers/smart-router";
 import type { ToolRegistry } from "../tools/registry";
 import type { ToolExecutionContext, ToolResult } from "../tools/types";
+
+export { PromptInjectionError };
 
 const DEFAULT_MAX_ITERATIONS = 25;
 
@@ -200,6 +205,9 @@ export class AgentController {
    * turn). See docs/HALLUCINATION_MITIGATION.md and src/safety/.
    */
   private readonly secretScanner = new SecretScanner();
+  private readonly piiScanner = new PiiScanner();
+  private readonly promptGuard = new PromptGuard();
+  private smartRouter: SmartRouter | null = null;
   // Inline import type avoids a top-level circular-dependency risk; analytics
   // is optional infrastructure and should not be in the core import chain.
   private analyticsInstance:
@@ -252,6 +260,24 @@ export class AgentController {
   ): void {
     this.analyticsInstance = analytics;
     this.analyticsAgentName = agentName;
+  }
+
+  setSmartRouter(router: SmartRouter): void {
+    this.smartRouter = router;
+  }
+
+  /** Map agent mode to a SmartRouter task type for model selection. */
+  private modeToTaskType(mode: AgentMode): TaskType {
+    switch (mode) {
+      case "agent":
+      case "composer":
+        return "coding";
+      case "ask":
+      case "plan":
+      case "manual":
+      default:
+        return "chat";
+    }
   }
 
   /**
@@ -334,10 +360,68 @@ export class AgentController {
   ): Promise<ProcessMessageResult> {
     const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
-    // If the provider doesn't support images, strip image blocks to avoid
-    // silent data loss — image blocks would otherwise be silently dropped.
+    // ── Smart routing: pick the best provider for this agent mode ─────────
+    // Selection is done once per message (not per-iteration) to avoid
+    // tool-calling format mismatches mid-conversation.
+    let activeProvider = this.provider;
+    if (this.smartRouter) {
+      const taskType = this.modeToTaskType(this.mode);
+      const routed = this.smartRouter.select(taskType);
+      if (routed) {
+        activeProvider = routed.provider;
+        console.log(
+          `Champ SmartRouter: ${this.mode} → ${routed.model.id} [${routed.reason}]`,
+        );
+      }
+    }
+
+    // ── Prompt injection guard ────────────────────────────────────────────
+    // Check the raw text before anything else. Blocks the request if an
+    // injection attempt is detected and fires telemetry.
+    const rawText = Array.isArray(userText)
+      ? userText
+          .filter(
+            (b): b is ContentBlock & { type: "text" } => b.type === "text",
+          )
+          .map((b) => b.text)
+          .join(" ")
+      : userText;
+
+    const guardResult = this.promptGuard.check(rawText);
+    if (!guardResult.safe) {
+      // Emit a text delta so the UI can show the block reason inline.
+      this.emit({
+        type: "text",
+        text: `⛔ **Request blocked** — ${guardResult.reason}`,
+      });
+      throw new PromptInjectionError(guardResult);
+    }
+
+    // ── PII redaction ─────────────────────────────────────────────────────
+    // Scan the user's message text and replace PII before it goes to history
+    // (and therefore to the LLM). Non-text content blocks are not modified.
+    if (typeof userText === "string") {
+      const piiResult = this.piiScanner.scan(userText);
+      if (piiResult.hasFindings) {
+        console.log(
+          `Champ PII: redacted ${piiResult.findings.length} finding(s) from user input: ${piiResult.findings.map((f) => f.type).join(", ")}`,
+        );
+        userText = piiResult.redacted;
+      }
+    } else {
+      // For ContentBlock arrays, redact text blocks only.
+      userText = userText.map((block) => {
+        if (block.type !== "text") return block;
+        const piiResult = this.piiScanner.scan(block.text);
+        return piiResult.hasFindings
+          ? { ...block, text: piiResult.redacted }
+          : block;
+      });
+    }
+
+    // ── Image stripping for non-vision providers ──────────────────────────
     if (Array.isArray(userText)) {
-      const supportsImages = this.provider.modelInfo().supportsImages;
+      const supportsImages = activeProvider.modelInfo().supportsImages;
       if (!supportsImages) {
         const textParts = userText
           .filter(
@@ -359,7 +443,7 @@ export class AgentController {
     const collectedToolCalls: Array<{ call: ToolCall; result: ToolResult }> =
       [];
 
-    const usePromptBased = !this.provider.supportsToolUse();
+    const usePromptBased = !activeProvider.supportsToolUse();
     // Filter tools by the active mode (Ask/Plan = read-only).
     const allTools = this.filterToolsByMode(this.toolRegistry.getDefinitions());
     // Fetch the repo map once per session for grounding. Cached after
@@ -397,7 +481,7 @@ export class AgentController {
         ? this.withInjectedToolPrompt(this.history, allTools, repoMap)
         : this.withGroundingSystemPrompt(this.history, repoMap);
 
-      const stream = this.provider.chat(messagesToSend, {
+      const stream = activeProvider.chat(messagesToSend, {
         // Native tool defs only when the provider says it supports them.
         tools: usePromptBased ? undefined : allTools,
         abortSignal: options.abortSignal,
