@@ -472,10 +472,25 @@ export class AgentController {
           .map((b) => b.text)
           .join("\n");
         const imageCount = userText.filter((b) => b.type === "image").length;
-        userText =
+        const combined =
           imageCount > 0
             ? `${textParts}\n\n[${imageCount} image(s) attached — this provider does not support image input]`
             : textParts;
+        // Re-scan the collapsed string for PII — the image placeholder
+        // itself is safe, but text parts from blocks were already redacted
+        // individually; this second pass is a safety net for anything
+        // introduced by the join or the image note.
+        const postStripPii = this.piiScanner.scan(combined);
+        if (postStripPii.hasFindings) {
+          const types = [
+            ...new Set(postStripPii.findings.map((f) => f.type)),
+          ].join(", ");
+          const summary = `${postStripPii.findings.length} value(s) redacted before sending (${types})`;
+          options.onPiiRedacted?.(summary);
+          userText = postStripPii.redacted;
+        } else {
+          userText = combined;
+        }
       }
     }
 

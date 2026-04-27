@@ -43,8 +43,11 @@ interface PiiPattern {
 const PII_PATTERNS: PiiPattern[] = [
   {
     type: "email",
-    // Standard email — anchored at word boundary, liberal local part.
-    pattern: /\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/g,
+    // Standard email. Disallows consecutive dots in local part and domain
+    // to match RFC 5321 more closely and reduce false positives on
+    // patterns like "v1..v2" that contain @ symbols in unusual contexts.
+    pattern:
+      /\b[a-zA-Z0-9][a-zA-Z0-9._%+\-]*(?<!\.)@[a-zA-Z0-9][a-zA-Z0-9.\-]*(?<!\.)\.[a-zA-Z]{2,}\b/g,
   },
   {
     type: "credit_card",

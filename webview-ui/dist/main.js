@@ -36,6 +36,12 @@
     currentAssistantMessage: /** @type {HTMLElement|null} */ (null),
     /** Messages typed while a response is in-flight; sent in order after stream ends. */
     messageQueue: /** @type {string[]} */ ([]),
+    /** Sent message history for up/down arrow navigation (terminal-style). */
+    inputHistory: /** @type {string[]} */ ([]),
+    /** Current position in inputHistory when navigating. -1 = not navigating. */
+    historyIndex: -1,
+    /** Draft saved when the user starts navigating history. */
+    historyDraft: '',
     /** @type {Array<{name: string, description: string}>} */
     skillSuggestions: [],
     /** Index of the highlighted dropdown row, -1 when closed. */
@@ -558,6 +564,51 @@
         return;
       }
     }
+    // Terminal-style history navigation with ArrowUp / ArrowDown.
+    // Only activates when the cursor is at the very first line (Up) or
+    // last line (Down) of the textarea, so multi-line editing still works.
+    if (ev.key === 'ArrowUp' || ev.key === 'ArrowDown') {
+      const lines = textarea.value.split('\n');
+      const cursorPos = textarea.selectionStart;
+      const textBefore = textarea.value.slice(0, cursorPos);
+      const isOnFirstLine = !textBefore.includes('\n');
+      const isOnLastLine = !textarea.value.slice(cursorPos).includes('\n');
+
+      if (ev.key === 'ArrowUp' && isOnFirstLine && state.inputHistory.length > 0) {
+        ev.preventDefault();
+        if (state.historyIndex === -1) {
+          // Save current draft before starting navigation.
+          state.historyDraft = textarea.value;
+          state.historyIndex = state.inputHistory.length - 1;
+        } else if (state.historyIndex > 0) {
+          state.historyIndex--;
+        }
+        textarea.value = state.inputHistory[state.historyIndex];
+        autoResizeTextarea();
+        updatePrimaryBtn();
+        // Move caret to end.
+        textarea.selectionStart = textarea.selectionEnd = textarea.value.length;
+        return;
+      }
+
+      if (ev.key === 'ArrowDown' && isOnLastLine && state.historyIndex !== -1) {
+        ev.preventDefault();
+        if (state.historyIndex < state.inputHistory.length - 1) {
+          state.historyIndex++;
+          textarea.value = state.inputHistory[state.historyIndex];
+        } else {
+          // Reached the bottom — restore the saved draft.
+          state.historyIndex = -1;
+          textarea.value = state.historyDraft;
+          state.historyDraft = '';
+        }
+        autoResizeTextarea();
+        updatePrimaryBtn();
+        textarea.selectionStart = textarea.selectionEnd = textarea.value.length;
+        return;
+      }
+    }
+
     // Enter sends, Shift+Enter inserts newline.
     if (ev.key === 'Enter' && !ev.shiftKey && !ev.metaKey && !ev.ctrlKey) {
       ev.preventDefault();
@@ -658,6 +709,12 @@
       updateQueueBadge();
       return;
     }
+    // Save to input history for up/down navigation (deduplicate consecutive dupes).
+    if (state.inputHistory[state.inputHistory.length - 1] !== text) {
+      state.inputHistory.push(text);
+    }
+    state.historyIndex = -1;
+    state.historyDraft = '';
     closeSkillDropdown();
     vscode.postMessage({ type: 'userMessage', text });
     appendMessage('user', text);
@@ -1246,6 +1303,9 @@
         state.currentAssistantMessage = null;
         state.messageQueue = [];
         state.streaming = false;
+        state.inputHistory = [];
+        state.historyIndex = -1;
+        state.historyDraft = '';
         updateQueueBadge();
         updatePrimaryBtn();
         // Reset per-session auto-approve on session switch/new chat.
