@@ -476,6 +476,31 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         void vscode.commands.executeCommand("champ.rescanModels");
       } else if ((msg as { type: string }).type === "resetToAutoRequest") {
         void vscode.commands.executeCommand("champ.resetToAuto");
+      } else if (
+        (msg as { type: string }).type === "openGeneratedFileRequest"
+      ) {
+        const raw = (msg as { type: string; filePath: string }).filePath;
+        // Resolve relative paths against the first workspace folder.
+        const workspaceRoot =
+          vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
+        const filePath =
+          raw.startsWith("/") || raw.match(/^[A-Za-z]:\\/)
+            ? raw
+            : require("path").join(workspaceRoot, raw);
+        const fileUri = vscode.Uri.file(filePath);
+        void vscode.workspace.openTextDocument(fileUri).then((doc) => {
+          void vscode.window.showTextDocument(doc, {
+            viewColumn: vscode.ViewColumn.Beside,
+            preview: true,
+          });
+          // Open side-by-side markdown preview for .md files.
+          if (filePath.endsWith(".md")) {
+            void vscode.commands.executeCommand(
+              "markdown.showPreviewToSide",
+              fileUri,
+            );
+          }
+        });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

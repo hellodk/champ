@@ -301,6 +301,16 @@ export interface RenameSessionRequest {
   newLabel: string;
 }
 
+/**
+ * User clicked a generated file link in the chat. The host opens the
+ * file in an editor tab and opens a side-by-side Markdown preview.
+ */
+export interface OpenGeneratedFileRequest {
+  type: "openGeneratedFileRequest";
+  /** Absolute path to the file to open. */
+  filePath: string;
+}
+
 export type WebviewToExtensionMessage =
   | UserMessageRequest
   | SetModeRequest
@@ -319,7 +329,8 @@ export type WebviewToExtensionMessage =
   | SwitchSessionRequest
   | NewSessionRequest
   | DeleteSessionRequest
-  | RenameSessionRequest;
+  | RenameSessionRequest
+  | OpenGeneratedFileRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)

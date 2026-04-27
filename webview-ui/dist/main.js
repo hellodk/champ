@@ -1025,9 +1025,6 @@
   }
 
   function updateToolCallResult(toolName, result, success) {
-    // Search ALL tool cards in the messages container, not just
-    // currentAssistantMessage — it may have been nullified by
-    // an intermediate streamEnd before the tool result arrived.
     const cards = messagesContainer.querySelectorAll('.tool-card');
     for (let i = cards.length - 1; i >= 0; i--) {
       const card = cards[i];
@@ -1035,7 +1032,25 @@
         card.dataset.completed = 'true';
         if (!success) card.classList.add('error');
         const resultEl = card.querySelector('.tool-result');
-        if (resultEl) resultEl.textContent = result;
+        if (!resultEl) return;
+
+        // For generated files, render a clickable link that opens the file
+        // in the editor with a side-by-side Markdown preview.
+        const fileMatch = success && result && result.match(
+          /(?:written|created)\s+to\s+(.+\.(?:md|txt|json|yaml|yml))$/i
+        );
+        if (fileMatch) {
+          const relPath = fileMatch[1].trim();
+          resultEl.innerHTML = '';
+          resultEl.append(document.createTextNode('✓ '));
+          const link = el('button', { class: 'tool-file-link' }, [relPath]);
+          link.addEventListener('click', () => {
+            vscode.postMessage({ type: 'openGeneratedFileRequest', filePath: relPath });
+          });
+          resultEl.append(link);
+        } else {
+          resultEl.textContent = result;
+        }
         return;
       }
     }

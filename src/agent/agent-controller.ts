@@ -130,9 +130,22 @@ CORRECT:
 > Found loop at line 17 — i <= arr.length should be i < arr.length.
 > [calls edit_file with the actual line from the file]
 
-# Format
+# Format — mandatory narration pattern
 
-One sentence of intent → tool call → one sentence of result. Be concise.`;
+You MUST narrate every step. Users are watching your work in real time.
+
+**Before every tool call** write one sentence explaining what you are about to do and why:
+> "Reading auth.ts to understand the token validation flow..."
+> "Searching for all places that call validateUser to check the callers..."
+> "Running the tests to confirm the fix works..."
+
+**After a tool result** write one sentence summarising what you found:
+> "Found the issue — the token is validated before the middleware runs."
+> "Three files call validateUser: auth.ts, middleware.ts, and user.service.ts."
+> "All 12 tests pass."
+
+Never silently call a tool. Never go silent for more than one tool call in a row.
+If a task has many steps, briefly state your overall plan first, then narrate each step.`;
 
 export interface ProcessMessageOptions {
   abortSignal?: AbortSignal;
