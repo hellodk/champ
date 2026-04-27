@@ -38,6 +38,7 @@ import { PromptGuard, PromptInjectionError } from "../safety/prompt-guard";
 import type { SmartRouter, TaskType } from "../providers/smart-router";
 import type { ToolRegistry } from "../tools/registry";
 import type { ToolExecutionContext, ToolResult } from "../tools/types";
+import { ContextWindowManager } from "../providers/context-manager";
 
 export { PromptInjectionError };
 
@@ -481,9 +482,19 @@ export class AgentController {
       // (or merge into) a system message with the tool catalog as XML.
       // For native-tool-calling providers we still inject the repo map
       // and base directives as a system message — they need grounding too.
-      const messagesToSend = usePromptBased
+      const rawMessages = usePromptBased
         ? this.withInjectedToolPrompt(this.history, allTools, repoMap)
         : this.withGroundingSystemPrompt(this.history, repoMap);
+
+      // Fit into context window — drops oldest non-system turns if needed.
+      const contextManager = new ContextWindowManager(activeProvider);
+      const messagesToSend = contextManager.fitMessages(rawMessages);
+      if (messagesToSend.length < rawMessages.length) {
+        const dropped = rawMessages.length - messagesToSend.length;
+        console.log(
+          `Champ: context window — dropped ${dropped} oldest message(s) to fit`,
+        );
+      }
 
       const stream = activeProvider.chat(messagesToSend, {
         // Native tool defs only when the provider says it supports them.
