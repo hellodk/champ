@@ -74,4 +74,22 @@ describe("resolveEnvSecrets", () => {
     );
     expect(result).toEqual({ PWD: "pa$$word" });
   });
+
+  it("resolves two different tokens in the same value", async () => {
+    const storage = makeSecretStorage({ USER: "alice", HOST: "db.local" });
+    const result = await resolveEnvSecrets(
+      { DSN: "postgres://${{ secrets.USER }}@${{ secrets.HOST }}/mydb" },
+      storage as never,
+    );
+    expect(result).toEqual({ DSN: "postgres://alice@db.local/mydb" });
+  });
+
+  it("resolves the same token appearing twice in one value", async () => {
+    const storage = makeSecretStorage({ TOKEN: "abc" });
+    const result = await resolveEnvSecrets(
+      { DUAL: "${{ secrets.TOKEN }}/${{ secrets.TOKEN }}" },
+      storage as never,
+    );
+    expect(result).toEqual({ DUAL: "abc/abc" });
+  });
 });
