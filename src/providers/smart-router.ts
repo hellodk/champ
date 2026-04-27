@@ -34,7 +34,7 @@ interface ProviderEntry {
   baseUrl?: string;
 }
 
-const DISCOVERY_TIMEOUT_MS = 5000;
+const DISCOVERY_TIMEOUT_MS = 2000;
 
 export class SmartRouter {
   private models: DiscoveredModel[] = [];
