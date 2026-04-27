@@ -1439,6 +1439,23 @@ export async function activate(
         }
       });
     }
+
+    // Auto-prune old sessions silently in the background.
+    void (async () => {
+      try {
+        if (sessionStore) {
+          const overLimit = await sessionStore.pruneOverLimit(100);
+          const stale = await sessionStore.pruneOlderThan(90);
+          if (overLimit + stale > 0) {
+            console.log(
+              `Champ: auto-pruned ${overLimit + stale} session(s) on startup`,
+            );
+          }
+        }
+      } catch {
+        // Pruning failure must never surface to the user.
+      }
+    })();
   })();
 
   // ---- Config change watchers -----------------------------------------

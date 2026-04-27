@@ -87,6 +87,25 @@ export class SessionStore {
     return pruned;
   }
 
+  /**
+   * Keep only the most recent `maxSessions` sessions by lastActivityAt.
+   * Returns the number of pruned sessions.
+   */
+  async pruneOverLimit(maxSessions: number): Promise<number> {
+    const sessions = await this.loadAll();
+    if (sessions.length <= maxSessions) return 0;
+
+    // Sort newest-first, delete the tail.
+    sessions.sort(
+      (a, b) => b.metadata.lastActivityAt - a.metadata.lastActivityAt,
+    );
+    const toDelete = sessions.slice(maxSessions);
+    for (const s of toDelete) {
+      await this.delete(s.metadata.id);
+    }
+    return toDelete.length;
+  }
+
   private sessionPath(id: string): string {
     return path.join(this.storageRoot, `${id}.json`);
   }

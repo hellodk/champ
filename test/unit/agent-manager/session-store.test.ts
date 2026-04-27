@@ -109,3 +109,65 @@ describe("SessionStore", () => {
     expect(loaded).toHaveLength(3);
   });
 });
+
+describe("SessionStore.pruneOverLimit", () => {
+  let tmpDir: string;
+  let store: SessionStore;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "champ-test-"));
+    store = new SessionStore(tmpDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function makeSession(id: string, lastActivityAt: number): SerializedSession {
+    return {
+      version: 1,
+      metadata: {
+        id,
+        label: id,
+        state: "idle",
+        createdAt: lastActivityAt,
+        lastActivityAt,
+        mode: "agent",
+        messageCount: 0,
+        modifiedFiles: [],
+        archived: false,
+      },
+      history: [],
+    };
+  }
+
+  it("removes oldest sessions when over limit", async () => {
+    const now = Date.now();
+    for (let i = 0; i < 5; i++) {
+      await store.save(makeSession(`sess-${i}`, now - i * 1000));
+    }
+
+    const pruned = await store.pruneOverLimit(3);
+    expect(pruned).toBe(2);
+
+    const remaining = await store.loadAll();
+    expect(remaining.length).toBe(3);
+    const ids = remaining.map((s) => s.metadata.id).sort();
+    expect(ids).toEqual(["sess-0", "sess-1", "sess-2"]);
+  });
+
+  it("does nothing when under limit", async () => {
+    await store.save(makeSession("sess-a", Date.now()));
+    const pruned = await store.pruneOverLimit(10);
+    expect(pruned).toBe(0);
+  });
+
+  it("does nothing when exactly at limit", async () => {
+    const now = Date.now();
+    for (let i = 0; i < 3; i++) {
+      await store.save(makeSession(`s-${i}`, now - i * 1000));
+    }
+    const pruned = await store.pruneOverLimit(3);
+    expect(pruned).toBe(0);
+  });
+});
