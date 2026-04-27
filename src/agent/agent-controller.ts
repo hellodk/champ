@@ -199,7 +199,7 @@ const READ_ONLY_TOOLS = new Set([
  * doesn't have to take SystemPromptBuilder as a dependency.
  */
 const MODE_INSTRUCTIONS: Record<AgentMode, string> = {
-  agent: `\n\n# Mode: Agent\nYou are in autonomous mode. Use your tools to complete the user's request end-to-end. Iterate until the task is done or you hit an error you cannot recover from.`,
+  agent: `\n\n# Mode: Agent\nYou are in autonomous mode. Use your tools to complete the user's request end-to-end. Iterate until the task is done or you hit an error you cannot recover from.\n\nRemember: narrate before each tool call ("Reading X to understand Y...") and after each result ("Found Z."). Never call a tool silently.`,
   ask: `\n\n# Mode: Ask (Read-Only)\nYou are in read-only mode. You may use read_file, list_directory, grep_search, file_search, codebase_search to answer questions. Do NOT use edit_file, create_file, delete_file, or run_terminal_cmd. If the user asks you to modify something, tell them they need to switch to Agent mode.`,
   manual: `\n\n# Mode: Manual\nBefore each tool call, briefly explain what you plan to do. Each destructive call requires explicit user approval — proceed only if granted.`,
   plan: `\n\n# Mode: Plan\nProduce a detailed plan as a numbered list. Do NOT make any edits or run commands. You may use read-only tools (read_file, grep_search, file_search) to gather information for the plan.`,
@@ -647,6 +647,19 @@ export class AgentController {
       // If the model produced no tool calls, we're done.
       if (pendingToolCalls.length === 0) {
         break;
+      }
+
+      // If the model called tools without any preceding narration, emit a
+      // synthetic prefix so the user is never watching a silent spinner.
+      if (usePromptBased && pendingToolCalls.length > 0) {
+        const hasNarration =
+          (extractTextContent(assistantText) || "").trim().length > 0;
+        if (!hasNarration && pendingToolCalls.length > 0) {
+          const toolNames = pendingToolCalls
+            .map((c) => `\`${c.name}\``)
+            .join(", ");
+          this.emit({ type: "text", text: `Using ${toolNames}…\n` });
+        }
       }
 
       // Execute each tool call and append results to history. Native and
