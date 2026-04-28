@@ -482,6 +482,12 @@ export class OllamaProvider implements LLMProvider {
       totalTokens += tokens;
       recent.unshift(messages[i]);
     }
+    // Always keep the last non-system message even when it exceeds the budget.
+    // Without this, a large file attachment causes the user's message to be
+    // silently dropped and the LLM only sees the system prompt.
+    if (recent.length === 0 && messages.length > startIdx) {
+      recent.push(messages[messages.length - 1]);
+    }
     return [...kept, ...recent];
   }
 

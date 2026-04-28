@@ -167,6 +167,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
    */
   setAgent(agent: AgentController): void {
     this.agent = agent;
+    // Clear any attachments that were pending for the previous session so they
+    // don't accidentally bleed into the new session's first message.
+    this.pendingAttachments = [];
+    this.postMessage({ type: "clearAttachments" as never } as never);
   }
 
   /**
@@ -614,6 +618,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private handleNewChat(): void {
     this.handleCancel();
+    this.pendingAttachments = [];
+    this.postMessage({ type: "clearAttachments" as never } as never);
     this.agent.reset();
     this.postMessage(createConversationHistory([]));
   }
@@ -727,7 +733,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         .map((a) => `--- ${a.filename} ---\n${a.content}`)
         .join("\n\n");
       this.pendingAttachments = [];
-      return `${text}\n\n# Attached files\n\n${sections}`;
+      return `${text}\n\n# Attached file content (already available inline — analyze directly, do not call read_file for these)\n\n${sections}`;
     }
 
     const blocks: ContentBlock[] = [{ type: "text", text }];
@@ -741,7 +747,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       } else {
         blocks.push({
           type: "text",
-          text: `\n\n--- ${att.filename} ---\n${att.content}`,
+          text: `\n\n--- ${att.filename} (inline — analyze directly) ---\n${att.content}`,
         });
       }
     }

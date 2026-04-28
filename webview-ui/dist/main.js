@@ -1311,6 +1311,10 @@
         pendingFiles.push({ filename: msg.filename });
         renderAttachChips();
         break;
+      case 'clearAttachments':
+        pendingFiles.length = 0;
+        renderAttachChips();
+        break;
       case 'piiNotice':
         showPiiNotice(msg.summary);
         break;
