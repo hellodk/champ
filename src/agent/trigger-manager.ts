@@ -14,7 +14,6 @@ export class TriggerManager {
     this.disposeAll();
     for (const def of defs) {
       const debounce = def.debounceMs ?? DEFAULT_DEBOUNCE_MS;
-      const watcher = vscode.workspace.createFileSystemWatcher(def.glob);
 
       const handler = (uri: vscode.Uri) => {
         const key = `${def.name}::${uri.fsPath}`;
@@ -29,19 +28,37 @@ export class TriggerManager {
         this.timers.set(key, timer);
       };
 
-      const saveDisposable =
-        def.on === "change"
-          ? watcher.onDidChange(handler)
-          : ((
-              watcher as vscode.FileSystemWatcher & {
-                onDidSave?: (
-                  handler: (uri: vscode.Uri) => void,
-                ) => vscode.Disposable;
-              }
-            ).onDidSave?.(handler) ?? watcher.onDidChange(handler));
-
-      this.watchers.push(watcher, saveDisposable);
+      if (def.on === "change") {
+        // Use FileSystemWatcher for change events.
+        const watcher = vscode.workspace.createFileSystemWatcher(def.glob);
+        const disposable = watcher.onDidChange(handler);
+        this.watchers.push(watcher, disposable);
+      } else {
+        // Use onDidSaveTextDocument for save events — filters by glob manually.
+        const disposable = vscode.workspace.onDidSaveTextDocument((doc) => {
+          // Match the glob against the relative path.
+          const rel = vscode.workspace.asRelativePath(doc.uri);
+          if (this.matchesGlob(rel, def.glob)) {
+            handler(doc.uri);
+          }
+        });
+        this.watchers.push(disposable);
+      }
     }
+  }
+
+  /** Minimal glob matcher for trigger path filtering. */
+  private matchesGlob(filePath: string, glob: string): boolean {
+    // Convert glob to regex: ** matches anything, * matches non-separator.
+    const normalized = filePath.replace(/\\/g, "/");
+    const pattern = glob
+      .replace(/\\/g, "/")
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*\*/g, "⟦DSTAR⟧")
+      .replace(/\*/g, "[^/]*")
+      .replace(/⟦DSTAR⟧/g, ".*");
+    return new RegExp(`^${pattern}$`).test(normalized) ||
+      new RegExp(`(^|/)${pattern}$`).test(normalized);
   }
 
   disposeAll(): void {

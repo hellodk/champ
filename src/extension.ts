@@ -52,6 +52,7 @@ import { IndexingService } from "./indexing/indexing-service";
 import { MultiAgentRunner } from "./agent/multi-agent-runner";
 import { AgentLoader } from "./agent/agent-loader";
 import { CustomAgent } from "./agent/agents/custom-agent";
+import type { CustomAgentDefinition } from "./agent/agents/custom-agent";
 import { AgentAnalytics } from "./observability/agent-analytics";
 import type { AgentRunReport } from "./agent-manager/types";
 import {
@@ -139,7 +140,6 @@ export async function activate(
   const rulesEngine = new RulesEngine(workspaceRoot ?? "");
 
   const memoryBank = workspaceRoot ? new MemoryBank(workspaceRoot) : null;
-  if (memoryBank) void memoryBank.load();
 
   const checkpointManager = workspaceRoot
     ? new CheckpointManager(workspaceRoot)
@@ -1511,18 +1511,19 @@ export async function activate(
         indexingService ?? undefined,
       );
       // Re-register any custom agents from .champ/agents/*.md.
+      // Await custom agent loading so persistentRunner is fully populated.
       if (workspaceRoot) {
         const loader = new AgentLoader(workspaceRoot);
-        void loader
-          .loadAll()
-          .then((defs) => {
-            for (const def of defs) {
-              baseRunner
-                .getOrchestrator()
-                .registerAgent(new CustomAgent(def, newProvider));
-            }
-          })
-          .catch(() => {});
+        const defs = await loader.loadAll().catch((err) => {
+          console.warn("Champ: failed to load custom agents:", err);
+          return [] as CustomAgentDefinition[];
+        });
+        for (const def of defs) {
+          baseRunner
+            .getOrchestrator()
+            .registerAgent(new CustomAgent(def, newProvider));
+          console.log(`Champ: loaded custom agent "${def.name}"`);
+        }
       }
       persistentRunner = baseRunner;
     } catch (err) {
@@ -1660,6 +1661,9 @@ export async function activate(
   // sidebar icon appears instantly; the user can open it and see
   // "loading..." while the provider and sessions come online.
   void (async () => {
+    // 0. Await memory bank load so cross-session facts are available immediately.
+    if (memoryBank) await memoryBank.load();
+
     // 1. Load provider (reads YAML, creates provider, auto-detects models).
     await loadProvider();
 

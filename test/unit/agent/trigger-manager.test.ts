@@ -5,10 +5,11 @@ import type { TriggerDefinition } from "@/config/config-loader";
 vi.mock("vscode", () => ({
   workspace: {
     createFileSystemWatcher: vi.fn(() => ({
-      onDidSave: vi.fn(() => ({ dispose: vi.fn() })),
       onDidChange: vi.fn(() => ({ dispose: vi.fn() })),
       dispose: vi.fn(),
     })),
+    onDidSaveTextDocument: vi.fn(() => ({ dispose: vi.fn() })),
+    asRelativePath: vi.fn((uri: { fsPath?: string }) => uri?.fsPath ?? ""),
   },
 }));
 
@@ -22,7 +23,7 @@ describe("TriggerManager", () => {
     agentFn = vi.fn().mockResolvedValue(undefined);
   });
 
-  it("creates one watcher per trigger", async () => {
+  it("uses onDidSaveTextDocument for save triggers (not FileSystemWatcher)", async () => {
     const { workspace } = await import("vscode");
     const defs: TriggerDefinition[] = [
       {
@@ -41,20 +42,33 @@ describe("TriggerManager", () => {
       },
     ];
     manager.loadTriggers(defs, agentFn);
-    expect(workspace.createFileSystemWatcher).toHaveBeenCalledTimes(2);
+    // Save triggers must NOT create FileSystemWatchers — they use onDidSaveTextDocument.
+    expect(workspace.createFileSystemWatcher).not.toHaveBeenCalled();
+    expect(workspace.onDidSaveTextDocument).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses FileSystemWatcher.onDidChange for change triggers", async () => {
+    const { workspace } = await import("vscode");
+    const defs: TriggerDefinition[] = [
+      {
+        name: "t1",
+        glob: "**/*.ts",
+        on: "change",
+        run: "my-agent",
+        debounceMs: 0,
+      },
+    ];
+    manager.loadTriggers(defs, agentFn);
+    expect(workspace.createFileSystemWatcher).toHaveBeenCalledTimes(1);
+    expect(workspace.onDidSaveTextDocument).not.toHaveBeenCalled();
   });
 
   it("disposeAll clears all watchers", async () => {
     const { workspace } = await import("vscode");
     const mockDispose = vi.fn();
-    const mockWatcher = {
-      onDidSave: vi.fn(() => ({ dispose: mockDispose })),
-      onDidChange: vi.fn(() => ({ dispose: mockDispose })),
+    vi.mocked(workspace.onDidSaveTextDocument).mockReturnValue({
       dispose: mockDispose,
-    };
-    vi.mocked(workspace.createFileSystemWatcher).mockReturnValue(
-      mockWatcher as any,
-    );
+    });
     const defs: TriggerDefinition[] = [
       { name: "t1", glob: "**/*.ts", on: "save", run: "agent", debounceMs: 0 },
     ];
@@ -70,7 +84,7 @@ describe("TriggerManager", () => {
     ];
     manager.loadTriggers(defs, agentFn);
     manager.loadTriggers(defs, agentFn);
-    // createFileSystemWatcher called twice total (once per loadTriggers call)
-    expect(workspace.createFileSystemWatcher).toHaveBeenCalledTimes(2);
+    // onDidSaveTextDocument called twice total (once per loadTriggers call)
+    expect(workspace.onDidSaveTextDocument).toHaveBeenCalledTimes(2);
   });
 });
