@@ -51,7 +51,10 @@ describe("AgentController — context window compression", () => {
 
     await ctrl.processMessage("new question");
 
-    const chatCall = provider.chat.mock.calls[0];
+    // The last chat call is the actual agent message (earlier calls may be
+    // the summarizer requesting a context summary from the LLM).
+    const calls = provider.chat.mock.calls;
+    const chatCall = calls[calls.length - 1];
     const messages: Array<{ role: string }> = chatCall[0];
     // System message + some turns — must be fewer than 12 (10 history + system + new msg)
     expect(messages.length).toBeLessThan(12);
@@ -71,7 +74,10 @@ describe("AgentController — context window compression", () => {
 
     await ctrl.processMessage("keep this");
 
-    const chatCall = provider.chat.mock.calls[0];
+    // The last chat call is the actual agent message (earlier calls may be
+    // the summarizer requesting a context summary from the LLM).
+    const calls = provider.chat.mock.calls;
+    const chatCall = calls[calls.length - 1];
     const messages: Array<{ role: string; content: unknown }> = chatCall[0];
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     expect(

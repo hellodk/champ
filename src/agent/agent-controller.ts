@@ -562,12 +562,52 @@ export class AgentController {
         ? this.withInjectedToolPrompt(this.history, allTools, repoMap)
         : this.withGroundingSystemPrompt(this.history, repoMap);
 
-      // Fit into context window — drops oldest non-system turns if needed.
-      const messagesToSend = contextManager.fitMessages(rawMessages);
+      // Fit into context window — summarises dropped turns via LLM instead of
+      // silently discarding them. Falls back to plain drop if summarize throws.
+      const messagesToSend = await contextManager.fitWithSummary(
+        rawMessages,
+        async (dropped) => {
+          const turns = dropped
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => {
+              const text =
+                typeof m.content === "string"
+                  ? m.content.slice(0, 300)
+                  : (m.content as ContentBlock[])
+                      .filter(
+                        (b): b is ContentBlock & { type: "text" } =>
+                          b.type === "text",
+                      )
+                      .map((b) => b.text)
+                      .join(" ")
+                      .slice(0, 300);
+              return `${m.role}: ${text}`;
+            })
+            .join("\n");
+          const summaryStream = activeProvider.chat(
+            [
+              {
+                role: "user",
+                content: `Summarize this conversation in 2 sentences, preserving key facts and decisions:\n\n${turns}`,
+              },
+            ],
+            { abortSignal: options.abortSignal },
+          );
+          const parts: string[] = [];
+          for await (const delta of summaryStream) {
+            if (delta.type === "text" && delta.text) parts.push(delta.text);
+            if (delta.type === "done" || delta.type === "error") break;
+          }
+          return (
+            parts.join("").trim() ||
+            "Earlier conversation context not available."
+          );
+        },
+      );
       if (messagesToSend.length < rawMessages.length) {
         const dropped = rawMessages.length - messagesToSend.length;
         console.log(
-          `Champ: context window — dropped ${dropped} oldest message(s) to fit`,
+          `Champ: context window — compacted ${dropped} oldest message(s) into summary`,
         );
       }
 

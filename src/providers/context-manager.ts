@@ -80,6 +80,83 @@ export class ContextWindowManager {
     return [...systemMessages, lastMessage];
   }
 
+  /**
+   * Fit messages into the context window, calling an LLM summarizer for
+   * dropped turns instead of silently discarding them. Falls back to plain
+   * drop behaviour if the summary is too large to fit or if summarize throws.
+   */
+  async fitWithSummary(
+    messages: LLMMessage[],
+    summarize: (dropped: LLMMessage[]) => Promise<string>,
+  ): Promise<LLMMessage[]> {
+    const budget = this.availableTokens(messages);
+    if (this.estimateTokens(messages) <= budget) {
+      return messages;
+    }
+
+    // Separate system messages from the rest.
+    const systemMessages = messages.filter((m) => m.role === "system");
+    const rest = messages.filter((m) => m.role !== "system");
+    if (rest.length === 0) return messages;
+
+    const lastMessage = rest[rest.length - 1];
+    const middle = rest.slice(0, -1);
+
+    // Collect dropped messages from the front until the candidate fits.
+    const dropped: LLMMessage[] = [];
+    while (middle.length > 0) {
+      const candidate = [...systemMessages, ...middle, lastMessage];
+      if (this.estimateTokens(candidate) <= budget) {
+        break;
+      }
+      dropped.push(middle.shift()!);
+    }
+
+    // Nothing needed to be dropped.
+    if (dropped.length === 0) {
+      return [...systemMessages, ...middle, lastMessage];
+    }
+
+    // Plain-drop result used as fallback.
+    const plainDrop = [...systemMessages, ...middle, lastMessage];
+
+    try {
+      const summaryText = await summarize(dropped);
+      const summaryMessage: LLMMessage = {
+        role: "system",
+        content: `[Earlier conversation summary: ${summaryText}]`,
+      };
+      // If the summary message itself pushes us over budget, keep dropping
+      // middle messages until the full set with summary fits.
+      while (middle.length > 0) {
+        const withSummary = [
+          ...systemMessages,
+          summaryMessage,
+          ...middle,
+          lastMessage,
+        ];
+        if (this.estimateTokens(withSummary) <= budget) {
+          return withSummary;
+        }
+        dropped.push(middle.shift()!);
+      }
+      const withSummaryFinal = [
+        ...systemMessages,
+        summaryMessage,
+        ...middle,
+        lastMessage,
+      ];
+      if (this.estimateTokens(withSummaryFinal) <= budget) {
+        return withSummaryFinal;
+      }
+      // Summary too large even with all middle dropped — fall back to plain drop.
+      return plainDrop;
+    } catch {
+      // summarize threw — fall back to plain drop.
+      return plainDrop;
+    }
+  }
+
   private flattenContent(content: string | ContentBlock[]): string {
     if (typeof content === "string") return content;
     return content
