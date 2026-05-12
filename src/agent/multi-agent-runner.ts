@@ -98,6 +98,19 @@ export class MultiAgentRunner {
     provider: import("../providers/types").LLMProvider,
     toolRegistry: import("../tools/registry").ToolRegistry,
     workspaceRoot: string,
+    indexingService?: {
+      search(
+        query: string,
+        topK?: number,
+      ): Promise<
+        Array<{
+          filePath: string;
+          chunkText: string;
+          startLine: number;
+          endLine: number;
+        }>
+      >;
+    },
   ): MultiAgentRunner {
     const { PlannerAgent } = require("./agents/planner-agent") as {
       PlannerAgent: new (
@@ -105,7 +118,9 @@ export class MultiAgentRunner {
       ) => import("./agents/types").Agent;
     };
     const { ContextAgent } = require("./agents/context-agent") as {
-      ContextAgent: new () => import("./agents/types").Agent;
+      ContextAgent: new (
+        c: import("./agents/context-agent").ContextAgentConfig,
+      ) => import("./agents/types").Agent;
     };
     const { CodeAgent } = require("./agents/code-agent") as {
       CodeAgent: new (
@@ -126,7 +141,7 @@ export class MultiAgentRunner {
 
     const orch = new AgentOrchestrator();
     orch.registerAgent(new PlannerAgent(provider));
-    orch.registerAgent(new ContextAgent());
+    orch.registerAgent(new ContextAgent({ workspaceRoot, indexingService }));
     orch.registerAgent(new CodeAgent(provider));
     orch.registerAgent(new ReviewerAgent(provider));
     orch.registerAgent(new ValidatorAgent(toolRegistry, { workspaceRoot }));

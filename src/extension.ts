@@ -940,6 +940,7 @@ export async function activate(
         provider,
         toolRegistry,
         workspaceRoot ?? "",
+        indexingService ?? undefined,
       );
 
       try {

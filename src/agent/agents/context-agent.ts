@@ -22,6 +22,21 @@ import { resolveInWorkspace } from "../../utils/workspace-path";
 
 export interface ContextAgentConfig {
   workspaceRoot?: string;
+  indexingService?: {
+    search(
+      query: string,
+      topK?: number,
+    ): Promise<
+      Array<{
+        filePath: string;
+        chunkText: string;
+        startLine: number;
+        endLine: number;
+        chunkType?: string;
+        distance?: number;
+      }>
+    >;
+  };
 }
 
 export class ContextAgent implements Agent {
@@ -35,6 +50,7 @@ export class ContextAgent implements Agent {
     const workspaceRoot = this.config.workspaceRoot ?? process.cwd();
     const plannerOutput = memory.getOutput("planner");
     const plan = plannerOutput?.plan as Plan | PlanStep[] | undefined;
+    const taskDescription: string = (plannerOutput?.output as string) ?? "";
 
     // Collect all file paths mentioned in the plan.
     const filePaths = new Set<string>();
@@ -47,10 +63,33 @@ export class ContextAgent implements Agent {
       }
     }
 
-    // Also include any pre-supplied context.
     const chunks: ContextChunk[] = [...input.context];
 
+    // 1. Semantic search via IndexingService (if available).
+    const semanticPaths = new Set<string>();
+    if (this.config.indexingService && taskDescription) {
+      try {
+        const results = await this.config.indexingService.search(
+          taskDescription,
+          10,
+        );
+        for (const r of results) {
+          semanticPaths.add(r.filePath);
+          chunks.push({
+            filePath: r.filePath,
+            text: r.chunkText,
+            startLine: r.startLine,
+            endLine: r.endLine,
+          });
+        }
+      } catch {
+        // Embedding search unavailable — fall through to file reading.
+      }
+    }
+
+    // 2. Read plan-named files not already covered by semantic search.
     for (const relPath of filePaths) {
+      if (semanticPaths.has(relPath)) continue;
       const resolved = resolveInWorkspace(workspaceRoot, relPath);
       if (!resolved) continue;
 
@@ -66,13 +105,13 @@ export class ContextAgent implements Agent {
           endLine: lineCount,
         });
       } catch {
-        // File might not exist yet (e.g., new file to be created).
+        // File might not exist yet (new file to be created).
       }
     }
 
     const result: AgentOutput = {
       success: true,
-      output: `Collected ${chunks.length} context chunk(s)`,
+      output: `Collected ${chunks.length} context chunk(s) (${semanticPaths.size} via semantic search, ${filePaths.size} from plan)`,
       chunks,
     };
     memory.setOutput(this.name, result);
