@@ -138,8 +138,18 @@
     if (!sessions || sessions.length === 0) return;
     for (const s of sessions) {
       const tab = el('div', { class: `tab${s.id === activeSessionId ? ' active' : ''}` });
+
+      // State dot badge — shown only for non-idle, non-completed states.
+      if (s.state === 'running') {
+        tab.append(el('span', { class: 'session-dot session-dot-running', title: 'Running' }));
+      } else if (s.state === 'errored') {
+        tab.append(el('span', { class: 'session-dot session-dot-error', title: 'Error' }));
+      } else if (s.state === 'aborted') {
+        tab.append(el('span', { class: 'session-dot session-dot-aborted', title: 'Aborted' }));
+      }
+
       const label = el('span', { class: 'tab-label' }, [
-        (s.label || 'New chat').slice(0, 24) + ((s.label || '').length > 24 ? '…' : '')
+        (s.label || 'New chat').slice(0, 22) + ((s.label || '').length > 22 ? '…' : '')
       ]);
       const closeBtn = el('button', { class: 'tab-close', title: 'Close' }, ['×']);
       closeBtn.addEventListener('click', (ev) => {

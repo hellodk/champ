@@ -1474,3 +1474,26 @@ html, body {
 .mcp-reload { background: none; border: none; cursor: pointer; color: var(--vscode-foreground); opacity: 0.5; padding: 0 2px; font-size: 14px; line-height: 1; }
 .mcp-reload:hover { opacity: 1; }
 .mcp-empty { color: var(--vscode-descriptionForeground); font-size: 12px; padding: 4px 2px; }
+
+/* -------------------------------------------------------------------
+ * Session state badges (running, error, aborted dots)
+ * ---------------------------------------------------------------- */
+.session-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 4px;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.session-dot-running {
+  background: var(--vscode-testing-iconPassed, #73c991);
+  animation: session-pulse 1.2s ease-in-out infinite;
+}
+.session-dot-error { background: var(--vscode-testing-iconFailed, #f14c4c); }
+.session-dot-aborted { background: var(--vscode-charts-orange, #f5a623); }
+@keyframes session-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
