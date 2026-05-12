@@ -212,11 +212,30 @@ export class ContextResolver {
           });
           break;
         case "codebase": {
-          const results = await this.deps.indexingService.search(ref.value);
+          const results = (await this.deps.indexingService.search(
+            ref.value,
+            8,
+          )) as Array<{
+            filePath: string;
+            chunkText: string;
+            startLine: number;
+            endLine: number;
+            chunkType: string;
+            score: number;
+          }>;
+          const content =
+            results.length === 0
+              ? "(no results — workspace may not be indexed yet)"
+              : results
+                  .map(
+                    (r) =>
+                      `// ${r.filePath}:${r.startLine}-${r.endLine} [${r.chunkType}]\n${r.chunkText}`,
+                  )
+                  .join("\n\n---\n\n");
           resolved.push({
             type: "codebase",
-            label: `@Codebase ${ref.value}`,
-            content: `[Semantic search: ${results.length} results]`,
+            label: `@Codebase "${ref.value}"`,
+            content,
           });
           break;
         }

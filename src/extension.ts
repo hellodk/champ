@@ -254,7 +254,10 @@ export async function activate(
   const contextResolver = new ContextResolver({
     workspaceRoot,
     indexingService: {
-      search: async () => [],
+      search: async (query: string, topK?: number) => {
+        if (!indexingService) return [];
+        return indexingService.search(query, topK ?? 8);
+      },
     },
     webSearchTool: {
       execute: async () => ({

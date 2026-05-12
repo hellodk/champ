@@ -83,6 +83,31 @@ describe("ContextResolver", () => {
     expect(resolved[0].type).toBe("codebase");
   });
 
+  it("should format @Codebase results as readable code chunks", async () => {
+    const mockResults = [
+      {
+        filePath: "src/auth.ts",
+        chunkText:
+          "export function validateToken(token: string): User | null {",
+        startLine: 42,
+        endLine: 50,
+        chunkType: "function",
+        score: 0.92,
+      },
+    ];
+    const resolver = new ContextResolver({
+      workspaceRoot: "/workspace",
+      indexingService: { search: vi.fn().mockResolvedValue(mockResults) },
+      webSearchTool: { execute: vi.fn() },
+    });
+    const resolved = await resolver.resolve([
+      { type: "codebase", value: "token validation", start: 0, end: 10 },
+    ]);
+    expect(resolved[0].content).toContain("src/auth.ts");
+    expect(resolved[0].content).toContain("validateToken");
+    expect(resolved[0].content).toContain("42");
+  });
+
   it("should return empty for message with no references", () => {
     const refs = resolver.parseReferences(
       "Just a normal message with no @ symbols",
