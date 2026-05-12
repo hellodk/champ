@@ -442,7 +442,7 @@
         }
         row.addEventListener('click', () => {
           modelAutoMode = false;
-          vscode.postMessage({ type: 'setModelRequest', providerName: m.providerName });
+          vscode.postMessage({ type: 'setModelRequest', providerName: m.providerName, modelName: m.modelName });
           modelPickerBtn.textContent = (m.modelName || m.providerName) + ' ▾';
           modelPickerPopup.setAttribute('hidden', 'true');
         });

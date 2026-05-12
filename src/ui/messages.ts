@@ -239,6 +239,8 @@ export interface ShowHelpRequest {
 export interface SetModelRequest {
   type: "setModelRequest";
   providerName: string;
+  /** The specific model ID the user selected (e.g. "llama3.1:8b"). */
+  modelName?: string;
 }
 
 /**

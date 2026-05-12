@@ -835,13 +835,18 @@ export async function activate(
     }),
     vscode.commands.registerCommand(
       "champ.setActiveModel",
-      async (providerName: string) => {
-        // Tell SmartRouter to switch to manual mode for this model.
+      async (providerName: string, modelName?: string) => {
+        // Tell SmartRouter to switch to manual mode for this specific model.
+        // modelName is the exact model ID from the UI picker; fall back to
+        // first-discovered only when it's absent (shouldn't happen in practice).
         let selectedModelId: string | null = null;
         if (smartRouter) {
-          // Find the model id for this provider from discovered models.
           const models = smartRouter.getModels();
-          const match = models.find((m) => m.providerName === providerName);
+          const match = modelName
+            ? (models.find(
+                (m) => m.id === modelName && m.providerName === providerName,
+              ) ?? models.find((m) => m.id === modelName))
+            : null;
           if (match) {
             selectedModelId = match.id;
             smartRouter.setManualModel(match.id);
@@ -863,18 +868,21 @@ export async function activate(
         const yamlPath = path.join(workspaceRoot, ".champ", "config.yaml");
         const yamlUri = vscode.Uri.file(yamlPath);
         let text: string;
+        let configExisted = true;
         try {
           const data = await vscode.workspace.fs.readFile(yamlUri);
           text = new TextDecoder().decode(data);
         } catch {
-          // Config doesn't exist — create it silently with defaults.
+          // Config doesn't exist — create it with defaults so the user has
+          // a starting point, but only on first use (never overwrite existing).
+          configExisted = false;
           const template = generateDefaultConfigYaml();
           try {
             await vscode.workspace.fs.createDirectory(
               vscode.Uri.file(path.join(workspaceRoot, ".champ")),
             );
           } catch {
-            /* exists */
+            /* dir already exists */
           }
           await vscode.workspace.fs.writeFile(
             yamlUri,
@@ -882,6 +890,9 @@ export async function activate(
           );
           text = template;
         }
+        // If config already existed, never overwrite it wholesale —
+        // only the specific provider/model lines are updated below.
+        void configExisted; // used implicitly via the read path above
         if (!/^provider:/m.test(text)) {
           void vscode.window.showWarningMessage(
             `Champ: no top-level \`provider:\` line found in ${yamlPath}.`,
