@@ -271,7 +271,7 @@ export async function activate(
         const query = String(args.query ?? "");
         if (!query) return { success: false, output: "No query provided." };
 
-        const apiKey = await context.secrets.get("brave_api_key");
+        const apiKey = await context.secrets?.get("brave_api_key");
         if (!apiKey) {
           return {
             success: false,
@@ -292,6 +292,13 @@ export async function activate(
             },
           });
           if (!res.ok) {
+            if (res.status === 429) {
+              return {
+                success: false,
+                output:
+                  "Brave Search rate limit exceeded (free tier: 10 requests/min). Please wait a moment before searching again.",
+              };
+            }
             return {
               success: false,
               output: `Brave Search error: ${res.status} ${res.statusText}`,
@@ -1244,7 +1251,10 @@ export async function activate(
       // Load project rules from .champ/rules/*.md
       if (workspaceRoot) {
         const rulesDir = path.join(workspaceRoot, ".champ", "rules");
-        await rulesEngine.loadRulesFromDirectory(rulesDir).catch(() => {});
+        rulesEngine.clearProjectRules();
+        await rulesEngine.loadRulesFromDirectory(rulesDir).catch((err) => {
+          console.warn(`Champ: failed to load rules from ${rulesDir}:`, err);
+        });
       }
       if (cachedYamlConfig?.userRules) {
         rulesEngine.setUserRules(cachedYamlConfig.userRules);

@@ -69,6 +69,16 @@ export class RulesEngine {
   }
 
   /**
+   * Remove all project-sourced rules. Called before reloading rules from
+   * disk so that stale rules don't accumulate on every provider reload.
+   */
+  clearProjectRules(): void {
+    for (const [name, rule] of this.rules) {
+      if (rule.source === "project") this.rules.delete(name);
+    }
+  }
+
+  /**
    * Fetch a rule by name. Used for agent-requested rules that aren't
    * auto-attached — the agent asks for them explicitly via a
    * fetch_rules tool.
@@ -122,6 +132,15 @@ export class RulesEngine {
     for (const entry of entries) {
       if (!entry.endsWith(".md")) continue;
       const filePath = path.join(directory, entry);
+      // Guard against path traversal (e.g. "../../../etc/passwd.md")
+      const resolvedFile = path.resolve(filePath);
+      const resolvedBase = path.resolve(directory);
+      if (
+        !resolvedFile.startsWith(resolvedBase + path.sep) &&
+        resolvedFile !== resolvedBase
+      ) {
+        continue;
+      }
       let raw: string;
       try {
         raw = await fs.readFile(filePath, "utf-8");
@@ -139,7 +158,7 @@ export class RulesEngine {
       );
       if (fmMatch) {
         const fm = fmMatch[1];
-        content = fmMatch[3].trim();
+        content = (fmMatch[3] ?? "").trim();
         const nameMatch = fm.match(/^name:\s*['"]?([^'"\n]+?)['"]?\s*$/m);
         const typeMatch = fm.match(
           /^type:\s*['"]?(always|auto-attached|agent-requested)['"]?\s*$/m,

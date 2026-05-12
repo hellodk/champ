@@ -59,7 +59,7 @@ export class ContextAgent implements Agent {
       const steps = Array.isArray(plan) ? plan : plan.steps;
       for (const step of steps) {
         for (const file of step.targetFiles ?? []) {
-          filePaths.add(file);
+          filePaths.add(file.replace(/\\/g, "/"));
         }
       }
     }
@@ -76,7 +76,9 @@ export class ContextAgent implements Agent {
         );
         for (const r of results) {
           // Normalize to workspace-relative so dedup works against plan targetFiles.
-          const relPath = path.relative(workspaceRoot, r.filePath);
+          const relPath = path
+            .relative(workspaceRoot, r.filePath)
+            .replace(/\\/g, "/");
           semanticPaths.add(relPath);
           chunks.push({
             filePath: relPath,

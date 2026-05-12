@@ -35,6 +35,10 @@ export interface Checkpoint {
 }
 
 export class CheckpointManager {
+  private static readonly MAX_CHECKPOINTS = 10;
+  private static readonly MAX_SNAPSHOT_BYTES = 50 * 1024 * 1024; // 50MB total per checkpoint
+  private static readonly MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB per file
+
   private checkpoints: Checkpoint[] = [];
 
   constructor(private readonly workspaceRoot: string) {}
@@ -46,6 +50,7 @@ export class CheckpointManager {
    */
   async create(label: string, filePaths: string[]): Promise<Checkpoint> {
     const snapshots: FileSnapshot[] = [];
+    let totalBytes = 0;
 
     for (const relPath of filePaths) {
       const resolved = resolveInWorkspace(this.workspaceRoot, relPath);
@@ -54,6 +59,10 @@ export class CheckpointManager {
       const uri = vscode.Uri.file(resolved);
       try {
         const data = await vscode.workspace.fs.readFile(uri);
+        const bytes = data.byteLength;
+        if (bytes > CheckpointManager.MAX_FILE_BYTES) continue; // skip very large files
+        if (totalBytes + bytes > CheckpointManager.MAX_SNAPSHOT_BYTES) break; // total cap
+        totalBytes += bytes;
         snapshots.push({
           filePath: relPath,
           content:
@@ -78,6 +87,11 @@ export class CheckpointManager {
       timestamp: Date.now(),
       snapshots,
     };
+
+    // Prune oldest if we exceed the checkpoint count limit.
+    while (this.checkpoints.length >= CheckpointManager.MAX_CHECKPOINTS) {
+      this.checkpoints.shift();
+    }
 
     this.checkpoints.push(checkpoint);
     return checkpoint;
