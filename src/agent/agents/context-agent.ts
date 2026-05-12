@@ -9,6 +9,7 @@
  * embedding + tree-sitter chunking pipeline.
  */
 import * as vscode from "vscode";
+import * as path from "path";
 import type {
   Agent,
   AgentInput,
@@ -74,9 +75,11 @@ export class ContextAgent implements Agent {
           10,
         );
         for (const r of results) {
-          semanticPaths.add(r.filePath);
+          // Normalize to workspace-relative so dedup works against plan targetFiles.
+          const relPath = path.relative(workspaceRoot, r.filePath);
+          semanticPaths.add(relPath);
           chunks.push({
-            filePath: r.filePath,
+            filePath: relPath,
             text: r.chunkText,
             startLine: r.startLine,
             endLine: r.endLine,
