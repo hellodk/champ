@@ -60,6 +60,7 @@ import {
 } from "./telemetry/analytics-exporter";
 import { MCPClientManager } from "./mcp/mcp-client";
 import { McpRegistry } from "./mcp/mcp-registry";
+import { TriggerManager } from "./agent/trigger-manager";
 import { MemoryBank } from "./memory/memory-bank";
 
 /**
@@ -86,6 +87,7 @@ let mcpClientManager: MCPClientManager | undefined;
 let persistentRunner:
   | import("./agent/multi-agent-runner").MultiAgentRunner
   | undefined;
+let triggerManager: TriggerManager | undefined;
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -1543,6 +1545,34 @@ export async function activate(
         .loadServers(cachedYamlConfig?.mcp?.servers ?? [])
         .then(() => broadcastMcpStatus());
     }
+    // Reload triggers from config.
+    triggerManager?.disposeAll();
+    if (cachedYamlConfig?.triggers?.length && workspaceRoot) {
+      triggerManager = new TriggerManager();
+      triggerManager.loadTriggers(
+        cachedYamlConfig.triggers,
+        async (agentName, filePath) => {
+          const runner =
+            persistentRunner ??
+            MultiAgentRunner.buildDefaultPipeline(
+              inlineProviderRef.current,
+              toolRegistry,
+              workspaceRoot,
+            );
+          const rel = path.relative(workspaceRoot, filePath);
+          await runner.run(`Process changed file: ${rel}`, {
+            sequence: [agentName],
+            onProgress: (evt) => {
+              if (evt.type === "agent_completed") {
+                void vscode.window.showInformationMessage(
+                  `Champ trigger "${agentName}" on "${path.basename(filePath)}": done`,
+                );
+              }
+            },
+          });
+        },
+      );
+    }
   };
 
   function isProviderReady(): boolean {
@@ -1758,6 +1788,8 @@ export async function activate(
 }
 
 export function deactivate(): void {
+  triggerManager?.disposeAll();
+  triggerManager = undefined;
   void mcpRegistry?.disposeAll();
   mcpClientManager = undefined;
   mcpRegistry = undefined;

@@ -89,6 +89,14 @@ export interface MCPConfig {
   servers?: MCPServerConfig[];
 }
 
+export interface TriggerDefinition {
+  name: string;
+  glob: string;
+  on?: "save" | "change";
+  run: string;
+  debounceMs?: number;
+}
+
 export interface RoutingConfig {
   mode?: "smart" | "manual";
   /** Force a specific model ID for coding tasks. null = auto. */
@@ -117,6 +125,7 @@ export interface ChampConfig {
   indexing?: IndexingConfig;
   userRules?: string;
   mcp?: MCPConfig;
+  triggers?: TriggerDefinition[];
   routing?: RoutingConfig;
   telemetry?: TelemetryConfig;
 }
@@ -494,6 +503,28 @@ export class ConfigLoader {
         }
         result.mcp = out;
       }
+    }
+
+    // triggers
+    if ("triggers" in raw && Array.isArray(raw.triggers)) {
+      result.triggers = (raw.triggers as unknown[]).flatMap((t) => {
+        if (typeof t !== "object" || !t) return [];
+        const obj = t as Record<string, unknown>;
+        const name = typeof obj.name === "string" ? obj.name : "";
+        const glob = typeof obj.glob === "string" ? obj.glob : "";
+        const run = typeof obj.run === "string" ? obj.run : "";
+        if (!name || !glob || !run) return [];
+        return [
+          {
+            name,
+            glob,
+            on: obj.on === "change" ? ("change" as const) : ("save" as const),
+            run,
+            debounceMs:
+              typeof obj.debounceMs === "number" ? obj.debounceMs : 2000,
+          } satisfies TriggerDefinition,
+        ];
+      });
     }
 
     // routing
