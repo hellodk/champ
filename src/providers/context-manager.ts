@@ -150,6 +150,9 @@ export class ContextWindowManager {
         return withSummaryFinal;
       }
       // Summary too large even with all middle dropped — fall back to plain drop.
+      console.warn(
+        `Champ: context summariser — summary too large to fit (${this.estimateTokens(withSummaryFinal)} > ${budget}), falling back to drop`,
+      );
       return plainDrop;
     } catch {
       // summarize threw — fall back to plain drop.

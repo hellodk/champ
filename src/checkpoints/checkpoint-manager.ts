@@ -121,16 +121,21 @@ export class CheckpointManager {
         if (snap.existed && snap.content) {
           try {
             await vscode.workspace.fs.writeFile(uri, snap.content);
-          } catch {
-            // Best-effort restore; log through the observability
-            // collector in production.
+          } catch (err) {
+            console.warn(
+              `Champ checkpoint: failed to restore "${snap.filePath}":`,
+              err,
+            );
           }
         } else {
           // File didn't exist at checkpoint time — delete it now.
           try {
             await vscode.workspace.fs.delete(uri);
-          } catch {
-            // File may have already been deleted; ignore.
+          } catch (err) {
+            console.warn(
+              `Champ checkpoint: failed to delete "${snap.filePath}" during restore:`,
+              err,
+            );
           }
         }
       }

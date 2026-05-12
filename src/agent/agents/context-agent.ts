@@ -70,7 +70,7 @@ export class ContextAgent implements Agent {
     const semanticPaths = new Set<string>();
     if (this.config.indexingService && taskDescription) {
       try {
-        const SEARCH_TIMEOUT_MS = 5000;
+        const SEARCH_TIMEOUT_MS = 15_000;
         const results = await Promise.race([
           this.config.indexingService.search(taskDescription, 10),
           new Promise<never>((_, reject) =>

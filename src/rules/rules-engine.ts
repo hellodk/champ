@@ -210,10 +210,10 @@ export class RulesEngine {
   }
 
   /**
-   * Minimal glob matcher. Handles `*` (any characters except path sep),
-   * `**` (any characters including sep), and literal characters.
-   * Good enough for the patterns we care about (*.ts, src/** /*.py, etc.)
-   * without dragging in a full glob library.
+   * Minimal glob matcher for auto-attached rule activation.
+   * Supports: * (any non-separator chars), ** (any chars including /), ? (single char).
+   * Does NOT support brace alternation {*.ts,*.js} or character classes [abc].
+   * For complex patterns, use multiple rule files.
    */
   private matchesGlob(filePath: string, glob: string): boolean {
     // Normalize path separators for cross-platform matching.
