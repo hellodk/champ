@@ -136,6 +136,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       model: this.config.model,
       messages: this.convertMessages(messages),
       stream: true,
+      stream_options: { include_usage: true },
       temperature: options?.temperature ?? this.config.temperature,
       top_p: options?.topP ?? this.config.topP,
       max_tokens: options?.maxTokens ?? this.config.maxTokens,
