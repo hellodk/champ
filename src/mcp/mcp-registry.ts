@@ -14,6 +14,7 @@ import type { ToolRegistry } from "../tools/registry";
 export class McpRegistry {
   /** serverName → tool names registered from that server */
   private registeredTools = new Map<string, string[]>();
+  private connectionErrors = new Map<string, string>();
   private loading = false;
   private pendingServers: MCPServerConfig[] | null = null;
 
@@ -78,6 +79,7 @@ export class McpRegistry {
           ? await resolveEnvSecrets(config.env, this.secretStorage)
           : undefined;
 
+        this.connectionErrors.delete(name);
         await this.manager.connect({ ...config, env: resolvedEnv });
         await this.registerServerTools(name);
 
@@ -87,8 +89,25 @@ export class McpRegistry {
           `Champ MCP: failed to connect "${name}":`,
           err instanceof Error ? err.message : String(err),
         );
+        this.connectionErrors.set(
+          name,
+          err instanceof Error ? err.message : String(err),
+        );
       }
     }
+  }
+
+  getStatus(): import("../ui/messages").McpServerStatus[] {
+    const result: import("../ui/messages").McpServerStatus[] = [];
+    for (const [name, toolNames] of this.registeredTools) {
+      result.push({ name, connected: true, toolCount: toolNames.length });
+    }
+    for (const [name, error] of this.connectionErrors) {
+      if (!this.registeredTools.has(name)) {
+        result.push({ name, connected: false, toolCount: 0, error });
+      }
+    }
+    return result;
   }
 
   async disposeAll(): Promise<void> {

@@ -1460,3 +1460,17 @@ html, body {
   margin: 4px 0 4px 8px;
   opacity: 0.85;
 }
+
+/* ------------------------------------------------------------------ */
+/* MCP Status Panel                                                     */
+/* ------------------------------------------------------------------ */
+.mcp-panel { background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 8px 10px; min-width: 260px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+.mcp-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12px; line-height: 1.4; }
+.mcp-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.mcp-dot-ok { background: var(--vscode-testing-iconPassed, #73c991); }
+.mcp-dot-err { background: var(--vscode-testing-iconFailed, #f14c4c); }
+.mcp-name { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mcp-info { color: var(--vscode-descriptionForeground); font-size: 11px; white-space: nowrap; }
+.mcp-reload { background: none; border: none; cursor: pointer; color: var(--vscode-foreground); opacity: 0.5; padding: 0 2px; font-size: 14px; line-height: 1; }
+.mcp-reload:hover { opacity: 1; }
+.mcp-empty { color: var(--vscode-descriptionForeground); font-size: 12px; padding: 4px 2px; }

@@ -510,6 +510,7 @@ export async function activate(
       });
     }
     broadcastSessionList();
+    broadcastMcpStatus();
   });
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
@@ -1084,6 +1085,15 @@ export async function activate(
         void loadProvider();
       }
     }),
+    vscode.commands.registerCommand(
+      "champ.reloadMcpServer",
+      (_serverName: string) => {
+        if (!mcpRegistry || !cachedYamlConfig?.mcp?.servers) return;
+        void mcpRegistry
+          .loadServers(cachedYamlConfig.mcp.servers)
+          .then(() => broadcastMcpStatus());
+      },
+    ),
     vscode.commands.registerCommand("champ.runMultiAgent", async () => {
       const userRequest = await vscode.window.showInputBox({
         prompt: "Describe the feature or task for the multi-agent workflow",
@@ -1499,7 +1509,9 @@ export async function activate(
     }
     // MCP reconnect runs independently — never blocks or corrupts provider load.
     if (mcpRegistry) {
-      void mcpRegistry.loadServers(cachedYamlConfig?.mcp?.servers ?? []);
+      void mcpRegistry
+        .loadServers(cachedYamlConfig?.mcp?.servers ?? [])
+        .then(() => broadcastMcpStatus());
     }
   };
 
@@ -1532,6 +1544,15 @@ export async function activate(
       agentManager.listSessions(),
       agentManager.getActiveId(),
     );
+  }
+
+  /** Broadcast MCP server connection status to the webview. */
+  function broadcastMcpStatus(): void {
+    if (!mcpRegistry) return;
+    chatViewProvider?.postMessage({
+      type: "mcpStatus",
+      servers: mcpRegistry.getStatus(),
+    });
   }
 
   /** Broadcast current metrics snapshot to the webview. */

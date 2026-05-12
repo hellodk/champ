@@ -2,7 +2,7 @@
   "name": "champ",
   "displayName": "Champ - AI Coding Agent",
   "description": "AI coding agent with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "1.6.18",
+  "version": "1.6.19",
   "publisher": "champ-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -128,6 +128,11 @@
       {
         "command": "champ.showAnalytics",
         "title": "Champ: Show Analytics"
+      },
+      {
+        "command": "champ.reloadMcpServer",
+        "title": "Champ: Reload MCP Server",
+        "category": "Champ"
       }
     ],
     "configuration": {

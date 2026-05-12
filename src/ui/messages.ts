@@ -160,6 +160,18 @@ export interface MetricsUpdateMessage {
   totalFailures: number;
 }
 
+export interface McpServerStatus {
+  name: string;
+  connected: boolean;
+  toolCount: number;
+  error?: string;
+}
+
+export interface McpStatusMessage {
+  type: "mcpStatus";
+  servers: McpServerStatus[];
+}
+
 export type ExtensionToWebviewMessage =
   | StreamDeltaMessage
   | StreamEndMessage
@@ -175,7 +187,8 @@ export type ExtensionToWebviewMessage =
   | ProviderStatusMessage
   | FirstRunWelcomeMessage
   | SessionListMessage
-  | MetricsUpdateMessage;
+  | MetricsUpdateMessage
+  | McpStatusMessage;
 
 // ---------------------------------------------------------------------------
 // Webview -> Extension Host
@@ -313,6 +326,11 @@ export interface OpenGeneratedFileRequest {
   filePath: string;
 }
 
+export interface ReloadMcpServerRequest {
+  type: "reloadMcpServer";
+  serverName: string;
+}
+
 export type WebviewToExtensionMessage =
   | UserMessageRequest
   | SetModeRequest
@@ -332,7 +350,8 @@ export type WebviewToExtensionMessage =
   | NewSessionRequest
   | DeleteSessionRequest
   | RenameSessionRequest
-  | OpenGeneratedFileRequest;
+  | OpenGeneratedFileRequest
+  | ReloadMcpServerRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)
@@ -536,4 +555,10 @@ export function isOpenGeneratedFileRequest(
   msg: WebviewToExtensionMessage,
 ): msg is OpenGeneratedFileRequest {
   return msg.type === "openGeneratedFileRequest";
+}
+
+export function isReloadMcpServerRequest(
+  msg: WebviewToExtensionMessage,
+): msg is ReloadMcpServerRequest {
+  return msg.type === "reloadMcpServer";
 }

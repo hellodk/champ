@@ -219,7 +219,38 @@
   });
 
   const actionSpacer = el('div', { class: 'action-spacer' });
-  actionBar.append(compactBtn, deleteChatBtn, copyChatBtn, actionSpacer, helpfulBtn, notHelpfulBtn);
+
+  // MCP status panel — toggled by the plug button in the action bar.
+  const mcpPanel = el('div', { class: 'mcp-panel' });
+  mcpPanel.setAttribute('hidden', 'true');
+
+  function renderMcpPanel(servers) {
+    mcpPanel.innerHTML = '';
+    if (!servers || servers.length === 0) {
+      mcpPanel.append(el('div', { class: 'mcp-empty' }, ['No MCP servers configured']));
+      return;
+    }
+    for (const s of servers) {
+      const row = el('div', { class: 'mcp-row' });
+      const dot = el('span', { class: `mcp-dot ${s.connected ? 'mcp-dot-ok' : 'mcp-dot-err'}` });
+      const name = el('span', { class: 'mcp-name' }, [s.name]);
+      const info = el('span', { class: 'mcp-info' }, [s.connected ? `${s.toolCount} tools` : (s.error || 'disconnected')]);
+      const reloadBtn = el('button', { class: 'mcp-reload', title: 'Reload server' }, ['↺']);
+      reloadBtn.addEventListener('click', () => vscode.postMessage({ type: 'reloadMcpServer', serverName: s.name }));
+      row.append(dot, name, info, reloadBtn);
+      mcpPanel.append(row);
+    }
+  }
+
+  const mcpBtn = actionBtn('codicon-plug', 'MCP servers', () => {
+    if (mcpPanel.hasAttribute('hidden')) {
+      mcpPanel.removeAttribute('hidden');
+    } else {
+      mcpPanel.setAttribute('hidden', 'true');
+    }
+  });
+
+  actionBar.append(mcpBtn, compactBtn, deleteChatBtn, copyChatBtn, actionSpacer, helpfulBtn, notHelpfulBtn);
 
   // -------------------------------------------------------------------
   // DOM construction — messages list
@@ -648,7 +679,7 @@
   const messagesWrapper = el('div', { class: 'messages-wrapper' });
   messagesWrapper.append(messagesContainer, scrollPill);
 
-  root.append(header, tabBar, actionBar, messagesWrapper, inputArea);
+  root.append(header, tabBar, actionBar, mcpPanel, messagesWrapper, inputArea);
 
   // -------------------------------------------------------------------
   // Provider status rendering — header indicator + model dropdown
@@ -1394,6 +1425,9 @@
         break;
       case 'metricsUpdate':
         renderMetrics(msg);
+        break;
+      case 'mcpStatus':
+        renderMcpPanel(msg.servers || []);
         break;
     }
   });
