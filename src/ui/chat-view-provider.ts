@@ -362,7 +362,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         void vscode.commands.executeCommand(
           "champ.setActiveModel",
           msg.providerName,
-          msg.modelName,
+          ...(msg.modelName !== undefined ? [msg.modelName] : []),
         );
       } else if (isFirstRunSelectRequest(msg)) {
         // The user picked a starter config template from the
