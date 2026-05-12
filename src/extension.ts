@@ -58,6 +58,7 @@ import {
 } from "./telemetry/analytics-exporter";
 import { MCPClientManager } from "./mcp/mcp-client";
 import { McpRegistry } from "./mcp/mcp-registry";
+import { MemoryBank } from "./memory/memory-bank";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -129,6 +130,9 @@ export async function activate(
     vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
 
   const rulesEngine = new RulesEngine(workspaceRoot ?? "");
+
+  const memoryBank = workspaceRoot ? new MemoryBank(workspaceRoot) : null;
+  if (memoryBank) void memoryBank.load();
 
   const checkpointManager = workspaceRoot
     ? new CheckpointManager(workspaceRoot)
@@ -545,6 +549,7 @@ export async function activate(
               .join("\n\n");
             if (rulesContent)
               activeSession.controller.setProjectRules(rulesContent);
+            if (memoryBank) activeSession.controller.setMemoryBank(memoryBank);
           }
           if (!activeSession) {
             stream.markdown("Champ: session unavailable.");
@@ -651,6 +656,7 @@ export async function activate(
           .map((r) => r.content)
           .join("\n\n");
         if (rulesContent) session.controller.setProjectRules(rulesContent);
+        if (memoryBank) session.controller.setMemoryBank(memoryBank);
         chatViewProvider?.setAgent(session.controller);
         void saveSession(session.metadata.id);
         broadcastSessionList();
@@ -1004,6 +1010,7 @@ export async function activate(
         .map((r) => r.content)
         .join("\n\n");
       if (rulesContent) session.controller.setProjectRules(rulesContent);
+      if (memoryBank) session.controller.setMemoryBank(memoryBank);
       // Swap the chat view to the new session's controller.
       chatViewProvider?.setAgent(session.controller);
       void saveSession(session.metadata.id);
@@ -1037,6 +1044,7 @@ export async function activate(
             .map((r) => r.content)
             .join("\n\n");
           if (rulesContent) fresh.controller.setProjectRules(rulesContent);
+          if (memoryBank) fresh.controller.setMemoryBank(memoryBank);
           chatViewProvider?.setAgent(fresh.controller);
           chatViewProvider?.postMessage({
             type: "conversationHistory",
@@ -1300,10 +1308,13 @@ export async function activate(
       const activeRules = rulesEngine.getActiveRules({ mode: "agent" });
       const rulesContent = activeRules.map((r) => r.content).join("\n\n");
       agentController.setProjectRules(rulesContent);
+      if (memoryBank) agentController.setMemoryBank(memoryBank);
       agentManager?.listSessions(true).forEach((meta) => {
-        agentManager!
-          .getSession(meta.id)
-          ?.controller.setProjectRules(rulesContent);
+        const sess = agentManager!.getSession(meta.id);
+        if (sess) {
+          sess.controller.setProjectRules(rulesContent);
+          if (memoryBank) sess.controller.setMemoryBank(memoryBank);
+        }
       });
       const newProvider = yamlConfig
         ? await factory.createFromChampConfig(yamlConfig, context.secrets)
@@ -1610,6 +1621,7 @@ export async function activate(
           .map((r) => r.content)
           .join("\n\n");
         if (rulesContent) initSession.controller.setProjectRules(rulesContent);
+        if (memoryBank) initSession.controller.setMemoryBank(memoryBank);
       }
       const activeSession = agentManager.getActive();
       if (activeSession) {

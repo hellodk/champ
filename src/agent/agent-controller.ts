@@ -39,6 +39,7 @@ import type { SmartRouter, TaskType } from "../providers/smart-router";
 import type { ToolRegistry } from "../tools/registry";
 import type { ToolExecutionContext, ToolResult } from "../tools/types";
 import { ContextWindowManager } from "../providers/context-manager";
+import type { MemoryBank } from "../memory/memory-bank";
 
 export { PromptInjectionError };
 
@@ -243,6 +244,7 @@ export class AgentController {
    * the LLM sees them on every turn.
    */
   private projectRules = "";
+  private memoryBank: MemoryBank | undefined;
 
   constructor(
     provider: LLMProvider,
@@ -299,6 +301,11 @@ export class AgentController {
    */
   setProjectRules(content: string): void {
     this.projectRules = content;
+  }
+
+  /** Attach a MemoryBank so cross-session facts are injected into prompts. */
+  setMemoryBank(bank: MemoryBank): void {
+    this.memoryBank = bank;
   }
 
   /** Map agent mode to a SmartRouter task type for model selection. */
@@ -819,6 +826,27 @@ export class AgentController {
       }
     }
 
+    if (this.memoryBank && userText) {
+      const query =
+        typeof userText === "string"
+          ? userText.slice(0, 120)
+          : (userText as ContentBlock[])
+              .filter(
+                (b): b is ContentBlock & { type: "text" } => b.type === "text",
+              )
+              .map((b) => b.text)
+              .join(" ")
+              .slice(0, 120);
+      const summary =
+        collectedText.join("").slice(0, 200).replace(/\n/g, " ") ||
+        "(no text response)";
+      void this.memoryBank.store({
+        userQuery: query,
+        assistantSummary: summary,
+        sessionId: this.analyticsAgentName,
+      });
+    }
+
     return {
       text: collectedText.join(""),
       toolCalls: collectedToolCalls,
@@ -840,9 +868,13 @@ export class AgentController {
     const withRules = this.projectRules
       ? `${withMap}\n\n## Project Rules\n\n${this.projectRules}`
       : withMap;
+    const memCtx = this.memoryBank?.getRecentContext(5);
+    const withMemory = memCtx ? `${withRules}\n\n${memCtx}` : withRules;
 
     const fullPrompt =
-      tools.length === 0 ? withRules : injectToolsIntoPrompt(withRules, tools);
+      tools.length === 0
+        ? withMemory
+        : injectToolsIntoPrompt(withMemory, tools);
 
     const systemMsg: LLMMessage = {
       role: "system",
@@ -862,9 +894,11 @@ export class AgentController {
   ): LLMMessage[] {
     const base = PROMPT_BASED_BASE_INSTRUCTIONS + MODE_INSTRUCTIONS[this.mode];
     const withMap = repoMap ? `${base}\n\n${repoMap}` : base;
-    const content = this.projectRules
+    const withRules = this.projectRules
       ? `${withMap}\n\n## Project Rules\n\n${this.projectRules}`
       : withMap;
+    const memCtx = this.memoryBank?.getRecentContext(5);
+    const content = memCtx ? `${withRules}\n\n${memCtx}` : withRules;
     const systemMsg: LLMMessage = { role: "system", content };
     return this.prependOrMergeSystem(history, systemMsg);
   }
