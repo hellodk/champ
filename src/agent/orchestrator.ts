@@ -12,7 +12,12 @@
  *      prior agent Y and re-run from Y. Configured via `retryFrom` and
  *      used for "reviewer rejects code, retry from code" patterns.
  */
-import type { Agent, AgentOutput, ContextChunk } from "./agents/types";
+import type {
+  Agent,
+  AgentOutput,
+  ContextChunk,
+  SharedMemory as ISharedMemory,
+} from "./agents/types";
 import { SharedMemory } from "./shared-memory";
 
 export interface ExecutionLogEntry {
@@ -60,6 +65,15 @@ export interface WorkflowOptions {
   abortSignal?: AbortSignal;
   /** Called before and after each agent executes. */
   onAgentProgress?: (event: AgentProgressEvent) => void;
+}
+
+export interface DAGNode {
+  name: string;
+  condition?: (memory: ISharedMemory) => boolean;
+  next?: (
+    output: AgentOutput,
+    memory: ISharedMemory,
+  ) => string | null | undefined;
 }
 
 const DEFAULT_MAX_RETRIES = 3;
@@ -219,6 +233,187 @@ export class AgentOrchestrator {
 
       // Simple retry in place: don't advance i, let the loop re-run.
       // maxRetries check at the top of the loop will stop runaway retries.
+    }
+
+    return {
+      success: lastOutput.success,
+      output: lastOutput.output,
+      plan: lastOutput.plan,
+      chunks: lastOutput.chunks,
+      diffs: lastOutput.diffs,
+      approved: lastOutput.approved,
+      feedback: lastOutput.feedback,
+      issues: lastOutput.issues,
+      passed: lastOutput.passed,
+      executionLog,
+    };
+  }
+
+  /**
+   * Execute a DAG workflow: run agents according to a node list that
+   * supports per-node skip conditions and dynamic routing to named nodes.
+   */
+  async executeDAG(
+    userRequest: string,
+    nodes: DAGNode[],
+    options: WorkflowOptions = {},
+  ): Promise<WorkflowResult> {
+    const maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
+
+    // Validate that every named agent is registered before we start.
+    for (const node of nodes) {
+      if (!this.agents.has(node.name)) {
+        throw new Error(`Agent "${node.name}" is not registered`);
+      }
+    }
+
+    const memory = new SharedMemory();
+    if (options.context) {
+      memory.set("context", options.context);
+    }
+    memory.set("userRequest", userRequest);
+
+    const executionLog: ExecutionLogEntry[] = [];
+    const attempts = new Map<string, number>();
+    let lastOutput: AgentOutput = {
+      success: true,
+      output: "Workflow initialized",
+    };
+
+    // Build lookup maps for O(1) access by name.
+    const nodeByName = new Map<string, DAGNode>();
+    const nodeIndex = new Map<string, number>();
+    for (let idx = 0; idx < nodes.length; idx++) {
+      nodeByName.set(nodes[idx].name, nodes[idx]);
+      nodeIndex.set(nodes[idx].name, idx);
+    }
+
+    const fireProgress = (event: AgentProgressEvent): void => {
+      try {
+        options.onAgentProgress?.(event);
+      } catch {
+        // Callback errors must not crash the workflow.
+      }
+    };
+
+    let currentName: string | null = nodes[0]?.name ?? null;
+    // Track whether the current node was reached via a dynamic next() jump.
+    // If so, and it has no next() of its own, the workflow ends rather than
+    // falling through to the next node in array order.
+    let arrivedViaRouting = false;
+
+    while (currentName !== null) {
+      if (options.abortSignal?.aborted) {
+        return {
+          success: false,
+          output: "Workflow aborted",
+          executionLog,
+        };
+      }
+
+      const node = nodeByName.get(currentName);
+      if (!node) {
+        return {
+          success: false,
+          output: `DAG node "${currentName}" not found in node list`,
+          executionLog,
+        };
+      }
+
+      // Condition check: skip this node and advance to the next in array.
+      if (node.condition && !node.condition(memory)) {
+        const skipIdx: number = nodeIndex.get(currentName)!;
+        currentName = nodes[skipIdx + 1]?.name ?? null;
+        arrivedViaRouting = false;
+        continue;
+      }
+
+      const attemptNumber = (attempts.get(currentName) ?? 0) + 1;
+      attempts.set(currentName, attemptNumber);
+
+      if (attemptNumber > maxRetries) {
+        return {
+          success: false,
+          output: `Agent "${currentName}" exceeded max retries (${maxRetries})`,
+          error: lastOutput.error,
+          executionLog,
+        };
+      }
+
+      const agent = this.agents.get(currentName)!;
+      const idx: number = nodeIndex.get(currentName)!;
+
+      fireProgress({
+        type: "agent_started",
+        agentName: currentName,
+        step: idx + 1,
+        totalSteps: nodes.length,
+      });
+
+      const startTime = Date.now();
+      let output: AgentOutput;
+      try {
+        output = await agent.execute(
+          { userRequest, context: options.context ?? [] },
+          memory,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        output = {
+          success: false,
+          output: `Exception: ${message}`,
+          error: message,
+        };
+      }
+      const endTime = Date.now();
+
+      executionLog.push({
+        agentName: currentName,
+        startTime,
+        endTime,
+        durationMs: endTime - startTime,
+        success: output.success,
+        output: output.output,
+        attempt: attemptNumber,
+      });
+
+      memory.setOutput(currentName, output);
+      lastOutput = output;
+
+      if (output.success) {
+        fireProgress({
+          type: "agent_completed",
+          agentName: currentName,
+          durationMs: endTime - startTime,
+          success: true,
+          output: output.output,
+        });
+      } else {
+        fireProgress({
+          type: "agent_failed",
+          agentName: currentName,
+          error: output.error ?? output.output,
+          attempt: attemptNumber,
+        });
+      }
+
+      // Determine next node.
+      if (node.next) {
+        // Dynamic routing via next() callback.
+        const nextName = node.next(output, memory);
+        currentName = nextName ?? null;
+        arrivedViaRouting = true;
+      } else if (output.success) {
+        if (arrivedViaRouting) {
+          // Node reached via routing has no next() — end workflow here.
+          currentName = null;
+        } else {
+          // Advance to the next node in array order.
+          currentName = nodes[idx + 1]?.name ?? null;
+        }
+        arrivedViaRouting = false;
+      }
+      // On failure with no node.next: retry in place (currentName unchanged).
     }
 
     return {
