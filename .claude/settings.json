@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run check-types)",
+      "Bash(npm run compile)",
+      "Bash(npm run package)",
+      "Bash(npm run lint)",
+      "Bash(npm run test *)",
+      "Bash(npx vitest run *)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npx @vscode/vsce package *)",
+      "Bash(npx @vscode/vsce ls *)",
+      "Bash(code --install-extension *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git tag *)",
+      "Bash(npm version *)"
+    ]
+  }
+}
