@@ -51,8 +51,10 @@ import { createCodebaseSearchTool } from "./tools/codebase-search";
 import { IndexingService } from "./indexing/indexing-service";
 import { MultiAgentRunner } from "./agent/multi-agent-runner";
 import { AgentLoader } from "./agent/agent-loader";
-import { CustomAgent } from "./agent/agents/custom-agent";
-import type { CustomAgentDefinition } from "./agent/agents/custom-agent";
+import {
+  CustomAgent,
+  type CustomAgentDefinition,
+} from "./agent/agents/custom-agent";
 import { AgentAnalytics } from "./observability/agent-analytics";
 import type { AgentRunReport } from "./agent-manager/types";
 import {
