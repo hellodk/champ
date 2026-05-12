@@ -237,6 +237,12 @@ export class AgentController {
    * auto-injects a read_file call first.
    */
   private filesReadThisSession = new Set<string>();
+  /**
+   * Project rules content to append to every system prompt. Loaded from
+   * .champ/rules/ via RulesEngine.getActiveRules() and injected here so
+   * the LLM sees them on every turn.
+   */
+  private projectRules = "";
 
   constructor(
     provider: LLMProvider,
@@ -284,6 +290,15 @@ export class AgentController {
 
   setPromptGuardEnabled(enabled: boolean): void {
     this.promptGuard = new PromptGuard(enabled);
+  }
+
+  /**
+   * Inject project/user rules content into every system prompt built by
+   * this controller. Called from loadProvider() after RulesEngine has
+   * loaded rules from disk. Pass an empty string to clear.
+   */
+  setProjectRules(content: string): void {
+    this.projectRules = content;
   }
 
   /** Map agent mode to a SmartRouter task type for model selection. */
@@ -822,9 +837,12 @@ export class AgentController {
   ): LLMMessage[] {
     const base = PROMPT_BASED_BASE_INSTRUCTIONS + MODE_INSTRUCTIONS[this.mode];
     const withMap = repoMap ? `${base}\n\n${repoMap}` : base;
+    const withRules = this.projectRules
+      ? `${withMap}\n\n## Project Rules\n\n${this.projectRules}`
+      : withMap;
 
     const fullPrompt =
-      tools.length === 0 ? withMap : injectToolsIntoPrompt(withMap, tools);
+      tools.length === 0 ? withRules : injectToolsIntoPrompt(withRules, tools);
 
     const systemMsg: LLMMessage = {
       role: "system",
@@ -843,7 +861,10 @@ export class AgentController {
     repoMap: string,
   ): LLMMessage[] {
     const base = PROMPT_BASED_BASE_INSTRUCTIONS + MODE_INSTRUCTIONS[this.mode];
-    const content = repoMap ? `${base}\n\n${repoMap}` : base;
+    const withMap = repoMap ? `${base}\n\n${repoMap}` : base;
+    const content = this.projectRules
+      ? `${withMap}\n\n## Project Rules\n\n${this.projectRules}`
+      : withMap;
     const systemMsg: LLMMessage = { role: "system", content };
     return this.prependOrMergeSystem(history, systemMsg);
   }

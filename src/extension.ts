@@ -1127,6 +1127,16 @@ export async function activate(
       if (cachedYamlConfig?.userRules) {
         rulesEngine.setUserRules(cachedYamlConfig.userRules);
       }
+      // Wire active rules into the agent controller so every system prompt
+      // includes them. getActiveRules() returns always + user rules.
+      const activeRules = rulesEngine.getActiveRules({ mode: "agent" });
+      const rulesContent = activeRules.map((r) => r.content).join("\n\n");
+      agentController.setProjectRules(rulesContent);
+      agentManager?.listSessions(true).forEach((meta) => {
+        agentManager!
+          .getSession(meta.id)
+          ?.controller.setProjectRules(rulesContent);
+      });
       const newProvider = yamlConfig
         ? await factory.createFromChampConfig(yamlConfig, context.secrets)
         : await factory.createFromConfig(

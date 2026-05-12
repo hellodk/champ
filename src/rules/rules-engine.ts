@@ -122,17 +122,24 @@ export class RulesEngine {
     for (const entry of entries) {
       if (!entry.endsWith(".md")) continue;
       const filePath = path.join(directory, entry);
-      const raw = await fs.readFile(filePath, "utf-8");
+      let raw: string;
+      try {
+        raw = await fs.readFile(filePath, "utf-8");
+      } catch {
+        continue; // skip unreadable files
+      }
 
       let name = entry.slice(0, -3);
       let type: RuleType = "always";
       let glob: string | undefined;
       let content = raw.trim();
 
-      const fmMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+      const fmMatch = raw.match(
+        /^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)([\s\S]*)$/,
+      );
       if (fmMatch) {
         const fm = fmMatch[1];
-        content = fmMatch[2].trim();
+        content = fmMatch[3].trim();
         const nameMatch = fm.match(/^name:\s*['"]?([^'"\n]+?)['"]?\s*$/m);
         const typeMatch = fm.match(
           /^type:\s*['"]?(always|auto-attached|agent-requested)['"]?\s*$/m,
