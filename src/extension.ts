@@ -50,6 +50,8 @@ import { generateDocTool } from "./tools/generate-doc";
 import { createCodebaseSearchTool } from "./tools/codebase-search";
 import { IndexingService } from "./indexing/indexing-service";
 import { MultiAgentRunner } from "./agent/multi-agent-runner";
+import { AgentLoader } from "./agent/agent-loader";
+import { CustomAgent } from "./agent/agents/custom-agent";
 import { AgentAnalytics } from "./observability/agent-analytics";
 import type { AgentRunReport } from "./agent-manager/types";
 import {
@@ -1644,6 +1646,30 @@ export async function activate(
         if (rulesContent) initSession.controller.setProjectRules(rulesContent);
         if (memoryBank) initSession.controller.setMemoryBank(memoryBank);
       }
+
+      // Load custom agents from .champ/agents/*.md
+      if (workspaceRoot) {
+        const loader = new AgentLoader(workspaceRoot);
+        const defs = await loader.loadAll().catch((err) => {
+          console.warn("Champ: failed to load custom agents:", err);
+          return [] as import("./agent/agents/custom-agent").CustomAgentDefinition[];
+        });
+        if (defs.length > 0) {
+          const runner = MultiAgentRunner.buildDefaultPipeline(
+            inlineProviderRef.current,
+            toolRegistry,
+            workspaceRoot,
+          );
+          for (const def of defs) {
+            const agent = new CustomAgent(def, inlineProviderRef.current);
+            runner.getOrchestrator().registerAgent(agent);
+            console.log(
+              `Champ: loaded custom agent "${def.name}" from .champ/agents/`,
+            );
+          }
+        }
+      }
+
       const activeSession = agentManager.getActive();
       if (activeSession) {
         chatViewProvider?.setAgent(activeSession.controller);

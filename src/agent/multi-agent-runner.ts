@@ -90,6 +90,10 @@ export class MultiAgentRunner {
     return result;
   }
 
+  getOrchestrator(): AgentOrchestrator {
+    return this.orchestrator;
+  }
+
   /**
    * Build the default pipeline using real LLM-backed agents.
    * Called from extension.ts during activation.
