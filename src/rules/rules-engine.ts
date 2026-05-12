@@ -20,6 +20,9 @@
  * system prompt builder.
  */
 
+import * as fs from "fs/promises";
+import * as path from "path";
+
 export type RuleType = "always" | "auto-attached" | "agent-requested";
 export type RuleSource = "project" | "user" | "team";
 
@@ -101,17 +104,50 @@ export class RulesEngine {
   }
 
   /**
-   * Load rules from a directory. In the default export-only
-   * implementation this is a stub; tests override it via vi.fn() to
-   * control the return value. The production implementation reads
-   * .md files with frontmatter from `.champ/rules/` in the workspace.
+   * Load rules from a directory. Reads all .md files, parses optional
+   * YAML frontmatter for {name, type, glob}, and registers each as a
+   * project rule. Returns the array of loaded rules. Silently returns
+   * [] if the directory doesn't exist (ENOENT).
    */
-  async loadRulesFromDirectory(_directory: string): Promise<Rule[]> {
-    // Placeholder: the production implementation will use
-    // vscode.workspace.fs.readDirectory + readFile to load .md files
-    // with YAML frontmatter ({name, type, glob}). For now this is a
-    // no-op that tests can override.
-    return [];
+  async loadRulesFromDirectory(directory: string): Promise<Rule[]> {
+    let entries: string[];
+    try {
+      entries = (await fs.readdir(directory)) as string[];
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw err;
+    }
+
+    const loaded: Rule[] = [];
+    for (const entry of entries) {
+      if (!entry.endsWith(".md")) continue;
+      const filePath = path.join(directory, entry);
+      const raw = await fs.readFile(filePath, "utf-8");
+
+      let name = entry.slice(0, -3);
+      let type: RuleType = "always";
+      let glob: string | undefined;
+      let content = raw.trim();
+
+      const fmMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+      if (fmMatch) {
+        const fm = fmMatch[1];
+        content = fmMatch[2].trim();
+        const nameMatch = fm.match(/^name:\s*['"]?([^'"\n]+?)['"]?\s*$/m);
+        const typeMatch = fm.match(
+          /^type:\s*['"]?(always|auto-attached|agent-requested)['"]?\s*$/m,
+        );
+        const globMatch = fm.match(/^glob:\s*['"]?([^'"\n]+?)['"]?\s*$/m);
+        if (nameMatch) name = nameMatch[1].trim();
+        if (typeMatch) type = typeMatch[1].trim() as RuleType;
+        if (globMatch) glob = globMatch[1].trim();
+      }
+
+      const rule: Rule = { name, content, type, source: "project", glob };
+      loaded.push(rule);
+      this.addRule(rule);
+    }
+    return loaded;
   }
 
   /**

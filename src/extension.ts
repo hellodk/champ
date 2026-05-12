@@ -16,6 +16,7 @@ import * as path from "path";
 import * as os from "os";
 import { ProviderRegistry } from "./providers/registry";
 import { ProviderFactory } from "./providers/factory";
+import { RulesEngine } from "./rules/rules-engine";
 import { ToolRegistry } from "./tools/registry";
 import { readFileTool } from "./tools/read-file";
 import { editFileTool } from "./tools/edit-file";
@@ -125,6 +126,8 @@ export async function activate(
   // network/SDK errors happen.
   const workspaceRoot =
     vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+
+  const rulesEngine = new RulesEngine(workspaceRoot ?? "");
 
   const stubProvider = createStubProvider("not-configured");
   const inlineProviderRef: { current: LLMProvider } = { current: stubProvider };
@@ -1116,6 +1119,14 @@ export async function activate(
     try {
       yamlConfig = await resolveConfig();
       cachedYamlConfig = yamlConfig;
+      // Load project rules from .champ/rules/*.md
+      if (workspaceRoot) {
+        const rulesDir = path.join(workspaceRoot, ".champ", "rules");
+        await rulesEngine.loadRulesFromDirectory(rulesDir).catch(() => {});
+      }
+      if (cachedYamlConfig?.userRules) {
+        rulesEngine.setUserRules(cachedYamlConfig.userRules);
+      }
       const newProvider = yamlConfig
         ? await factory.createFromChampConfig(yamlConfig, context.secrets)
         : await factory.createFromConfig(
