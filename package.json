@@ -2,7 +2,7 @@
   "name": "champ",
   "displayName": "Champ - AI Coding Agent",
   "description": "AI coding agent with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "1.6.10",
+  "version": "1.6.11",
   "publisher": "champ-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -95,6 +95,11 @@
       {
         "command": "champ.setApiKey",
         "title": "Champ: Set API Key"
+      },
+      {
+        "command": "champ.setBraveApiKey",
+        "title": "Champ: Set Brave API Key",
+        "category": "Champ"
       },
       {
         "command": "champ.generateConfig",

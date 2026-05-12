@@ -267,10 +267,63 @@ export async function activate(
       },
     },
     webSearchTool: {
-      execute: async () => ({
-        success: false,
-        output: "Web search not yet wired",
-      }),
+      execute: async (args: Record<string, unknown>) => {
+        const query = String(args.query ?? "");
+        if (!query) return { success: false, output: "No query provided." };
+
+        const apiKey = await context.secrets.get("brave_api_key");
+        if (!apiKey) {
+          return {
+            success: false,
+            output:
+              "Web search requires a Brave Search API key. " +
+              "Run 'Champ: Set Brave API Key' from the command palette " +
+              "(free tier at https://brave.com/search/api/).",
+          };
+        }
+
+        try {
+          const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5`;
+          const res = await fetch(url, {
+            headers: {
+              Accept: "application/json",
+              "Accept-Encoding": "gzip",
+              "X-Subscription-Token": apiKey,
+            },
+          });
+          if (!res.ok) {
+            return {
+              success: false,
+              output: `Brave Search error: ${res.status} ${res.statusText}`,
+            };
+          }
+          const data = (await res.json()) as {
+            web?: {
+              results?: Array<{
+                title?: string;
+                url?: string;
+                description?: string;
+              }>;
+            };
+          };
+          const results = data.web?.results ?? [];
+          if (results.length === 0) {
+            return { success: true, output: "No results found." };
+          }
+          const formatted = results
+            .map(
+              (r, i) =>
+                `${i + 1}. **${r.title ?? "Untitled"}**\n   ${r.url ?? ""}\n   ${r.description ?? ""}`,
+            )
+            .join("\n\n");
+          return { success: true, output: formatted };
+        } catch (err) {
+          return {
+            success: false,
+            output: `Web search failed: ${err instanceof Error ? err.message : String(err)}`,
+          };
+        }
+      },
     },
   });
 
@@ -692,6 +745,19 @@ export async function activate(
         `Champ: ${provider} API key saved. Reloading provider...`,
       );
       await loadProvider();
+    }),
+    vscode.commands.registerCommand("champ.setBraveApiKey", async () => {
+      const key = await vscode.window.showInputBox({
+        prompt: "Paste your Brave Search API key",
+        password: true,
+        ignoreFocusOut: true,
+        placeHolder: "BSA...",
+      });
+      if (!key) return;
+      await context.secrets.store("brave_api_key", key);
+      void vscode.window.showInformationMessage(
+        "Champ: Brave API key saved. @Web search is now enabled.",
+      );
     }),
     vscode.commands.registerCommand("champ.generateConfig", async () => {
       if (!workspaceRoot) {
