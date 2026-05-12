@@ -223,15 +223,15 @@ export class ContextResolver {
             chunkType: string;
             distance: number;
           }>;
-          const content =
-            results.length === 0
-              ? "(no results — workspace may not be indexed yet)"
-              : results
-                  .map(
-                    (r) =>
-                      `// ${r.filePath}:${r.startLine}-${r.endLine} [${r.chunkType}]\n${r.chunkText}`,
-                  )
-                  .join("\n\n---\n\n");
+          const isEmpty = !results || results.length === 0;
+          const content = isEmpty
+            ? `(no matching results for "${ref.value}" — if the workspace is not yet indexed, wait a moment and try again)`
+            : results
+                .map(
+                  (r) =>
+                    `// ${r.filePath}:${r.startLine}-${r.endLine} [${r.chunkType}]\n${r.chunkText}`,
+                )
+                .join("\n\n---\n\n");
           resolved.push({
             type: "codebase",
             label: `@Codebase "${ref.value}"`,

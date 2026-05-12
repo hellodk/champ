@@ -70,12 +70,17 @@ export class ContextAgent implements Agent {
     const semanticPaths = new Set<string>();
     if (this.config.indexingService && taskDescription) {
       try {
-        const results = await this.config.indexingService.search(
-          taskDescription,
-          10,
-        );
+        const SEARCH_TIMEOUT_MS = 5000;
+        const results = await Promise.race([
+          this.config.indexingService.search(taskDescription, 10),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error("semantic search timeout")),
+              SEARCH_TIMEOUT_MS,
+            ),
+          ),
+        ]);
         for (const r of results) {
-          // Normalize to workspace-relative so dedup works against plan targetFiles.
           const relPath = path
             .relative(workspaceRoot, r.filePath)
             .replace(/\\/g, "/");
@@ -88,7 +93,7 @@ export class ContextAgent implements Agent {
           });
         }
       } catch {
-        // Embedding search unavailable — fall through to file reading.
+        // Embedding search unavailable or timed out — fall through to file reading.
       }
     }
 

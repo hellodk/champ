@@ -538,6 +538,13 @@ export async function activate(
           let activeSession = agentManager?.getActive();
           if (!activeSession && agentManager) {
             activeSession = agentManager.createSession();
+            // Ensure new sessions inherit current project rules.
+            const rulesContent = rulesEngine
+              .getActiveRules({ mode: "agent" })
+              .map((r) => r.content)
+              .join("\n\n");
+            if (rulesContent)
+              activeSession.controller.setProjectRules(rulesContent);
           }
           if (!activeSession) {
             stream.markdown("Champ: session unavailable.");
@@ -638,6 +645,12 @@ export async function activate(
         const session = agentManager.createSession();
         if (sessionAnalytics)
           session.controller.setAnalytics(sessionAnalytics, "champ");
+        // Ensure new sessions inherit current project rules.
+        const rulesContent = rulesEngine
+          .getActiveRules({ mode: "agent" })
+          .map((r) => r.content)
+          .join("\n\n");
+        if (rulesContent) session.controller.setProjectRules(rulesContent);
         chatViewProvider?.setAgent(session.controller);
         void saveSession(session.metadata.id);
         broadcastSessionList();
@@ -678,7 +691,7 @@ export async function activate(
         .map((d) => vscode.workspace.asRelativePath(d.uri));
       await checkpointManager.create(label, openFiles);
       void vscode.window.showInformationMessage(
-        `Champ: checkpoint "${label}" saved (${openFiles.length} file(s)).`,
+        `Champ: checkpoint "${label}" saved (${openFiles.length} saved file(s) — untitled files excluded).`,
       );
     }),
     vscode.commands.registerCommand("champ.indexWorkspace", () => {
@@ -974,6 +987,12 @@ export async function activate(
       if (sessionAnalytics) {
         session.controller.setAnalytics(sessionAnalytics, "champ");
       }
+      // Ensure new sessions inherit current project rules.
+      const rulesContent = rulesEngine
+        .getActiveRules({ mode: "agent" })
+        .map((r) => r.content)
+        .join("\n\n");
+      if (rulesContent) session.controller.setProjectRules(rulesContent);
       // Swap the chat view to the new session's controller.
       chatViewProvider?.setAgent(session.controller);
       void saveSession(session.metadata.id);
@@ -1001,6 +1020,12 @@ export async function activate(
           const fresh = agentManager.createSession();
           if (sessionAnalytics)
             fresh.controller.setAnalytics(sessionAnalytics, "champ");
+          // Ensure new sessions inherit current project rules.
+          const rulesContent = rulesEngine
+            .getActiveRules({ mode: "agent" })
+            .map((r) => r.content)
+            .join("\n\n");
+          if (rulesContent) fresh.controller.setProjectRules(rulesContent);
           chatViewProvider?.setAgent(fresh.controller);
           chatViewProvider?.postMessage({
             type: "conversationHistory",
@@ -1567,7 +1592,13 @@ export async function activate(
         /* non-fatal */
       }
       if (agentManager.listSessions(true).length === 0) {
-        agentManager.createSession();
+        const initSession = agentManager.createSession();
+        // Ensure new sessions inherit current project rules.
+        const rulesContent = rulesEngine
+          .getActiveRules({ mode: "agent" })
+          .map((r) => r.content)
+          .join("\n\n");
+        if (rulesContent) initSession.controller.setProjectRules(rulesContent);
       }
       const activeSession = agentManager.getActive();
       if (activeSession) {
