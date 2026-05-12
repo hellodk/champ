@@ -22,6 +22,7 @@ const MAX_MEMORIES = 50;
 export class MemoryBank {
   private items: MemoryItem[] = [];
   private readonly filePath: string;
+  private _loaded = false;
 
   constructor(workspaceRoot: string) {
     this.filePath = path.join(workspaceRoot, ".champ", "memory.json");
@@ -43,6 +44,7 @@ export class MemoryBank {
         console.warn("Champ MemoryBank: failed to load memory.json:", err);
       }
     }
+    this._loaded = true;
   }
 
   /**
@@ -62,6 +64,13 @@ export class MemoryBank {
       this.items.shift();
     }
     await this.persist();
+  }
+
+  /**
+   * Returns whether the memory bank has been loaded.
+   */
+  isLoaded(): boolean {
+    return this._loaded;
   }
 
   /**
