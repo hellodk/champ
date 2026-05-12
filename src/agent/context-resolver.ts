@@ -221,7 +221,7 @@ export class ContextResolver {
             startLine: number;
             endLine: number;
             chunkType: string;
-            score: number;
+            distance: number;
           }>;
           const content =
             results.length === 0

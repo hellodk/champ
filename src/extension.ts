@@ -249,14 +249,13 @@ export async function activate(
 
   // ---- @-symbol context resolver -------------------------------------
   // Wire ContextResolver so chat input can use @Files, @Folders,
-  // @Codebase, etc. The codebase indexing service is a stub for now;
-  // @Codebase will return empty results until Round 4.
+  // @Codebase, etc.
   const contextResolver = new ContextResolver({
     workspaceRoot,
     indexingService: {
       search: async (query: string, topK?: number) => {
         if (!indexingService) return [];
-        return indexingService.search(query, topK ?? 8);
+        return indexingService.search(query, topK);
       },
     },
     webSearchTool: {
