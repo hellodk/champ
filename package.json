@@ -2,7 +2,7 @@
   "name": "champ",
   "displayName": "Champ - AI Coding Agent",
   "description": "AI coding agent with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "1.6.9",
+  "version": "1.6.10",
   "publisher": "champ-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -74,6 +74,11 @@
       {
         "command": "champ.toggleMode",
         "title": "Champ: Toggle Mode"
+      },
+      {
+        "command": "champ.saveCheckpoint",
+        "title": "Champ: Save Checkpoint",
+        "category": "Champ"
       },
       {
         "command": "champ.indexWorkspace",

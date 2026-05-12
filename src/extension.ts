@@ -17,6 +17,7 @@ import * as os from "os";
 import { ProviderRegistry } from "./providers/registry";
 import { ProviderFactory } from "./providers/factory";
 import { RulesEngine } from "./rules/rules-engine";
+import { CheckpointManager } from "./checkpoints/checkpoint-manager";
 import { ToolRegistry } from "./tools/registry";
 import { readFileTool } from "./tools/read-file";
 import { editFileTool } from "./tools/edit-file";
@@ -128,6 +129,10 @@ export async function activate(
     vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
 
   const rulesEngine = new RulesEngine(workspaceRoot ?? "");
+
+  const checkpointManager = workspaceRoot
+    ? new CheckpointManager(workspaceRoot)
+    : null;
 
   const stubProvider = createStubProvider("not-configured");
   const inlineProviderRef: { current: LLMProvider } = { current: stubProvider };
@@ -597,15 +602,65 @@ export async function activate(
         });
       }
     }),
+    vscode.commands.registerCommand("champ.saveCheckpoint", async () => {
+      if (!checkpointManager) {
+        void vscode.window.showWarningMessage("Champ: no workspace open.");
+        return;
+      }
+      const label = await vscode.window.showInputBox({
+        prompt: "Checkpoint label",
+        placeHolder: "e.g. before refactor",
+        value: `checkpoint-${new Date().toISOString().slice(0, 16).replace("T", " ")}`,
+      });
+      if (!label) return;
+      const openFiles = vscode.workspace.textDocuments
+        .filter((d) => !d.isUntitled)
+        .map((d) => vscode.workspace.asRelativePath(d.uri));
+      await checkpointManager.create(label, openFiles);
+      void vscode.window.showInformationMessage(
+        `Champ: checkpoint "${label}" saved (${openFiles.length} file(s)).`,
+      );
+    }),
     vscode.commands.registerCommand("champ.indexWorkspace", () => {
       void vscode.window.showInformationMessage(
         "Champ: codebase indexing is built but not yet wired to a UI trigger in this phase.",
       );
     }),
-    vscode.commands.registerCommand("champ.restoreCheckpoint", () => {
-      void vscode.window.showInformationMessage(
-        "Champ: checkpoint restore is built but not yet wired to a UI trigger in this phase.",
+    vscode.commands.registerCommand("champ.restoreCheckpoint", async () => {
+      if (!checkpointManager) {
+        void vscode.window.showWarningMessage("Champ: no workspace open.");
+        return;
+      }
+      const checkpoints = checkpointManager.list();
+      if (checkpoints.length === 0) {
+        void vscode.window.showInformationMessage(
+          "Champ: no checkpoints saved. Use 'Champ: Save Checkpoint' first.",
+        );
+        return;
+      }
+      const picked = await vscode.window.showQuickPick(
+        checkpoints
+          .slice()
+          .reverse()
+          .map((c) => ({
+            label: c.label,
+            description: new Date(c.timestamp).toLocaleString(),
+            detail: `${c.snapshots.length} file(s) snapshotted`,
+            id: c.id,
+          })),
+        { placeHolder: "Select checkpoint to restore" },
       );
+      if (!picked) return;
+      try {
+        await checkpointManager.restore(picked.id);
+        void vscode.window.showInformationMessage(
+          `Champ: restored to "${picked.label}".`,
+        );
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Champ: restore failed — ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }),
     vscode.commands.registerCommand("champ.openSettings", () => {
       void vscode.commands.executeCommand(
