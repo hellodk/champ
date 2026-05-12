@@ -127,6 +127,24 @@ export interface SharedMemory {
 }
 
 /**
+ * Optional stable identity for an agent. Agents that declare an identity
+ * can be tracked by the AgentRegistry and are addressable in future
+ * agent-to-agent protocols.
+ */
+export interface AgentIdentity {
+  /** Stable unique identifier, e.g. "built-in:planner" or "custom:security-auditor". */
+  id: string;
+  /** Semantic version string, e.g. "1.0.0". */
+  version?: string;
+  /** Declared capabilities used for routing and access control. */
+  capabilities: Array<
+    "read" | "write" | "execute" | "llm" | "search" | "review"
+  >;
+  /** Whether this agent is trusted to perform destructive operations. Defaults to false. */
+  trusted?: boolean;
+}
+
+/**
  * Interface implemented by all specialized agents.
  */
 export interface Agent {
@@ -134,6 +152,8 @@ export interface Agent {
   name: string;
   /** Human-readable role description (used in system prompts). */
   role: string;
+  /** Optional stable identity for registry lookup and A2A routing. */
+  identity?: AgentIdentity;
   /**
    * Execute the agent. Must read any upstream agent outputs from `memory`
    * and write its own output via memory.setOutput() (or return it).
