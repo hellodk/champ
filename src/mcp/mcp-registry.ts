@@ -12,6 +12,9 @@ import type { ToolRegistry } from "../tools/registry";
  * and leaving unchanged ones alone. This makes config reloads cheap.
  */
 export class McpRegistry {
+  /** Called whenever server connection status changes (connect, disconnect, crash). */
+  onStatusChange?: () => void;
+
   /** serverName → tool names registered from that server */
   private registeredTools = new Map<string, string[]>();
   private connectionErrors = new Map<string, string>();
@@ -135,6 +138,7 @@ export class McpRegistry {
     console.log(
       `Champ MCP: registered ${names.length} tool(s) from "${serverName}": ${names.join(", ")}`,
     );
+    this.onStatusChange?.();
   }
 
   private unregisterServerTools(serverName: string): void {
@@ -143,6 +147,7 @@ export class McpRegistry {
       this.toolRegistry.unregister(name);
     }
     this.registeredTools.delete(serverName);
+    this.onStatusChange?.();
   }
 
   private async disconnectServer(serverName: string): Promise<void> {

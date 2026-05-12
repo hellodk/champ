@@ -172,6 +172,7 @@ export async function activate(
     toolRegistry,
     context.secrets,
   );
+  mcpRegistry.onStatusChange = () => broadcastMcpStatus();
 
   // ---- Smart Router (multi-provider model discovery) ----------------
   smartRouter = new SmartRouter();
@@ -559,6 +560,12 @@ export async function activate(
               .join("\n\n");
             if (rulesContent)
               activeSession.controller.setProjectRules(rulesContent);
+            if (sessionAnalytics) {
+              activeSession.controller.setAnalytics(sessionAnalytics, "champ");
+            }
+            const guardEnabled =
+              cachedYamlConfig?.agent?.promptGuard?.enabled !== false;
+            activeSession.controller.setPromptGuardEnabled(guardEnabled);
             if (memoryBank) activeSession.controller.setMemoryBank(memoryBank);
           }
           if (!activeSession) {
@@ -1551,6 +1558,24 @@ export async function activate(
     // Reload triggers from config.
     triggerManager?.disposeAll();
     if (cachedYamlConfig?.triggers?.length && workspaceRoot) {
+      // Warn about triggers that reference unregistered agents.
+      const registeredAgentNames = new Set(
+        persistentRunner
+          ?.getOrchestrator()
+          .listAgents()
+          .map((a) => a.name) ?? [],
+      );
+      for (const trigger of cachedYamlConfig.triggers) {
+        if (!registeredAgentNames.has(trigger.run)) {
+          console.warn(
+            `Champ trigger "${trigger.name}" references unregistered agent "${trigger.run}". ` +
+              `Available agents: ${[...registeredAgentNames].join(", ")}`,
+          );
+          void vscode.window.showWarningMessage(
+            `Champ: trigger "${trigger.name}" references unknown agent "${trigger.run}". Check your .champ/config.yaml.`,
+          );
+        }
+      }
       triggerManager = new TriggerManager();
       triggerManager.loadTriggers(
         cachedYamlConfig.triggers,
@@ -1784,9 +1809,28 @@ export async function activate(
     const yamlWatcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(workspaceRoot, ".champ/config.yaml"),
     );
-    yamlWatcher.onDidChange(() => void loadProvider());
-    yamlWatcher.onDidCreate(() => void loadProvider());
-    yamlWatcher.onDidDelete(() => void loadProvider());
+    let configReloadTimer: ReturnType<typeof setTimeout> | undefined;
+    (yamlWatcher.onDidChange(() => {
+      if (configReloadTimer) clearTimeout(configReloadTimer);
+      configReloadTimer = setTimeout(() => {
+        configReloadTimer = undefined;
+        void loadProvider();
+      }, 300); // 300ms debounce
+    }),
+      yamlWatcher.onDidCreate(() => {
+        if (configReloadTimer) clearTimeout(configReloadTimer);
+        configReloadTimer = setTimeout(() => {
+          configReloadTimer = undefined;
+          void loadProvider();
+        }, 300);
+      }),
+      yamlWatcher.onDidDelete(() => {
+        if (configReloadTimer) clearTimeout(configReloadTimer);
+        configReloadTimer = setTimeout(() => {
+          configReloadTimer = undefined;
+          void loadProvider();
+        }, 300);
+      }));
     context.subscriptions.push(yamlWatcher);
   }
 
