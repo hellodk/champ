@@ -584,6 +584,8 @@ export class AgentController {
               return `${m.role}: ${text}`;
             })
             .join("\n");
+          // Safe: calls the provider directly (not processMessage), so fitWithSummary
+          // is never re-entered. The summarization request is always a single small message.
           const summaryStream = activeProvider.chat(
             [
               {
