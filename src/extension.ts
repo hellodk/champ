@@ -83,6 +83,9 @@ let saveActiveTimeout: ReturnType<typeof setTimeout> | null = null;
 let indexingService: IndexingService | undefined;
 let mcpRegistry: McpRegistry | undefined;
 let mcpClientManager: MCPClientManager | undefined;
+let persistentRunner:
+  | import("./agent/multi-agent-runner").MultiAgentRunner
+  | undefined;
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -1120,12 +1123,14 @@ export async function activate(
         text: `**Multi-agent workflow started**\n\n> ${userRequest}\n\n`,
       });
 
-      const runner = MultiAgentRunner.buildDefaultPipeline(
-        provider,
-        toolRegistry,
-        workspaceRoot ?? "",
-        indexingService,
-      );
+      const runner =
+        persistentRunner ??
+        MultiAgentRunner.buildDefaultPipeline(
+          provider,
+          toolRegistry,
+          workspaceRoot ?? "",
+          indexingService ?? undefined,
+        );
 
       try {
         await runner.run(userRequest, {
@@ -1495,6 +1500,29 @@ export async function activate(
           void smartRouter.discover();
         }
       }
+      // Rebuild the persistent multi-agent runner so custom agents get
+      // the fresh provider on every config reload.
+      const baseRunner = MultiAgentRunner.buildDefaultPipeline(
+        newProvider,
+        toolRegistry,
+        workspaceRoot ?? "",
+        indexingService ?? undefined,
+      );
+      // Re-register any custom agents from .champ/agents/*.md.
+      if (workspaceRoot) {
+        const loader = new AgentLoader(workspaceRoot);
+        void loader
+          .loadAll()
+          .then((defs) => {
+            for (const def of defs) {
+              baseRunner
+                .getOrchestrator()
+                .registerAgent(new CustomAgent(def, newProvider));
+            }
+          })
+          .catch(() => {});
+      }
+      persistentRunner = baseRunner;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatusError(message);
@@ -1645,29 +1673,6 @@ export async function activate(
           .join("\n\n");
         if (rulesContent) initSession.controller.setProjectRules(rulesContent);
         if (memoryBank) initSession.controller.setMemoryBank(memoryBank);
-      }
-
-      // Load custom agents from .champ/agents/*.md
-      if (workspaceRoot) {
-        const loader = new AgentLoader(workspaceRoot);
-        const defs = await loader.loadAll().catch((err) => {
-          console.warn("Champ: failed to load custom agents:", err);
-          return [] as import("./agent/agents/custom-agent").CustomAgentDefinition[];
-        });
-        if (defs.length > 0) {
-          const runner = MultiAgentRunner.buildDefaultPipeline(
-            inlineProviderRef.current,
-            toolRegistry,
-            workspaceRoot,
-          );
-          for (const def of defs) {
-            const agent = new CustomAgent(def, inlineProviderRef.current);
-            runner.getOrchestrator().registerAgent(agent);
-            console.log(
-              `Champ: loaded custom agent "${def.name}" from .champ/agents/`,
-            );
-          }
-        }
       }
 
       const activeSession = agentManager.getActive();
