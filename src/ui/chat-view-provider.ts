@@ -578,6 +578,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // Cancel any previous request so a new one always wins.
     this.handleCancel();
 
+    // Composer mode: route to the multi-agent workflow panel instead of
+    // the regular chat. The WorkflowPanel shows plan→diff→apply UX.
+    if (this.agent.getMode() === "composer") {
+      void vscode.commands.executeCommand("champ.runMultiAgent", text);
+      return;
+    }
+
     const controller = new AbortController();
     this.activeAbortController = controller;
 

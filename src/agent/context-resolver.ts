@@ -240,17 +240,10 @@ export class ContextResolver {
             });
             break;
           }
-          let absPath: string | null;
-          if (ref.value.startsWith("/")) {
-            const root = this.deps.workspaceRoot;
-            const rootWithSep = root.endsWith("/") ? root : root + "/";
-            absPath =
-              ref.value === root || ref.value.startsWith(rootWithSep)
-                ? ref.value
-                : null;
-          } else {
-            absPath = resolveInWorkspace(this.deps.workspaceRoot, ref.value);
-          }
+          const absPath = resolveInWorkspace(
+            this.deps.workspaceRoot,
+            ref.value,
+          );
           let fileContent: string;
           if (absPath === null) {
             fileContent = `(path outside workspace: ${ref.value})`;
@@ -277,17 +270,7 @@ export class ContextResolver {
             });
             break;
           }
-          let absDir: string | null;
-          if (ref.value.startsWith("/")) {
-            const root = this.deps.workspaceRoot;
-            const rootWithSep = root.endsWith("/") ? root : root + "/";
-            absDir =
-              ref.value === root || ref.value.startsWith(rootWithSep)
-                ? ref.value
-                : null;
-          } else {
-            absDir = resolveInWorkspace(this.deps.workspaceRoot, ref.value);
-          }
+          const absDir = resolveInWorkspace(this.deps.workspaceRoot, ref.value);
           if (absDir === null) {
             resolved.push({
               type: "folder",

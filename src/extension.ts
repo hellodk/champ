@@ -1172,180 +1172,185 @@ export async function activate(
           .then(() => broadcastMcpStatus());
       },
     ),
-    vscode.commands.registerCommand("champ.runMultiAgent", async () => {
-      if (activeWorkflowSession) {
-        void vscode.window.showWarningMessage(
-          "Champ: a workflow is already running. Stop it before starting a new one.",
+    vscode.commands.registerCommand(
+      "champ.runMultiAgent",
+      async (prefilledRequest?: string) => {
+        if (activeWorkflowSession) {
+          void vscode.window.showWarningMessage(
+            "Champ: a workflow is already running. Stop it before starting a new one.",
+          );
+          return;
+        }
+        const userRequest =
+          prefilledRequest ??
+          (await vscode.window.showInputBox({
+            prompt: "Describe the feature or task for the multi-agent workflow",
+            placeHolder:
+              "e.g. Add JWT authentication with refresh tokens and tests",
+            ignoreFocusOut: true,
+          }));
+        if (!userRequest) return;
+
+        const provider = inlineProviderRef.current;
+        if (provider.name === "not-configured") {
+          void vscode.window.showErrorMessage(
+            "Champ: configure a provider first.",
+          );
+          return;
+        }
+        if (!workflowStore) {
+          void vscode.window.showErrorMessage("Champ: no workspace open.");
+          return;
+        }
+
+        const mode = (context.globalState.get<string>("champ.workflowMode") ??
+          "safe") as import("./ui/workflow-store").WorkflowMode;
+        const runId = `wf-${Date.now().toString(36)}-${Math.random()
+          .toString(36)
+          .slice(2, 6)}`;
+        const runName = userRequest.slice(0, 60);
+
+        const runner =
+          persistentRunner ??
+          MultiAgentRunner.buildDefaultPipeline(
+            provider,
+            toolRegistry,
+            workspaceRoot ?? "",
+            indexingService ?? undefined,
+          );
+
+        const session = new WorkflowSession(
+          workflowStore,
+          runner,
+          runId,
+          runName,
+          mode,
         );
-        return;
-      }
-      const userRequest = await vscode.window.showInputBox({
-        prompt: "Describe the feature or task for the multi-agent workflow",
-        placeHolder:
-          "e.g. Add JWT authentication with refresh tokens and tests",
-        ignoreFocusOut: true,
-      });
-      if (!userRequest) return;
+        activeWorkflowSession = session;
 
-      const provider = inlineProviderRef.current;
-      if (provider.name === "not-configured") {
-        void vscode.window.showErrorMessage(
-          "Champ: configure a provider first.",
-        );
-        return;
-      }
-      if (!workflowStore) {
-        void vscode.window.showErrorMessage("Champ: no workspace open.");
-        return;
-      }
+        const panel = new WorkflowPanel(context.extensionUri);
+        panel.setTitle(runName);
+        panel.update(session.getSnapshot());
 
-      const mode = (context.globalState.get<string>("champ.workflowMode") ??
-        "safe") as import("./ui/workflow-store").WorkflowMode;
-      const runId = `wf-${Date.now().toString(36)}-${Math.random()
-        .toString(36)
-        .slice(2, 6)}`;
-      const runName = userRequest.slice(0, 60);
-
-      const runner =
-        persistentRunner ??
-        MultiAgentRunner.buildDefaultPipeline(
-          provider,
-          toolRegistry,
-          workspaceRoot ?? "",
-          indexingService ?? undefined,
-        );
-
-      const session = new WorkflowSession(
-        workflowStore,
-        runner,
-        runId,
-        runName,
-        mode,
-      );
-      activeWorkflowSession = session;
-
-      const panel = new WorkflowPanel(context.extensionUri);
-      panel.setTitle(runName);
-      panel.update(session.getSnapshot());
-
-      // Forward panel user-actions to the session.
-      panel.onMessage((msg) => {
-        if (msg.type === "stop") {
-          session.stop();
-        } else if (msg.type === "approve") {
-          void session.approve();
-        } else if (msg.type === "skipAgent") {
-          void session.skipAgent();
-        } else if (msg.type === "acceptFile") {
-          const change = session
-            .getSnapshot()
-            .filesChanged.find((f) => f.filePath === msg.filePath);
-          if (change) {
-            session.acceptFile(msg.filePath);
-            // Apply the file change to disk.
-            void (async () => {
-              try {
-                const uri = workspaceRoot
-                  ? vscode.Uri.file(path.join(workspaceRoot, msg.filePath))
-                  : null;
-                if (uri) {
-                  const existing = await Promise.resolve(
-                    vscode.workspace.fs.readFile(uri),
-                  )
-                    .then((d) => new TextDecoder().decode(d))
-                    .catch(() => "");
-                  const updated = existing
-                    ? existing.replace(change.oldContent, change.newContent)
-                    : change.newContent;
-                  await vscode.workspace.fs.writeFile(
-                    uri,
-                    new TextEncoder().encode(updated),
+        // Forward panel user-actions to the session.
+        panel.onMessage((msg) => {
+          if (msg.type === "stop") {
+            session.stop();
+          } else if (msg.type === "approve") {
+            void session.approve();
+          } else if (msg.type === "skipAgent") {
+            void session.skipAgent();
+          } else if (msg.type === "acceptFile") {
+            const change = session
+              .getSnapshot()
+              .filesChanged.find((f) => f.filePath === msg.filePath);
+            if (change) {
+              session.acceptFile(msg.filePath);
+              // Apply the file change to disk.
+              void (async () => {
+                try {
+                  const uri = workspaceRoot
+                    ? vscode.Uri.file(path.join(workspaceRoot, msg.filePath))
+                    : null;
+                  if (uri) {
+                    const existing = await Promise.resolve(
+                      vscode.workspace.fs.readFile(uri),
+                    )
+                      .then((d) => new TextDecoder().decode(d))
+                      .catch(() => "");
+                    const updated = existing
+                      ? existing.replace(change.oldContent, change.newContent)
+                      : change.newContent;
+                    await vscode.workspace.fs.writeFile(
+                      uri,
+                      new TextEncoder().encode(updated),
+                    );
+                  }
+                } catch (err) {
+                  console.warn(
+                    `Champ: failed to apply diff to ${msg.filePath}:`,
+                    err,
                   );
                 }
-              } catch (err) {
-                console.warn(
-                  `Champ: failed to apply diff to ${msg.filePath}:`,
-                  err,
-                );
-              }
-            })();
-          }
-        } else if (msg.type === "rejectFile") {
-          session.rejectFile(msg.filePath);
-        } else if (msg.type === "acceptAll") {
-          for (const fc of session
-            .getSnapshot()
-            .filesChanged.filter((f) => f.status === "pending")) {
-            session.acceptFile(fc.filePath);
-            // Apply to disk
-            void (async () => {
-              try {
-                const uri = workspaceRoot
-                  ? vscode.Uri.file(path.join(workspaceRoot, fc.filePath))
-                  : null;
-                if (uri) {
-                  const existing = await Promise.resolve(
-                    vscode.workspace.fs.readFile(uri),
-                  )
-                    .then((d) => new TextDecoder().decode(d))
-                    .catch(() => "");
-                  const updated = existing
-                    ? existing.replace(fc.oldContent, fc.newContent)
-                    : fc.newContent;
-                  await vscode.workspace.fs.writeFile(
-                    uri,
-                    new TextEncoder().encode(updated),
+              })();
+            }
+          } else if (msg.type === "rejectFile") {
+            session.rejectFile(msg.filePath);
+          } else if (msg.type === "acceptAll") {
+            for (const fc of session
+              .getSnapshot()
+              .filesChanged.filter((f) => f.status === "pending")) {
+              session.acceptFile(fc.filePath);
+              // Apply to disk
+              void (async () => {
+                try {
+                  const uri = workspaceRoot
+                    ? vscode.Uri.file(path.join(workspaceRoot, fc.filePath))
+                    : null;
+                  if (uri) {
+                    const existing = await Promise.resolve(
+                      vscode.workspace.fs.readFile(uri),
+                    )
+                      .then((d) => new TextDecoder().decode(d))
+                      .catch(() => "");
+                    const updated = existing
+                      ? existing.replace(fc.oldContent, fc.newContent)
+                      : fc.newContent;
+                    await vscode.workspace.fs.writeFile(
+                      uri,
+                      new TextEncoder().encode(updated),
+                    );
+                  }
+                } catch (err) {
+                  console.warn(
+                    `Champ: failed to apply diff to ${fc.filePath}:`,
+                    err,
                   );
                 }
-              } catch (err) {
-                console.warn(
-                  `Champ: failed to apply diff to ${fc.filePath}:`,
-                  err,
-                );
-              }
-            })();
+              })();
+            }
+          } else if (msg.type === "rejectAll") {
+            for (const fc of session
+              .getSnapshot()
+              .filesChanged.filter((f) => f.status === "pending")) {
+              session.rejectFile(fc.filePath);
+            }
+          } else if (msg.type === "modeChange") {
+            void context.globalState.update("champ.workflowMode", msg.mode);
           }
-        } else if (msg.type === "rejectAll") {
-          for (const fc of session
-            .getSnapshot()
-            .filesChanged.filter((f) => f.status === "pending")) {
-            session.rejectFile(fc.filePath);
+        });
+
+        // Forward session status changes to the panel.
+        session.onStatusChange((run) => {
+          panel.update(run);
+          void broadcastWorkflowHistory();
+          if (
+            run.status === "completed" ||
+            run.status === "failed" ||
+            run.status === "stopped"
+          ) {
+            activeWorkflowSession = undefined;
           }
-        } else if (msg.type === "modeChange") {
-          void context.globalState.update("champ.workflowMode", msg.mode);
-        }
-      });
+        });
 
-      // Forward session status changes to the panel.
-      session.onStatusChange((run) => {
-        panel.update(run);
-        void broadcastWorkflowHistory();
-        if (
-          run.status === "completed" ||
-          run.status === "failed" ||
-          run.status === "stopped"
-        ) {
-          activeWorkflowSession = undefined;
-        }
-      });
+        panel.onDidDispose(() => {
+          if (activeWorkflowSession === session) {
+            session.stop();
+            activeWorkflowSession = undefined;
+          }
+        });
 
-      panel.onDidDispose(() => {
-        if (activeWorkflowSession === session) {
-          session.stop();
-          activeWorkflowSession = undefined;
-        }
-      });
+        // Show streamStart in chat to create a user bubble.
+        chatViewProvider?.postMessage({
+          type: "streamStart" as never,
+          userText: userRequest,
+        } as never);
 
-      // Show streamStart in chat to create a user bubble.
-      chatViewProvider?.postMessage({
-        type: "streamStart" as never,
-        userText: userRequest,
-      } as never);
-
-      void session.start(userRequest).then(() => {
-        chatViewProvider?.postMessage({ type: "streamEnd" } as never);
-      });
-    }),
+        void session.start(userRequest).then(() => {
+          chatViewProvider?.postMessage({ type: "streamEnd" } as never);
+        });
+      },
+    ),
     vscode.commands.registerCommand(
       "champ.openWorkflowRun",
       async (runId: string) => {

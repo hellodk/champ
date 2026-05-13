@@ -236,16 +236,14 @@ describe("ContextResolver", () => {
       workspaceRoot: "/ws",
       indexingService: { search: vi.fn().mockResolvedValue([]) },
       webSearchTool: { execute: vi.fn() },
-      workspaceSymbols: vi
-        .fn()
-        .mockResolvedValue([
-          {
-            name: "authenticate",
-            filePath: "src/auth.ts",
-            kind: "Function",
-            line: 12,
-          },
-        ]),
+      workspaceSymbols: vi.fn().mockResolvedValue([
+        {
+          name: "authenticate",
+          filePath: "src/auth.ts",
+          kind: "Function",
+          line: 12,
+        },
+      ]),
     });
     const resolved = await resolver.resolve([
       { type: "symbol", value: "auth", start: 0, end: 0 },
@@ -253,5 +251,23 @@ describe("ContextResolver", () => {
     expect(resolved[0].content).toContain("authenticate");
     expect(resolved[0].content).toContain("src/auth.ts");
     expect(resolved[0].content).toContain("12");
+  });
+
+  it("should block @Files path traversal attempts", async () => {
+    const mockReadFile = vi.fn();
+    const resolver = new ContextResolver({
+      workspaceRoot: "/ws",
+      indexingService: { search: vi.fn().mockResolvedValue([]) },
+      webSearchTool: { execute: vi.fn() },
+      fileReader: {
+        readFile: mockReadFile,
+        readdir: vi.fn().mockResolvedValue([]),
+      },
+    });
+    const resolved = await resolver.resolve([
+      { type: "file", value: "../../etc/passwd", start: 0, end: 0 },
+    ]);
+    expect(resolved[0].content).toContain("path outside workspace");
+    expect(mockReadFile).not.toHaveBeenCalled();
   });
 });
