@@ -11,6 +11,8 @@
  * dropdown.
  */
 
+import { resolveInWorkspace } from "../utils/workspace-path";
+
 /** Types of @-references recognized in chat messages. */
 export type ReferenceType =
   | "file"
@@ -115,6 +117,38 @@ export interface ContextResolverDeps {
       args: Record<string, unknown>,
     ): Promise<{ success: boolean; output: string }>;
   };
+  /**
+   * File system access. Optional — if absent, @Files and @Folders return
+   * a short placeholder so the resolver degrades gracefully in tests.
+   */
+  fileReader?: {
+    readFile(absPath: string): Promise<string>;
+    readdir(absPath: string): Promise<Array<[string, "file" | "directory"]>>;
+  };
+  /**
+   * Returns the active editor's selection and file info. Optional.
+   * Used by the @Code resolver.
+   */
+  getEditorContext?: () =>
+    | {
+        selection: string;
+        filePath: string;
+        language: string;
+      }
+    | undefined;
+  /**
+   * Run a shell command in the workspace root and return stdout.
+   * Optional — used by the @Git resolver.
+   */
+  runShellCommand?: (cmd: string, cwd: string) => Promise<string>;
+  /**
+   * Look up workspace symbols by query string. Optional — used by @Symbols.
+   */
+  workspaceSymbols?: (
+    query: string,
+  ) => Promise<
+    Array<{ name: string; filePath: string; kind: string; line: number }>
+  >;
 }
 
 export class ContextResolver {
@@ -197,20 +231,92 @@ export class ContextResolver {
 
     for (const ref of refs) {
       switch (ref.type) {
-        case "file":
+        case "file": {
+          if (!this.deps.fileReader) {
+            resolved.push({
+              type: "file",
+              label: ref.value,
+              content: `[File reference: ${ref.value}]`,
+            });
+            break;
+          }
+          let absPath: string | null;
+          if (ref.value.startsWith("/")) {
+            const root = this.deps.workspaceRoot;
+            const rootWithSep = root.endsWith("/") ? root : root + "/";
+            absPath =
+              ref.value === root || ref.value.startsWith(rootWithSep)
+                ? ref.value
+                : null;
+          } else {
+            absPath = resolveInWorkspace(this.deps.workspaceRoot, ref.value);
+          }
+          let fileContent: string;
+          if (absPath === null) {
+            fileContent = `(path outside workspace: ${ref.value})`;
+          } else {
+            try {
+              fileContent = await this.deps.fileReader.readFile(absPath);
+            } catch {
+              fileContent = `(could not read ${ref.value})`;
+            }
+          }
           resolved.push({
             type: "file",
             label: ref.value,
-            content: `[File reference: ${ref.value}]`,
+            content: fileContent,
           });
           break;
-        case "folder":
+        }
+        case "folder": {
+          if (!this.deps.fileReader) {
+            resolved.push({
+              type: "folder",
+              label: ref.value,
+              content: `[Folder reference: ${ref.value}]`,
+            });
+            break;
+          }
+          let absDir: string | null;
+          if (ref.value.startsWith("/")) {
+            const root = this.deps.workspaceRoot;
+            const rootWithSep = root.endsWith("/") ? root : root + "/";
+            absDir =
+              ref.value === root || ref.value.startsWith(rootWithSep)
+                ? ref.value
+                : null;
+          } else {
+            absDir = resolveInWorkspace(this.deps.workspaceRoot, ref.value);
+          }
+          if (absDir === null) {
+            resolved.push({
+              type: "folder",
+              label: `@Folders ${ref.value}`,
+              content: `(path outside workspace: ${ref.value})`,
+            });
+            break;
+          }
+          let entries: Array<[string, "file" | "directory"]>;
+          try {
+            entries = await this.deps.fileReader.readdir(absDir);
+          } catch {
+            resolved.push({
+              type: "folder",
+              label: `@Folders ${ref.value}`,
+              content: `(could not list ${ref.value})`,
+            });
+            break;
+          }
+          const listing = entries
+            .map(([name, t]) => (t === "directory" ? `${name}/` : name))
+            .join("\n");
           resolved.push({
             type: "folder",
-            label: ref.value,
-            content: `[Folder reference: ${ref.value}]`,
+            label: `@Folders ${ref.value}`,
+            content: `Directory: ${ref.value}\n\n${listing}`,
           });
           break;
+        }
         case "codebase": {
           const results = (await this.deps.indexingService.search(
             ref.value,

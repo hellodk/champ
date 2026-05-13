@@ -124,4 +124,65 @@ describe("ContextResolver", () => {
     const suggestions = resolver.getAutocompleteSuggestions("@");
     expect(suggestions.length).toBeGreaterThanOrEqual(7); // Files, Folders, Code, Symbols, Codebase, Web, Git, Docs
   });
+
+  it("should resolve @Files to actual file content when fileReader is provided", async () => {
+    const mockReadFile = vi.fn().mockResolvedValue("export const x = 1;");
+    const resolver = new ContextResolver({
+      workspaceRoot: "/ws",
+      indexingService: { search: vi.fn().mockResolvedValue([]) },
+      webSearchTool: { execute: vi.fn() },
+      fileReader: {
+        readFile: mockReadFile,
+        readdir: vi.fn().mockResolvedValue([["index.ts", "file"]]),
+      },
+    });
+    const resolved = await resolver.resolve([
+      { type: "file", value: "src/index.ts", start: 0, end: 0 },
+    ]);
+    expect(resolved[0].content).toBe("export const x = 1;");
+    expect(mockReadFile).toHaveBeenCalledWith("/ws/src/index.ts");
+  });
+
+  it("should resolve @Folders to directory listing when fileReader is provided", async () => {
+    const resolver = new ContextResolver({
+      workspaceRoot: "/ws",
+      indexingService: { search: vi.fn().mockResolvedValue([]) },
+      webSearchTool: { execute: vi.fn() },
+      fileReader: {
+        readFile: vi.fn(),
+        readdir: vi.fn().mockResolvedValue([
+          ["a.ts", "file"],
+          ["utils", "directory"],
+        ]),
+      },
+    });
+    const resolved = await resolver.resolve([
+      { type: "folder", value: "src", start: 0, end: 0 },
+    ]);
+    expect(resolved[0].content).toContain("a.ts");
+    expect(resolved[0].content).toContain("utils/");
+  });
+
+  it("should fall back to placeholder when fileReader is absent", async () => {
+    const resolved = await resolver.resolve([
+      { type: "file", value: "src/main.ts", start: 0, end: 0 },
+    ]);
+    expect(resolved[0].content).toContain("[File reference");
+  });
+
+  it("should handle @Folders readdir failure gracefully", async () => {
+    const resolver = new ContextResolver({
+      workspaceRoot: "/ws",
+      indexingService: { search: vi.fn().mockResolvedValue([]) },
+      webSearchTool: { execute: vi.fn() },
+      fileReader: {
+        readFile: vi.fn(),
+        readdir: vi.fn().mockRejectedValue(new Error("ENOENT")),
+      },
+    });
+    const resolved = await resolver.resolve([
+      { type: "folder", value: "nonexistent", start: 0, end: 0 },
+    ]);
+    expect(resolved[0].content).toContain("could not list");
+  });
 });
