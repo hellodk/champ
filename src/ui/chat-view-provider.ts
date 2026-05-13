@@ -740,8 +740,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // @Codebase"), use the full message stripped of the @Codebase token so
     // semantic search has something meaningful to search for.
     const strippedText = text.replace(/@Codebase\b/g, "").trim();
+    // Only substitute when strippedText has content — if the message is
+    // literally just "@Codebase" with nothing else, keep ref.value as ""
+    // so the resolver returns a clear "no query provided" message rather
+    // than an empty-string semantic search.
     const enrichedRefs = refs.map((ref) =>
-      ref.type === "codebase" && !ref.value.trim()
+      ref.type === "codebase" && !ref.value.trim() && strippedText
         ? { ...ref, value: strippedText }
         : ref,
     );

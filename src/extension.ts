@@ -390,8 +390,12 @@ export async function activate(
 
         const { exec } =
           require("child_process") as typeof import("child_process");
-        exec(cmd, { cwd, timeout: 5000 }, (_err, stdout, stderr) => {
-          resolve(stdout || stderr || "");
+        exec(cmd, { cwd, timeout: 5000 }, (err, stdout, stderr) => {
+          if (err && !stdout) {
+            resolve(`(git command failed: ${err.message})`);
+          } else {
+            resolve(stdout || stderr || "");
+          }
         });
       }),
     workspaceSymbols: async (query: string) => {
@@ -1340,10 +1344,13 @@ export async function activate(
           }
         });
 
-        // Show streamStart in chat to create a user bubble.
+        // Show streamStart in chat. Only include userText when the request
+        // came from the ⚡ button (no prefilledRequest) — in Composer mode
+        // the chat webview already rendered the user bubble when the message
+        // was sent, so adding userText here would duplicate it.
         chatViewProvider?.postMessage({
           type: "streamStart" as never,
-          userText: userRequest,
+          ...(prefilledRequest === undefined ? { userText: userRequest } : {}),
         } as never);
 
         void session.start(userRequest).then(() => {
