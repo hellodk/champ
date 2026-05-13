@@ -301,18 +301,18 @@ export class ContextResolver {
           break;
         }
         case "codebase": {
-          const results = (await this.deps.indexingService.search(
-            ref.value,
-            8,
-          )) as Array<{
-            filePath: string;
-            chunkText: string;
-            startLine: number;
-            endLine: number;
-            chunkType: string;
-            distance: number;
-          }>;
-          const isEmpty = !results || results.length === 0;
+          const raw = await this.deps.indexingService.search(ref.value, 8);
+          const results = Array.isArray(raw)
+            ? (raw as Array<{
+                filePath: string;
+                chunkText: string;
+                startLine: number;
+                endLine: number;
+                chunkType: string;
+                distance: number;
+              }>)
+            : [];
+          const isEmpty = results.length === 0;
           const content = isEmpty
             ? `(no matching results for "${ref.value}" — if the workspace is not yet indexed, wait a moment and try again)`
             : results

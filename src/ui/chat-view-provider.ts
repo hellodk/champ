@@ -70,7 +70,7 @@ export interface ChatContextResolver {
     end: number;
   }>;
   resolve(
-    refs: Array<{ type: string; value: string }>,
+    refs: Array<{ type: string; value: string; start: number; end: number }>,
   ): Promise<Array<{ type: string; label: string; content: string }>>;
 }
 
@@ -578,6 +578,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // Cancel any previous request so a new one always wins.
     this.handleCancel();
 
+    // Notify the extension host so it can auto-label sessions, etc.
+    // Must fire before any early returns so Composer mode also triggers
+    // session auto-labeling.
+    this.userMessageCallback?.(text);
+
     // Composer mode: route to the multi-agent workflow panel instead of
     // the regular chat. The WorkflowPanel shows plan→diff→apply UX.
     if (this.agent.getMode() === "composer") {
@@ -587,9 +592,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     const controller = new AbortController();
     this.activeAbortController = controller;
-
-    // Notify the extension host so it can auto-label sessions, etc.
-    this.userMessageCallback?.(text);
 
     // First, expand slash commands. /<name> at the start of the message
     // is looked up in the skill registry; the matching skill's template
@@ -736,19 +738,30 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const refs = this.contextResolver.parseReferences(text);
     if (refs.length === 0) return text;
 
-    // For bare @Codebase with no explicit query (e.g. "How does auth work?
-    // @Codebase"), use the full message stripped of the @Codebase token so
-    // semantic search has something meaningful to search for.
+    // For bare @Codebase with no explicit query, derive a search query
+    // from the surrounding message text.
+    //
+    // Strategy: for each bare @Codebase token, use the text that appears
+    // *before* the token (up to the previous reference boundary) as the
+    // query. This gives each @Codebase a distinct, contextually relevant
+    // query when multiple tokens appear in one message.
+    //
+    // Example: "explain auth @Codebase then explain caching @Codebase"
+    //   → first  @Codebase gets "explain auth"
+    //   → second @Codebase gets "then explain caching"
+    //
+    // If no before-text is found (token is first word), fall back to the
+    // full stripped message. If that is also empty (bare "@Codebase" only),
+    // leave value as "" so the resolver shows a clear "no query" message.
     const strippedText = text.replace(/@Codebase\b/g, "").trim();
-    // Only substitute when strippedText has content — if the message is
-    // literally just "@Codebase" with nothing else, keep ref.value as ""
-    // so the resolver returns a clear "no query provided" message rather
-    // than an empty-string semantic search.
-    const enrichedRefs = refs.map((ref) =>
-      ref.type === "codebase" && !ref.value.trim() && strippedText
-        ? { ...ref, value: strippedText }
-        : ref,
-    );
+    const enrichedRefs = refs.map((ref, idx) => {
+      if (ref.type !== "codebase" || ref.value.trim()) return ref;
+      // Find the end of the previous reference (or start of string).
+      const prevEnd = idx === 0 ? 0 : (refs[idx - 1]?.end ?? 0);
+      const before = text.slice(prevEnd, ref.start).trim();
+      const query = before || strippedText;
+      return query ? { ...ref, value: query } : ref;
+    });
 
     let resolved: Array<{ type: string; label: string; content: string }>;
     try {
