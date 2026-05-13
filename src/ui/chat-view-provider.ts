@@ -483,6 +483,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           "champ.reloadMcpServer",
           msg.serverName,
         );
+      } else if ((msg as { type: string }).type === "runMultiAgent") {
+        void vscode.commands.executeCommand("champ.runMultiAgent");
       } else if ((msg as { type: string }).type === "openConfigFile") {
         void vscode.commands.executeCommand("champ.generateConfig");
       } else if ((msg as { type: string }).type === "rescanModels") {

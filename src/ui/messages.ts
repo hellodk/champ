@@ -19,6 +19,13 @@ export interface StreamDeltaMessage {
   text: string;
 }
 
+/** Sent before a multi-agent workflow to put the UI into streaming mode. */
+export interface StreamStartMessage {
+  type: "streamStart";
+  /** Optional user request text shown as a user bubble. */
+  userText?: string;
+}
+
 export interface StreamEndMessage {
   type: "streamEnd";
   usage?: { inputTokens: number; outputTokens: number };
@@ -173,6 +180,7 @@ export interface McpStatusMessage {
 }
 
 export type ExtensionToWebviewMessage =
+  | StreamStartMessage
   | StreamDeltaMessage
   | StreamEndMessage
   | ToolCallStartMessage
@@ -331,6 +339,11 @@ export interface ReloadMcpServerRequest {
   serverName: string;
 }
 
+/** The ⚡ multi-agent button was clicked in the webview action bar. */
+export interface RunMultiAgentRequest {
+  type: "runMultiAgent";
+}
+
 export type WebviewToExtensionMessage =
   | UserMessageRequest
   | SetModeRequest
@@ -351,7 +364,8 @@ export type WebviewToExtensionMessage =
   | DeleteSessionRequest
   | RenameSessionRequest
   | OpenGeneratedFileRequest
-  | ReloadMcpServerRequest;
+  | ReloadMcpServerRequest
+  | RunMultiAgentRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)

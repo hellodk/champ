@@ -260,7 +260,11 @@
     }
   });
 
-  actionBar.append(mcpBtn, compactBtn, deleteChatBtn, copyChatBtn, actionSpacer, helpfulBtn, notHelpfulBtn);
+  const multiAgentBtn = actionBtn('codicon-run-all', 'Run Multi-Agent Workflow', () => {
+    vscode.postMessage({ type: 'runMultiAgent' });
+  });
+
+  actionBar.append(mcpBtn, multiAgentBtn, compactBtn, deleteChatBtn, copyChatBtn, actionSpacer, helpfulBtn, notHelpfulBtn);
 
   // -------------------------------------------------------------------
   // DOM construction — messages list
@@ -1322,6 +1326,17 @@
     if (!msg || typeof msg !== 'object') return;
 
     switch (msg.type) {
+      case 'streamStart':
+        // Multi-agent workflow starting: show user request bubble, enter streaming mode.
+        if (msg.userText) appendMessage('user', msg.userText);
+        state.currentAssistantMessage = appendMessage('assistant', '');
+        state.streamingHasText = false;
+        {
+          const startBody = state.currentAssistantMessage.querySelector('.body');
+          if (startBody) startBody.classList.add('thinking');
+        }
+        setStreaming(true);
+        break;
       case 'streamDelta':
         appendStreamDelta(msg.text || '');
         break;

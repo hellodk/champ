@@ -1129,10 +1129,11 @@ export async function activate(
 
       const runAnalytics = new AgentAnalytics();
 
+      // Put the UI into streaming mode and show the user's request as a bubble.
       chatViewProvider?.postMessage({
-        type: "streamDelta",
-        text: `**Multi-agent workflow started**\n\n> ${userRequest}\n\n`,
-      });
+        type: "streamStart" as never,
+        userText: userRequest,
+      } as never);
 
       const runner =
         persistentRunner ??
