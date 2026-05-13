@@ -230,4 +230,28 @@ describe("ContextResolver", () => {
     ]);
     expect(resolved[0].content).toContain("[Git context");
   });
+
+  it("should resolve @Symbols to symbol list when workspaceSymbols is provided", async () => {
+    const resolver = new ContextResolver({
+      workspaceRoot: "/ws",
+      indexingService: { search: vi.fn().mockResolvedValue([]) },
+      webSearchTool: { execute: vi.fn() },
+      workspaceSymbols: vi
+        .fn()
+        .mockResolvedValue([
+          {
+            name: "authenticate",
+            filePath: "src/auth.ts",
+            kind: "Function",
+            line: 12,
+          },
+        ]),
+    });
+    const resolved = await resolver.resolve([
+      { type: "symbol", value: "auth", start: 0, end: 0 },
+    ]);
+    expect(resolved[0].content).toContain("authenticate");
+    expect(resolved[0].content).toContain("src/auth.ts");
+    expect(resolved[0].content).toContain("12");
+  });
 });

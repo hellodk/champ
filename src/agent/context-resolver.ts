@@ -409,13 +409,44 @@ export class ContextResolver {
           });
           break;
         }
-        case "symbol":
+        case "symbol": {
+          if (!this.deps.workspaceSymbols) {
+            resolved.push({
+              type: "symbol",
+              label: ref.value,
+              content: `[Workspace symbol: ${ref.value}]`,
+            });
+            break;
+          }
+          let symbols: Array<{
+            name: string;
+            filePath: string;
+            kind: string;
+            line: number;
+          }>;
+          try {
+            symbols = await this.deps.workspaceSymbols(ref.value);
+          } catch {
+            symbols = [];
+          }
+          if (symbols.length === 0) {
+            resolved.push({
+              type: "symbol",
+              label: ref.value,
+              content: `(no symbols matching "${ref.value}")`,
+            });
+            break;
+          }
+          const symbolList = symbols
+            .map((s) => `${s.kind} ${s.name} — ${s.filePath}:${s.line}`)
+            .join("\n");
           resolved.push({
             type: "symbol",
-            label: ref.value,
-            content: `[Workspace symbol: ${ref.value}]`,
+            label: `@Symbols ${ref.value}`,
+            content: symbolList,
           });
           break;
+        }
         case "docs":
           resolved.push({
             type: "docs",
