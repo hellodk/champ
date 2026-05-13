@@ -40,7 +40,7 @@ import { SkillLoader } from "./skills/skill-loader";
 import { VariableResolver } from "./skills/variable-resolver";
 import { BUILT_IN_SKILL_TEXTS } from "./skills/built-in";
 import type { LLMProvider, StreamDelta } from "./providers/types";
-import type { AvailableProviderModel } from "./ui/messages";
+import type { AvailableProviderModel, WorkflowHistoryRun } from "./ui/messages";
 import { SAMPLE_CONFIGS } from "./config/sample-configs";
 import { AgentManager } from "./agent-manager/agent-manager";
 import { SessionStore } from "./agent-manager/session-store";
@@ -66,7 +66,6 @@ import { McpRegistry } from "./mcp/mcp-registry";
 import { TriggerManager } from "./agent/trigger-manager";
 import { MemoryBank } from "./memory/memory-bank";
 import { WorkflowStore, type WorkflowRun } from "./ui/workflow-store";
-import type { WorkflowHistoryRun } from "./ui/messages";
 import { WorkflowSession } from "./ui/workflow-session";
 import { WorkflowPanel } from "./ui/workflow-panel";
 
@@ -1136,7 +1135,9 @@ export async function activate(
 
       const provider = inlineProviderRef.current;
       if (provider.name === "not-configured") {
-        void vscode.window.showErrorMessage("Champ: configure a provider first.");
+        void vscode.window.showErrorMessage(
+          "Champ: configure a provider first.",
+        );
         return;
       }
       if (!workflowStore) {
@@ -1191,9 +1192,7 @@ export async function activate(
             void (async () => {
               try {
                 const uri = workspaceRoot
-                  ? vscode.Uri.file(
-                      path.join(workspaceRoot, msg.filePath),
-                    )
+                  ? vscode.Uri.file(path.join(workspaceRoot, msg.filePath))
                   : null;
                 if (uri) {
                   const existing = await Promise.resolve(
@@ -1239,10 +1238,16 @@ export async function activate(
                   const updated = existing
                     ? existing.replace(fc.oldContent, fc.newContent)
                     : fc.newContent;
-                  await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(updated));
+                  await vscode.workspace.fs.writeFile(
+                    uri,
+                    new TextEncoder().encode(updated),
+                  );
                 }
               } catch (err) {
-                console.warn(`Champ: failed to apply diff to ${fc.filePath}:`, err);
+                console.warn(
+                  `Champ: failed to apply diff to ${fc.filePath}:`,
+                  err,
+                );
               }
             })();
           }
@@ -1305,13 +1310,10 @@ export async function activate(
       },
     ),
 
-    vscode.commands.registerCommand(
-      "champ.rerunWorkflow",
-      (_runId: string) => {
-        // Re-open the input box so the user can re-run with the same or different request.
-        void vscode.commands.executeCommand("champ.runMultiAgent");
-      },
-    ),
+    vscode.commands.registerCommand("champ.rerunWorkflow", (_runId: string) => {
+      // Re-open the input box so the user can re-run with the same or different request.
+      void vscode.commands.executeCommand("champ.runMultiAgent");
+    }),
 
     vscode.commands.registerCommand("champ.showAnalytics", () => {
       if (!lastAnalyticsReport) {
@@ -1760,7 +1762,9 @@ export async function activate(
   /** Broadcast current workflow history to the webview. */
   async function broadcastWorkflowHistory(): Promise<void> {
     if (!workflowStore) return;
-    const stored = await workflowStore.loadAll().catch(() => [] as WorkflowRun[]);
+    const stored = await workflowStore
+      .loadAll()
+      .catch(() => [] as WorkflowRun[]);
     const activeSnap = activeWorkflowSession?.getSnapshot();
     const allRuns = activeSnap
       ? [activeSnap, ...stored.filter((r) => r.id !== activeSnap.id)]
