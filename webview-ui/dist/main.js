@@ -693,7 +693,82 @@
   const messagesWrapper = el('div', { class: 'messages-wrapper' });
   messagesWrapper.append(messagesContainer, scrollPill);
 
-  root.append(header, tabBar, actionBar, mcpPanel, messagesWrapper, inputArea);
+  // Workflow history strip — shows active run + recent past runs.
+  const workflowStrip = el('div', { class: 'workflow-strip', hidden: 'true' });
+  const workflowStripHeader = el('div', { class: 'workflow-strip-header' });
+  const workflowStripTitle = el('span', {}, ['WORKFLOWS']);
+  const workflowNewBtn = el('button', { class: 'workflow-new-btn', title: 'New workflow' }, ['⚡ New']);
+  workflowNewBtn.addEventListener('click', () => vscode.postMessage({ type: 'runMultiAgent' }));
+  workflowStripHeader.append(workflowStripTitle, workflowNewBtn);
+  const workflowStripBody = el('div', { class: 'workflow-strip-body' });
+  workflowStrip.append(workflowStripHeader, workflowStripBody);
+
+  const STATUS_ICON_MAP = { running: '⟳', 'awaiting-approval': '⏸', completed: '✓', failed: '✗', stopped: '■' };
+  const STATUS_COLOR_MAP = {
+    running: 'var(--vscode-testing-iconPassed,#73c991)',
+    'awaiting-approval': 'var(--vscode-charts-orange,#f5a623)',
+    completed: 'var(--vscode-testing-iconPassed,#73c991)',
+    failed: 'var(--vscode-testing-iconFailed,#f14c4c)',
+    stopped: 'var(--vscode-descriptionForeground)',
+  };
+
+  function renderWorkflowStrip(runs) {
+    if (!runs || runs.length === 0) {
+      workflowStrip.setAttribute('hidden', 'true');
+      return;
+    }
+    workflowStrip.removeAttribute('hidden');
+    workflowStripBody.innerHTML = '';
+    for (const run of runs.slice(0, 5)) {
+      const row = el('div', { class: 'workflow-strip-row' });
+      const icon = el('span', { class: 'workflow-strip-icon' });
+      icon.textContent = STATUS_ICON_MAP[run.status] || '○';
+      icon.style.color = STATUS_COLOR_MAP[run.status] || 'inherit';
+      const info = el('div', { class: 'workflow-strip-info' });
+      const name = el('div', { class: 'workflow-strip-name' });
+      name.textContent = run.name.length > 35 ? run.name.slice(0, 35) + '…' : run.name;
+      info.appendChild(name);
+      if (run.status === 'running' && run.progress) {
+        const bar = el('div', { class: 'workflow-strip-progress' });
+        const fill = el('div', { class: 'workflow-strip-progress-fill' });
+        const pct = Math.round((run.progress.current / Math.max(run.progress.total, 1)) * 100);
+        fill.style.width = pct + '%';
+        bar.appendChild(fill);
+        info.appendChild(bar);
+      }
+      const meta = el('div', { class: 'workflow-strip-meta' });
+      if (run.status === 'running' && run.progress) {
+        meta.textContent = 'step ' + run.progress.current + '/' + run.progress.total + ' · ' + run.mode;
+      } else {
+        const ago = run.endTime
+          ? (Date.now() - run.endTime < 60000
+              ? 'just now'
+              : Math.round((Date.now() - run.endTime) / 60000) + 'm ago')
+          : 'just now';
+        const fileStr = run.filesChanged > 0 ? run.filesChanged + ' file' + (run.filesChanged !== 1 ? 's' : '') + ' · ' : '';
+        meta.textContent = fileStr + ago;
+      }
+      info.appendChild(meta);
+      const actions = el('div', { class: 'workflow-strip-actions' });
+      const openBtn = el('button', { class: 'workflow-strip-btn', title: 'Open run' });
+      openBtn.textContent = '↗';
+      openBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vscode.postMessage({ type: 'openWorkflowRun', runId: run.id });
+      });
+      const rerunBtn = el('button', { class: 'workflow-strip-btn', title: 'Re-run' });
+      rerunBtn.textContent = '↺';
+      rerunBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vscode.postMessage({ type: 'rerunWorkflow', runId: run.id });
+      });
+      actions.append(openBtn, rerunBtn);
+      row.append(icon, info, actions);
+      workflowStripBody.appendChild(row);
+    }
+  }
+
+  root.append(header, tabBar, actionBar, mcpPanel, workflowStrip, messagesWrapper, inputArea);
 
   // -------------------------------------------------------------------
   // Provider status rendering — header indicator + model dropdown
@@ -1453,6 +1528,9 @@
         break;
       case 'mcpStatus':
         renderMcpPanel(msg.servers || []);
+        break;
+      case 'workflowHistoryUpdate':
+        renderWorkflowStrip(msg.runs || []);
         break;
     }
   });

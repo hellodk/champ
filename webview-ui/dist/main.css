@@ -1497,3 +1497,20 @@ html, body {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+.workflow-strip { border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); }
+.workflow-strip-header { display: flex; align-items: center; padding: 5px 10px 2px; }
+.workflow-strip-header > span { font-size: 10px; font-weight: 600; letter-spacing: .5px; color: var(--vscode-descriptionForeground); flex: 1; text-transform: uppercase; }
+.workflow-new-btn { background: none; border: none; color: var(--vscode-textLink-foreground); font-size: 11px; cursor: pointer; padding: 1px 4px; border-radius: 3px; }
+.workflow-new-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
+.workflow-strip-body { display: flex; flex-direction: column; }
+.workflow-strip-row { display: flex; align-items: center; gap: 6px; padding: 4px 10px; font-size: 11px; }
+.workflow-strip-row:hover .workflow-strip-actions { opacity: 1; }
+.workflow-strip-icon { width: 14px; text-align: center; flex-shrink: 0; font-size: 12px; }
+.workflow-strip-info { flex: 1; overflow: hidden; min-width: 0; }
+.workflow-strip-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+.workflow-strip-meta { font-size: 10px; color: var(--vscode-descriptionForeground); }
+.workflow-strip-progress { height: 3px; background: var(--vscode-progressBar-background,#333); border-radius: 2px; margin: 2px 0; }
+.workflow-strip-progress-fill { height: 100%; background: var(--vscode-button-background); border-radius: 2px; transition: width .3s; }
+.workflow-strip-actions { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; flex-shrink: 0; }
+.workflow-strip-btn { background: none; border: none; color: var(--vscode-descriptionForeground); cursor: pointer; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+.workflow-strip-btn:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }

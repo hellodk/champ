@@ -179,6 +179,33 @@ export interface McpStatusMessage {
   servers: McpServerStatus[];
 }
 
+export interface WorkflowHistoryRun {
+  id: string;
+  name: string;
+  status: "running" | "awaiting-approval" | "completed" | "failed" | "stopped";
+  mode: "auto" | "safe" | "audit";
+  startTime: number;
+  endTime?: number;
+  stepCount: number;
+  filesChanged: number;
+  progress?: { current: number; total: number };
+}
+
+export interface WorkflowHistoryUpdateMessage {
+  type: "workflowHistoryUpdate";
+  runs: WorkflowHistoryRun[];
+}
+
+export interface OpenWorkflowRunRequest {
+  type: "openWorkflowRun";
+  runId: string;
+}
+
+export interface RerunWorkflowRequest {
+  type: "rerunWorkflow";
+  runId: string;
+}
+
 export type ExtensionToWebviewMessage =
   | StreamStartMessage
   | StreamDeltaMessage
@@ -196,7 +223,8 @@ export type ExtensionToWebviewMessage =
   | FirstRunWelcomeMessage
   | SessionListMessage
   | MetricsUpdateMessage
-  | McpStatusMessage;
+  | McpStatusMessage
+  | WorkflowHistoryUpdateMessage;
 
 // ---------------------------------------------------------------------------
 // Webview -> Extension Host
@@ -365,7 +393,9 @@ export type WebviewToExtensionMessage =
   | RenameSessionRequest
   | OpenGeneratedFileRequest
   | ReloadMcpServerRequest
-  | RunMultiAgentRequest;
+  | RunMultiAgentRequest
+  | OpenWorkflowRunRequest
+  | RerunWorkflowRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)

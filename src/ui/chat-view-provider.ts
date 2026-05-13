@@ -51,6 +51,7 @@ import {
   type AvailableProviderModel,
   type ProviderStatusState,
   type FirstRunTemplate,
+  type WorkflowHistoryRun,
 } from "./messages";
 import type { StreamDelta, ContentBlock } from "../providers/types";
 
@@ -313,6 +314,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
+   * Broadcast the workflow history to the webview. Called by
+   * extension.ts after every workflow run state change so the
+   * sidebar workflow strip stays in sync.
+   */
+  broadcastWorkflowHistory(runs: WorkflowHistoryRun[]): void {
+    this.postMessage({ type: "workflowHistoryUpdate", runs });
+  }
+
+  /**
    * Handle a message from the webview. Dispatches to the appropriate
    * action based on the discriminated-union type.
    */
@@ -482,6 +492,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         void vscode.commands.executeCommand(
           "champ.reloadMcpServer",
           msg.serverName,
+        );
+      } else if ((msg as { type: string }).type === "openWorkflowRun") {
+        void vscode.commands.executeCommand(
+          "champ.openWorkflowRun",
+          (msg as { runId: string }).runId,
+        );
+      } else if ((msg as { type: string }).type === "rerunWorkflow") {
+        void vscode.commands.executeCommand(
+          "champ.rerunWorkflow",
+          (msg as { runId: string }).runId,
         );
       } else if ((msg as { type: string }).type === "runMultiAgent") {
         void vscode.commands.executeCommand("champ.runMultiAgent");
