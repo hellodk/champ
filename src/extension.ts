@@ -65,6 +65,10 @@ import { MCPClientManager } from "./mcp/mcp-client";
 import { McpRegistry } from "./mcp/mcp-registry";
 import { TriggerManager } from "./agent/trigger-manager";
 import { MemoryBank } from "./memory/memory-bank";
+import { WorkflowStore, type WorkflowRun } from "./ui/workflow-store";
+import type { WorkflowHistoryRun } from "./ui/messages";
+import { WorkflowSession } from "./ui/workflow-session";
+import { WorkflowPanel } from "./ui/workflow-panel";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -91,6 +95,8 @@ let persistentRunner:
   | import("./agent/multi-agent-runner").MultiAgentRunner
   | undefined;
 let triggerManager: TriggerManager | undefined;
+let activeWorkflowSession: WorkflowSession | undefined;
+let workflowStore: WorkflowStore | undefined;
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -146,6 +152,8 @@ export async function activate(
   const checkpointManager = workspaceRoot
     ? new CheckpointManager(workspaceRoot)
     : null;
+
+  workflowStore = workspaceRoot ? new WorkflowStore(workspaceRoot) : undefined;
 
   const stubProvider = createStubProvider("not-configured");
   const inlineProviderRef: { current: LLMProvider } = { current: stubProvider };
@@ -521,6 +529,7 @@ export async function activate(
     }
     broadcastSessionList();
     broadcastMcpStatus();
+    void broadcastWorkflowHistory();
   });
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
@@ -1111,6 +1120,12 @@ export async function activate(
       },
     ),
     vscode.commands.registerCommand("champ.runMultiAgent", async () => {
+      if (activeWorkflowSession) {
+        void vscode.window.showWarningMessage(
+          "Champ: a workflow is already running. Stop it before starting a new one.",
+        );
+        return;
+      }
       const userRequest = await vscode.window.showInputBox({
         prompt: "Describe the feature or task for the multi-agent workflow",
         placeHolder:
@@ -1121,19 +1136,20 @@ export async function activate(
 
       const provider = inlineProviderRef.current;
       if (provider.name === "not-configured") {
-        void vscode.window.showErrorMessage(
-          "Champ: configure a provider first.",
-        );
+        void vscode.window.showErrorMessage("Champ: configure a provider first.");
+        return;
+      }
+      if (!workflowStore) {
+        void vscode.window.showErrorMessage("Champ: no workspace open.");
         return;
       }
 
-      const runAnalytics = new AgentAnalytics();
-
-      // Put the UI into streaming mode and show the user's request as a bubble.
-      chatViewProvider?.postMessage({
-        type: "streamStart" as never,
-        userText: userRequest,
-      } as never);
+      const mode = (context.globalState.get<string>("champ.workflowMode") ??
+        "safe") as import("./ui/workflow-store").WorkflowMode;
+      const runId = `wf-${Date.now().toString(36)}-${Math.random()
+        .toString(36)
+        .slice(2, 6)}`;
+      const runName = userRequest.slice(0, 60);
 
       const runner =
         persistentRunner ??
@@ -1144,62 +1160,159 @@ export async function activate(
           indexingService ?? undefined,
         );
 
-      try {
-        await runner.run(userRequest, {
-          analytics: runAnalytics,
-          onProgress: (event) => {
-            if (event.type === "agent_started") {
-              chatViewProvider?.postMessage({
-                type: "toolCallStart",
-                toolName: event.agentName,
-                args: { step: `${event.step}/${event.totalSteps}` },
-              });
-            } else if (event.type === "agent_completed") {
-              chatViewProvider?.postMessage({
-                type: "toolCallResult",
-                toolName: event.agentName,
-                result: event.output.slice(0, 300),
-                success: true,
-              });
-            } else if (event.type === "agent_failed") {
-              chatViewProvider?.postMessage({
-                type: "toolCallResult",
-                toolName: event.agentName,
-                result: `Failed (attempt ${event.attempt}): ${event.error}`,
-                success: false,
-              });
-            } else if (event.type === "workflow_complete") {
-              lastAnalyticsReport = event.report;
-              if (analyticsExporter) {
-                const telEvent: TelemetryEvent = {
-                  runId: event.report.runId,
-                  timestamp: new Date(event.report.startTime).toISOString(),
-                  userId: analyticsExporter.userId,
-                  sessionId: "multi-agent",
-                  workspaceId: analyticsExporter.workspaceId,
-                  extensionVersion: context.extension.packageJSON
-                    .version as string,
-                  report: event.report,
-                };
-                void analyticsExporter.export(telEvent);
+      const session = new WorkflowSession(
+        workflowStore,
+        runner,
+        runId,
+        runName,
+        mode,
+      );
+      activeWorkflowSession = session;
+
+      const panel = new WorkflowPanel(context.extensionUri);
+      panel.setTitle(runName);
+      panel.update(session.getSnapshot());
+
+      // Forward panel user-actions to the session.
+      panel.onMessage((msg) => {
+        if (msg.type === "stop") {
+          session.stop();
+        } else if (msg.type === "approve") {
+          void session.approve();
+        } else if (msg.type === "skipAgent") {
+          void session.skipAgent();
+        } else if (msg.type === "acceptFile") {
+          const change = session
+            .getSnapshot()
+            .filesChanged.find((f) => f.filePath === msg.filePath);
+          if (change) {
+            session.acceptFile(msg.filePath);
+            // Apply the file change to disk.
+            void (async () => {
+              try {
+                const uri = workspaceRoot
+                  ? vscode.Uri.file(
+                      path.join(workspaceRoot, msg.filePath),
+                    )
+                  : null;
+                if (uri) {
+                  const existing = await Promise.resolve(
+                    vscode.workspace.fs.readFile(uri),
+                  )
+                    .then((d) => new TextDecoder().decode(d))
+                    .catch(() => "");
+                  const updated = existing
+                    ? existing.replace(change.oldContent, change.newContent)
+                    : change.newContent;
+                  await vscode.workspace.fs.writeFile(
+                    uri,
+                    new TextEncoder().encode(updated),
+                  );
+                }
+              } catch (err) {
+                console.warn(
+                  `Champ: failed to apply diff to ${msg.filePath}:`,
+                  err,
+                );
               }
-              const md = runAnalytics.formatMarkdown();
-              chatViewProvider?.postMessage({
-                type: "streamDelta",
-                text: `\n\n${md}\n`,
-              });
-              chatViewProvider?.postMessage({ type: "streamEnd" });
-            }
-          },
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        chatViewProvider?.postMessage({
-          type: "error",
-          message: `Multi-agent workflow failed: ${msg}`,
-        });
-      }
+            })();
+          }
+        } else if (msg.type === "rejectFile") {
+          session.rejectFile(msg.filePath);
+        } else if (msg.type === "acceptAll") {
+          for (const fc of session
+            .getSnapshot()
+            .filesChanged.filter((f) => f.status === "pending")) {
+            session.acceptFile(fc.filePath);
+            // Apply to disk
+            void (async () => {
+              try {
+                const uri = workspaceRoot
+                  ? vscode.Uri.file(path.join(workspaceRoot, fc.filePath))
+                  : null;
+                if (uri) {
+                  const existing = await Promise.resolve(
+                    vscode.workspace.fs.readFile(uri),
+                  )
+                    .then((d) => new TextDecoder().decode(d))
+                    .catch(() => "");
+                  const updated = existing
+                    ? existing.replace(fc.oldContent, fc.newContent)
+                    : fc.newContent;
+                  await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(updated));
+                }
+              } catch (err) {
+                console.warn(`Champ: failed to apply diff to ${fc.filePath}:`, err);
+              }
+            })();
+          }
+        } else if (msg.type === "rejectAll") {
+          for (const fc of session
+            .getSnapshot()
+            .filesChanged.filter((f) => f.status === "pending")) {
+            session.rejectFile(fc.filePath);
+          }
+        } else if (msg.type === "modeChange") {
+          void context.globalState.update("champ.workflowMode", msg.mode);
+        }
+      });
+
+      // Forward session status changes to the panel.
+      session.onStatusChange((run) => {
+        panel.update(run);
+        void broadcastWorkflowHistory();
+        if (
+          run.status === "completed" ||
+          run.status === "failed" ||
+          run.status === "stopped"
+        ) {
+          activeWorkflowSession = undefined;
+        }
+      });
+
+      panel.onDidDispose(() => {
+        if (activeWorkflowSession === session) {
+          session.stop();
+          activeWorkflowSession = undefined;
+        }
+      });
+
+      // Show streamStart in chat to create a user bubble.
+      chatViewProvider?.postMessage({
+        type: "streamStart" as never,
+        userText: userRequest,
+      } as never);
+
+      void session.start(userRequest).then(() => {
+        chatViewProvider?.postMessage({ type: "streamEnd" } as never);
+      });
     }),
+    vscode.commands.registerCommand(
+      "champ.openWorkflowRun",
+      async (runId: string) => {
+        if (!workflowStore) return;
+        const runs = await workflowStore.loadAll();
+        const run = runs.find((r) => r.id === runId);
+        if (!run) {
+          void vscode.window.showWarningMessage(
+            `Champ: workflow run not found.`,
+          );
+          return;
+        }
+        const panel = new WorkflowPanel(context.extensionUri);
+        panel.setTitle(run.name);
+        panel.update(run);
+      },
+    ),
+
+    vscode.commands.registerCommand(
+      "champ.rerunWorkflow",
+      (_runId: string) => {
+        // Re-open the input box so the user can re-run with the same or different request.
+        void vscode.commands.executeCommand("champ.runMultiAgent");
+      },
+    ),
+
     vscode.commands.registerCommand("champ.showAnalytics", () => {
       if (!lastAnalyticsReport) {
         void vscode.window.showInformationMessage(
@@ -1642,6 +1755,34 @@ export async function activate(
       type: "mcpStatus",
       servers: mcpRegistry.getStatus(),
     });
+  }
+
+  /** Broadcast current workflow history to the webview. */
+  async function broadcastWorkflowHistory(): Promise<void> {
+    if (!workflowStore) return;
+    const stored = await workflowStore.loadAll().catch(() => [] as WorkflowRun[]);
+    const activeSnap = activeWorkflowSession?.getSnapshot();
+    const allRuns = activeSnap
+      ? [activeSnap, ...stored.filter((r) => r.id !== activeSnap.id)]
+      : stored;
+    const historyRuns: WorkflowHistoryRun[] = allRuns.slice(0, 10).map((r) => ({
+      id: r.id,
+      name: r.name,
+      status: r.status,
+      mode: r.mode,
+      startTime: r.startTime,
+      endTime: r.endTime,
+      stepCount: r.steps.length,
+      filesChanged: r.filesChanged.length,
+      progress:
+        r.status === "running"
+          ? {
+              current: r.steps.filter((s) => s.status === "completed").length,
+              total: Math.max(r.steps.length, 1),
+            }
+          : undefined,
+    }));
+    chatViewProvider?.broadcastWorkflowHistory(historyRuns);
   }
 
   /** Broadcast current metrics snapshot to the webview. */

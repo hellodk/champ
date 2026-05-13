@@ -2,7 +2,7 @@
   "name": "champ",
   "displayName": "Champ - AI Coding Agent",
   "description": "AI coding agent with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "1.6.33",
+  "version": "1.6.34",
   "publisher": "champ-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -132,6 +132,16 @@
       {
         "command": "champ.reloadMcpServer",
         "title": "Champ: Reload MCP Server",
+        "category": "Champ"
+      },
+      {
+        "command": "champ.openWorkflowRun",
+        "title": "Champ: Open Workflow Run",
+        "category": "Champ"
+      },
+      {
+        "command": "champ.rerunWorkflow",
+        "title": "Champ: Re-run Workflow",
         "category": "Champ"
       }
     ],
