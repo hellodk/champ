@@ -729,12 +729,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const refs = this.contextResolver.parseReferences(text);
     if (refs.length === 0) return text;
 
+    // For bare @Codebase with no explicit query (e.g. "How does auth work?
+    // @Codebase"), use the full message stripped of the @Codebase token so
+    // semantic search has something meaningful to search for.
+    const strippedText = text.replace(/@Codebase\b/g, "").trim();
+    const enrichedRefs = refs.map((ref) =>
+      ref.type === "codebase" && !ref.value.trim()
+        ? { ...ref, value: strippedText }
+        : ref,
+    );
+
     let resolved: Array<{ type: string; label: string; content: string }>;
     try {
-      resolved = await this.contextResolver.resolve(refs);
+      resolved = await this.contextResolver.resolve(enrichedRefs);
     } catch {
-      // If resolution fails (network error, missing file, etc.), fall
-      // back to the original text rather than blocking the user.
       return text;
     }
 

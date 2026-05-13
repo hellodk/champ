@@ -353,6 +353,60 @@ export async function activate(
         }
       },
     },
+    fileReader: {
+      readFile: async (absPath: string): Promise<string> => {
+        const data = await Promise.resolve(
+          vscode.workspace.fs.readFile(vscode.Uri.file(absPath)),
+        );
+        return new TextDecoder().decode(data);
+      },
+      readdir: async (
+        absPath: string,
+      ): Promise<Array<[string, "file" | "directory"]>> => {
+        const entries = await Promise.resolve(
+          vscode.workspace.fs.readDirectory(vscode.Uri.file(absPath)),
+        );
+        return entries.map(([name, type]) => [
+          name,
+          type === vscode.FileType.Directory ? "directory" : "file",
+        ]);
+      },
+    },
+    getEditorContext: () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) return undefined;
+      const selectionText = editor.document.getText(editor.selection);
+      return {
+        selection:
+          selectionText ||
+          "(no text selected — place cursor in editor and select code before using @Code)",
+        filePath: vscode.workspace.asRelativePath(editor.document.uri),
+        language: editor.document.languageId,
+      };
+    },
+    runShellCommand: (cmd: string, cwd: string): Promise<string> =>
+      new Promise((resolve) => {
+        // Safe: cmd is constructed internally by the resolver, not from user input.
+
+        const { exec } =
+          require("child_process") as typeof import("child_process");
+        exec(cmd, { cwd, timeout: 5000 }, (_err, stdout, stderr) => {
+          resolve(stdout || stderr || "");
+        });
+      }),
+    workspaceSymbols: async (query: string) => {
+      const symbols =
+        (await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
+          "vscode.executeWorkspaceSymbolProvider",
+          query,
+        )) ?? [];
+      return symbols.slice(0, 10).map((s) => ({
+        name: s.name,
+        filePath: vscode.workspace.asRelativePath(s.location.uri),
+        kind: vscode.SymbolKind[s.kind] ?? String(s.kind),
+        line: s.location.range.start.line + 1,
+      }));
+    },
   });
 
   // ---- Skills registry ------------------------------------------------
