@@ -356,20 +356,59 @@ export class ContextResolver {
           });
           break;
         }
-        case "git":
+        case "git": {
+          if (!this.deps.runShellCommand) {
+            resolved.push({
+              type: "git",
+              label: `@Git ${ref.value}`,
+              content: "[Git context placeholder]",
+            });
+            break;
+          }
+          const gitCmd =
+            "git diff --stat HEAD 2>/dev/null && echo '---' && git log --oneline -5 2>/dev/null && echo '---' && git status -s 2>/dev/null";
+          let gitOutput: string;
+          try {
+            gitOutput = await this.deps.runShellCommand(
+              gitCmd,
+              this.deps.workspaceRoot,
+            );
+          } catch {
+            gitOutput = "(git not available in this workspace)";
+          }
           resolved.push({
             type: "git",
-            label: `@Git ${ref.value}`,
-            content: "[Git context placeholder]",
+            label: "@Git",
+            content: gitOutput || "(no git changes)",
           });
           break;
-        case "code":
+        }
+        case "code": {
+          if (!this.deps.getEditorContext) {
+            resolved.push({
+              type: "code",
+              label: "@Code",
+              content: "[Current editor selection placeholder]",
+            });
+            break;
+          }
+          const editorCtx = this.deps.getEditorContext();
+          if (!editorCtx) {
+            resolved.push({
+              type: "code",
+              label: "@Code",
+              content:
+                "(no active editor — open a file and select some code before using @Code)",
+            });
+            break;
+          }
           resolved.push({
             type: "code",
-            label: "@Code",
-            content: "[Current editor selection placeholder]",
+            label: `@Code (${editorCtx.filePath})`,
+            content: `// ${editorCtx.filePath} [${editorCtx.language}]\n${editorCtx.selection || "(no text selected — place cursor in editor and select code)"}`,
           });
           break;
+        }
         case "symbol":
           resolved.push({
             type: "symbol",

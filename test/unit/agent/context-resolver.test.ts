@@ -185,4 +185,49 @@ describe("ContextResolver", () => {
     ]);
     expect(resolved[0].content).toContain("could not list");
   });
+
+  it("should resolve @Code to editor selection when getEditorContext is provided", async () => {
+    const resolver = new ContextResolver({
+      workspaceRoot: "/ws",
+      indexingService: { search: vi.fn().mockResolvedValue([]) },
+      webSearchTool: { execute: vi.fn() },
+      getEditorContext: () => ({
+        selection: "const foo = 42;",
+        filePath: "src/foo.ts",
+        language: "typescript",
+      }),
+    });
+    const resolved = await resolver.resolve([
+      { type: "code", value: "", start: 0, end: 0 },
+    ]);
+    expect(resolved[0].content).toContain("const foo = 42;");
+    expect(resolved[0].content).toContain("src/foo.ts");
+  });
+
+  it("should resolve @Code to placeholder when no editor context", async () => {
+    const resolved = await resolver.resolve([
+      { type: "code", value: "", start: 0, end: 0 },
+    ]);
+    expect(resolved[0].content).toContain("[Current editor");
+  });
+
+  it("should resolve @Git to shell output when runShellCommand is provided", async () => {
+    const resolver = new ContextResolver({
+      workspaceRoot: "/ws",
+      indexingService: { search: vi.fn().mockResolvedValue([]) },
+      webSearchTool: { execute: vi.fn() },
+      runShellCommand: vi.fn().mockResolvedValue("M src/foo.ts\n"),
+    });
+    const resolved = await resolver.resolve([
+      { type: "git", value: "", start: 0, end: 0 },
+    ]);
+    expect(resolved[0].content).toContain("M src/foo.ts");
+  });
+
+  it("should resolve @Git to placeholder when runShellCommand absent", async () => {
+    const resolved = await resolver.resolve([
+      { type: "git", value: "", start: 0, end: 0 },
+    ]);
+    expect(resolved[0].content).toContain("[Git context");
+  });
 });
