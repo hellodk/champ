@@ -38,7 +38,7 @@ describe("WorkflowStore", () => {
     await store.save(run);
     expect(fs.writeFile).toHaveBeenCalledWith(
       expect.stringContaining("r1.json"),
-      expect.stringContaining('"id":"r1"'),
+      expect.stringContaining('"id": "r1"'),
       "utf-8",
     );
   });

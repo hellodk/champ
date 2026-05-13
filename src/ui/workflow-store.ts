@@ -55,7 +55,7 @@ export class WorkflowStore {
     try {
       await fs.mkdir(this.dir, { recursive: true });
       const filePath = path.join(this.dir, `${run.id}.json`);
-      await fs.writeFile(filePath, JSON.stringify(run), "utf-8");
+      await fs.writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
     } catch (error) {
       console.warn(`Failed to save workflow run ${run.id}:`, error);
     }
@@ -109,6 +109,8 @@ export class WorkflowStore {
           const run = JSON.parse(content) as WorkflowRun;
           runs.push(run);
         } catch (error) {
+          // Corrupted file — delete it immediately during pruning.
+          await fs.unlink(path.join(this.dir, file)).catch(() => {});
           console.warn(`Failed to parse workflow file ${file}:`, error);
         }
       }
