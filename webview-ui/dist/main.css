@@ -924,6 +924,19 @@ html, body {
   flex: 1;
 }
 
+/* ⚡ Run button is labeled — wider than the icon-only siblings */
+.multi-agent-btn {
+  width: auto !important;
+  padding: 0 8px !important;
+  gap: 4px;
+  font-size: calc(var(--vscode-font-size) - 1px);
+  color: var(--vscode-textLink-foreground) !important;
+  font-weight: 500;
+}
+.multi-agent-btn:hover {
+  color: var(--vscode-textLink-activeForeground) !important;
+}
+
 /* Compact mode: collapse messages to one-liners */
 .messages.compact .message .body {
   max-height: 1.6em;

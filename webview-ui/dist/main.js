@@ -260,9 +260,13 @@
     }
   });
 
-  const multiAgentBtn = actionBtn('codicon-run-all', 'Run Multi-Agent Workflow', () => {
-    vscode.postMessage({ type: 'runMultiAgent' });
+  // ⚡ Run Agents button — labeled so it's easy to spot
+  const multiAgentBtn = el('button', {
+    class: 'action-btn multi-agent-btn',
+    title: 'Run Multi-Agent Workflow',
   });
+  multiAgentBtn.append(codicon('run-all'), document.createTextNode(' Run'));
+  multiAgentBtn.addEventListener('click', () => vscode.postMessage({ type: 'runMultiAgent' }));
 
   actionBar.append(mcpBtn, multiAgentBtn, compactBtn, deleteChatBtn, copyChatBtn, actionSpacer, helpfulBtn, notHelpfulBtn);
 
