@@ -905,6 +905,25 @@ export async function activate(
         "Champ: created .champ/config.yaml. Edit it and save to apply.",
       );
     }),
+    vscode.commands.registerCommand("champ.about", () => {
+      const version = context.extension.packageJSON.version as string;
+      const provider = inlineProviderRef.current;
+      const providerInfo =
+        provider.name === "not-configured"
+          ? "No provider configured"
+          : `${provider.name} (${provider.config.model})`;
+      void vscode.window
+        .showInformationMessage(
+          `Champ v${version} — ${providerInfo}`,
+          "Open Settings",
+          "View Changelog",
+        )
+        .then((choice) => {
+          if (choice === "Open Settings") {
+            void vscode.commands.executeCommand("champ.openSettings");
+          }
+        });
+    }),
     vscode.commands.registerCommand("champ.showHelp", async () => {
       // Open the bundled USER_GUIDE.md as an editor tab. The doc ships
       // with the extension so the URI lives under extensionUri.
@@ -1801,8 +1820,9 @@ export async function activate(
 
   function setStatusReady(provider: LLMProvider): void {
     if (!statusBarItem) return;
+    const version = context.extension.packageJSON.version as string;
     statusBarItem.text = `$(robot) Champ: ${provider.name}`;
-    statusBarItem.tooltip = `Champ provider: ${provider.name} (${provider.config.model})\nClick to open settings`;
+    statusBarItem.tooltip = `Champ v${version} — ${provider.name} (${provider.config.model})\nClick to open settings`;
   }
 
   function setStatusError(message: string): void {

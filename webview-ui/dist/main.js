@@ -154,6 +154,7 @@
       const closeBtn = el('button', { class: 'tab-close', title: 'Close' }, ['×']);
       closeBtn.addEventListener('click', (ev) => {
         ev.stopPropagation();
+        if (!confirm(`Delete "${(s.label || 'New chat').slice(0, 40)}"? This cannot be undone.`)) return;
         vscode.postMessage({ type: 'deleteSessionRequest', sessionId: s.id });
       });
       tab.append(label, closeBtn);
@@ -211,7 +212,9 @@
   });
   const deleteChatBtn = actionBtn('codicon-trash', 'Delete chat', () => {
     const id = lastSessionData.activeSessionId;
-    if (id) vscode.postMessage({ type: 'deleteSessionRequest', sessionId: id });
+    if (!id) return;
+    if (!confirm('Delete this chat? All messages will be lost and cannot be recovered.')) return;
+    vscode.postMessage({ type: 'deleteSessionRequest', sessionId: id });
   });
   const copyChatBtn = actionBtn('codicon-copy', 'Copy chat', () => {
     const text = state.messages
@@ -219,15 +222,6 @@
       .join('\n\n');
     navigator.clipboard.writeText(text).catch(() => {});
   });
-  const helpfulBtn = actionBtn('codicon-thumbsup', 'Helpful', () => {
-    helpfulBtn.classList.toggle('active');
-    notHelpfulBtn.classList.remove('active');
-  });
-  const notHelpfulBtn = actionBtn('codicon-thumbsdown', 'Not helpful', () => {
-    notHelpfulBtn.classList.toggle('active');
-    helpfulBtn.classList.remove('active');
-  });
-
   const actionSpacer = el('div', { class: 'action-spacer' });
 
   // MCP status panel — toggled by the plug button in the action bar.
@@ -268,7 +262,7 @@
   multiAgentBtn.append(codicon('run-all'), document.createTextNode(' Run'));
   multiAgentBtn.addEventListener('click', () => vscode.postMessage({ type: 'runMultiAgent' }));
 
-  actionBar.append(mcpBtn, multiAgentBtn, compactBtn, deleteChatBtn, copyChatBtn, actionSpacer, helpfulBtn, notHelpfulBtn);
+  actionBar.append(mcpBtn, multiAgentBtn, compactBtn, deleteChatBtn, copyChatBtn, actionSpacer);
 
   // -------------------------------------------------------------------
   // DOM construction — messages list
@@ -335,7 +329,7 @@
   }
 
   const textarea = el('textarea', {
-    placeholder: 'Ask Champ anything... (/ for slash commands, Enter to send, Shift+Enter for newline)',
+    placeholder: 'Ask Champ anything... (@ for context, / for commands, ↑↓ history)',
   });
   // Slash-command autocomplete dropdown — hidden until the user types
   // a / at the start of the input.
@@ -1054,13 +1048,7 @@
         state.messages.splice(msgIdx, 1);
         messageEl.remove();
       });
-      const upBtn = el('button', { class: 'msg-action', title: 'Helpful' });
-      upBtn.append(codicon('thumbsup'));
-      const downBtn = el('button', { class: 'msg-action', title: 'Not helpful' });
-      downBtn.append(codicon('thumbsdown'));
-      upBtn.addEventListener('click', () => { upBtn.classList.toggle('active'); downBtn.classList.remove('active'); });
-      downBtn.addEventListener('click', () => { downBtn.classList.toggle('active'); upBtn.classList.remove('active'); });
-      actions.append(copyBtn, delBtn, upBtn, downBtn);
+      actions.append(copyBtn, delBtn);
     }
 
     messageEl.append(bodyEl, actions);
@@ -1341,6 +1329,27 @@
 
   function renderEmptyState() {
     messagesContainer.innerHTML = '';
+    const wrap = el('div', { class: 'empty-state' });
+    wrap.append(el('div', { class: 'empty-state-title' }, ['What can I help with?']));
+    const prompts = [
+      { icon: '🔍', label: 'Explain this file', text: '@Code Explain what this code does and how it works.' },
+      { icon: '🐛', label: 'Find bugs', text: 'Review @Files(src/) for bugs, edge cases, and improvements.' },
+      { icon: '✨', label: 'Add a feature', text: 'Add [describe feature] to the codebase with tests.' },
+      { icon: '📖', label: 'Understand codebase', text: '@Codebase How is authentication implemented in this project?' },
+    ];
+    const grid = el('div', { class: 'empty-state-grid' });
+    for (const p of prompts) {
+      const btn = el('button', { class: 'empty-state-prompt' });
+      btn.append(el('span', { class: 'empty-state-icon' }, [p.icon]), el('span', {}, [p.label]));
+      btn.addEventListener('click', () => {
+        textarea.value = p.text;
+        textarea.dispatchEvent(new Event('input'));
+        textarea.focus();
+      });
+      grid.append(btn);
+    }
+    wrap.append(grid);
+    messagesContainer.append(wrap);
   }
 
   // -------------------------------------------------------------------

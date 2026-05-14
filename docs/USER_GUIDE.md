@@ -232,7 +232,7 @@ Type `@` in the chat input to inject context references into your message:
 | `@Codebase` | `@Codebase how does auth work?` | Semantic vector search |
 | `@Web` | `@Web latest React patterns` | Web search results |
 | `@Git` | `@Git show recent changes` | Git diff / history |
-| `@Docs(name)` | `@Docs(react-router)` | Library documentation |
+| `@Docs(name)` | `@Docs(react-router)` | Library documentation *(coming soon — not yet active)* |
 
 Multiple references can be mixed in one message: `Compare @Files(a.ts) with @Files(b.ts) using @Codebase search`.
 

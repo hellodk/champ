@@ -2,7 +2,7 @@
   "name": "champ",
   "displayName": "Champ - AI Coding Agent",
   "description": "AI coding agent with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "1.6.41",
+  "version": "1.6.42",
   "publisher": "champ-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -106,6 +106,10 @@
         "title": "Champ: Generate Config File"
       },
       {
+        "command": "champ.about",
+        "title": "Champ: About"
+      },
+      {
         "command": "champ.showHelp",
         "title": "Champ: Show User Guide"
       },
@@ -190,20 +194,12 @@
         "champ.llamacpp.baseUrl": {
           "type": "string",
           "default": "http://localhost:8080/v1",
-          "markdownDescription": "llama.cpp server base URL **including `/v1`** (e.g. `http://localhost:8080/v1`)."
-        },
-        "champ.llamacpp.model": {
-          "type": "string",
-          "default": "default"
+          "markdownDescription": "llama.cpp server base URL **including `/v1`** (e.g. `http://localhost:8080/v1`). Set the model via `.champ/config.yaml`."
         },
         "champ.vllm.baseUrl": {
           "type": "string",
           "default": "http://localhost:8000/v1",
-          "markdownDescription": "vLLM server base URL **including `/v1`** (e.g. `http://localhost:8000/v1`)."
-        },
-        "champ.vllm.model": {
-          "type": "string",
-          "markdownDescription": "vLLM model ID (e.g. `meta-llama/Llama-3.1-8B`)."
+          "markdownDescription": "vLLM server base URL **including `/v1`** (e.g. `http://localhost:8000/v1`). Set the model via `.champ/config.yaml`."
         },
         "champ.vllm.apiKey": {
           "type": "string",
