@@ -362,6 +362,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // it if needed) — that's the primary config surface. Falls back to
         // VS Code settings if no workspace is open (generateConfig handles it).
         void vscode.commands.executeCommand("champ.generateConfig");
+      } else if ((msg as { type: string }).type === "setYoloMode") {
+        const enabled = (msg as { type: string; enabled: boolean }).enabled;
+        void vscode.workspace
+          .getConfiguration("champ")
+          .update("yoloMode", enabled, vscode.ConfigurationTarget.Global);
+      } else if ((msg as { type: string }).type === "setAutocomplete") {
+        const enabled = (msg as { type: string; enabled: boolean }).enabled;
+        void vscode.workspace
+          .getConfiguration("champ")
+          .update(
+            "autocomplete.enabled",
+            enabled,
+            vscode.ConfigurationTarget.Global,
+          );
       } else if (isShowHelpRequest(msg)) {
         // The `?` icon in the chat header. Opens docs/USER_GUIDE.md
         // as an editor tab via a dedicated extension command.

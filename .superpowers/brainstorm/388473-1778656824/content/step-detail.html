@@ -1,0 +1,125 @@
+<h2>How much detail per agent step?</h2>
+<p class="subtitle">Three levels of information density for the workflow editor tab. This affects readability and how much context developers get at a glance.</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="minimal" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:12px;font-family:monospace;font-size:10px;color:#ccc;border-radius:4px;min-height:130px;">
+      <div style="color:#4ec9b0;margin-bottom:8px;font-size:11px;font-weight:bold;">⚡ Add JWT Authentication &nbsp; <span style="color:#666;font-size:9px;">step 3/5 · 45s</span></div>
+      <div style="background:#2d2d2d;height:5px;border-radius:3px;margin-bottom:10px;"><div style="background:#007acc;width:60%;height:100%;border-radius:3px;"></div></div>
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#252526;border-radius:4px;">
+          <span style="color:#6a9955;font-size:12px;">✓</span>
+          <span style="flex:1;">planner</span>
+          <span style="color:#666;font-size:9px;">1.2s</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#252526;border-radius:4px;">
+          <span style="color:#6a9955;font-size:12px;">✓</span>
+          <span style="flex:1;">context</span>
+          <span style="color:#666;font-size:9px;">0.8s</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#007acc22;border-left:2px solid #007acc;border-radius:4px;">
+          <span style="color:#007acc;font-size:12px;">⟳</span>
+          <span style="flex:1;color:#fff;">code</span>
+          <span style="color:#007acc;font-size:9px;">3.4s…</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#252526;border-radius:4px;opacity:0.4;">
+          <span style="color:#666;font-size:12px;">○</span>
+          <span style="flex:1;color:#666;">reviewer</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#252526;border-radius:4px;opacity:0.4;">
+          <span style="color:#666;font-size:12px;">○</span>
+          <span style="flex:1;color:#666;">validator</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Status Dashboard</h3>
+      <p>Clean pipeline view: name, status icon, duration. No output shown inline — click a step to expand in a side pane.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>At-a-glance overview</li><li>Minimal noise</li><li>Good for long pipelines</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Need extra click to see output</li><li>Less context when something fails</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="expandable" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:12px;font-family:monospace;font-size:10px;color:#ccc;border-radius:4px;min-height:130px;">
+      <div style="color:#4ec9b0;margin-bottom:8px;font-size:11px;font-weight:bold;">⚡ Add JWT Authentication &nbsp; <span style="color:#666;font-size:9px;">step 3/5 · 45s</span></div>
+      <div style="background:#2d2d2d;height:5px;border-radius:3px;margin-bottom:10px;"><div style="background:#007acc;width:60%;height:100%;border-radius:3px;"></div></div>
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        <div style="background:#252526;border-radius:4px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;">
+            <span style="color:#6a9955;">✓</span><span style="flex:1;">planner</span><span style="color:#666;font-size:9px;">1.2s</span><span style="color:#666;font-size:9px;">▸</span>
+          </div>
+        </div>
+        <div style="background:#252526;border-radius:4px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;cursor:pointer;">
+            <span style="color:#6a9955;">✓</span><span style="flex:1;">context</span><span style="color:#666;font-size:9px;">0.8s</span><span style="color:#ccc;font-size:9px;">▾</span>
+          </div>
+          <div style="padding:6px 8px;background:#1e1e1e;border-top:1px solid #333;font-size:9px;color:#9cdcfe;">
+            12 chunks · src/auth.ts, src/middleware/index.ts, src/routes/auth.ts…
+          </div>
+        </div>
+        <div style="background:#007acc22;border-left:2px solid #007acc;border-radius:4px;">
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;">
+            <span style="color:#007acc;">⟳</span><span style="flex:1;color:#fff;">code</span><span style="color:#007acc;font-size:9px;">3.4s…</span><span style="color:#007acc;font-size:9px;">▾</span>
+          </div>
+          <div style="padding:6px 8px;background:#1e1e1e;border-top:1px solid #007acc33;font-size:9px;color:#ccc;font-family:monospace;">
+            <span style="color:#4ec9b0;">editing</span> src/auth/jwt.ts<br>
+            <span style="color:#4ec9b0;">editing</span> src/middleware/auth.ts
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#252526;border-radius:4px;opacity:0.4;">
+          <span style="color:#666;">○</span><span style="flex:1;color:#666;">reviewer</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Expandable Steps (Recommended)</h3>
+      <p>Each step has a collapse toggle. Completed steps collapsed by default, current step expanded showing live output. Click any step to expand/collapse.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Progressive disclosure — detail on demand</li><li>Current step always visible</li><li>Industry standard (CI/CD pipelines, GitHub Actions)</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Slightly more complex to build</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="rich" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:12px;font-family:monospace;font-size:10px;color:#ccc;border-radius:4px;min-height:130px;">
+      <div style="color:#4ec9b0;margin-bottom:6px;font-size:11px;font-weight:bold;">⚡ Add JWT Authentication</div>
+      <div style="display:flex;gap:6px;height:110px;">
+        <div style="width:30%;display:flex;flex-direction:column;gap:3px;">
+          <div style="padding:4px 6px;background:#6a9955;border-radius:3px;font-size:9px;color:#fff;">✓ planner</div>
+          <div style="padding:4px 6px;background:#6a9955;border-radius:3px;font-size:9px;color:#fff;">✓ context</div>
+          <div style="padding:4px 6px;background:#007acc;border-radius:3px;font-size:9px;color:#fff;animation:pulse 1s infinite;">⟳ code</div>
+          <div style="padding:4px 6px;background:#333;border-radius:3px;font-size:9px;color:#666;">○ reviewer</div>
+          <div style="padding:4px 6px;background:#333;border-radius:3px;font-size:9px;color:#666;">○ validator</div>
+        </div>
+        <div style="flex:1;background:#252526;border-radius:4px;padding:6px;overflow:hidden;">
+          <div style="color:#9cdcfe;font-size:9px;margin-bottom:4px;">code · live output</div>
+          <div style="font-size:9px;color:#ccc;font-family:monospace;">
+            <span style="color:#c586c0;">+</span> import jwt from 'jsonwebtoken'<br>
+            <span style="color:#c586c0;">+</span> <br>
+            <span style="color:#c586c0;">+</span> export function sign(payload) {<br>
+            <span style="color:#c586c0;">+</span> &nbsp; return jwt.sign(payload, <br>
+            <span style="color:#ce9178;">'SECRET'</span><br>
+            <span style="color:#c586c0;">+</span> );<br>
+            <span style="color:#c586c0;">+</span> }
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Rich Detail with Live Diff</h3>
+      <p>Two-panel layout: step list on left, live output + file diffs on right. Shows actual code changes as they happen. Accept/reject per file.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Most powerful — see exactly what changes</li><li>Accept/reject individual file changes</li><li>Full Cursor-like experience</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Significantly more complex to build</li><li>Requires diff rendering infrastructure</li><li>Can be overwhelming</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:12px;">B is the industry-standard pattern (GitHub Actions, Jenkins, Vercel). C is the power-user experience. A is the simplest.</p>

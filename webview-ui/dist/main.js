@@ -59,7 +59,15 @@
       errorMessage: undefined,
       available: /** @type {Array<{providerName: string, modelName: string, label: string}>} */ ([]),
     },
+    /** Whether YOLO mode (skip approval prompts) is enabled. */
+    yoloMode: false,
+    /** Whether inline autocomplete is enabled. */
+    autocompleteEnabled: true,
   };
+
+  // Tour / onboarding hints (sessionStorage-backed, one-time per session)
+  let tourShown = sessionStorage.getItem('champ-tour-shown') === 'true';
+  let modeTooltipShown = sessionStorage.getItem('champ-mode-tip') === 'true';
 
   // -------------------------------------------------------------------
   // DOM construction — top header
@@ -92,8 +100,54 @@
       tabOverflowMenu.setAttribute('hidden', 'true');
     }
   });
-  const settingsBtn = iconButton('codicon-settings', 'Open settings', () => {
-    vscode.postMessage({ type: 'openSettingsRequest' });
+  // Settings panel — toggled by the gear icon in the header.
+  const settingsPanel = el('div', { class: 'settings-panel' });
+  settingsPanel.setAttribute('hidden', 'true');
+
+  function renderSettingsPanel() {
+    settingsPanel.innerHTML = '';
+    const ps = state.providerStatus;
+    const providerRow = el('div', { class: 'settings-row' });
+    const providerLabel = el('span', { class: 'settings-label' }, ['Provider']);
+    const providerVal = el('span', { class: 'settings-value' }, [
+      ps ? `${ps.providerName || 'none'} — ${ps.modelName || ''}` : 'Not configured'
+    ]);
+    const switchBtn = el('button', { class: 'settings-action-btn' }, ['Switch…']);
+    switchBtn.addEventListener('click', () => vscode.postMessage({ type: 'openSettingsRequest' }));
+    providerRow.append(providerLabel, providerVal, switchBtn);
+
+    const yoloRow = el('div', { class: 'settings-row' });
+    const yoloLabel = el('span', { class: 'settings-label' }, ['YOLO mode']);
+    const yoloDesc = el('span', { class: 'settings-desc' }, ['Skip approval prompts']);
+    const yoloToggle = el('button', { class: `settings-toggle ${state.yoloMode ? 'settings-toggle-on' : ''}` }, [state.yoloMode ? 'ON' : 'OFF']);
+    yoloToggle.addEventListener('click', () => {
+      state.yoloMode = !state.yoloMode;
+      vscode.postMessage({ type: 'setYoloMode', enabled: state.yoloMode });
+      renderSettingsPanel();
+    });
+    yoloRow.append(yoloLabel, yoloDesc, yoloToggle);
+
+    const acRow = el('div', { class: 'settings-row' });
+    const acLabel = el('span', { class: 'settings-label' }, ['Autocomplete']);
+    const acDesc = el('span', { class: 'settings-desc' }, ['Inline code suggestions']);
+    const acToggle = el('button', { class: `settings-toggle ${state.autocompleteEnabled !== false ? 'settings-toggle-on' : ''}` }, [state.autocompleteEnabled !== false ? 'ON' : 'OFF']);
+    acToggle.addEventListener('click', () => {
+      state.autocompleteEnabled = state.autocompleteEnabled === false ? true : false;
+      vscode.postMessage({ type: 'setAutocomplete', enabled: state.autocompleteEnabled !== false });
+      renderSettingsPanel();
+    });
+    acRow.append(acLabel, acDesc, acToggle);
+
+    settingsPanel.append(providerRow, yoloRow, acRow);
+  }
+
+  const settingsBtn = iconButton('codicon-settings-gear', 'Settings', () => {
+    if (settingsPanel.hasAttribute('hidden')) {
+      settingsPanel.removeAttribute('hidden');
+      renderSettingsPanel();
+    } else {
+      settingsPanel.setAttribute('hidden', 'true');
+    }
   });
   const helpBtn = iconButton('codicon-question', 'Show user guide', () => {
     vscode.postMessage({ type: 'showHelpRequest' });
@@ -130,6 +184,36 @@
 
   tabBar.append(tabContainer, tabAddBtn, tabOverflowBtn, tabOverflowMenu);
 
+  // Recently-deleted sessions — kept for 10 minutes as a soft-delete safety net.
+  const recentlyDeleted = []; // { id, label, deletedAt }
+
+  const trashStrip = el('div', { class: 'trash-strip' });
+
+  function renderTrashStrip() {
+    trashStrip.innerHTML = '';
+    // Only show entries from last 10 minutes.
+    const now = Date.now();
+    const recent = recentlyDeleted.filter(e => now - e.deletedAt < 10 * 60 * 1000);
+    if (recent.length === 0) return;
+    const label = el('div', { class: 'trash-label' }, ['Recently deleted']);
+    trashStrip.append(label);
+    for (const entry of recent) {
+      const row = el('div', { class: 'trash-row' });
+      const name = el('span', { class: 'trash-name' }, [(entry.label || 'New chat').slice(0, 28)]);
+      const restoreBtn = el('button', { class: 'trash-restore' }, ['Restore']);
+      restoreBtn.addEventListener('click', () => {
+        vscode.postMessage({ type: 'newSessionRequest', label: entry.label });
+        recentlyDeleted.splice(recentlyDeleted.indexOf(entry), 1);
+        renderTrashStrip();
+      });
+      row.append(name, restoreBtn);
+      trashStrip.append(row);
+    }
+  }
+
+  // Append trashStrip right after the tab bar (below tabs).
+  tabBar.append(trashStrip);
+
   let lastSessionData = { sessions: [], activeSessionId: null };
 
   function renderSessionList(sessions, activeSessionId) {
@@ -155,6 +239,11 @@
       closeBtn.addEventListener('click', (ev) => {
         ev.stopPropagation();
         if (!confirm(`Delete "${(s.label || 'New chat').slice(0, 40)}"? This cannot be undone.`)) return;
+        // Capture label before deleting for soft-delete recovery.
+        const sessionLabel = s.label || 'New chat';
+        recentlyDeleted.unshift({ id: s.id, label: sessionLabel, deletedAt: Date.now() });
+        if (recentlyDeleted.length > 5) recentlyDeleted.pop();
+        renderTrashStrip();
         vscode.postMessage({ type: 'deleteSessionRequest', sessionId: s.id });
       });
       tab.append(label, closeBtn);
@@ -214,6 +303,12 @@
     const id = lastSessionData.activeSessionId;
     if (!id) return;
     if (!confirm('Delete this chat? All messages will be lost and cannot be recovered.')) return;
+    // Find the session label for the soft-delete strip.
+    const activeSession = (lastSessionData.sessions || []).find(s => s.id === id);
+    const sessionLabel = activeSession ? (activeSession.label || 'New chat') : 'New chat';
+    recentlyDeleted.unshift({ id, label: sessionLabel, deletedAt: Date.now() });
+    if (recentlyDeleted.length > 5) recentlyDeleted.pop();
+    renderTrashStrip();
     vscode.postMessage({ type: 'deleteSessionRequest', sessionId: id });
   });
   const copyChatBtn = actionBtn('codicon-copy', 'Copy chat', () => {
@@ -231,14 +326,30 @@
   function renderMcpPanel(servers) {
     mcpPanel.innerHTML = '';
     if (!servers || servers.length === 0) {
-      mcpPanel.append(el('div', { class: 'mcp-empty' }, ['No MCP servers configured']));
+      const empty = el('div', { class: 'mcp-empty' });
+      empty.append(
+        el('p', {}, ['No MCP servers configured.']),
+        el('p', { class: 'mcp-help' }, ['Add servers to ']),
+      );
+      const code = el('code', {}, ['.champ/config.yaml']);
+      const link = el('span', { class: 'mcp-help-link', title: 'Open config file' }, ['Open config']);
+      link.addEventListener('click', () => vscode.postMessage({ type: 'openSettingsRequest' }));
+      empty.querySelector('.mcp-help').append(code, document.createTextNode(' — '), link);
+      empty.append(el('p', { class: 'mcp-help' }, ['Example: npx @modelcontextprotocol/server-github']));
+      mcpPanel.append(empty);
       return;
     }
     for (const s of servers) {
       const row = el('div', { class: 'mcp-row' });
       const dot = el('span', { class: `mcp-dot ${s.connected ? 'mcp-dot-ok' : 'mcp-dot-err'}` });
       const name = el('span', { class: 'mcp-name' }, [s.name]);
-      const info = el('span', { class: 'mcp-info' }, [s.connected ? `${s.toolCount} tools` : (s.error || 'disconnected')]);
+      const info = el('span', { class: 'mcp-info' }, [
+        s.connected
+          ? `${s.toolCount} tool${s.toolCount !== 1 ? 's' : ''}`
+          : (s.error
+              ? `Error: ${s.error.slice(0, 60)}`
+              : 'Not connected — check server command in config')
+      ]);
       const reloadBtn = el('button', { class: 'mcp-reload', title: 'Reload server' }, ['↺']);
       reloadBtn.addEventListener('click', () => vscode.postMessage({ type: 'reloadMcpServer', serverName: s.name }));
       row.append(dot, name, info, reloadBtn);
@@ -262,7 +373,49 @@
   multiAgentBtn.append(codicon('run-all'), document.createTextNode(' Run'));
   multiAgentBtn.addEventListener('click', () => vscode.postMessage({ type: 'runMultiAgent' }));
 
-  actionBar.append(mcpBtn, multiAgentBtn, compactBtn, deleteChatBtn, copyChatBtn, actionSpacer);
+  // Activity log data store
+  const activityLog = []; // { toolName, args, success, time }
+
+  // Activity log panel — hidden by default, toggled by activityBtn.
+  const activityPanel = el('div', { class: 'activity-panel' });
+  activityPanel.setAttribute('hidden', 'true');
+
+  function renderActivityLog() {
+    activityPanel.innerHTML = '';
+    if (activityLog.length === 0) {
+      activityPanel.append(el('div', { class: 'activity-empty' }, ['No tool calls this session.']));
+      return;
+    }
+    const header = el('div', { class: 'activity-header' });
+    header.append(
+      el('span', {}, [`${activityLog.length} tool call${activityLog.length !== 1 ? 's' : ''} this session`]),
+      el('button', { class: 'activity-clear', title: 'Clear' }, ['Clear'])
+    );
+    header.querySelector('.activity-clear').addEventListener('click', () => {
+      activityLog.length = 0;
+      renderActivityLog();
+    });
+    activityPanel.append(header);
+    for (const entry of [...activityLog].reverse()) {
+      const row = el('div', { class: `activity-row ${entry.success === false ? 'activity-row-err' : ''}` });
+      const icon = entry.success === false ? '✗' : entry.success === true ? '✓' : '⋯';
+      row.append(
+        el('span', { class: 'activity-icon' }, [icon]),
+        el('span', { class: 'activity-tool' }, [entry.toolName]),
+        el('span', { class: 'activity-time' }, [entry.time])
+      );
+      activityPanel.append(row);
+    }
+  }
+
+  const activityBtn = actionBtn('codicon-history', 'Activity log', () => {
+    activityPanel.hasAttribute('hidden')
+      ? activityPanel.removeAttribute('hidden')
+      : activityPanel.setAttribute('hidden', 'true');
+    renderActivityLog();
+  });
+
+  actionBar.append(mcpBtn, multiAgentBtn, activityBtn, compactBtn, deleteChatBtn, copyChatBtn, actionSpacer);
 
   // -------------------------------------------------------------------
   // DOM construction — messages list
@@ -341,11 +494,11 @@
   // Mode picker — styled popup replacing native <select>.
   const modeIcons = { agent: '⚙', ask: '💬', manual: '🛡', plan: '📋', composer: '🎼' };
   const modeDescs = {
-    agent: 'Autonomous — uses tools, edits files',
-    ask: 'Read-only — answers questions, no edits',
-    manual: 'Step-by-step — approval for each action',
-    plan: 'Plan only — research, no changes',
-    composer: 'Multi-file — bundled diffs',
+    agent:    '🔴 Autonomous — reads & edits files, runs commands',
+    ask:      '🟢 Read-only — answers questions, never edits files',
+    manual:   '🟡 Step-by-step — asks approval before every action',
+    plan:     '🟡 Plan only — researches and proposes, no file changes',
+    composer: '🔴 Multi-file — edits multiple files with diff review',
   };
   const modePickerBtn = el('button', { class: 'mode-picker-btn' }, [`${modeIcons[state.mode] || '⚙'} ${state.mode.charAt(0).toUpperCase() + state.mode.slice(1)} ▾`]);
   const modePickerPopup = el('div', { class: 'mode-picker-popup', hidden: 'true' });
@@ -355,6 +508,14 @@
     modelPickerPopup.setAttribute('hidden', 'true');
     if (modePickerPopup.hidden) {
       renderModeList();
+      if (!modeTooltipShown) {
+        modeTooltipShown = true;
+        sessionStorage.setItem('champ-mode-tip', 'true');
+        const tip = el('div', { class: 'mode-tip' }, [
+          '🟢 Ask = read-only safe   🟡 Plan/Manual = supervised   🔴 Agent/Composer = edits files'
+        ]);
+        modePickerPopup.insertBefore(tip, modePickerPopup.firstChild);
+      }
       modePickerPopup.removeAttribute('hidden');
     } else {
       modePickerPopup.setAttribute('hidden', 'true');
@@ -573,11 +734,18 @@
     const value = textarea.value;
     if (!value.match(/^\/([A-Za-z][\w-]*)?$/)) {
       closeSkillDropdown();
-      return;
+    } else {
+      // Debounce the extension-host round-trip so rapid typing doesn't lag.
+      clearTimeout(skillDebounceTimer);
+      skillDebounceTimer = setTimeout(() => handleSkillInput(), 150);
     }
-    // Debounce the extension-host round-trip so rapid typing doesn't lag.
-    clearTimeout(skillDebounceTimer);
-    skillDebounceTimer = setTimeout(() => handleSkillInput(), 150);
+    // Show @ hint popover when user types a bare '@' (at start or after space).
+    const atMatch = value.match(/(^|\s)@$/);
+    if (atMatch) {
+      showAtHint();
+    } else {
+      hideAtHint();
+    }
   });
 
   function autoResizeTextarea() {
@@ -659,6 +827,7 @@
     // Enter sends, Shift+Enter inserts newline.
     if (ev.key === 'Enter' && !ev.shiftKey && !ev.metaKey && !ev.ctrlKey) {
       ev.preventDefault();
+      hideAtHint();
       sendCurrentInput();
     }
   });
@@ -685,7 +854,24 @@
     metricsFooter.textContent = `${m.totalRequests} req · ${tokensIn} in · ${tokensOut} out · ${m.averageLatency}ms avg${m.totalFailures > 0 ? ` · ${m.totalFailures} err` : ''}`;
   }
 
-  inputArea.append(skillDropdown, chatBox, modePickerPopup, modelPickerPopup, metricsFooter);
+  // @ hint popover — shown when the user types a bare '@'.
+  const atHintEl = el('div', { class: 'at-hint', hidden: 'true' });
+  atHintEl.innerHTML = `
+    <div class="at-hint-title">Context references</div>
+    <div class="at-hint-grid">
+      <span class="at-hint-sym">@Files(path)</span><span class="at-hint-desc">File contents</span>
+      <span class="at-hint-sym">@Folders(path)</span><span class="at-hint-desc">Directory listing</span>
+      <span class="at-hint-sym">@Code</span><span class="at-hint-desc">Editor selection</span>
+      <span class="at-hint-sym">@Git</span><span class="at-hint-desc">Diff &amp; recent commits</span>
+      <span class="at-hint-sym">@Codebase</span><span class="at-hint-desc">Semantic search</span>
+      <span class="at-hint-sym">@Symbols(name)</span><span class="at-hint-desc">Workspace symbols</span>
+      <span class="at-hint-sym">@Web</span><span class="at-hint-desc">Web search</span>
+    </div>`;
+
+  function showAtHint() { atHintEl.removeAttribute('hidden'); }
+  function hideAtHint() { atHintEl.setAttribute('hidden', 'true'); }
+
+  inputArea.append(skillDropdown, atHintEl, chatBox, modePickerPopup, modelPickerPopup, metricsFooter);
 
   // Wrap messages + scroll pill in a positioned container.
   const messagesWrapper = el('div', { class: 'messages-wrapper' });
@@ -766,7 +952,7 @@
     }
   }
 
-  root.append(header, tabBar, actionBar, mcpPanel, workflowStrip, messagesWrapper, inputArea);
+  root.append(header, tabBar, actionBar, mcpPanel, activityPanel, workflowStrip, settingsPanel, messagesWrapper, inputArea);
 
   // -------------------------------------------------------------------
   // Provider status rendering — header indicator + model dropdown
@@ -821,6 +1007,22 @@
     queueBadge.textContent = n === 1 ? '1 queued' : `${n} queued`;
   }
 
+  function showTourHintIfNeeded() {
+    if (tourShown) return;
+    tourShown = true;
+    sessionStorage.setItem('champ-tour-shown', 'true');
+    const banner = el('div', { class: 'tour-banner' });
+    banner.append(
+      el('span', { class: 'tour-text' }, [
+        '💡 Tip: Use @ for context (@Files, @Codebase, @Git), / for slash commands, and switch modes (Ask/Agent/Plan) in the bottom bar.'
+      ]),
+      Object.assign(el('button', { class: 'tour-dismiss' }, ['✕']), {
+        onclick: () => banner.remove()
+      })
+    );
+    messagesContainer.insertBefore(banner, messagesContainer.firstChild);
+  }
+
   function saveInputHistory() {
     try {
       const sessionId = state.activeSessionId || lastSessionData.activeSessionId;
@@ -860,7 +1062,9 @@
       return;
     }
     closeSkillDropdown();
+    hideAtHint();
     vscode.postMessage({ type: 'userMessage', text });
+    showTourHintIfNeeded();
     appendMessage('user', text);
     state.currentAssistantMessage = appendMessage('assistant', '');
     state.streamingHasText = false;
@@ -1251,9 +1455,28 @@
     }
   }
 
+  function getErrorHint(msg) {
+    if (/unauthorized|401|api.?key|authentication/i.test(msg))
+      return 'Run Champ: Set API Key from the command palette (Ctrl+Shift+P).';
+    if (/econnrefused|connection refused|ECONNREFUSED/i.test(msg))
+      return 'Is your local server running? For Ollama try: ollama serve';
+    if (/enotfound|network|getaddrinfo/i.test(msg))
+      return 'Check your network connection and provider base URL in .champ/config.yaml.';
+    if (/context.?length|token.?limit|too long/i.test(msg))
+      return 'The conversation is too long. Start a new chat or use a model with a larger context window.';
+    return null;
+  }
+
   function showError(message) {
     const messageEl = el('div', { class: 'message error' });
-    messageEl.append(el('div', { class: 'body' }, [message]));
+    const bodyEl = el('div', { class: 'body' });
+    bodyEl.appendChild(document.createTextNode(message));
+    const hint = getErrorHint(message);
+    if (hint) {
+      const hintEl = el('p', { class: 'error-hint' }, [hint]);
+      bodyEl.append(hintEl);
+    }
+    messageEl.append(bodyEl);
     messagesContainer.append(messageEl);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
     setStreaming(false);
@@ -1442,12 +1665,22 @@
           }
         }
         break;
-      case 'toolCallStart':
+      case 'toolCallStart': {
         appendToolCallCard(msg.toolName, msg.args);
+        activityLog.push({ toolName: msg.toolName, args: msg.args, success: null, time: new Date().toLocaleTimeString() });
         break;
-      case 'toolCallResult':
+      }
+      case 'toolCallResult': {
         updateToolCallResult(msg.toolName, msg.result, msg.success);
+        // Update last matching pending entry in activityLog.
+        for (let _i = activityLog.length - 1; _i >= 0; _i--) {
+          if (activityLog[_i].toolName === msg.toolName && activityLog[_i].success === null) {
+            activityLog[_i].success = msg.success !== false;
+            break;
+          }
+        }
         break;
+      }
       case 'approvalRequest':
         showApprovalDialog(msg.id, msg.description);
         break;
@@ -1489,6 +1722,8 @@
         updatePrimaryBtn();
         // Reset per-session auto-approve on session switch/new chat.
         sessionAutoApprove = false;
+        // Clear activity log on new chat / session switch.
+        activityLog.length = 0;
         if (msg.messages && msg.messages.length > 0) {
           messagesContainer.innerHTML = '';
           for (const m of msg.messages) {
@@ -1502,6 +1737,8 @@
           }
           // Not streaming — clear the cursor.
           state.currentAssistantMessage = null;
+          // Show tour hint for users with prior history.
+          showTourHintIfNeeded();
         } else {
           renderEmptyState();
         }
@@ -1521,6 +1758,8 @@
           available: msg.available || [],
         };
         renderProviderStatus();
+        // Refresh the settings panel if it's currently visible.
+        if (!settingsPanel.hasAttribute('hidden')) renderSettingsPanel();
         break;
       case 'firstRunWelcome':
         renderOnboardingPanel(msg.templates || []);

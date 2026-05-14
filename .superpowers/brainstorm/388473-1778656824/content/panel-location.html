@@ -1,0 +1,103 @@
+<h2>Where should the Agent Workflow panel live?</h2>
+<p class="subtitle">This sets the entire architecture. Each placement has different visibility and UX trade-offs.</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="editor-tab" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:12px;font-family:monospace;font-size:11px;color:#ccc;border-radius:4px;">
+      <div style="display:flex;gap:4px;margin-bottom:8px;">
+        <div style="background:#2d2d2d;padding:3px 10px;border-radius:3px 3px 0 0;color:#fff;font-size:10px;">jwt.ts</div>
+        <div style="background:#007acc;padding:3px 10px;border-radius:3px 3px 0 0;color:#fff;font-size:10px;">⚡ Workflow: Add JWT</div>
+        <div style="background:#2d2d2d;padding:3px 10px;border-radius:3px 3px 0 0;color:#ccc;font-size:10px;">auth.ts</div>
+      </div>
+      <div style="background:#252526;padding:8px;border-radius:0 4px 4px 4px;">
+        <div style="color:#4ec9b0;font-size:10px;margin-bottom:4px;">⚡ Add JWT Authentication</div>
+        <div style="background:#2d2d2d;height:6px;border-radius:3px;margin-bottom:6px;"><div style="background:#007acc;width:60%;height:100%;border-radius:3px;"></div></div>
+        <div style="font-size:10px;color:#6a9955;">✓ planner &nbsp; ✓ context &nbsp; ⟳ code &nbsp; ○ reviewer &nbsp; ○ validator</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Editor Tab (like Cursor Composer)</h3>
+      <p>Opens as a tab in the main editor area when a workflow starts. Sits alongside your code files. Close it when done.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Full width — lots of space for detail</li><li>Visible alongside code being edited</li><li>Feels like a first-class feature</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Takes editor space</li><li>Can't be open during normal coding without tabbing</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="sidebar-tab" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:12px;font-family:monospace;font-size:11px;color:#ccc;border-radius:4px;">
+      <div style="display:flex;height:80px;">
+        <div style="background:#333;width:24px;display:flex;flex-direction:column;align-items:center;padding-top:8px;gap:8px;">
+          <div style="font-size:14px;">💬</div>
+          <div style="font-size:14px;background:#007acc;width:20px;height:20px;border-radius:3px;display:flex;align-items:center;justify-content:center;">⚡</div>
+        </div>
+        <div style="flex:1;background:#252526;padding:6px;">
+          <div style="color:#4ec9b0;font-size:9px;margin-bottom:4px;">AGENT WORKFLOWS</div>
+          <div style="background:#2d2d2d;padding:4px;border-radius:3px;margin-bottom:3px;font-size:9px;">
+            <span style="color:#4ec9b0;">⟳</span> Add JWT Auth &nbsp; <span style="color:#666;">step 3/5</span>
+          </div>
+          <div style="background:#2d2d2d;padding:4px;border-radius:3px;font-size:9px;color:#666;">
+            <span style="color:#6a9955;">✓</span> Security Audit &nbsp; <span>2m ago</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Dedicated Sidebar Icon (own activity bar icon)</h3>
+      <p>A second icon in the activity bar (next to the chat icon) opens an "Agent Workflows" panel. Live runs + history always accessible.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Never loses chat access</li><li>Always accessible, not ephemeral</li><li>History visible at a glance</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Small width limits detail</li><li>Another icon in already-crowded bar</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="bottom-panel" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:12px;font-family:monospace;font-size:11px;color:#ccc;border-radius:4px;">
+      <div style="height:40px;background:#252526;border-radius:4px;margin-bottom:6px;padding:4px 8px;font-size:10px;color:#666;">code editor area</div>
+      <div style="background:#252526;padding:6px;border-radius:4px;">
+        <div style="display:flex;gap:8px;border-bottom:1px solid #333;padding-bottom:4px;margin-bottom:4px;">
+          <span style="font-size:10px;color:#666;">TERMINAL</span>
+          <span style="font-size:10px;color:#666;">PROBLEMS</span>
+          <span style="font-size:10px;background:#007acc;padding:1px 6px;border-radius:2px;color:#fff;">⚡ AGENT</span>
+        </div>
+        <div style="font-size:10px;color:#4ec9b0;">⟳ code (3.4s) — editing src/auth/jwt.ts</div>
+        <div style="font-size:9px;color:#666;margin-top:3px;">✓ planner  ✓ context  ⟳ code  ○ reviewer  ○ validator</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Bottom Panel Tab (like Terminal/Problems)</h3>
+      <p>A new tab in VS Code's bottom panel, alongside Terminal and Problems. Familiar location developers already use.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Familiar VS Code pattern</li><li>Doesn't disturb editor or sidebar</li><li>Wide, always visible</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Competes with terminal for space</li><li>Less prominent — users may miss it</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="combined" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:12px;font-family:monospace;font-size:11px;color:#ccc;border-radius:4px;">
+      <div style="display:flex;gap:4px;margin-bottom:6px;">
+        <div style="background:#252526;flex:1;padding:4px;border-radius:3px;font-size:9px;text-align:center;color:#4ec9b0;">⚡ Workflow Tab<br><span style="color:#ccc;">opens when running</span></div>
+        <div style="background:#252526;padding:4px;border-radius:3px;font-size:9px;text-align:center;color:#666;">💬 Chat<br><span>always</span></div>
+      </div>
+      <div style="background:#252526;padding:5px;border-radius:3px;font-size:9px;color:#666;text-align:center;">
+        Sidebar history strip (compact)
+        <div style="color:#4ec9b0;font-size:8px;">✓ JWT Auth · ✓ Security Scan · …</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Hybrid: Editor Tab + Sidebar History Strip</h3>
+      <p>Workflow opens as an editor tab (full detail, auto-closes when done). Compact history strip added to the Chat sidebar to see past runs.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Full detail when running</li><li>History always visible in sidebar</li><li>Best of both worlds</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>More complex to build</li><li>Two places to look</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px;">This is a foundational decision — it shapes the entire implementation. Click your preference above.</p>

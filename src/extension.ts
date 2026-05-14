@@ -703,24 +703,30 @@ export async function activate(
           const abort = new AbortController();
           token.onCancellationRequested(() => abort.abort());
 
-          const completions = await inlineProvider.provideCompletions(
-            prefix,
-            {
-              filePath: vscode.workspace.asRelativePath(document.uri),
-              language: document.languageId,
-              lineNumber: position.line + 1,
-              suffix,
-            },
-            abort.signal,
-          );
+          try {
+            if (statusBarItem)
+              statusBarItem.text = `$(loading~spin) Champ: completing…`;
+            const completions = await inlineProvider.provideCompletions(
+              prefix,
+              {
+                filePath: vscode.workspace.asRelativePath(document.uri),
+                language: document.languageId,
+                lineNumber: position.line + 1,
+                suffix,
+              },
+              abort.signal,
+            );
 
-          return completions.map(
-            (c) =>
-              new vscode.InlineCompletionItem(
-                c.text,
-                new vscode.Range(position, position),
-              ),
-          );
+            return completions.map(
+              (c) =>
+                new vscode.InlineCompletionItem(
+                  c.text,
+                  new vscode.Range(position, position),
+                ),
+            );
+          } finally {
+            setStatusReady(inlineProviderRef.current);
+          }
         },
       },
     ),

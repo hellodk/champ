@@ -1,0 +1,9 @@
+{"type":"server-started","port":55142,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:55142","screen_dir":"/home/dk/Documents/git/vs-code-plugin/.superpowers/brainstorm/388473-1778656824/content","state_dir":"/home/dk/Documents/git/vs-code-plugin/.superpowers/brainstorm/388473-1778656824/state"}
+{"type":"screen-added","file":"/home/dk/Documents/git/vs-code-plugin/.superpowers/brainstorm/388473-1778656824/content/panel-location.html"}
+{"source":"user-event","type":"click","text":"⚡ Workflow Tabopens when running\n        💬 Chatalways\n      \n      \n        Sidebar history strip (compact)\n        ✓ JWT Auth · ✓ Security Scan · …\n      \n    \n    \n      Hybrid: Editor Tab + Sidebar History Strip\n      Workflow opens as an editor tab (full detail, auto-closes when done). Compact history strip added to the Chat sidebar to see past runs.\n      \n        ProsFull detail when runningHistory always visible in sidebarBest of both worlds\n        ConsMore complex to buildTwo places to look","choice":"combined","id":null,"timestamp":1778656955851}
+{"type":"screen-added","file":"/home/dk/Documents/git/vs-code-plugin/.superpowers/brainstorm/388473-1778656824/content/step-detail.html"}
+{"type":"screen-added","file":"/home/dk/Documents/git/vs-code-plugin/.superpowers/brainstorm/388473-1778656824/content/control-model.html"}
+{"type":"screen-added","file":"/home/dk/Documents/git/vs-code-plugin/.superpowers/brainstorm/388473-1778656824/content/diff-ux.html"}
+{"type":"screen-added","file":"/home/dk/Documents/git/vs-code-plugin/.superpowers/brainstorm/388473-1778656824/content/history-strip.html"}
+{"type":"screen-added","file":"/home/dk/Documents/git/vs-code-plugin/.superpowers/brainstorm/388473-1778656824/content/waiting.html"}
+{"type":"server-stopped","reason":"idle timeout"}

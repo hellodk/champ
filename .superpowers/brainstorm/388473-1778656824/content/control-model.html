@@ -1,0 +1,121 @@
+<h2>How much human approval during a workflow run?</h2>
+<p class="subtitle">Enterprise-grade means controllable. This defines when the system pauses for human review vs runs autonomously.</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="autopilot" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:12px;font-family:monospace;font-size:10px;color:#ccc;border-radius:4px;min-height:120px;">
+      <div style="color:#4ec9b0;font-size:11px;margin-bottom:8px;">⚡ Running autonomously…</div>
+      <div style="display:flex;flex-direction:column;gap:3px;">
+        <div style="display:flex;align-items:center;gap:8px;padding:4px 8px;background:#252526;border-radius:4px;">
+          <span style="color:#6a9955;">✓</span><span>planner</span><span style="margin-left:auto;color:#666;font-size:9px;">auto</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:4px 8px;background:#007acc22;border-left:2px solid #007acc;border-radius:4px;">
+          <span style="color:#007acc;">⟳</span><span style="color:#fff;">code</span><span style="margin-left:auto;color:#007acc;font-size:9px;">running…</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:4px 8px;background:#252526;border-radius:4px;opacity:0.4;">
+          <span style="color:#666;">○</span><span style="color:#666;">reviewer → validator</span>
+        </div>
+      </div>
+      <div style="margin-top:8px;display:flex;justify-content:flex-end;gap:6px;">
+        <div style="background:#c0392b;padding:3px 10px;border-radius:3px;font-size:9px;color:#fff;">■ Stop</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Autopilot</h3>
+      <p>Runs all agents to completion automatically. Only control is Stop. File diffs shown after completion — accept/reject the full result.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Fastest — zero interruptions</li><li>Good for trusted workflows</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Can't course-correct mid-run</li><li>May apply changes you don't want</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="gate-destructive" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:12px;font-family:monospace;font-size:10px;color:#ccc;border-radius:4px;min-height:120px;">
+      <div style="color:#4ec9b0;font-size:11px;margin-bottom:8px;">⚡ Waiting for approval…</div>
+      <div style="display:flex;flex-direction:column;gap:3px;">
+        <div style="display:flex;align-items:center;gap:8px;padding:4px 8px;background:#252526;border-radius:4px;">
+          <span style="color:#6a9955;">✓</span><span>planner</span><span style="margin-left:auto;color:#666;font-size:9px;">auto</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:4px 8px;background:#252526;border-radius:4px;">
+          <span style="color:#6a9955;">✓</span><span>context</span><span style="margin-left:auto;color:#666;font-size:9px;">auto</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:4px 8px;background:#f0ad4e22;border-left:2px solid #f0ad4e;border-radius:4px;">
+          <span style="color:#f0ad4e;">⏸</span><span style="color:#f0ad4e;">code</span><span style="margin-left:auto;color:#f0ad4e;font-size:8px;">AWAITING APPROVAL</span>
+        </div>
+      </div>
+      <div style="margin-top:8px;padding:6px 8px;background:#f0ad4e22;border:1px solid #f0ad4e44;border-radius:4px;">
+        <div style="color:#f0ad4e;font-size:9px;margin-bottom:4px;">⚠ Code agent will modify 4 files</div>
+        <div style="display:flex;gap:6px;justify-content:flex-end;">
+          <div style="background:#333;padding:3px 10px;border-radius:3px;font-size:9px;color:#fff;">Review plan</div>
+          <div style="background:#6a9955;padding:3px 10px;border-radius:3px;font-size:9px;color:#fff;">✓ Approve</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Gate Before Writes (Recommended)</h3>
+      <p>Read-only agents (planner, context) run automatically. A gate pauses before any agent that writes files. You see what's planned, then approve or stop.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Safe by default — no surprise edits</li><li>Read steps don't slow you down</li><li>Industry standard for AI agents</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>One extra click per write agent</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="full-control" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:12px;font-family:monospace;font-size:10px;color:#ccc;border-radius:4px;min-height:120px;">
+      <div style="color:#4ec9b0;font-size:11px;margin-bottom:8px;">⚡ Step-by-step control</div>
+      <div style="display:flex;flex-direction:column;gap:3px;">
+        <div style="display:flex;align-items:center;gap:8px;padding:4px 8px;background:#6a9955;border-radius:4px;color:#fff;">
+          <span>✓</span><span>planner</span><span style="margin-left:auto;font-size:9px;">done · <u>view output</u></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:4px 8px;background:#f0ad4e22;border-left:2px solid #f0ad4e;border-radius:4px;">
+          <span style="color:#f0ad4e;">⏸</span><span style="color:#f0ad4e;">context</span>
+          <div style="margin-left:auto;display:flex;gap:4px;">
+            <div style="background:#007acc;padding:2px 8px;border-radius:3px;font-size:8px;color:#fff;">▶ Run</div>
+            <div style="background:#333;padding:2px 8px;border-radius:3px;font-size:8px;color:#ccc;">Skip</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:4px 8px;background:#252526;border-radius:4px;opacity:0.4;">
+          <span style="color:#666;">○</span><span style="color:#666;">code · reviewer · validator</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Full Step-by-Step Control</h3>
+      <p>Each agent pauses after the previous completes. You explicitly approve each step: Run, Skip, or Stop. Full control, maximum safety.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Maximum control and auditability</li><li>Can skip any step</li><li>Best for learning or auditing</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Slow — lots of clicks</li><li>Defeats the purpose of automation</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="configurable" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:12px;font-family:monospace;font-size:10px;color:#ccc;border-radius:4px;min-height:120px;">
+      <div style="color:#4ec9b0;font-size:11px;margin-bottom:6px;">⚡ Adaptive control</div>
+      <div style="display:flex;gap:8px;margin-bottom:6px;">
+        <div style="padding:3px 8px;background:#007acc;border-radius:3px;font-size:9px;color:#fff;">🔒 Safe mode</div>
+        <div style="padding:3px 8px;background:#333;border-radius:3px;font-size:9px;color:#ccc;">⚡ Auto mode</div>
+        <div style="padding:3px 8px;background:#333;border-radius:3px;font-size:9px;color:#ccc;">🛡 Audit mode</div>
+      </div>
+      <div style="font-size:9px;color:#666;padding:4px 8px;background:#252526;border-radius:4px;">
+        Safe mode: gate before writes<br>
+        Auto mode: fully autonomous<br>
+        Audit mode: approve every step
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>D — Per-Run Mode Switch</h3>
+      <p>User picks a mode before each run: Auto (no gates), Safe (gate before writes), Audit (approve every step). Stored as default in config.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Flexible for different contexts</li><li>Trusted pipelines can go fully auto</li><li>Sensitive projects stay in Audit mode</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>More UI complexity</li><li>Teams need to agree on defaults</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:12px;">For enterprise: B (gate before writes) is the safe default. D (mode switch) adds enterprise flexibility on top.</p>

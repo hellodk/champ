@@ -1,0 +1,128 @@
+<h2>What does the sidebar history strip show?</h2>
+<p class="subtitle">This lives at the bottom of the Champ Chat sidebar — compact, always visible. Pick the information density that works for enterprise teams.</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="minimal-strip" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:10px;font-family:monospace;font-size:9px;color:#ccc;border-radius:4px;min-height:130px;">
+      <div style="display:flex;flex-direction:column;height:100%;background:#252526;border-radius:4px;padding:6px;">
+        <div style="color:#9cdcfe;font-size:8px;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Recent Workflows</div>
+        <div style="display:flex;flex-direction:column;gap:3px;">
+          <div style="display:flex;align-items:center;gap:6px;padding:4px 6px;background:#1e1e1e;border-radius:3px;">
+            <span style="color:#007acc;font-size:10px;">⟳</span>
+            <span style="flex:1;font-size:8px;color:#fff;">Add JWT Auth</span>
+            <span style="color:#666;font-size:7px;">now</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;padding:4px 6px;background:#1e1e1e;border-radius:3px;">
+            <span style="color:#6a9955;font-size:10px;">✓</span>
+            <span style="flex:1;font-size:8px;color:#ccc;">Security Audit</span>
+            <span style="color:#666;font-size:7px;">2m</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;padding:4px 6px;background:#1e1e1e;border-radius:3px;">
+            <span style="color:#6a9955;font-size:10px;">✓</span>
+            <span style="flex:1;font-size:8px;color:#ccc;">Add unit tests</span>
+            <span style="color:#666;font-size:7px;">1h</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;padding:4px 6px;background:#1e1e1e;border-radius:3px;">
+            <span style="color:#c0392b;font-size:10px;">✗</span>
+            <span style="flex:1;font-size:8px;color:#ccc;">Migrate schema</span>
+            <span style="color:#666;font-size:7px;">3h</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Name + Status + Time</h3>
+      <p>Just the essentials: workflow name, pass/fail/running icon, how long ago. Click any run to reopen its editor tab.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="medium-strip" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:10px;font-family:monospace;font-size:9px;color:#ccc;border-radius:4px;min-height:130px;">
+      <div style="display:flex;flex-direction:column;background:#252526;border-radius:4px;padding:6px;gap:3px;">
+        <div style="color:#9cdcfe;font-size:8px;margin-bottom:2px;text-transform:uppercase;letter-spacing:1px;">Recent Workflows</div>
+        <!-- Active run -->
+        <div style="padding:5px 6px;background:#007acc22;border-left:2px solid #007acc;border-radius:0 3px 3px 0;">
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px;">
+            <span style="color:#007acc;">⟳</span>
+            <span style="flex:1;color:#fff;font-size:8px;">Add JWT Auth</span>
+            <span style="color:#007acc;font-size:7px;">step 3/5</span>
+          </div>
+          <div style="background:#2d2d2d;height:4px;border-radius:2px;"><div style="background:#007acc;width:60%;height:100%;border-radius:2px;"></div></div>
+        </div>
+        <!-- Past runs -->
+        <div style="padding:4px 6px;background:#1e1e1e;border-radius:3px;">
+          <div style="display:flex;align-items:center;gap:5px;">
+            <span style="color:#6a9955;">✓</span>
+            <span style="flex:1;font-size:8px;">Security Audit</span>
+            <span style="color:#666;font-size:7px;">4 files · 2m</span>
+          </div>
+        </div>
+        <div style="padding:4px 6px;background:#1e1e1e;border-radius:3px;">
+          <div style="display:flex;align-items:center;gap:5px;">
+            <span style="color:#c0392b;">✗</span>
+            <span style="flex:1;font-size:8px;">Migrate schema</span>
+            <span style="color:#666;font-size:7px;">validator failed</span>
+          </div>
+        </div>
+        <div style="text-align:right;margin-top:2px;color:#666;font-size:7px;cursor:pointer;">View all runs →</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Status + Progress + Summary (Recommended)</h3>
+      <p>Active run shows live progress bar and step count. Past runs show files changed or failure reason. "View all runs" link opens a full run history panel.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="rich-strip" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:10px;font-family:monospace;font-size:9px;color:#ccc;border-radius:4px;min-height:130px;">
+      <div style="display:flex;flex-direction:column;background:#252526;border-radius:4px;padding:6px;gap:3px;">
+        <div style="display:flex;align-items:center;margin-bottom:2px;">
+          <span style="color:#9cdcfe;font-size:8px;text-transform:uppercase;letter-spacing:1px;">Workflows</span>
+          <div style="margin-left:auto;display:flex;gap:3px;">
+            <span style="color:#007acc;font-size:8px;cursor:pointer;">⚡ New</span>
+          </div>
+        </div>
+        <!-- Active -->
+        <div style="padding:5px 6px;background:#007acc22;border-left:2px solid #007acc;border-radius:0 3px 3px 0;">
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px;">
+            <span style="color:#007acc;">⟳</span>
+            <span style="flex:1;color:#fff;font-size:8px;">Add JWT Auth</span>
+            <div style="display:flex;gap:3px;">
+              <span style="background:#c0392b;padding:1px 4px;border-radius:2px;font-size:7px;color:#fff;">■</span>
+              <span style="background:#007acc;padding:1px 4px;border-radius:2px;font-size:7px;color:#fff;">↗</span>
+            </div>
+          </div>
+          <div style="background:#2d2d2d;height:4px;border-radius:2px;"><div style="background:#007acc;width:60%;height:100%;border-radius:2px;"></div></div>
+          <div style="color:#666;font-size:7px;margin-top:2px;">planner ✓ · context ✓ · code ⟳</div>
+        </div>
+        <!-- Past runs with actions -->
+        <div style="padding:4px 6px;background:#1e1e1e;border-radius:3px;">
+          <div style="display:flex;align-items:center;gap:5px;">
+            <span style="color:#6a9955;">✓</span>
+            <span style="flex:1;font-size:8px;">Security Audit</span>
+            <div style="display:flex;gap:2px;opacity:0;">
+              <span style="background:#333;padding:1px 4px;border-radius:2px;font-size:7px;">↺</span>
+              <span style="background:#333;padding:1px 4px;border-radius:2px;font-size:7px;">↗</span>
+            </div>
+          </div>
+          <div style="color:#666;font-size:7px;">4 files changed · 2m ago · Safe mode</div>
+        </div>
+        <div style="padding:4px 6px;background:#1e1e1e;border-radius:3px;">
+          <div style="display:flex;align-items:center;gap:5px;">
+            <span style="color:#c0392b;">✗</span>
+            <span style="flex:1;font-size:8px;">Migrate schema</span>
+          </div>
+          <div style="color:#c0392b;font-size:7px;">validator failed · 3h ago</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Full Run Management Strip</h3>
+      <p>Active run: live progress + stop/open buttons. Past runs: files changed, mode used, time, re-run and open buttons on hover. Enterprise-grade run history at a glance.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:12px;">B is the right balance. C is full enterprise. A is too minimal for the level of tool you're building.</p>

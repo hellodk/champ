@@ -1,0 +1,157 @@
+<h2>How do file changes get reviewed and accepted?</h2>
+<p class="subtitle">You chose rich detail with live diffs. Now: exactly how does the accept/reject experience work for each changed file?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="inline-diff" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:10px;font-family:monospace;font-size:9px;color:#ccc;border-radius:4px;min-height:140px;">
+      <div style="display:flex;gap:6px;height:130px;">
+        <!-- Step list -->
+        <div style="width:28%;display:flex;flex-direction:column;gap:3px;">
+          <div style="padding:3px 5px;background:#6a9955;border-radius:3px;font-size:8px;color:#fff;">✓ planner</div>
+          <div style="padding:3px 5px;background:#6a9955;border-radius:3px;font-size:8px;color:#fff;">✓ context</div>
+          <div style="padding:3px 5px;background:#007acc;border-radius:3px;font-size:8px;color:#fff;">● code</div>
+          <div style="padding:3px 5px;background:#333;border-radius:3px;font-size:8px;color:#666;">○ reviewer</div>
+          <div style="padding:3px 5px;background:#333;border-radius:3px;font-size:8px;color:#666;">○ validator</div>
+          <div style="margin-top:auto;padding:3px 5px;background:#c0392b;border-radius:3px;font-size:8px;color:#fff;text-align:center;">■ Stop</div>
+        </div>
+        <!-- Diff panel -->
+        <div style="flex:1;background:#252526;border-radius:4px;padding:6px;overflow:hidden;">
+          <div style="color:#9cdcfe;font-size:8px;margin-bottom:4px;">code agent · 3 files changed</div>
+          <div style="background:#1e1e1e;border-radius:3px;margin-bottom:4px;">
+            <div style="display:flex;align-items:center;padding:3px 5px;border-bottom:1px solid #333;font-size:8px;">
+              <span style="color:#f0ad4e;margin-right:4px;">M</span><span>src/auth/jwt.ts</span>
+              <div style="margin-left:auto;display:flex;gap:3px;">
+                <span style="background:#6a9955;padding:1px 5px;border-radius:2px;color:#fff;font-size:7px;">✓ Accept</span>
+                <span style="background:#c0392b;padding:1px 5px;border-radius:2px;color:#fff;font-size:7px;">✗ Reject</span>
+              </div>
+            </div>
+            <div style="padding:4px 5px;font-family:monospace;font-size:8px;line-height:1.5;">
+              <div style="color:#c586c0;">+ import jwt from 'jsonwebtoken'</div>
+              <div style="color:#c586c0;">+ export const sign = (p) =></div>
+              <div style="color:#c586c0;">+   jwt.sign(p, process.env.JWT_SECRET)</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;padding:3px 5px;background:#1e1e1e;border-radius:3px;font-size:8px;">
+            <span style="color:#f0ad4e;margin-right:4px;">M</span><span>src/middleware/auth.ts</span>
+            <div style="margin-left:auto;display:flex;gap:3px;">
+              <span style="background:#6a9955;padding:1px 5px;border-radius:2px;color:#fff;font-size:7px;">✓ Accept</span>
+              <span style="background:#c0392b;padding:1px 5px;border-radius:2px;color:#fff;font-size:7px;">✗ Reject</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Inline Diff in the Panel</h3>
+      <p>Diffs render directly in the right pane of the workflow tab. Accept/Reject buttons per file. "Accept All" and "Reject All" at the bottom. No VS Code diff editor involved.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Never leaves the workflow view</li><li>Fast review — one panel, all changes</li><li>Accept/reject per file, per hunk</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Custom diff renderer needed</li><li>Less familiar than VS Code diff</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="vscode-diff" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:10px;font-family:monospace;font-size:9px;color:#ccc;border-radius:4px;min-height:140px;">
+      <div style="display:flex;gap:6px;height:130px;">
+        <div style="width:28%;display:flex;flex-direction:column;gap:3px;">
+          <div style="padding:3px 5px;background:#6a9955;border-radius:3px;font-size:8px;color:#fff;">✓ planner</div>
+          <div style="padding:3px 5px;background:#007acc;border-radius:3px;font-size:8px;color:#fff;">● code · 3 files</div>
+          <div style="padding:3px 5px;background:#333;border-radius:3px;font-size:8px;color:#666;">○ reviewer</div>
+        </div>
+        <div style="flex:1;background:#252526;border-radius:4px;padding:6px;">
+          <div style="color:#9cdcfe;font-size:8px;margin-bottom:5px;">changed files · click to diff</div>
+          <div style="display:flex;flex-direction:column;gap:3px;">
+            <div style="display:flex;align-items:center;padding:3px 5px;background:#1e1e1e;border-radius:3px;font-size:8px;cursor:pointer;">
+              <span style="color:#6a9955;margin-right:4px;">✓</span>
+              <span style="color:#4ec9b0;text-decoration:underline;">src/auth/jwt.ts</span>
+              <span style="margin-left:auto;color:#666;">→ open diff ↗</span>
+            </div>
+            <div style="display:flex;align-items:center;padding:3px 5px;background:#1e1e1e;border-radius:3px;font-size:8px;">
+              <span style="color:#666;margin-right:4px;">○</span>
+              <span style="color:#4ec9b0;text-decoration:underline;">src/middleware/auth.ts</span>
+              <span style="margin-left:auto;color:#666;">→ open diff ↗</span>
+            </div>
+            <div style="display:flex;align-items:center;padding:3px 5px;background:#1e1e1e;border-radius:3px;font-size:8px;">
+              <span style="color:#666;margin-right:4px;">○</span>
+              <span style="color:#4ec9b0;text-decoration:underline;">src/routes/auth.ts</span>
+              <span style="margin-left:auto;color:#666;">→ open diff ↗</span>
+            </div>
+          </div>
+          <div style="margin-top:6px;display:flex;gap:4px;justify-content:flex-end;">
+            <div style="background:#6a9955;padding:2px 8px;border-radius:3px;font-size:8px;color:#fff;">Accept All</div>
+            <div style="background:#c0392b;padding:2px 8px;border-radius:3px;font-size:8px;color:#fff;">Reject All</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Opens VS Code Diff Editor per File</h3>
+      <p>The panel lists changed files. Clicking any file opens VS Code's native diff editor as a new tab. Accept/Reject All buttons remain in the panel.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Uses VS Code's proven diff UI</li><li>Inline editing possible in the diff</li><li>No custom renderer needed</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Leaves the workflow view</li><li>Multiple tabs get cluttered</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="split-review" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1e1e1e;padding:10px;font-family:monospace;font-size:9px;color:#ccc;border-radius:4px;min-height:140px;">
+      <div style="height:130px;display:flex;flex-direction:column;gap:4px;">
+        <!-- Top: step pipeline compact -->
+        <div style="display:flex;gap:4px;align-items:center;padding:3px;background:#252526;border-radius:3px;">
+          <span style="color:#6a9955;font-size:8px;">✓ planner</span>
+          <span style="color:#666;">→</span>
+          <span style="color:#6a9955;font-size:8px;">✓ context</span>
+          <span style="color:#666;">→</span>
+          <span style="color:#f0ad4e;font-size:8px;">⏸ code</span>
+          <span style="color:#666;">→</span>
+          <span style="color:#666;font-size:8px;">○ reviewer</span>
+          <span style="color:#666;">→</span>
+          <span style="color:#666;font-size:8px;">○ validator</span>
+        </div>
+        <!-- Split: file list + diff -->
+        <div style="flex:1;display:flex;gap:4px;">
+          <div style="width:32%;background:#252526;border-radius:3px;padding:4px;">
+            <div style="color:#9cdcfe;font-size:7px;margin-bottom:3px;">3 changes</div>
+            <div style="padding:2px 4px;background:#007acc22;border-left:2px solid #007acc;border-radius:2px;font-size:8px;margin-bottom:2px;color:#fff;">jwt.ts</div>
+            <div style="padding:2px 4px;background:#1e1e1e;border-radius:2px;font-size:8px;margin-bottom:2px;color:#ccc;">auth.ts</div>
+            <div style="padding:2px 4px;background:#1e1e1e;border-radius:2px;font-size:8px;color:#ccc;">routes.ts</div>
+            <div style="margin-top:8px;display:flex;flex-direction:column;gap:2px;">
+              <div style="background:#6a9955;padding:2px 4px;border-radius:2px;font-size:7px;color:#fff;text-align:center;">✓ Accept All</div>
+              <div style="background:#c0392b;padding:2px 4px;border-radius:2px;font-size:7px;color:#fff;text-align:center;">✗ Reject All</div>
+            </div>
+          </div>
+          <div style="flex:1;background:#1e1e1e;border-radius:3px;padding:4px;overflow:hidden;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+              <span style="color:#9cdcfe;font-size:7px;">jwt.ts</span>
+              <div style="display:flex;gap:3px;">
+                <span style="background:#6a9955;padding:1px 4px;border-radius:2px;color:#fff;font-size:7px;">✓</span>
+                <span style="background:#c0392b;padding:1px 4px;border-radius:2px;color:#fff;font-size:7px;">✗</span>
+              </div>
+            </div>
+            <div style="font-family:monospace;font-size:8px;line-height:1.5;">
+              <div style="color:#c586c0;">+ import jwt from 'jsonwebtoken'</div>
+              <div style="color:#c586c0;">+ const SECRET = process.env.JWT_SECRET</div>
+              <div style="background:#c0392b22;color:#f88;">- const SECRET = 'hardcoded'</div>
+              <div style="color:#c586c0;">+ export const sign = (payload) =></div>
+              <div style="color:#c586c0;">+   jwt.sign(payload, SECRET, {…})</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Split Review Panel (Recommended)</h3>
+      <p>Horizontal pipeline bar at top. Below: file list on left (click to select), inline diff on right with per-file Accept/Reject. Accept All / Reject All to move on.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Everything in one view — no tab jumping</li><li>File list shows review progress</li><li>Inline diff with per-file granularity</li><li>Closest to Cursor's experience</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Custom diff renderer needed</li><li>Most complex to build</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:12px;">C is the most cohesive enterprise experience. B reuses VS Code infrastructure. A is a middle ground.</p>
