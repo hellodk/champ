@@ -883,7 +883,9 @@
   const workflowStripTitle = el('span', {}, ['WORKFLOWS']);
   const workflowNewBtn = el('button', { class: 'workflow-new-btn', title: 'New workflow' }, ['⚡ New']);
   workflowNewBtn.addEventListener('click', () => vscode.postMessage({ type: 'runMultiAgent' }));
-  workflowStripHeader.append(workflowStripTitle, workflowNewBtn);
+  const teamsBtn = el('button', { class: 'workflow-new-btn', title: 'Run agent team' }, ['👥 Teams']);
+  teamsBtn.addEventListener('click', () => vscode.postMessage({ type: 'runTeam' }));
+  workflowStripHeader.append(workflowStripTitle, workflowNewBtn, teamsBtn);
   const workflowStripBody = el('div', { class: 'workflow-strip-body' });
   workflowStrip.append(workflowStripHeader, workflowStripBody);
 

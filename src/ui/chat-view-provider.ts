@@ -521,6 +521,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         );
       } else if ((msg as { type: string }).type === "runMultiAgent") {
         void vscode.commands.executeCommand("champ.runMultiAgent");
+      } else if ((msg as { type: string }).type === "runTeam") {
+        void vscode.commands.executeCommand("champ.runTeam");
       } else if ((msg as { type: string }).type === "openConfigFile") {
         void vscode.commands.executeCommand("champ.generateConfig");
       } else if ((msg as { type: string }).type === "rescanModels") {
