@@ -147,6 +147,18 @@
         "command": "champ.rerunWorkflow",
         "title": "Champ: Re-run Workflow",
         "category": "Champ"
+      },
+      {
+        "command": "champ.runTeam",
+        "title": "Champ: Run Agent Team"
+      },
+      {
+        "command": "champ.listTeams",
+        "title": "Champ: List Agent Teams"
+      },
+      {
+        "command": "champ.createTeamFromTemplate",
+        "title": "Champ: Create Team from Template"
       }
     ],
     "configuration": {

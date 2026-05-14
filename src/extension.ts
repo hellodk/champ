@@ -68,6 +68,9 @@ import { MemoryBank } from "./memory/memory-bank";
 import { WorkflowStore, type WorkflowRun } from "./ui/workflow-store";
 import { WorkflowSession } from "./ui/workflow-session";
 import { WorkflowPanel } from "./ui/workflow-panel";
+import { TeamLoader } from "./agent/team-loader";
+import { TeamRunner } from "./agent/team-runner";
+import { TeamPanel } from "./ui/team-panel";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -96,6 +99,7 @@ let persistentRunner:
 let triggerManager: TriggerManager | undefined;
 let activeWorkflowSession: WorkflowSession | undefined;
 let workflowStore: WorkflowStore | undefined;
+let teamLoader: TeamLoader | undefined;
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -153,6 +157,7 @@ export async function activate(
     : null;
 
   workflowStore = workspaceRoot ? new WorkflowStore(workspaceRoot) : undefined;
+  teamLoader = workspaceRoot ? new TeamLoader(workspaceRoot) : undefined;
 
   const stubProvider = createStubProvider("not-configured");
   const inlineProviderRef: { current: LLMProvider } = { current: stubProvider };
@@ -1405,6 +1410,177 @@ export async function activate(
       // Re-open the input box so the user can re-run with the same or different request.
       void vscode.commands.executeCommand("champ.runMultiAgent");
     }),
+
+    vscode.commands.registerCommand(
+      "champ.runTeam",
+      async (teamName?: string) => {
+        if (!teamLoader || !workspaceRoot) {
+          void vscode.window.showErrorMessage(
+            "Champ: open a workspace to use agent teams.",
+          );
+          return;
+        }
+        const provider = inlineProviderRef.current;
+        if (provider.name === "not-configured") {
+          void vscode.window.showErrorMessage(
+            "Champ: configure a provider first.",
+          );
+          return;
+        }
+
+        let teams = await teamLoader.loadAll();
+
+        if (teams.length === 0) {
+          const choice = await vscode.window.showInformationMessage(
+            "No agent teams found in .champ/teams/. Create one from a built-in template?",
+            "Create from template",
+            "Cancel",
+          );
+          if (choice === "Create from template") {
+            await vscode.commands.executeCommand(
+              "champ.createTeamFromTemplate",
+            );
+            teams = await teamLoader.loadAll();
+            if (teams.length === 0) return;
+          } else {
+            return;
+          }
+        }
+
+        let selectedTeam = teams.find((t) => t.name === teamName);
+        if (!selectedTeam) {
+          const pick = await vscode.window.showQuickPick(
+            teams.map((t) => ({
+              label: t.name,
+              description: t.description,
+              team: t,
+            })),
+            { placeHolder: "Select an agent team", title: "Run Agent Team" },
+          );
+          if (!pick) return;
+          selectedTeam = pick.team;
+        }
+
+        const userRequest = await vscode.window.showInputBox({
+          prompt: `Describe the task for "${selectedTeam.name}"`,
+          placeHolder: selectedTeam.description,
+          ignoreFocusOut: true,
+        });
+        if (!userRequest) return;
+
+        const panel = new TeamPanel(context.extensionUri, selectedTeam.name);
+        const runner = new TeamRunner();
+        const abortController = new AbortController();
+
+        panel.onMessage((msg) => {
+          if (msg.type === "teamStop") abortController.abort();
+        });
+
+        void runner.run(selectedTeam, userRequest, provider, toolRegistry, {
+          workspaceRoot,
+          abortSignal: abortController.signal,
+          onEvent: (event) => {
+            if (event.type === "state_update" || event.type === "complete") {
+              panel.update(event.state);
+            } else if (event.type === "agent_stream") {
+              panel.streamChunk(event.agentId, event.chunk);
+            } else if (event.type === "error") {
+              void vscode.window.showErrorMessage(
+                `Team run failed: ${event.message}`,
+              );
+              panel.update(event.state);
+            }
+          },
+        });
+      },
+    ),
+    vscode.commands.registerCommand("champ.listTeams", async () => {
+      if (!teamLoader) {
+        void vscode.window.showErrorMessage("Champ: open a workspace first.");
+        return;
+      }
+      const teams = await teamLoader.loadAll();
+      if (teams.length === 0) {
+        void vscode.window.showInformationMessage(
+          "No agent teams found. Create .champ/teams/*.yaml files to define teams, or run 'Champ: Create Team from Template'.",
+        );
+        return;
+      }
+      await vscode.window.showQuickPick(
+        teams.map((t) => ({
+          label: t.name,
+          description: t.description,
+          detail: `${t.agents.length} agents • ${t.sourcePath}`,
+        })),
+        { placeHolder: "Agent teams (read-only)" },
+      );
+    }),
+    vscode.commands.registerCommand(
+      "champ.createTeamFromTemplate",
+      async () => {
+        if (!workspaceRoot) {
+          void vscode.window.showErrorMessage("Champ: open a workspace first.");
+          return;
+        }
+        const templates = [
+          {
+            label: "DevOps Platform Team",
+            description:
+              "Infrastructure, CI/CD, security, monitoring specialists",
+            file: "devops-platform",
+          },
+          {
+            label: "Fullstack Feature Team",
+            description: "Backend, frontend, tests, and docs specialists",
+            file: "fullstack-feature",
+          },
+          {
+            label: "Code Review Team",
+            description:
+              "Security, performance, and style reviewers — analysis only",
+            file: "code-review",
+          },
+          {
+            label: "SRE Incident Response",
+            description:
+              "Root cause analysis, mitigation, and postmortem writing",
+            file: "incident-response",
+          },
+        ];
+        const pick = await vscode.window.showQuickPick(templates, {
+          placeHolder: "Choose a team template",
+          title: "Create Agent Team from Template",
+        });
+        if (!pick) return;
+
+        const srcPath = vscode.Uri.joinPath(
+          context.extensionUri,
+          ".champ",
+          "templates",
+          "teams",
+          `${pick.file}.yaml`,
+        );
+        const destDir = vscode.Uri.file(
+          path.join(workspaceRoot, ".champ", "teams"),
+        );
+        const destPath = vscode.Uri.joinPath(destDir, `${pick.file}.yaml`);
+        try {
+          await vscode.workspace.fs.createDirectory(destDir);
+          await vscode.workspace.fs.copy(srcPath, destPath, {
+            overwrite: false,
+          });
+          const doc = await vscode.workspace.openTextDocument(destPath);
+          await vscode.window.showTextDocument(doc);
+          void vscode.window.showInformationMessage(
+            `Team "${pick.label}" created at .champ/teams/${pick.file}.yaml — customise it then run Champ: Run Agent Team.`,
+          );
+        } catch (err) {
+          void vscode.window.showErrorMessage(
+            `Failed to create team: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      },
+    ),
 
     vscode.commands.registerCommand("champ.showAnalytics", () => {
       if (!lastAnalyticsReport) {
