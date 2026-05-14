@@ -1603,9 +1603,13 @@ export async function activate(
         modelName: newProvider.config.model,
         available: [],
       });
+      // Only replay history if the active session already has messages —
+      // don't broadcast an empty history and wipe the UI mid-conversation.
+      const activeHistory =
+        agentManager?.getActive()?.controller.getHistory() ?? [];
       chatViewProvider?.postMessage({
         type: "conversationHistory",
-        messages: [],
+        messages: activeHistory,
       });
       // Register all configured providers with SmartRouter — each gets
       // its OWN provider instance so routing actually switches backends.

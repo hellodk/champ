@@ -93,12 +93,8 @@ const AT_SYMBOL_CATALOGUE: AtSymbolSuggestion[] = [
     description: "Reference git diff, branch, or history",
     parameterized: false,
   },
-  {
-    label: "@Docs",
-    type: "docs",
-    description: "Reference library documentation",
-    parameterized: true,
-  },
+  // @Docs is parsed but not yet implemented — omitted from autocomplete
+  // so the dropdown only shows functional options.
 ];
 
 /**
@@ -329,13 +325,19 @@ export class ContextResolver {
           break;
         }
         case "web": {
-          const result = await this.deps.webSearchTool.execute({
-            query: ref.value,
-          });
+          let webContent: string;
+          try {
+            const result = await this.deps.webSearchTool.execute({
+              query: ref.value,
+            });
+            webContent = result.success ? result.output : "[web search failed]";
+          } catch {
+            webContent = "[web search error — check network or API key]";
+          }
           resolved.push({
             type: "web",
             label: `@Web ${ref.value}`,
-            content: result.success ? result.output : "[web search failed]",
+            content: webContent,
           });
           break;
         }

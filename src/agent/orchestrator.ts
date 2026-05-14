@@ -238,6 +238,7 @@ export class AgentOrchestrator {
     return {
       success: lastOutput.success,
       output: lastOutput.output,
+      error: lastOutput.error,
       plan: lastOutput.plan,
       chunks: lastOutput.chunks,
       diffs: lastOutput.diffs,

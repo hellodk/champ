@@ -136,6 +136,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     | ((usage?: { inputTokens: number; outputTokens: number }) => void)
     | undefined;
   private streamErrorCallback: ((error: string) => void) | undefined;
+  /** Usage captured from the "done" StreamDelta; consumed once by handleUserMessage. */
+  private _pendingStreamUsage?: { inputTokens: number; outputTokens: number };
   /**
    * Files attached via the paperclip button, accumulated until the
    * next user message is sent. Each entry stores the filename and
@@ -616,21 +618,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     );
 
     try {
-      const result = await this.agent.processMessage(enrichedContent, {
+      await this.agent.processMessage(enrichedContent, {
         abortSignal: controller.signal,
         requestApproval: this.buildApprovalCallback(),
         onPiiRedacted: (summary) => {
           this.postMessage(createPiiNotice(summary));
         },
       });
-      this.postMessage(createStreamEnd());
-      // Notify extension host — triggers save + metrics.
-      this.streamCompletedCallback?.(undefined);
-      // Emit any trailing text that the listener may have missed
-      // (e.g., if the listener was wired too late).
-      if (result && "text" in result && result.text) {
-        // No-op: deltas have already been forwarded.
-      }
+      // Notify extension host exactly once — triggers save + metrics.
+      // Use usage captured from the "done" delta if available.
+      this.streamCompletedCallback?.(this._pendingStreamUsage);
     } catch (err) {
       if (err instanceof PromptInjectionError) {
         // Injection blocked — show clear UI message, fire stream-end so the
@@ -651,6 +648,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
       this.streamListenerDispose?.();
       this.streamListenerDispose = null;
+      this._pendingStreamUsage = undefined;
     }
   }
 
@@ -853,8 +851,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         break;
       case "done":
         this.postMessage(createStreamEnd(delta.usage));
-        // Fire callback with usage for metrics + save.
-        this.streamCompletedCallback?.(delta.usage);
+        // Stash usage for handleUserMessage to forward to the callback.
+        // The callback itself is fired exactly once there, not here, to
+        // avoid double-firing (processMessage emits "done" and then returns,
+        // and handleUserMessage would fire a second time).
+        this._pendingStreamUsage = delta.usage;
         break;
       case "error":
         if (delta.error) {

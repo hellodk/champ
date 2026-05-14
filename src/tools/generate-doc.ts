@@ -1,6 +1,7 @@
 import * as path from "path";
 import * as fs from "fs/promises";
 import type { Tool, ToolExecutionContext, ToolResult } from "./types";
+import { resolveInWorkspace } from "../utils/workspace-path";
 
 const DOC_TYPES = [
   "architecture",
@@ -46,18 +47,8 @@ export const generateDocTool: Tool = {
       content: string;
     };
 
-    const fullPath = path.isAbsolute(filename)
-      ? filename
-      : path.join(ctx.workspaceRoot, filename);
-
-    const normalizedRoot = ctx.workspaceRoot.endsWith(path.sep)
-      ? ctx.workspaceRoot
-      : ctx.workspaceRoot + path.sep;
-
-    if (
-      !fullPath.startsWith(normalizedRoot) &&
-      fullPath !== ctx.workspaceRoot
-    ) {
+    const fullPath = resolveInWorkspace(ctx.workspaceRoot, filename);
+    if (!fullPath) {
       return {
         success: false,
         output: `Path "${filename}" is outside the workspace — not allowed.`,

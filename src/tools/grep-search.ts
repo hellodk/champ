@@ -56,8 +56,8 @@ export const grepSearchTool: Tool = {
         description: 'Glob of files to exclude (e.g., "node_modules")',
       },
       caseSensitive: {
-        type: "string",
-        description: "Whether the search is case-sensitive (true/false)",
+        type: "boolean",
+        description: "Whether the search is case-sensitive (default: false)",
       },
     },
     required: ["query"],
@@ -105,8 +105,8 @@ export const grepSearchTool: Tool = {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         resolve({
-          success: true,
-          output: `No matches (ripgrep unavailable: ${msg})`,
+          success: false,
+          output: `ripgrep unavailable: ${msg}`,
         });
         return;
       }
@@ -120,11 +120,10 @@ export const grepSearchTool: Tool = {
         stderr += chunk.toString();
       });
 
-      proc.on("error", () => {
-        // ripgrep not available or failed to spawn; treat as "no matches".
+      proc.on("error", (err) => {
         resolve({
-          success: true,
-          output: "No matches found (ripgrep unavailable)",
+          success: false,
+          output: `ripgrep unavailable: ${err.message}`,
         });
       });
 

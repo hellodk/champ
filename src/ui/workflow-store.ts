@@ -51,13 +51,15 @@ export class WorkflowStore {
     this.dir = path.join(workspaceRoot, ".champ", "workflows");
   }
 
-  async save(run: WorkflowRun): Promise<void> {
+  async save(run: WorkflowRun): Promise<boolean> {
     try {
       await fs.mkdir(this.dir, { recursive: true });
       const filePath = path.join(this.dir, `${run.id}.json`);
       await fs.writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
+      return true;
     } catch (error) {
       console.warn(`Failed to save workflow run ${run.id}:`, error);
+      return false;
     }
   }
 

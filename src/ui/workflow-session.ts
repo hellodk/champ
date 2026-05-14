@@ -147,8 +147,12 @@ export class WorkflowSession {
     const decision = await new Promise<ApprovalDecision>((resolve) => {
       this.pendingApproval = { resolve };
     });
-    this.run.status = "running";
-    if (step) step.status = decision === "skip" ? "skipped" : "running";
+    // Only resume if the user approved or skipped — stop() already set
+    // the status to "stopped", so don't overwrite it here.
+    if (decision !== "stop") {
+      this.run.status = "running";
+      if (step) step.status = decision === "skip" ? "skipped" : "running";
+    }
     this.emit();
     return decision;
   }

@@ -332,8 +332,8 @@ export class WorkflowPanel {
     }
 
     function renderDiff(container, oldContent, newContent) {
-      const oldLines = oldContent.split('\\n');
-      const newLines = newContent.split('\\n');
+      const oldLines = oldContent.split('\n');
+      const newLines = newContent.split('\n');
       for (let i = 0; i < Math.min(oldLines.length, newLines.length); i++) {
         if (oldLines[i] !== newLines[i]) {
           addLine(container, '- ' + oldLines[i], 'del');
