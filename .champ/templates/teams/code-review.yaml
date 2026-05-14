@@ -1,0 +1,52 @@
+name: Code Review Team
+description: Security, performance, and style reviewers — analysis only, no file changes
+version: "1"
+
+execution:
+  maxParallel: 3
+  totalTokenBudget: 60000
+  timeoutSeconds: 120
+  retries: 0
+  checkpoints: false
+  mode: auto
+
+agents:
+  - id: security-reviewer
+    name: Security Reviewer
+    role: Finds security vulnerabilities, injection risks, auth gaps
+    tools: [read_file, grep_search, list_directory]
+    selfCritique: true
+    systemPrompt: |
+      You are a Security Reviewer. Review the specified codebase or files.
+      Look for: SQL/command/LDAP injection, broken auth, insecure deserialization,
+      hardcoded secrets, path traversal, XSS, CSRF, insecure dependencies.
+      Report each: file:line | severity (critical/high/medium/low) | description | fix.
+      Do NOT modify files.
+
+  - id: perf-reviewer
+    name: Performance Reviewer
+    role: Finds N+1 queries, memory leaks, blocking calls, inefficient algorithms
+    tools: [read_file, grep_search]
+    systemPrompt: |
+      You are a Performance Reviewer. Look for: N+1 queries, missing indexes,
+      unbounded data loads, synchronous I/O in async contexts, memory leaks.
+      Report each: file:line | estimated impact | suggested fix. Do NOT modify files.
+
+  - id: style-reviewer
+    name: Style Reviewer
+    role: Code style, naming, duplication, dead code
+    tools: [read_file, grep_search]
+    systemPrompt: |
+      You are a Code Style Reviewer. Look for: naming inconsistencies, functions
+      over 50 lines, nesting over 3 levels, magic numbers, code duplication, dead code.
+      Report each: file:line | suggestion. Do NOT modify files.
+
+  - id: summary
+    name: Review Coordinator
+    role: Summarises all findings into a prioritised action list
+    dependsOn: [security-reviewer, perf-reviewer, style-reviewer]
+    tools: []
+    systemPrompt: |
+      You are the Review Coordinator. Combine all findings into a prioritised report.
+      Order: Critical → High → Medium → Low. Remove duplicates. Group related issues.
+      Write the final review report.

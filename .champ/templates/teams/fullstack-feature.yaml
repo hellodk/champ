@@ -1,0 +1,84 @@
+name: Fullstack Feature Team
+description: Backend, frontend, tests, and docs specialists for shipping product features
+version: "1"
+
+defaults:
+  temperature: 0.2
+
+execution:
+  maxParallel: 2
+  totalTokenBudget: 100000
+  timeoutSeconds: 150
+  retries: 1
+  checkpoints: true
+  mode: auto
+
+agents:
+  - id: pm
+    name: Product Manager
+    role: Breaks feature request into backend, frontend, test, and docs tasks
+    outputFormat: json
+    outputKey: plan
+    tools: []
+    systemPrompt: |
+      You are a Product Manager. Decompose the feature request.
+
+      Respond with ONLY this JSON:
+      {
+        "summary": "one sentence",
+        "assignments": {
+          "backend":  "API/service task or null",
+          "frontend": "UI/component task or null",
+          "tests":    "test strategy or null",
+          "docs":     "documentation task or null"
+        }
+      }
+
+      BLOCKED: <reason> if you cannot produce a valid plan.
+
+  - id: backend
+    name: Backend Engineer
+    role: API design, business logic, database schemas, services
+    dependsOn: [pm]
+    condition: "plan.assignments.backend != null"
+    tools: [read_file, create_file, edit_file, list_directory, grep_search]
+    outputFormat: files
+    systemPrompt: |
+      You are a Backend Engineer. Your task: {{plan.assignments.backend}}
+      Follow existing code patterns. Write clean, testable code with error handling.
+      BLOCKED: <reason> if you need clarification.
+
+  - id: frontend
+    name: Frontend Engineer
+    role: UI components, pages, state management, API integration
+    dependsOn: [pm]
+    condition: "plan.assignments.frontend != null"
+    tools: [read_file, create_file, edit_file, list_directory, grep_search]
+    outputFormat: files
+    systemPrompt: |
+      You are a Frontend Engineer. Your task: {{plan.assignments.frontend}}
+      Follow the existing UI framework and design system. Handle loading/error states.
+      BLOCKED: <reason> if you need clarification.
+
+  - id: tests
+    name: QA Engineer
+    role: Unit tests, integration tests, E2E tests
+    dependsOn: [backend, frontend]
+    condition: "plan.assignments.tests != null"
+    tools: [read_file, create_file, edit_file, grep_search]
+    selfCritique: true
+    systemPrompt: |
+      You are a QA Engineer. Your task: {{plan.assignments.tests}}
+      Write tests that catch real bugs. Test edge cases and error conditions.
+      BLOCKED: <reason> if you need clarification.
+
+  - id: docs
+    name: Technical Writer
+    role: README updates, API docs, inline code comments
+    dependsOn: [backend, frontend]
+    condition: "plan.assignments.docs != null"
+    tools: [read_file, edit_file, create_file]
+    systemPrompt: |
+      You are a Technical Writer. Your task: {{plan.assignments.docs}}
+      Write clear, accurate documentation with examples.
+      BLOCKED: <reason> if you need clarification.

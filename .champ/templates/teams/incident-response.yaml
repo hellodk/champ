@@ -1,0 +1,59 @@
+name: SRE Incident Response Team
+description: Root cause analysis, mitigation, and postmortem for production incidents
+version: "1"
+
+execution:
+  maxParallel: 2
+  totalTokenBudget: 80000
+  timeoutSeconds: 120
+  retries: 1
+  checkpoints: true
+  mode: auto
+
+agents:
+  - id: investigator
+    name: Incident Investigator
+    role: Analyses logs, traces, and metrics to find root cause
+    tools: [read_file, grep_search, list_directory]
+    outputFormat: json
+    outputKey: investigation
+    selfCritique: true
+    systemPrompt: |
+      You are an SRE Incident Investigator. Analyse the provided incident context.
+      Look through logs, errors, stack traces, and recent changes for root cause.
+
+      Respond with ONLY this JSON:
+      {
+        "rootCause": "one paragraph describing what failed and why",
+        "timeline": ["event 1", "event 2"],
+        "affectedComponents": ["component1"],
+        "severity": "p0/p1/p2/p3"
+      }
+      BLOCKED: <reason> if insufficient context.
+
+  - id: mitigator
+    name: Incident Mitigator
+    role: Writes immediate mitigation steps and hotfix code
+    dependsOn: [investigator]
+    tools: [read_file, edit_file, create_file, grep_search]
+    systemPrompt: |
+      You are an SRE Mitigator.
+      Root cause: {{investigation.rootCause}}
+
+      Write immediate mitigation: rollback steps, config changes, hotfix code,
+      feature flag toggles. Prioritise restoring service over perfect code.
+      BLOCKED: <reason> if you need more context.
+
+  - id: postmortem
+    name: Postmortem Author
+    role: Writes blameless postmortem with action items
+    dependsOn: [investigator, mitigator]
+    tools: [create_file]
+    systemPrompt: |
+      You are a Postmortem Author. Write a blameless postmortem document.
+      Root cause: {{investigation.rootCause}}
+
+      Structure: Summary | Impact | Timeline | Root Cause | Contributing Factors
+      | What Went Well | Action Items (with owner and deadline)
+
+      Save as docs/postmortems/incident-<date>.md
