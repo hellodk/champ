@@ -175,15 +175,13 @@ function renderRoster() {
       +'<div class="ra-status">'+esc(a.status)+'</div>'
       +(a.validationWarnings&&a.validationWarnings.length?'<div class="ra-warn">⚠ '+a.validationWarnings.length+' warning(s)</div>':'');
     if (a.status==='blocked'||a.status==='failed') {
+      // Skip/Retry wiring is planned — show as disabled hint until implemented
       const acts = document.createElement('div');
       acts.className = 'ra-acts';
-      const skip = document.createElement('button');
-      skip.className='ra-act'; skip.textContent='Skip';
-      skip.onclick = (e)=>skipAgent(a.id,e);
-      const retry = document.createElement('button');
-      retry.className='ra-act'; retry.textContent='Retry';
-      retry.onclick = (e)=>retryAgent(a.id,e);
-      acts.append(skip,retry);
+      const hint = document.createElement('span');
+      hint.style.cssText='font-size:10px;opacity:.5;font-style:italic';
+      hint.textContent = a.status==='blocked' ? '⚠ Blocked — stop and restart with more context' : '✗ Failed — check output above';
+      acts.append(hint);
       div.append(acts);
     }
     r.append(div);

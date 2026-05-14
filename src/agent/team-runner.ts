@@ -121,6 +121,8 @@ export class TeamRunner {
       ]),
     );
 
+    // Token counting not yet implemented — streamToString does not return usage data.
+    // Panel shows "~$0.00" which is accurate for local LLMs.
     const totalTokens = 0;
     const filesChanged: string[] = [];
 
