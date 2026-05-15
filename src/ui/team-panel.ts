@@ -118,6 +118,13 @@ body{font-family:var(--vscode-font-family);font-size:13px;background:var(--vscod
 .pi{display:flex;gap:6px;margin:2px 0}
 /* Blocked banner */
 .blocked-banner{background:var(--vscode-inputValidation-warningBackground,rgba(255,200,0,.15));border:1px solid var(--vscode-inputValidation-warningBorder,#ff0);padding:8px 12px;margin:8px;border-radius:4px;font-size:12px}
+/* DAG pane */
+.dag-pane{padding:10px 12px;border-top:1px solid var(--vscode-panel-border);flex-shrink:0;overflow-x:auto;display:none}
+.dag-title{font-size:10px;font-weight:600;text-transform:uppercase;opacity:.5;margin-bottom:6px}
+.dag-svg text{font-family:var(--vscode-font-family);font-size:10px;fill:var(--vscode-foreground);pointer-events:none}
+.dag-node-rect{rx:4;ry:4;stroke-width:1.5;cursor:pointer;fill:var(--vscode-editor-background)}
+.dag-node-running .dag-node-rect{animation:dag-pulse 1s ease-in-out infinite}
+@keyframes dag-pulse{0%,100%{stroke-opacity:1}50%{stroke-opacity:.3}}
 </style>
 </head>
 <body>
@@ -136,6 +143,10 @@ body{font-family:var(--vscode-font-family);font-size:13px;background:var(--vscod
       <div id="planItems"></div>
     </div>
   </div>
+</div>
+<div class="dag-pane" id="dagPane">
+  <div class="dag-title">Execution graph</div>
+  <svg id="dagSvg" xmlns="http://www.w3.org/2000/svg"></svg>
 </div>
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
@@ -250,6 +261,61 @@ function updateMeta() {
   document.getElementById('stopBtn').style.display=['completed','stopped'].includes(state.status)?'none':'';
 }
 
+function renderDag() {
+  if (!state || state.agents.length <= 1) {
+    document.getElementById('dagPane').style.display = 'none';
+    return;
+  }
+  document.getElementById('dagPane').style.display = '';
+  const svg = document.getElementById('dagSvg');
+  svg.innerHTML = '';
+  const NW = 90, NH = 28, CGAP = 44, RGAP = 10;
+  const SCOLOR = {
+    pending: 'var(--vscode-disabledForeground)',
+    running: 'var(--vscode-progressBar-background)',
+    done: '#4ec9b0',
+    failed: 'var(--vscode-errorForeground)',
+    skipped: 'var(--vscode-disabledForeground)',
+    blocked: 'var(--vscode-editorWarning-foreground)'
+  };
+  const agents = state.agents;
+  const cols = Math.ceil(Math.sqrt(agents.length));
+  const rows = Math.ceil(agents.length / cols);
+  const svgW = cols * (NW + CGAP) - CGAP + 20;
+  const svgH = rows * (NH + RGAP) - RGAP + 20;
+  svg.setAttribute('width', String(svgW));
+  svg.setAttribute('height', String(svgH));
+  svg.setAttribute('viewBox', '0 0 ' + svgW + ' ' + svgH);
+  const NS = 'http://www.w3.org/2000/svg';
+  agents.forEach((agent, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = 10 + col * (NW + CGAP);
+    const y = 10 + row * (NH + RGAP);
+    const color = SCOLOR[agent.status] || SCOLOR.pending;
+    const g = document.createElementNS(NS, 'g');
+    g.setAttribute('class', 'dag-node' + (agent.status === 'running' ? ' dag-node-running' : ''));
+    g.setAttribute('transform', 'translate(' + x + ',' + y + ')');
+    g.style.cursor = 'pointer';
+    g.addEventListener('click', () => selectAgent(agent.id));
+    const rect = document.createElementNS(NS, 'rect');
+    rect.setAttribute('class', 'dag-node-rect');
+    rect.setAttribute('width', String(NW));
+    rect.setAttribute('height', String(NH));
+    rect.setAttribute('rx', '4');
+    rect.setAttribute('ry', '4');
+    rect.setAttribute('stroke', color);
+    g.appendChild(rect);
+    const text = document.createElementNS(NS, 'text');
+    text.setAttribute('x', String(NW / 2));
+    text.setAttribute('y', String(NH / 2 + 4));
+    text.setAttribute('text-anchor', 'middle');
+    text.textContent = agent.name.slice(0, 12);
+    g.appendChild(text);
+    svg.appendChild(g);
+  });
+}
+
 window.addEventListener('message', e => {
   const msg = e.data;
   if (msg.type==='teamUpdate') {
@@ -259,7 +325,7 @@ window.addEventListener('message', e => {
       if (running) sel = running.id;
       else if (state.agents.length) sel = state.agents[0].id;
     }
-    renderRoster(); renderOutput(); renderPlan(); updateMeta();
+    renderRoster(); renderOutput(); renderPlan(); updateMeta(); renderDag();
   } else if (msg.type==='agentStream') {
     streams[msg.agentId]=(streams[msg.agentId]||'')+msg.chunk;
     if (sel===msg.agentId) renderOutput();
