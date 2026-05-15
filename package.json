@@ -159,6 +159,10 @@
       {
         "command": "champ.createTeamFromTemplate",
         "title": "Champ: Create Team from Template"
+      },
+      {
+        "command": "champ.listTeamRuns",
+        "title": "Champ: List Team Run History"
       }
     ],
     "configuration": {

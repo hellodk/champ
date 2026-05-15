@@ -66,6 +66,7 @@ import { McpRegistry } from "./mcp/mcp-registry";
 import { TriggerManager } from "./agent/trigger-manager";
 import { MemoryBank } from "./memory/memory-bank";
 import { WorkflowStore, type WorkflowRun } from "./ui/workflow-store";
+import { TeamRunStore } from "./ui/team-run-store";
 import { WorkflowSession } from "./ui/workflow-session";
 import { WorkflowPanel } from "./ui/workflow-panel";
 import { TeamLoader } from "./agent/team-loader";
@@ -99,6 +100,7 @@ let persistentRunner:
 let triggerManager: TriggerManager | undefined;
 let activeWorkflowSession: WorkflowSession | undefined;
 let workflowStore: WorkflowStore | undefined;
+let teamRunStore: TeamRunStore | undefined;
 let teamLoader: TeamLoader | undefined;
 
 export async function activate(
@@ -157,6 +159,7 @@ export async function activate(
     : null;
 
   workflowStore = workspaceRoot ? new WorkflowStore(workspaceRoot) : undefined;
+  teamRunStore = workspaceRoot ? new TeamRunStore(workspaceRoot) : undefined;
   teamLoader = workspaceRoot ? new TeamLoader(workspaceRoot) : undefined;
 
   const stubProvider = createStubProvider("not-configured");
@@ -1479,6 +1482,7 @@ export async function activate(
         void runner.run(selectedTeam, userRequest, provider, toolRegistry, {
           workspaceRoot,
           abortSignal: abortController.signal,
+          teamRunStore,
           onApprovalRequired: async (agentName: string) => {
             if (selectedTeam!.execution.mode === "auto") return true;
             const choice = await vscode.window.showInformationMessage(
@@ -1524,6 +1528,37 @@ export async function activate(
         })),
         { placeHolder: "Agent teams (read-only)" },
       );
+    }),
+    vscode.commands.registerCommand("champ.listTeamRuns", async () => {
+      if (!teamRunStore) {
+        void vscode.window.showErrorMessage("Champ: open a workspace first.");
+        return;
+      }
+      const records = await teamRunStore.loadAll();
+      if (records.length === 0) {
+        void vscode.window.showInformationMessage(
+          "No team run history found. Run a team first with Champ: Run Agent Team.",
+        );
+        return;
+      }
+      const pick = await vscode.window.showQuickPick(
+        records.map((r) => ({
+          label: `${r.state.teamName} — ${r.state.userRequest.slice(0, 50)}`,
+          description: new Date(r.state.startTime).toLocaleString(),
+          detail: `${r.state.status} · ${r.state.agents.filter((a) => a.status === "done").length}/${r.state.agents.length} agents done`,
+          record: r,
+        })),
+        {
+          placeHolder: "Select a team run to review",
+          title: "Team Run History",
+        },
+      );
+      if (!pick) return;
+      const panel = new TeamPanel(
+        context.extensionUri,
+        pick.record.state.teamName,
+      );
+      panel.update(pick.record.state);
     }),
     vscode.commands.registerCommand(
       "champ.createTeamFromTemplate",

@@ -23,6 +23,7 @@ import type {
 } from "./team-definition";
 import type { LLMProvider } from "../providers/types";
 import type { ToolRegistry } from "../tools/registry";
+import type { TeamRunStore } from "../ui/team-run-store";
 
 export type TeamRunEvent =
   | { type: "state_update"; state: TeamRunState }
@@ -37,6 +38,7 @@ export interface TeamRunOptions {
   workspaceRoot?: string;
   /** Called before each agent (supervised) or group (safe) to request user approval. Return false to skip/stop. */
   onApprovalRequired?: (agentName: string) => Promise<boolean>;
+  teamRunStore?: TeamRunStore;
 }
 
 async function writeCheckpoint(
@@ -182,6 +184,8 @@ export class TeamRunner {
     const emit = (status?: TeamRunState["status"]): TeamRunState => {
       const state = buildState(status);
       options.onEvent?.({ type: "state_update", state });
+      // Persist state after every change (non-blocking, non-fatal)
+      void options.teamRunStore?.save(state);
       return state;
     };
 
