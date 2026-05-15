@@ -73,6 +73,7 @@ import { applyHunks, splitIntoHunks } from "./utils/diff-utils";
 import { TeamLoader } from "./agent/team-loader";
 import { TeamRunner } from "./agent/team-runner";
 import { TeamPanel } from "./ui/team-panel";
+import { TeamMarketplaceClient } from "./marketplace/team-marketplace-client";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -1719,6 +1720,55 @@ export async function activate(
         })),
         { placeHolder: "Agent teams (read-only)" },
       );
+    }),
+    vscode.commands.registerCommand("champ.browseTeams", async () => {
+      const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!wsRoot) {
+        void vscode.window.showErrorMessage("Champ: No workspace folder open.");
+        return;
+      }
+      const client = new TeamMarketplaceClient();
+      let entries: import("./marketplace/team-marketplace-client").MarketplaceEntry[] =
+        [];
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Fetching team marketplace…",
+          cancellable: false,
+        },
+        async () => {
+          entries = await client.fetchManifest();
+        },
+      );
+      if (entries.length === 0) {
+        void vscode.window.showWarningMessage(
+          "Champ: Marketplace manifest is empty or unreachable.",
+        );
+        return;
+      }
+      const picks = entries.map((e) => ({
+        label: e.name,
+        description: e.tags.join(", "),
+        detail: `${e.description}  (by ${e.author})`,
+        entry: e,
+      }));
+      const selected = await vscode.window.showQuickPick(picks, {
+        placeHolder: "Select a team to download",
+        matchOnDescription: true,
+        matchOnDetail: true,
+      });
+      if (!selected) return;
+      const destDir = path.join(wsRoot, ".champ", "teams");
+      try {
+        const savedPath = await client.downloadTeam(selected.entry, destDir);
+        void vscode.window.showInformationMessage(
+          `Champ: Downloaded team "${selected.entry.name}" to ${savedPath}`,
+        );
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Champ: Failed to download team — ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }),
     vscode.commands.registerCommand("champ.listTeamRuns", async () => {
       if (!teamRunStore) {

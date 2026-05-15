@@ -2,7 +2,7 @@
   "name": "champ",
   "displayName": "Champ - AI Coding Agent",
   "description": "AI coding agent with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "1.6.92",
+  "version": "1.6.93",
   "publisher": "champ-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -171,6 +171,10 @@
       {
         "command": "champ.inlineEdit",
         "title": "Champ: Edit Selection (Inline)"
+      },
+      {
+        "command": "champ.browseTeams",
+        "title": "Champ: Browse Team Marketplace"
       }
     ],
     "configuration": {
