@@ -21,6 +21,8 @@ import type {
 } from "./agents/types";
 import type { TeamAgentDefinition } from "./team-definition";
 import { TemplateInterpolator } from "./template-interpolator";
+import { ToolCallingLoop } from "./tool-calling-loop";
+import type { ToolRegistry } from "../tools/registry";
 
 const BLOCKED_PREFIX = "BLOCKED:";
 
@@ -63,6 +65,7 @@ export class TeamAgent implements Agent {
     private readonly def: Required<TeamAgentDefinition>,
     private readonly provider: LLMProvider,
     private readonly streamCallback?: (chunk: string) => void,
+    private readonly toolRegistry?: ToolRegistry,
   ) {
     this.name = def.id;
     this.role = def.role;
@@ -106,12 +109,36 @@ export class TeamAgent implements Agent {
       { role: "user", content: input.userRequest + contextText },
     ];
 
-    const { text, error, usage } = await streamToString(
-      this.provider,
-      messages,
-      this.streamCallback,
-      this.def.outputFormat === "json" ? { jsonFormat: true } : undefined,
-    );
+    let text: string;
+    let usage: { inputTokens: number; outputTokens: number };
+    let error: string | undefined;
+
+    if (this.toolRegistry && this.def.tools.length > 0) {
+      // Use tool-calling loop when agent has tools
+      const workspaceRoot =
+        (memory.get("__workspaceRoot") as string | undefined) ?? process.cwd();
+      const loop = new ToolCallingLoop(this.provider, this.toolRegistry, {
+        workspaceRoot,
+        abortSignal: new AbortController().signal,
+        reportProgress: () => {},
+        requestApproval: async () => true,
+      });
+      const result = await loop.run(messages, this.streamCallback);
+      text = result.text;
+      usage = result.usage;
+      error = result.error;
+    } else {
+      // LLM-only path (no tools)
+      const result = await streamToString(
+        this.provider,
+        messages,
+        this.streamCallback,
+        this.def.outputFormat === "json" ? { jsonFormat: true } : undefined,
+      );
+      text = result.text;
+      usage = result.usage;
+      error = result.error;
+    }
 
     // Store token count in memory for TeamRunner to collect
     memory.set(`${this.def.id}_token_usage`, usage);

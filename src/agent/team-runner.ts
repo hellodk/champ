@@ -125,12 +125,14 @@ export class TeamRunner {
     team: TeamDefinition,
     userRequest: string,
     provider: LLMProvider,
-    _toolRegistry: ToolRegistry,
+    toolRegistry: ToolRegistry,
     options: TeamRunOptions = {},
   ): Promise<TeamRunState> {
     const runId = `team-${Date.now().toString(36)}`;
     const memory = new SharedMemory();
     const workspaceRoot = options.workspaceRoot ?? process.cwd();
+    // Store workspaceRoot in memory so ToolCallingLoop can access it
+    memory.set("__workspaceRoot", workspaceRoot);
     const startTime = Date.now();
 
     const agentStates = new Map<string, TeamAgentRunState>(
@@ -270,6 +272,20 @@ export class TeamRunner {
                   ? (provider.withModel?.(effectiveModel) ?? provider)
                   : provider;
 
+              // Build scoped tool registry for this agent
+              let scopedRegistry: ToolRegistry | undefined;
+              if (agentDef.tools.length > 0) {
+                const { ToolRegistry: ToolRegistryClass } =
+                  require("../tools/registry") as {
+                    ToolRegistry: typeof import("../tools/registry").ToolRegistry;
+                  };
+                scopedRegistry = new ToolRegistryClass();
+                for (const toolName of agentDef.tools) {
+                  const tool = toolRegistry.get(toolName);
+                  if (tool) scopedRegistry.register(tool);
+                }
+              }
+
               const agent = new TeamAgent(
                 agentDef,
                 effectiveProvider,
@@ -280,6 +296,7 @@ export class TeamRunner {
                     chunk,
                   });
                 },
+                scopedRegistry,
               );
 
               let attempts = 0;
