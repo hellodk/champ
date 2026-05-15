@@ -367,6 +367,19 @@ export interface ReloadMcpServerRequest {
   serverName: string;
 }
 
+export interface McpConfigSaveRequest {
+  type: "mcpConfigSave";
+  server: {
+    name: string;
+    transport: "stdio" | "sse";
+    command?: string;
+    args?: string[];
+    url?: string;
+    env?: Record<string, string>;
+  };
+  action: "add" | "delete";
+}
+
 /** The ⚡ multi-agent button was clicked in the webview action bar. */
 export interface RunMultiAgentRequest {
   type: "runMultiAgent";
@@ -393,6 +406,7 @@ export type WebviewToExtensionMessage =
   | RenameSessionRequest
   | OpenGeneratedFileRequest
   | ReloadMcpServerRequest
+  | McpConfigSaveRequest
   | RunMultiAgentRequest
   | OpenWorkflowRunRequest
   | RerunWorkflowRequest;
@@ -605,4 +619,10 @@ export function isReloadMcpServerRequest(
   msg: WebviewToExtensionMessage,
 ): msg is ReloadMcpServerRequest {
   return msg.type === "reloadMcpServer";
+}
+
+export function isMcpConfigSaveRequest(
+  msg: WebviewToExtensionMessage,
+): msg is McpConfigSaveRequest {
+  return msg.type === "mcpConfigSave";
 }

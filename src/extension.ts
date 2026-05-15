@@ -1270,6 +1270,66 @@ export async function activate(
       },
     ),
     vscode.commands.registerCommand(
+      "champ.saveMcpConfig",
+      async (
+        server: {
+          name: string;
+          transport: string;
+          command?: string;
+          args?: string[];
+          url?: string;
+          env?: Record<string, string>;
+        },
+        action: "add" | "delete",
+      ) => {
+        if (!workspaceRoot) {
+          void vscode.window.showErrorMessage(
+            "Champ: open a workspace to configure MCP servers.",
+          );
+          return;
+        }
+        const configPath = path.join(workspaceRoot, ".champ", "config.yaml");
+        let rawConfig = "";
+        try {
+          rawConfig = new TextDecoder().decode(
+            await vscode.workspace.fs.readFile(vscode.Uri.file(configPath)),
+          );
+        } catch {
+          rawConfig = "provider: ollama\n";
+        }
+
+        const yaml = require("js-yaml") as typeof import("js-yaml");
+        const doc = (yaml.load(rawConfig) as Record<string, unknown>) ?? {};
+        if (!doc.mcp) doc.mcp = { servers: [] };
+        const mcp = doc.mcp as { servers: unknown[] };
+        if (!Array.isArray(mcp.servers)) mcp.servers = [];
+
+        if (action === "add") {
+          // Remove existing entry with same name (update case)
+          mcp.servers = mcp.servers.filter(
+            (s) => (s as { name?: string }).name !== server.name,
+          );
+          mcp.servers.push(server);
+          void vscode.window.showInformationMessage(
+            `Champ MCP: server "${server.name}" saved. Reloading…`,
+          );
+        } else {
+          mcp.servers = mcp.servers.filter(
+            (s) => (s as { name?: string }).name !== server.name,
+          );
+          void vscode.window.showInformationMessage(
+            `Champ MCP: server "${server.name}" removed.`,
+          );
+        }
+
+        await vscode.workspace.fs.writeFile(
+          vscode.Uri.file(configPath),
+          new TextEncoder().encode(yaml.dump(doc)),
+        );
+        // Hot-reload picks up the change via file watcher automatically
+      },
+    ),
+    vscode.commands.registerCommand(
       "champ.runMultiAgent",
       async (prefilledRequest?: string) => {
         if (activeWorkflowSession) {

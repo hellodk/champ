@@ -45,6 +45,7 @@ import {
   isRenameSessionRequest,
   isOpenGeneratedFileRequest,
   isReloadMcpServerRequest,
+  isMcpConfigSaveRequest,
   createSessionList,
   type ExtensionToWebviewMessage,
   type WebviewToExtensionMessage,
@@ -508,6 +509,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         void vscode.commands.executeCommand(
           "champ.reloadMcpServer",
           msg.serverName,
+        );
+      } else if (isMcpConfigSaveRequest(msg)) {
+        void vscode.commands.executeCommand(
+          "champ.saveMcpConfig",
+          msg.server,
+          msg.action,
         );
       } else if ((msg as { type: string }).type === "openWorkflowRun") {
         void vscode.commands.executeCommand(

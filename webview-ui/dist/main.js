@@ -337,24 +337,72 @@
       empty.querySelector('.mcp-help').append(code, document.createTextNode(' — '), link);
       empty.append(el('p', { class: 'mcp-help' }, ['Example: npx @modelcontextprotocol/server-github']));
       mcpPanel.append(empty);
-      return;
+    } else {
+      for (const s of servers) {
+        const row = el('div', { class: 'mcp-row' });
+        const dot = el('span', { class: `mcp-dot ${s.connected ? 'mcp-dot-ok' : 'mcp-dot-err'}` });
+        const name = el('span', { class: 'mcp-name' }, [s.name]);
+        const info = el('span', { class: 'mcp-info' }, [
+          s.connected
+            ? `${s.toolCount} tool${s.toolCount !== 1 ? 's' : ''}`
+            : (s.error
+                ? `Error: ${s.error.slice(0, 60)}`
+                : 'Not connected — check server command in config')
+        ]);
+        const reloadBtn = el('button', { class: 'mcp-reload', title: 'Reload server' }, ['↺']);
+        reloadBtn.addEventListener('click', () => vscode.postMessage({ type: 'reloadMcpServer', serverName: s.name }));
+        const removeBtn = el('button', { class: 'mcp-reload mcp-remove', title: 'Remove this server' }, ['✕']);
+        removeBtn.addEventListener('click', () => {
+          vscode.postMessage({ type: 'mcpConfigSave', server: { name: s.name, transport: 'stdio' }, action: 'delete' });
+        });
+        row.append(dot, name, info, reloadBtn, removeBtn);
+        mcpPanel.append(row);
+      }
     }
-    for (const s of servers) {
-      const row = el('div', { class: 'mcp-row' });
-      const dot = el('span', { class: `mcp-dot ${s.connected ? 'mcp-dot-ok' : 'mcp-dot-err'}` });
-      const name = el('span', { class: 'mcp-name' }, [s.name]);
-      const info = el('span', { class: 'mcp-info' }, [
-        s.connected
-          ? `${s.toolCount} tool${s.toolCount !== 1 ? 's' : ''}`
-          : (s.error
-              ? `Error: ${s.error.slice(0, 60)}`
-              : 'Not connected — check server command in config')
-      ]);
-      const reloadBtn = el('button', { class: 'mcp-reload', title: 'Reload server' }, ['↺']);
-      reloadBtn.addEventListener('click', () => vscode.postMessage({ type: 'reloadMcpServer', serverName: s.name }));
-      row.append(dot, name, info, reloadBtn);
-      mcpPanel.append(row);
-    }
+    // Add server button
+    const addBtn = el('button', { class: 'mcp-add-btn', title: 'Add an MCP server' }, ['+ Add server']);
+    addBtn.addEventListener('click', () => {
+      const existingForm = mcpPanel.querySelector('#mcp-add-form');
+      if (existingForm) { existingForm.remove(); return; }
+      const formEl = el('div', { id: 'mcp-add-form', class: 'mcp-form' });
+      const titleEl = el('div', { class: 'mcp-form-title' }, ['New MCP server']);
+      const nameInput = el('input', { type: 'text', placeholder: 'Server name (e.g. github)', class: 'mcp-input', id: 'mcp-form-name' });
+      const transportSel = el('select', { class: 'mcp-input' });
+      const optStdio = el('option', { value: 'stdio' }, ['stdio — local process']);
+      const optSse = el('option', { value: 'sse' }, ['sse — remote HTTP']);
+      transportSel.append(optStdio, optSse);
+      const cmdInput = el('input', { type: 'text', placeholder: 'Command (e.g. npx @modelcontextprotocol/server-github)', class: 'mcp-input mcp-form-cmd' });
+      const urlInput = el('input', { type: 'text', placeholder: 'URL (e.g. http://localhost:3000)', class: 'mcp-input mcp-form-url', style: 'display:none' });
+      transportSel.addEventListener('change', () => {
+        if (transportSel.value === 'sse') {
+          cmdInput.style.display = 'none';
+          urlInput.style.display = '';
+        } else {
+          cmdInput.style.display = '';
+          urlInput.style.display = 'none';
+        }
+      });
+      const actions = el('div', { class: 'mcp-form-actions' });
+      const saveBtn = el('button', { class: 'mcp-form-save' }, ['Save']);
+      const cancelBtn = el('button', { class: 'mcp-form-cancel secondary' }, ['Cancel']);
+      saveBtn.addEventListener('click', () => {
+        const name = nameInput.value.trim();
+        if (!name) { nameInput.style.outline = '1px solid var(--vscode-errorForeground)'; return; }
+        const isSSE = transportSel.value === 'sse';
+        const serverCfg = {
+          name,
+          transport: transportSel.value,
+          ...(isSSE ? { url: urlInput.value.trim() } : { command: cmdInput.value.trim() }),
+        };
+        vscode.postMessage({ type: 'mcpConfigSave', server: serverCfg, action: 'add' });
+        formEl.remove();
+      });
+      cancelBtn.addEventListener('click', () => formEl.remove());
+      actions.append(saveBtn, cancelBtn);
+      formEl.append(titleEl, nameInput, transportSel, cmdInput, urlInput, actions);
+      mcpPanel.appendChild(formEl);
+    });
+    mcpPanel.append(addBtn);
   }
 
   const mcpBtn = actionBtn('codicon-plug', 'MCP servers', () => {
