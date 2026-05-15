@@ -392,19 +392,26 @@ vscode.commands.registerCommand("champ.reloadMcpServer", async (serverName?: str
   if (serverName && mcpRegistry) {
     try {
       await mcpRegistry.reconnect(serverName);
+      broadcastMcpStatus();
     } catch {
       // If targeted reconnect fails, fall back to full reload so the user
       // is not silently stuck.
-      await mcpRegistry.loadServers(currentMcpConfig ?? []);
+      if (cachedYamlConfig?.mcp?.servers) {
+        void mcpRegistry
+          .loadServers(cachedYamlConfig.mcp.servers)
+          .then(() => broadcastMcpStatus());
+      }
     }
-  } else if (mcpRegistry) {
+  } else if (mcpRegistry && cachedYamlConfig?.mcp?.servers) {
     // No server name provided — reload all (original behavior).
-    await mcpRegistry.loadServers(currentMcpConfig ?? []);
+    void mcpRegistry
+      .loadServers(cachedYamlConfig.mcp.servers)
+      .then(() => broadcastMcpStatus());
   }
 }),
 ```
 
-Note: `currentMcpConfig` is the last-known server list held by the extension. Verify the actual variable name in extension.ts before substituting (`grep -n "mcpConfig\|mcpServers\|serverConfig" src/extension.ts | head -20`).
+Note: `cachedYamlConfig` is the module-level config cache at line 88 of extension.ts. `broadcastMcpStatus()` is the existing helper that pushes server status to the webview.
 
 **Step 4 — compile check**
 

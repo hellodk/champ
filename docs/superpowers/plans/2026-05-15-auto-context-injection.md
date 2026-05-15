@@ -246,6 +246,26 @@ Expected: tests pass (they test the logic pattern, not yet wired into `resolveCo
 
 **Step 2 — implement in `resolveContextReferences`**
 
+First add `getEditorContext?()` to the `ChatContextResolver` interface in `src/ui/chat-view-provider.ts` (lines 68-80):
+
+```typescript
+export interface ChatContextResolver {
+  parseReferences(text: string): Array<{
+    type: string;
+    value: string;
+    start: number;
+    end: number;
+  }>;
+  resolve(
+    refs: Array<{ type: string; value: string; start: number; end: number }>,
+  ): Promise<Array<{ type: string; label: string; content: string }>>;
+  /** Optional: returns the active editor's context (file path, selection, language). */
+  getEditorContext?(): { selection: string; filePath: string; language: string } | undefined;
+}
+```
+
+The real `ContextResolver` already has `getEditorContext()` added in Task 3 step 2. Extending the interface here makes it accessible without a type cast.
+
 In `src/ui/chat-view-provider.ts`, update `resolveContextReferences`. The current early-return at line 768:
 
 ```typescript

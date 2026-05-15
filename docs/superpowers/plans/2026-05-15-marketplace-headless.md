@@ -663,7 +663,21 @@ Expected: all 5 tests pass.
 **Step 4 — compile check**
 
 `cd /home/dk/Documents/git/vs-code-plugin && npx tsc --noEmit 2>&1 | grep -c error`  
-Expected: 0 (the script uses dynamic imports; tsc only checks types statically).
+Expected: 0.
+
+Note: `module: Node16` in `tsconfig.json` means `.js` extensions in import statements are required even though source files are `.ts`. TypeScript resolves `.js` → `.ts` at compile time. The compiled output goes to `dist/` (per `outDir: "dist"`), so the headless runner runs as `node dist/scripts/run-team.js`. Verify `scripts/` is included in tsconfig `include` or add it explicitly: check `tsconfig.json` `include` array and add `"scripts/**"` if absent.
+
+```bash
+grep -n "include\|scripts" /home/dk/Documents/git/vs-code-plugin/tsconfig.json
+```
+
+Current `tsconfig.json` has `"include": ["src/**/*.ts"]` — `scripts/` is NOT included. Add it:
+
+```json
+"include": ["src/**/*.ts", "scripts/**/*.ts"]
+```
+
+This is required for `tsc` to type-check and compile the headless runner. Without it, `node dist/scripts/run-team.js` will fail with "Cannot find module".
 
 **Step 5 — commit**
 
@@ -671,6 +685,40 @@ Expected: 0 (the script uses dynamic imports; tsc only checks types statically).
 cd /home/dk/Documents/git/vs-code-plugin
 git add scripts/run-team.ts scripts/__tests__/run-team-args.test.ts
 git commit -m "feat: add scripts/run-team.ts headless team runner for CI/cron"
+```
+
+---
+
+### Task 4b — Add `scripts/` to tsconfig.json include
+
+**File**: `tsconfig.json`
+
+**Step 1** — Current state:
+
+```bash
+grep "include" /home/dk/Documents/git/vs-code-plugin/tsconfig.json
+```
+Expected: `"include": ["src/**/*.ts"]`
+
+**Step 2** — Change `include` to:
+
+```json
+"include": ["src/**/*.ts", "scripts/**/*.ts"]
+```
+
+**Step 3** — Verify compile:
+
+```bash
+cd /home/dk/Documents/git/vs-code-plugin && npx tsc --noEmit 2>&1 | grep -c error
+```
+Expected: 0.
+
+**Step 4** — Commit:
+
+```bash
+cd /home/dk/Documents/git/vs-code-plugin
+git add tsconfig.json
+git commit -m "chore: add scripts/ to tsconfig include for headless runner compilation"
 ```
 
 ---
