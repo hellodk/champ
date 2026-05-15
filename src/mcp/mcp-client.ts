@@ -23,6 +23,8 @@ export interface MCPServerConfig {
   args?: string[];
   env?: Record<string, string>;
   baseUrl?: string;
+  transport?: "stdio" | "sse";
+  url?: string;
 }
 
 export interface MCPTool {
@@ -58,6 +60,172 @@ interface MCPConnection {
     }
   >;
   buffer: string;
+  /** Set when transport is SSE. Null for stdio connections. */
+  sseConnection?: MCPSSEConnection;
+}
+
+/**
+ * MCPSSEConnection: connects to an MCP server via HTTP POST + Server-Sent Events.
+ * The server receives requests as HTTP POST to /message, and sends responses as SSE on /sse.
+ */
+export class MCPSSEConnection {
+  private pendingRequests = new Map<
+    string,
+    {
+      resolve: (v: unknown) => void;
+      reject: (e: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+  private sseAbort: AbortController | null = null;
+  private reconnectAttempts = 0;
+  private static readonly MAX_RECONNECTS = 3;
+  readonly tools: MCPTool[] = [];
+  connected = false;
+  error: string | undefined;
+
+  private readonly messageUrl: string;
+  private readonly sseUrl: string;
+
+  constructor(
+    private readonly baseUrl: string,
+    private readonly extraHeaders: Record<string, string> = {},
+  ) {
+    const base = baseUrl.replace(/\/$/, "");
+    this.messageUrl = `${base}/message`;
+    this.sseUrl = `${base}/sse`;
+  }
+
+  async connect(): Promise<void> {
+    this.sseAbort = new AbortController();
+    // Start background SSE listener before initialize (server may push init response via SSE)
+    void this.listenSSE();
+    // Small delay to let SSE connection establish
+    await new Promise<void>((r) => setTimeout(r, 100));
+
+    const result = await this.sendRequestInternal("initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "champ", version: "1" },
+    });
+    if (!result)
+      throw new Error(`MCP SSE initialize failed at ${this.baseUrl}`);
+    await this.sendNotificationInternal("notifications/initialized", {});
+    const toolsResult = (await this.sendRequestInternal("tools/list", {})) as {
+      tools?: MCPTool[];
+    };
+    (this.tools as MCPTool[]).push(...(toolsResult?.tools ?? []));
+    this.connected = true;
+  }
+
+  private async listenSSE(): Promise<void> {
+    while (this.reconnectAttempts <= MCPSSEConnection.MAX_RECONNECTS) {
+      if (this.sseAbort?.signal.aborted) return;
+      try {
+        const res = await fetch(this.sseUrl, {
+          signal: this.sseAbort!.signal,
+          headers: { Accept: "text/event-stream", ...this.extraHeaders },
+        });
+        if (!res.ok) throw new Error(`SSE ${res.status} ${res.statusText}`);
+        if (!res.body) throw new Error("SSE response has no body");
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        this.reconnectAttempts = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop() ?? "";
+          for (const line of lines) {
+            if (line.startsWith("data:")) {
+              const data = line.slice(5).trim();
+              if (data) this.handleSSEMessage(data);
+            }
+          }
+        }
+      } catch (err) {
+        if ((err as Error).name === "AbortError") return;
+        this.reconnectAttempts++;
+        if (this.reconnectAttempts > MCPSSEConnection.MAX_RECONNECTS) {
+          this.connected = false;
+          this.error = `SSE connection lost after ${MCPSSEConnection.MAX_RECONNECTS} retries`;
+          return;
+        }
+        // Exponential backoff: 1s, 2s, 4s
+        await new Promise<void>((r) =>
+          setTimeout(r, 1000 * this.reconnectAttempts),
+        );
+      }
+    }
+  }
+
+  private handleSSEMessage(data: string): void {
+    try {
+      const msg = JSON.parse(data) as {
+        id?: string;
+        result?: unknown;
+        error?: { message?: string };
+      };
+      if (msg.id === undefined) return;
+      const pending = this.pendingRequests.get(msg.id);
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      this.pendingRequests.delete(msg.id);
+      if (msg.error) {
+        pending.reject(
+          new Error(msg.error.message ?? JSON.stringify(msg.error)),
+        );
+      } else {
+        pending.resolve(msg.result);
+      }
+    } catch {
+      // Malformed SSE message — ignore
+    }
+  }
+
+  async sendRequestInternal(method: string, params: unknown): Promise<unknown> {
+    const id = `sse-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    return new Promise<unknown>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error(`MCP SSE request "${method}" timed out after 30s`));
+      }, 30_000);
+      this.pendingRequests.set(id, { resolve, reject, timer });
+      void fetch(this.messageUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...this.extraHeaders },
+        body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
+      }).catch((err: Error) => {
+        clearTimeout(timer);
+        this.pendingRequests.delete(id);
+        reject(err);
+      });
+    });
+  }
+
+  async sendNotificationInternal(
+    method: string,
+    params: unknown,
+  ): Promise<void> {
+    await fetch(this.messageUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...this.extraHeaders },
+      body: JSON.stringify({ jsonrpc: "2.0", method, params }),
+    }).catch(() => {});
+  }
+
+  disconnect(): void {
+    this.sseAbort?.abort();
+    this.sseAbort = null;
+    for (const [, pending] of this.pendingRequests) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error("MCP SSE disconnected"));
+    }
+    this.pendingRequests.clear();
+    this.connected = false;
+  }
 }
 
 export class MCPClientManager {
@@ -71,13 +239,36 @@ export class MCPClientManager {
    * performs the JSON-RPC initialize handshake, and fetches the tool list.
    */
   async connect(config: MCPServerConfig): Promise<void> {
-    if (!config.command) {
-      throw new Error(`MCP server "${config.name}" has no command configured`);
-    }
-
     // If already connected, cleanly disconnect before reconnecting.
     if (this.connections.has(config.name)) {
       await this.disconnect(config.name);
+    }
+
+    // SSE/HTTP transport
+    if (config.transport === "sse") {
+      const url = config.url;
+      if (!url) {
+        throw new Error(
+          `MCP server "${config.name}" requires a \`url\` field for SSE transport`,
+        );
+      }
+      const sseConn = new MCPSSEConnection(url, {});
+      await sseConn.connect();
+      const stub: MCPConnection = {
+        config,
+        tools: sseConn.tools,
+        process: null,
+        nextId: 0,
+        pendingRequests: new Map(),
+        buffer: "",
+        sseConnection: sseConn,
+      };
+      this.connections.set(config.name, stub);
+      return;
+    }
+
+    if (!config.command) {
+      throw new Error(`MCP server "${config.name}" has no command configured`);
     }
 
     const env = { ...process.env, ...(config.env ?? {}) };
@@ -151,7 +342,9 @@ export class MCPClientManager {
 
   async disconnect(serverName: string): Promise<void> {
     const connection = this.connections.get(serverName);
-    if (connection?.process) {
+    if (connection?.sseConnection) {
+      connection.sseConnection.disconnect();
+    } else if (connection?.process) {
       connection.process.kill();
     }
     this.connections.delete(serverName);
@@ -221,7 +414,19 @@ export class MCPClientManager {
     params: unknown,
   ): Promise<unknown> {
     const connection = this.connections.get(serverName);
-    if (!connection?.process?.stdin) {
+    if (!connection) {
+      return Promise.reject(
+        new Error(`MCP server "${serverName}" is not connected`),
+      );
+    }
+
+    // SSE transport: delegate to the SSE connection
+    if (connection.sseConnection) {
+      return connection.sseConnection.sendRequestInternal(method, params);
+    }
+
+    // Stdio transport
+    if (!connection.process?.stdin) {
       return Promise.reject(
         new Error(`MCP server "${serverName}" is not connected`),
       );

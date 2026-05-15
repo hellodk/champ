@@ -83,6 +83,10 @@ export interface MCPServerConfig {
   command: string;
   args?: string[];
   env?: Record<string, string>;
+  /** Transport type. Defaults to "stdio". Use "sse" for remote HTTP+SSE servers. */
+  transport?: "stdio" | "sse";
+  /** Base URL for SSE transport (e.g. "http://localhost:3000"). Required when transport: sse. */
+  url?: string;
 }
 
 export interface MCPConfig {
@@ -456,13 +460,14 @@ export class ConfigLoader {
                 pushError(`mcp.servers[${idx}].name must be a string`);
                 continue;
               }
-              if (typeof srv.command !== "string") {
+              const isSSE = "transport" in srv && srv.transport === "sse";
+              if (!isSSE && typeof srv.command !== "string") {
                 pushError(`mcp.servers[${idx}].command must be a string`);
                 continue;
               }
               const out2: MCPServerConfig = {
                 name: srv.name,
-                command: srv.command,
+                command: typeof srv.command === "string" ? srv.command : "",
               };
               if ("args" in srv) {
                 if (
@@ -495,6 +500,22 @@ export class ConfigLoader {
                     }
                   }
                   out2.env = env;
+                }
+              }
+              if ("transport" in srv) {
+                if (srv.transport !== "stdio" && srv.transport !== "sse") {
+                  pushError(
+                    `mcp.servers[${idx}].transport must be "stdio" or "sse"`,
+                  );
+                } else {
+                  out2.transport = srv.transport as "stdio" | "sse";
+                }
+              }
+              if ("url" in srv) {
+                if (typeof srv.url !== "string") {
+                  pushError(`mcp.servers[${idx}].url must be a string`);
+                } else {
+                  out2.url = srv.url;
                 }
               }
               out.servers.push(out2);
