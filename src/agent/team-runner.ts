@@ -35,6 +35,8 @@ export interface TeamRunOptions {
   onEvent?: (event: TeamRunEvent) => void;
   abortSignal?: AbortSignal;
   workspaceRoot?: string;
+  /** Called before each agent (supervised) or group (safe) to request user approval. Return false to skip/stop. */
+  onApprovalRequired?: (agentName: string) => Promise<boolean>;
 }
 
 async function writeCheckpoint(
@@ -194,6 +196,24 @@ export class TeamRunner {
         const memSnapshot: Record<string, unknown> = {};
         for (const key of memory.keys()) memSnapshot[key] = memory.get(key);
 
+        // Safe mode: pause before each group for approval
+        if (team.execution.mode === "safe" && options.onApprovalRequired) {
+          const groupNames = group
+            .filter((a) => !this.shouldSkipAgent(a, memSnapshot))
+            .map((a) => a.name)
+            .join(", ");
+          if (groupNames) {
+            const approved = await options.onApprovalRequired(groupNames);
+            if (!approved) {
+              // User rejected — mark remaining pending agents as skipped and stop
+              for (const [, state] of agentStates) {
+                if (state.status === "pending") state.status = "skipped";
+              }
+              return emit("stopped");
+            }
+          }
+        }
+
         // Split group into maxParallel-sized batches
         const { maxParallel } = team.execution;
         for (let i = 0; i < group.length; i += maxParallel) {
@@ -217,6 +237,21 @@ export class TeamRunner {
                 });
                 emit();
                 return;
+              }
+
+              // Supervised mode: pause before each individual agent
+              if (
+                team.execution.mode === "supervised" &&
+                options.onApprovalRequired
+              ) {
+                const approved = await options.onApprovalRequired(
+                  agentDef.name,
+                );
+                if (!approved) {
+                  agentState.status = "skipped";
+                  emit();
+                  return;
+                }
               }
 
               agentState.status = "running";

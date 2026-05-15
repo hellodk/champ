@@ -1479,6 +1479,16 @@ export async function activate(
         void runner.run(selectedTeam, userRequest, provider, toolRegistry, {
           workspaceRoot,
           abortSignal: abortController.signal,
+          onApprovalRequired: async (agentName: string) => {
+            if (selectedTeam!.execution.mode === "auto") return true;
+            const choice = await vscode.window.showInformationMessage(
+              `Agent Teams: approve "${agentName}" to run?`,
+              { modal: false },
+              "Approve",
+              "Skip",
+            );
+            return choice === "Approve";
+          },
           onEvent: (event) => {
             if (event.type === "state_update" || event.type === "complete") {
               panel.update(event.state);
