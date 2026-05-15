@@ -782,6 +782,43 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (!this.contextResolver) return text;
 
     const refs = this.contextResolver.parseReferences(text);
+
+    const autoContextEnabled = vscode.workspace
+      .getConfiguration("champ")
+      .get<boolean>("autoContext.enabled", true);
+
+    if (refs.length === 0 && autoContextEnabled) {
+      const editorCtx = this.contextResolver.getEditorContext?.();
+      if (editorCtx?.filePath) {
+        const injectedRef: import("../agent/context-resolver").ContextReference =
+          {
+            type: "file",
+            value: editorCtx.filePath,
+            start: 0,
+            end: 0,
+          };
+        let injectedResolved: Array<{
+          type: string;
+          label: string;
+          content: string;
+        }>;
+        try {
+          injectedResolved = await this.contextResolver.resolve([injectedRef]);
+        } catch {
+          return text;
+        }
+        if (injectedResolved.length > 0) {
+          const baseName = path.basename(editorCtx.filePath);
+          this.postMessage({ type: "autoContextNotice", files: [baseName] });
+          const sections = injectedResolved
+            .map((r) => `--- ${r.label} ---\n${r.content}`)
+            .join("\n\n");
+          return `${text}\n\n# Referenced context\n\n${sections}`;
+        }
+      }
+      return text;
+    }
+
     if (refs.length === 0) return text;
 
     // For bare @Codebase with no explicit query, derive a search query
