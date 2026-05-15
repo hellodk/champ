@@ -1262,11 +1262,25 @@ export async function activate(
     }),
     vscode.commands.registerCommand(
       "champ.reloadMcpServer",
-      (_serverName: string) => {
-        if (!mcpRegistry || !cachedYamlConfig?.mcp?.servers) return;
-        void mcpRegistry
-          .loadServers(cachedYamlConfig.mcp.servers)
-          .then(() => broadcastMcpStatus());
+      async (serverName?: string) => {
+        if (!mcpRegistry) return;
+        if (serverName) {
+          try {
+            await mcpRegistry.reconnect(serverName);
+            broadcastMcpStatus();
+          } catch {
+            // targeted reconnect failed — fall back to full reload
+            if (cachedYamlConfig?.mcp?.servers) {
+              void mcpRegistry
+                .loadServers(cachedYamlConfig.mcp.servers)
+                .then(() => broadcastMcpStatus());
+            }
+          }
+        } else if (cachedYamlConfig?.mcp?.servers) {
+          void mcpRegistry
+            .loadServers(cachedYamlConfig.mcp.servers)
+            .then(() => broadcastMcpStatus());
+        }
       },
     ),
     vscode.commands.registerCommand(
