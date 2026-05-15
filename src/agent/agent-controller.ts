@@ -344,6 +344,13 @@ export class AgentController {
   }
 
   /**
+   * Get the currently active LLM provider.
+   */
+  getProvider(): LLMProvider {
+    return this.provider;
+  }
+
+  /**
    * Register a listener for streaming deltas. Used by the UI to render
    * text as it arrives.
    */

@@ -20,6 +20,7 @@ export interface DiscoveredModel {
   speed: ModelSpeed;
   contextWindow: number;
   sizeHint: string;
+  quantizationLevel: string; // Fix 7: e.g. "Q4_0", "Q4_K_M", "F16", ""
 }
 
 export interface RouteResult {
@@ -45,6 +46,8 @@ export class SmartRouter {
   private listeners = new Set<() => void>();
   private discovered = false;
   private lastModelsSig = "";
+  private discovering = false; // Fix 4: race guard
+  private routeCache = new Map<string, RouteResult | null>(); // Fix 6: cache
 
   /**
    * Register a provider that can be scanned for models.
@@ -63,37 +66,44 @@ export class SmartRouter {
    * Non-blocking — call with `void`, don't await during activation.
    */
   async discover(): Promise<void> {
-    const entries = Array.from(this.providerMap.entries());
-    const results = await Promise.allSettled(
-      entries.map(([name, entry]) => this.discoverFromProvider(name, entry)),
-    );
-
-    const allModels: DiscoveredModel[] = [];
-    for (const result of results) {
-      if (result.status === "fulfilled") {
-        allModels.push(...result.value);
-      }
-    }
-
-    const wasDiscovered = this.discovered;
-    this.models = allModels;
-    this.discovered = true;
-
-    const sig = allModels
-      .map((m) => `${m.providerName}:${m.id}`)
-      .sort()
-      .join("|");
-    // Always emit on first discovery (signals readiness); after that only
-    // emit when the model list actually changes (prevents UI chatter).
-    if (!wasDiscovered || sig !== this.lastModelsSig) {
-      this.lastModelsSig = sig;
-      this.emit();
-    }
-
-    if (allModels.length > 0) {
-      console.log(
-        `Champ SmartRouter: discovered ${allModels.length} model(s) from ${entries.length} provider(s)`,
+    // Fix 4: debounce concurrent calls
+    if (this.discovering) return;
+    this.discovering = true;
+    try {
+      const entries = Array.from(this.providerMap.entries());
+      const results = await Promise.allSettled(
+        entries.map(([name, entry]) => this.discoverFromProvider(name, entry)),
       );
+
+      const allModels: DiscoveredModel[] = [];
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          allModels.push(...result.value);
+        }
+      }
+
+      const wasDiscovered = this.discovered;
+      this.models = allModels;
+      this.discovered = true;
+
+      const sig = allModels
+        .map((m) => `${m.providerName}:${m.id}`)
+        .sort()
+        .join("|");
+      // Always emit on first discovery (signals readiness); after that only
+      // emit when the model list actually changes (prevents UI chatter).
+      if (!wasDiscovered || sig !== this.lastModelsSig) {
+        this.lastModelsSig = sig;
+        this.emit();
+      }
+
+      if (allModels.length > 0) {
+        console.log(
+          `Champ SmartRouter: discovered ${allModels.length} model(s) from ${entries.length} provider(s)`,
+        );
+      }
+    } finally {
+      this.discovering = false;
     }
   }
 
@@ -102,6 +112,17 @@ export class SmartRouter {
    * locked selection. In smart mode, scores all models and picks the best.
    */
   select(taskType: TaskType): RouteResult | null {
+    // Fix 6: cache lookup
+    const cacheKey = `${taskType}:${this.mode}:${this.manualModelId ?? ""}`;
+    if (this.routeCache.has(cacheKey))
+      return this.routeCache.get(cacheKey) ?? null;
+
+    const result = this._selectUncached(taskType);
+    this.routeCache.set(cacheKey, result);
+    return result;
+  }
+
+  private _selectUncached(taskType: TaskType): RouteResult | null {
     // Per-task model override from routing config (routing.coding, etc.)
     if (this.taskOverrides.has(taskType)) {
       const override = this.taskOverrides.get(taskType);
@@ -120,6 +141,8 @@ export class SmartRouter {
       }
     }
 
+    // Fix 5: manual model set but not yet discovered — return null so caller
+    // can show "waiting for discovery" rather than auto-selecting something else
     if (this.mode === "manual" && this.manualModelId) {
       const model = this.models.find((m) => m.id === this.manualModelId);
       if (model) {
@@ -132,6 +155,7 @@ export class SmartRouter {
           };
         }
       }
+      return null;
     }
 
     if (this.models.length === 0) return null;
@@ -197,6 +221,8 @@ export class SmartRouter {
   }
 
   private emit(): void {
+    // Fix 6: invalidate route cache on model list changes
+    this.routeCache.clear();
     for (const fn of this.listeners) {
       try {
         fn();
@@ -241,6 +267,7 @@ export class SmartRouter {
             listModels: () => Promise<Array<{ id: string; name: string }>>;
           }
         ).listModels();
+        // Fix 3: don't use modelInfo().contextWindow for all models — use safe default
         for (const m of models) {
           const classified = classify(m.name);
           results.push({
@@ -248,7 +275,7 @@ export class SmartRouter {
             providerName: name,
             providerType: entry.type,
             ...classified,
-            contextWindow: entry.provider.modelInfo().contextWindow,
+            contextWindow: 8192, // safe default; /api/tags overrides this for Ollama
           });
         }
         if (results.length > 0) return results;
@@ -257,21 +284,41 @@ export class SmartRouter {
       }
     }
 
-    // Fallback: try Ollama /api/tags
+    // Fix 3: Fallback: try Ollama /api/tags — use real context window and quantization
     try {
       const res = await fetch(`${baseUrl}/api/tags`);
       if (res.ok) {
         const data = (await res.json()) as {
-          models?: Array<{ name: string }>;
+          models?: Array<{
+            name: string;
+            details?: {
+              parameter_size?: string; // e.g. "8B", "14B"
+              quantization_level?: string; // e.g. "Q4_0", "Q4_K_M"
+              context_length?: number;
+            };
+          }>;
         };
         for (const m of data.models ?? []) {
-          const classified = classify(m.name);
+          // Use parameter_size from details if available (more reliable than name parsing)
+          const paramSize = m.details?.parameter_size ?? "";
+          const quantLevel = m.details?.quantization_level ?? "";
+          const contextLength = m.details?.context_length ?? 8192;
+
+          // Merge name-based and details-based size info
+          const classified = classify(m.name, quantLevel);
+
+          // Override sizeHint with more reliable details data if available
+          const sizeHint = paramSize || classified.sizeHint;
+
           results.push({
             id: m.name,
             providerName: name,
             providerType: entry.type,
-            ...classified,
-            contextWindow: 8192,
+            capabilities: classified.capabilities,
+            speed: classified.speed,
+            sizeHint,
+            quantizationLevel: quantLevel,
+            contextWindow: contextLength,
           });
         }
         if (results.length > 0) return results;
@@ -337,76 +384,138 @@ export class SmartRouter {
 }
 
 /**
- * Classify a model by name heuristics. Pure string matching, <1ms.
+ * Fix 1: Classify a model by name heuristics with known families, embedding
+ * exclusivity, quantization-aware speed, and "general" always included for
+ * non-embedding models. Pure string matching, <1ms.
  */
-function classify(name: string): {
+function classify(
+  name: string,
+  quantization?: string,
+): {
   capabilities: ModelCapability[];
   speed: ModelSpeed;
   sizeHint: string;
+  quantizationLevel: string;
 } {
   const lower = name.toLowerCase();
   const capabilities: ModelCapability[] = [];
 
-  if (
-    /coder|code|starcoder|codestral|deepseek-coder|codellama|wizardcoder/.test(
-      lower,
-    )
-  ) {
-    capabilities.push("coding");
-  }
+  // Embedding models (exclusive — never mix with chat/coding)
   if (
     /embed|nomic|bge|e5-|gte|jina|minilm|all-mini|mxbai|voyage|rerank/.test(
       lower,
     )
   ) {
     capabilities.push("embedding");
-  }
-  if (/instruct|chat/.test(lower)) {
-    capabilities.push("instruct");
-  }
-  if (capabilities.length === 0) {
-    capabilities.push("general");
+    return {
+      capabilities,
+      speed: "fast",
+      sizeHint: "unknown",
+      quantizationLevel: quantization ?? "",
+    };
   }
 
-  const sizeMatch = lower.match(/(\d+\.?\d*)b/);
+  // Coding-specialist models
+  if (
+    /coder|codestral|deepseek-coder|codellama|wizardcoder|starcoder/.test(lower)
+  ) {
+    capabilities.push("coding");
+  }
+
+  // Instruction-tuned models
+  if (/instruct|chat|it\b|gguf/.test(lower)) {
+    capabilities.push("instruct");
+  }
+
+  // Models known to be excellent at coding regardless of name
+  // (modern general models — qwen3, llama3.1+, gemma3+, phi4, mistral, deepseek)
+  if (
+    /qwen|llama3\.|llama-3\.|gemma3|gemma4|phi[34]|mistral|deepseek|hermes|neural/.test(
+      lower,
+    )
+  ) {
+    if (!capabilities.includes("coding")) capabilities.push("coding");
+  }
+
+  // All non-embedding models can do general tasks
+  capabilities.push("general");
+
+  // Size detection — match parameter count (after ":" or "-" separator, or trailing)
+  // Avoids matching version numbers like "phi4" or "llama3"
+  const sizeMatch =
+    lower.match(/(?:[:_\-x]|^)(\d+\.?\d*)b(?:\b|$)/) ??
+    lower.match(/(\d+\.?\d*)b$/);
   const sizeB = sizeMatch ? parseFloat(sizeMatch[1]) : 7;
   const sizeHint = sizeMatch ? `${sizeMatch[1]}B` : "unknown";
 
-  let speed: ModelSpeed = "medium";
-  if (sizeB <= 7) speed = "fast";
-  else if (sizeB > 16) speed = "slow";
+  // Quantization-aware speed classification
+  const quant = (quantization ?? "").toLowerCase();
+  const quantMultiplier = quant.includes("q2")
+    ? 1.8
+    : quant.includes("q4")
+      ? 1.5
+      : quant.includes("q5")
+        ? 1.2
+        : quant.includes("q8")
+          ? 1.0
+          : quant.includes("f16")
+            ? 0.7
+            : 1.0; // unknown quantization
 
-  return { capabilities, speed, sizeHint };
+  const effectiveSize = sizeB / quantMultiplier;
+  const speed: ModelSpeed =
+    effectiveSize <= 7 ? "fast" : effectiveSize > 16 ? "slow" : "medium";
+
+  return {
+    capabilities,
+    speed,
+    sizeHint,
+    quantizationLevel: quantization ?? "",
+  };
 }
 
 /**
- * Score a model for a given task type. Higher = better fit.
+ * Fix 2: Score a model for a given task type. Latency-aware, context-window-
+ * meaningful, instruct-respecting. Higher = better fit.
  */
 function score(model: DiscoveredModel, taskType: TaskType): number {
   let s = 0;
-  const sizeB = parseFloat(model.sizeHint) || 7;
+  const sizeHintNum = parseFloat(model.sizeHint);
+  const sizeB = isNaN(sizeHintNum) ? 7 : sizeHintNum;
 
   switch (taskType) {
     case "coding":
+      // Capability bonuses
       if (model.capabilities.includes("coding")) s += 100;
-      if (model.capabilities.includes("instruct")) s += 20;
+      if (model.capabilities.includes("instruct")) s += 25;
       if (model.capabilities.includes("embedding")) s -= 999;
-      s += sizeB * 2;
+      // Size: modest bonus — bigger isn't always better if it's slow
+      s += Math.min(sizeB, 30); // cap at 30B equivalent
+      // Speed: penalize slow models for coding (10x latency matters)
+      // Note: fast bonus kept small so larger models still win over smaller+faster ones
+      if (model.speed === "fast") s += 5;
+      if (model.speed === "slow") s -= 35;
       break;
 
     case "chat":
-      if (model.capabilities.includes("general")) s += 80;
-      if (model.capabilities.includes("instruct")) s += 40;
-      if (model.capabilities.includes("coding")) s += 20;
+      // Instruct/general — both good, instruct now correctly preferred
+      if (model.capabilities.includes("instruct")) s += 80;
+      if (model.capabilities.includes("general")) s += 60;
+      if (model.capabilities.includes("coding")) s += 20; // coding models are good at chat too
       if (model.capabilities.includes("embedding")) s -= 999;
+      // Speed matters for interactive chat
       if (model.speed === "fast") s += 30;
+      if (model.speed === "slow") s -= 15;
       break;
 
     case "completion":
+      // Inline autocomplete: speed is king
       if (model.capabilities.includes("embedding")) s -= 999;
       if (model.speed === "fast") s += 100;
+      if (model.speed === "medium") s += 40;
+      if (model.speed === "slow") s -= 50;
       if (model.capabilities.includes("coding")) s += 50;
-      s -= sizeB;
+      s -= Math.max(0, sizeB - 7) * 2; // penalize large models
       break;
 
     case "embedding":
@@ -415,7 +524,13 @@ function score(model: DiscoveredModel, taskType: TaskType): number {
       break;
   }
 
-  s += Math.log2(model.contextWindow) * 2;
+  // Context window: meaningful linear bonus (not log — we care about the difference)
+  // 4K base, +1 point per 4K above baseline, capped at +40
+  const ctxBonus = Math.min(
+    40,
+    Math.max(0, (model.contextWindow - 4096) / 4096),
+  );
+  s += ctxBonus;
 
   return s;
 }

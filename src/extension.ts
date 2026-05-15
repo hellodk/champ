@@ -507,10 +507,15 @@ export async function activate(
             route.model.id !== route.provider.config.model
               ? (route.provider.withModel?.(route.model.id) ?? route.provider)
               : route.provider;
-          session.controller.setProvider(routeProvider);
-          console.log(
-            `Champ SmartRouter: ${taskType} → ${route.model.id} (${route.model.providerName}) [${route.reason}]`,
-          );
+
+          // Only swap if the selected model differs from the current one
+          const currentModel = session.controller.getProvider().config.model;
+          if (currentModel !== routeProvider.config.model) {
+            session.controller.setProvider(routeProvider);
+            console.log(
+              `Champ SmartRouter: ${taskType} → ${route.model.id} (${route.model.providerName}) [${route.reason}]`,
+            );
+          }
         }
       }
     }
