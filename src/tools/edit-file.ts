@@ -6,8 +6,14 @@
  * once in the file; ambiguous matches are rejected.
  */
 import * as vscode from "vscode";
-import type { Tool, ToolResult, ToolExecutionContext } from "./types";
+import type {
+  Tool,
+  ToolResult,
+  ToolExecutionContext,
+  ToolPreview,
+} from "./types";
 import { resolveInWorkspace } from "../utils/workspace-path";
+import { splitIntoHunks } from "../utils/diff-utils";
 
 export const editFileTool: Tool = {
   name: "edit_file",
@@ -32,6 +38,27 @@ export const editFileTool: Tool = {
     required: ["path", "old_content", "new_content"],
   },
   requiresApproval: true,
+
+  getPreview(args: Record<string, unknown>): ToolPreview | undefined {
+    const oldContent = (args.old_content as string) ?? "";
+    const newContent = (args.new_content as string) ?? "";
+    const filePath = (args.path as string) ?? "file";
+    const hunks = splitIntoHunks(oldContent, newContent);
+    if (hunks.length === 0) return undefined;
+    const lines: string[] = [];
+    for (const hunk of hunks.slice(0, 5)) {
+      for (const l of hunk.oldLines) lines.push(`-${l}`);
+      for (const l of hunk.newLines) lines.push(`+${l}`);
+      lines.push("");
+    }
+    if (hunks.length > 5)
+      lines.push(`… (${hunks.length - 5} more hunk(s) not shown)`);
+    return {
+      type: "diff",
+      content: lines.join("\n"),
+      label: `Edit: ${filePath}`,
+    };
+  },
 
   async execute(
     args: Record<string, unknown>,
