@@ -161,6 +161,13 @@ export interface ContextResolverDeps {
 export class ContextResolver {
   constructor(private readonly deps: ContextResolverDeps) {}
 
+  /** Returns the active editor context if `getEditorContext` dep is wired. */
+  getEditorContext():
+    | { selection: string; filePath: string; language: string }
+    | undefined {
+    return this.deps.getEditorContext?.();
+  }
+
   /**
    * Scan a user message for @-references and return their metadata.
    * Each reference can later be resolved via resolve().

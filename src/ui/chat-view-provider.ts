@@ -77,6 +77,10 @@ export interface ChatContextResolver {
   resolve(
     refs: Array<{ type: string; value: string; start: number; end: number }>,
   ): Promise<Array<{ type: string; label: string; content: string }>>;
+  /** Optional: returns the active editor context for auto-injection. */
+  getEditorContext?():
+    | { selection: string; filePath: string; language: string }
+    | undefined;
 }
 
 /**
