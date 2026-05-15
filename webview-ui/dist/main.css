@@ -1772,3 +1772,12 @@ html, body {
   border-bottom: 1px solid var(--vscode-panel-border);
   line-height: 1.6;
 }
+/* Hunk-level diff */
+.hunk{border:1px solid var(--vscode-panel-border);border-radius:4px;margin:4px 0;overflow:hidden}
+.hunk.accepted{border-color:#4ec9b0;opacity:.7}
+.hunk.rejected{border-color:var(--vscode-errorForeground);opacity:.5}
+.hunk-actions{display:flex;gap:6px;padding:3px 8px;background:var(--vscode-sideBarSectionHeader-background);border-top:1px solid var(--vscode-panel-border)}
+.hunk-btn{padding:2px 10px;border-radius:3px;border:1px solid var(--vscode-panel-border);cursor:pointer;font-size:11px;background:transparent}
+.hunk-btn.accept{color:#4ec9b0}
+.hunk-btn.reject{color:var(--vscode-errorForeground)}
+.hunk-btn:hover{filter:brightness(1.2)}

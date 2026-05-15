@@ -9,6 +9,8 @@ export type PanelMessage =
   | { type: "rejectFile"; filePath: string }
   | { type: "acceptAll" }
   | { type: "rejectAll" }
+  | { type: "acceptHunk"; filePath: string; hunkIndex: number }
+  | { type: "rejectHunk"; filePath: string; hunkIndex: number }
   | { type: "modeChange"; mode: string };
 
 export class WorkflowPanel {
@@ -331,28 +333,95 @@ export class WorkflowPanel {
       }
     }
 
-    function renderDiff(container, oldContent, newContent) {
-      const oldLines = oldContent.split('\n');
-      const newLines = newContent.split('\n');
-      for (let i = 0; i < Math.min(oldLines.length, newLines.length); i++) {
-        if (oldLines[i] !== newLines[i]) {
-          addLine(container, '- ' + oldLines[i], 'del');
-          addLine(container, '+ ' + newLines[i], 'add');
-        } else {
-          addLine(container, '  ' + oldLines[i], 'ctx');
-        }
+    // Minimal LCS-based diff for hunk display
+    function computeLCS(a, b) {
+      const m = a.length, n = b.length;
+      const dp = Array.from({length: m+1}, () => new Array(n+1).fill(0));
+      for (let i = 1; i <= m; i++)
+        for (let j = 1; j <= n; j++)
+          dp[i][j] = a[i-1]===b[j-1] ? dp[i-1][j-1]+1 : Math.max(dp[i-1][j], dp[i][j-1]);
+      const pairs = [];
+      let i = m, j = n;
+      while (i > 0 && j > 0) {
+        if (a[i-1]===b[j-1]) { pairs.unshift([i-1,j-1]); i--; j--; }
+        else if (dp[i-1][j] > dp[i][j-1]) i--;
+        else j--;
       }
-      for (let i = oldLines.length; i < newLines.length; i++)
-        addLine(container, '+ ' + newLines[i], 'add');
-      for (let i = newLines.length; i < oldLines.length; i++)
-        addLine(container, '- ' + oldLines[i], 'del');
+      return pairs;
     }
-
-    function addLine(container, text, cls) {
-      const span = document.createElement('span');
-      span.className = 'diff-line ' + cls;
-      span.textContent = text; // textContent — never innerHTML
-      container.appendChild(span);
+    function splitHunks(oldText, newText) {
+      if (oldText === newText) return [];
+      const a = oldText.split('\n'), b = newText.split('\n');
+      const lcs = computeLCS(a, b);
+      const edits = [];
+      let ia = 0, ib = 0;
+      for (const [ai, bi] of lcs) {
+        while (ia < ai) { edits.push({t:'del', l:a[ia++]}); }
+        while (ib < bi) { edits.push({t:'ins', l:b[ib++]}); }
+        edits.push({t:'eq', l:a[ia++]}); ib++;
+      }
+      while (ia < a.length) { edits.push({t:'del', l:a[ia++]}); }
+      while (ib < b.length) { edits.push({t:'ins', l:b[ib++]}); }
+      const hunks = [];
+      let oldPos = 0;
+      for (let i = 0; i < edits.length; ) {
+        if (edits[i].t === 'eq') { oldPos++; i++; continue; }
+        const start = oldPos;
+        const dels = [], ins = [];
+        while (i < edits.length && edits[i].t !== 'eq') {
+          if (edits[i].t === 'del') { dels.push(edits[i].l); oldPos++; }
+          else { ins.push(edits[i].l); }
+          i++;
+        }
+        hunks.push({changeStartOld: start, changeCountOld: dels.length, oldLines: dels, newLines: ins});
+      }
+      return hunks;
+    }
+    function renderDiff(container, oldContent, newContent) {
+      container.innerHTML = '';
+      if (oldContent === newContent) {
+        const msg = document.createElement('div');
+        msg.style.cssText = 'padding:8px;opacity:.5;font-size:11px';
+        msg.textContent = 'No changes';
+        container.appendChild(msg);
+        return;
+      }
+      const hunks = splitHunks(oldContent, newContent);
+      if (hunks.length === 0) {
+        const msg = document.createElement('div');
+        msg.style.cssText = 'padding:8px;opacity:.5;font-size:11px';
+        msg.textContent = 'Content identical';
+        container.appendChild(msg);
+        return;
+      }
+      hunks.forEach((hunk, idx) => {
+        const hunkEl = document.createElement('div');
+        hunkEl.className = 'hunk';
+        hunkEl.dataset.idx = String(idx);
+        hunk.oldLines.forEach(line => { const s = document.createElement('span'); s.className = 'diff-line del'; s.textContent = '- ' + line; hunkEl.appendChild(s); });
+        hunk.newLines.forEach(line => { const s = document.createElement('span'); s.className = 'diff-line add'; s.textContent = '+ ' + line; hunkEl.appendChild(s); });
+        const btns = document.createElement('div');
+        btns.className = 'hunk-actions';
+        const acceptBtn = document.createElement('button');
+        acceptBtn.className = 'hunk-btn accept';
+        acceptBtn.title = 'Accept this change';
+        acceptBtn.textContent = '✓ Accept';
+        const rejectBtn = document.createElement('button');
+        rejectBtn.className = 'hunk-btn reject';
+        rejectBtn.title = 'Reject this change';
+        rejectBtn.textContent = '✗ Reject';
+        acceptBtn.addEventListener('click', () => {
+          hunkEl.classList.add('accepted'); hunkEl.classList.remove('rejected');
+          vscode.postMessage({ type: 'acceptHunk', filePath: selectedFile, hunkIndex: idx });
+        });
+        rejectBtn.addEventListener('click', () => {
+          hunkEl.classList.add('rejected'); hunkEl.classList.remove('accepted');
+          vscode.postMessage({ type: 'rejectHunk', filePath: selectedFile, hunkIndex: idx });
+        });
+        btns.appendChild(acceptBtn); btns.appendChild(rejectBtn);
+        hunkEl.appendChild(btns);
+        container.appendChild(hunkEl);
+      });
     }
   </script>
 </body>

@@ -69,6 +69,7 @@ import { WorkflowStore, type WorkflowRun } from "./ui/workflow-store";
 import { TeamRunStore } from "./ui/team-run-store";
 import { WorkflowSession } from "./ui/workflow-session";
 import { WorkflowPanel } from "./ui/workflow-panel";
+import { applyHunks, splitIntoHunks } from "./utils/diff-utils";
 import { TeamLoader } from "./agent/team-loader";
 import { TeamRunner } from "./agent/team-runner";
 import { TeamPanel } from "./ui/team-panel";
@@ -1328,6 +1329,9 @@ export async function activate(
         panel.setTitle(runName);
         panel.update(session.getSnapshot());
 
+        // Track per-file hunk acceptance for hunk-level apply.
+        const acceptedHunks = new Map<string, Set<number>>();
+
         // Forward panel user-actions to the session.
         panel.onMessage((msg) => {
           if (msg.type === "stop") {
@@ -1354,9 +1358,21 @@ export async function activate(
                     )
                       .then((d) => new TextDecoder().decode(d))
                       .catch(() => "");
-                    const updated = existing
-                      ? existing.replace(change.oldContent, change.newContent)
-                      : change.newContent;
+                    let updated: string;
+                    const hunksForFile = acceptedHunks.get(msg.filePath);
+                    if (hunksForFile !== undefined && change.oldContent) {
+                      const hunks = splitIntoHunks(
+                        change.oldContent,
+                        change.newContent,
+                      );
+                      updated = applyHunks(change.oldContent, hunks, [
+                        ...hunksForFile,
+                      ]);
+                    } else {
+                      updated = existing
+                        ? existing.replace(change.oldContent, change.newContent)
+                        : change.newContent;
+                    }
                     await vscode.workspace.fs.writeFile(
                       uri,
                       new TextEncoder().encode(updated),
@@ -1411,6 +1427,14 @@ export async function activate(
               .filesChanged.filter((f) => f.status === "pending")) {
               session.rejectFile(fc.filePath);
             }
+          } else if (msg.type === "acceptHunk") {
+            if (!acceptedHunks.has(msg.filePath))
+              acceptedHunks.set(msg.filePath, new Set());
+            acceptedHunks.get(msg.filePath)!.add(msg.hunkIndex);
+          } else if (msg.type === "rejectHunk") {
+            if (!acceptedHunks.has(msg.filePath))
+              acceptedHunks.set(msg.filePath, new Set());
+            acceptedHunks.get(msg.filePath)!.delete(msg.hunkIndex);
           } else if (msg.type === "modeChange") {
             void context.globalState.update("champ.workflowMode", msg.mode);
           }
