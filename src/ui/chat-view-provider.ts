@@ -47,6 +47,8 @@ import {
   isReloadMcpServerRequest,
   isMcpConfigSaveRequest,
   isRevertEditRequest,
+  isAcceptAllEditsRequest,
+  isRevertAllEditsRequest,
   createSessionList,
   type ExtensionToWebviewMessage,
   type WebviewToExtensionMessage,
@@ -577,6 +579,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         });
       } else if (isRevertEditRequest(msg)) {
         void this.revertFileEdit(msg.path, msg.restoreContent);
+      } else if (isAcceptAllEditsRequest(msg)) {
+        this.editTracker.reset();
+      } else if (isRevertAllEditsRequest(msg)) {
+        for (const edit of msg.edits) {
+          await this.revertFileEdit(edit.path, edit.restoreContent);
+        }
+        this.editTracker.reset();
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
