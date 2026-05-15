@@ -174,6 +174,7 @@ export class OllamaProvider implements LLMProvider {
           parameters: t.parameters,
         },
       })),
+      ...(options?.jsonFormat && { format: "json" }),
     };
 
     try {

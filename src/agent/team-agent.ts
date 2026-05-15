@@ -34,13 +34,21 @@ function buildSystemPromptHeader(def: Required<TeamAgentDefinition>): string {
   return `You are ${def.name}: ${def.role}
 
 IMPORTANT RULES:
-1. If you cannot complete your assigned task safely (missing context, unclear requirements, unsafe operation), respond with:
-   BLOCKED: <one sentence explaining exactly what is missing or unclear>
-   Do NOT guess, hallucinate, or produce incomplete work. BLOCKED is always the right response when uncertain.
+1. Stay strictly within your assigned role. Do NOT do work that belongs to other team members. If you see another agent's assignment in the plan, skip it — that agent will handle it.
 
-2. When producing code or file content, wrap reasoning in <reasoning>...</reasoning> tags and your actual output in <output>...</output> tags. Only the <output> block will be used downstream.
+2. If you cannot complete your assigned task safely (missing context, unclear requirements, unsafe operation), respond with EXACTLY:
+   BLOCKED: <one sentence explaining what is missing or unclear>
 
-3. Stay strictly within your assigned role. Do not do work assigned to other team members.
+   Examples of correct BLOCKED responses:
+   BLOCKED: The database schema was not provided — I cannot write queries without knowing the table structure.
+   BLOCKED: The target file path is ambiguous — clarify which directory to write to.
+   BLOCKED: The previous step produced an error — I cannot proceed until it is resolved.
+
+   Do NOT guess. Do NOT hallucinate missing information. BLOCKED is always correct when uncertain.
+
+3. When producing code or file content:
+   - Wrap your reasoning in <reasoning>...</reasoning> (this is discarded)
+   - Put actual output in <output>...</output> (this is used downstream)
 
 ---
 
@@ -98,11 +106,15 @@ export class TeamAgent implements Agent {
       { role: "user", content: input.userRequest + contextText },
     ];
 
-    const { text, error } = await streamToString(
+    const { text, error, usage } = await streamToString(
       this.provider,
       messages,
       this.streamCallback,
+      this.def.outputFormat === "json" ? { jsonFormat: true } : undefined,
     );
+
+    // Store token count in memory for TeamRunner to collect
+    memory.set(`${this.def.id}_token_usage`, usage);
 
     if (error) {
       const output: AgentOutput = {

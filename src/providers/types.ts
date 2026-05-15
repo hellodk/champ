@@ -150,6 +150,8 @@ export interface ChatOptions {
   temperature?: number;
   maxTokens?: number;
   topP?: number;
+  /** When true, instruct the provider to output valid JSON only. Supported by Ollama and some OpenAI-compatible providers. */
+  jsonFormat?: boolean;
 }
 
 /**

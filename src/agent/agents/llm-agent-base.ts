@@ -12,30 +12,43 @@
  */
 import type { LLMProvider, LLMMessage } from "../../providers/types";
 
+export interface StreamResult {
+  text: string;
+  error?: string;
+  usage: { inputTokens: number; outputTokens: number };
+}
+
 /**
  * Stream an LLM chat response and accumulate it into a single string.
- * Returns null if the stream ended with an error delta.
+ * Returns the full text, any error, and real token usage from the done delta.
  */
 export async function streamToString(
   provider: LLMProvider,
   messages: LLMMessage[],
   onChunk?: (text: string) => void,
-): Promise<{ text: string; error?: string }> {
+  chatOptions?: import("../../providers/types").ChatOptions,
+): Promise<StreamResult> {
   let text = "";
   let error: string | undefined;
+  let inputTokens = 0;
+  let outputTokens = 0;
 
-  for await (const delta of provider.chat(messages)) {
+  for await (const delta of provider.chat(messages, chatOptions)) {
     if (delta.type === "text" && delta.text) {
       text += delta.text;
       onChunk?.(delta.text);
     } else if (delta.type === "error") {
       error = delta.error;
     } else if (delta.type === "done") {
+      if (delta.usage) {
+        inputTokens = delta.usage.inputTokens ?? 0;
+        outputTokens = delta.usage.outputTokens ?? 0;
+      }
       break;
     }
   }
 
-  return { text, error };
+  return { text, error, usage: { inputTokens, outputTokens } };
 }
 
 /**
