@@ -19,6 +19,7 @@ import type { LLMProvider, LLMMessage } from "../../providers/types";
 export async function streamToString(
   provider: LLMProvider,
   messages: LLMMessage[],
+  onChunk?: (text: string) => void,
 ): Promise<{ text: string; error?: string }> {
   let text = "";
   let error: string | undefined;
@@ -26,6 +27,7 @@ export async function streamToString(
   for await (const delta of provider.chat(messages)) {
     if (delta.type === "text" && delta.text) {
       text += delta.text;
+      onChunk?.(delta.text);
     } else if (delta.type === "error") {
       error = delta.error;
     } else if (delta.type === "done") {

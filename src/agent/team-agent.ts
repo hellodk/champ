@@ -54,6 +54,7 @@ export class TeamAgent implements Agent {
   constructor(
     private readonly def: Required<TeamAgentDefinition>,
     private readonly provider: LLMProvider,
+    private readonly streamCallback?: (chunk: string) => void,
   ) {
     this.name = def.id;
     this.role = def.role;
@@ -97,7 +98,11 @@ export class TeamAgent implements Agent {
       { role: "user", content: input.userRequest + contextText },
     ];
 
-    const { text, error } = await streamToString(this.provider, messages);
+    const { text, error } = await streamToString(
+      this.provider,
+      messages,
+      this.streamCallback,
+    );
 
     if (error) {
       const output: AgentOutput = {

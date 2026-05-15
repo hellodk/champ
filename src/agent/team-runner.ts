@@ -37,6 +37,29 @@ export interface TeamRunOptions {
   workspaceRoot?: string;
 }
 
+async function writeCheckpoint(
+  workspaceRoot: string,
+  runId: string,
+  agentId: string,
+  memory: SharedMemory,
+): Promise<void> {
+  try {
+    const dir = path.join(workspaceRoot, ".champ", "team-runs", runId);
+    await fs.mkdir(dir, { recursive: true });
+    const snapshot: Record<string, unknown> = {};
+    for (const key of memory.keys()) {
+      snapshot[key] = memory.get(key);
+    }
+    await fs.writeFile(
+      path.join(dir, `checkpoint-${agentId}.json`),
+      JSON.stringify(snapshot, null, 2),
+      "utf-8",
+    );
+  } catch {
+    // Checkpoint write failure is non-fatal
+  }
+}
+
 export class TeamRunner {
   private evaluator = new ConditionEvaluator();
 
@@ -208,7 +231,17 @@ export class TeamRunner {
                   ? (provider.withModel?.(effectiveModel) ?? provider)
                   : provider;
 
-              const agent = new TeamAgent(agentDef, effectiveProvider);
+              const agent = new TeamAgent(
+                agentDef,
+                effectiveProvider,
+                (chunk: string) => {
+                  options.onEvent?.({
+                    type: "agent_stream",
+                    agentId: agentDef.id,
+                    chunk,
+                  });
+                },
+              );
 
               let attempts = 0;
               const maxAttempts = team.execution.retries + 1;
@@ -216,10 +249,25 @@ export class TeamRunner {
               while (attempts < maxAttempts) {
                 attempts++;
 
-                const output = await agent.execute(
-                  { userRequest, context: [] },
-                  memory,
-                );
+                const timeoutMs = team.execution.timeoutSeconds * 1000;
+                const output = await Promise.race([
+                  agent.execute({ userRequest, context: [] }, memory),
+                  new Promise<never>((_, reject) =>
+                    setTimeout(
+                      () =>
+                        reject(
+                          new Error(
+                            `Agent "${agentDef.id}" timed out after ${team.execution.timeoutSeconds}s`,
+                          ),
+                        ),
+                      timeoutMs,
+                    ),
+                  ),
+                ]).catch((err: Error) => ({
+                  success: false as const,
+                  output: `Timed out: ${err.message}`,
+                  error: err.message,
+                }));
 
                 agentState.output = output.output;
                 agentState.endTime = Date.now();
@@ -241,6 +289,15 @@ export class TeamRunner {
 
                 if (output.success) {
                   agentState.status = "done";
+
+                  if (team.execution.checkpoints) {
+                    await writeCheckpoint(
+                      workspaceRoot,
+                      runId,
+                      agentDef.id,
+                      memory,
+                    );
+                  }
 
                   // Surface template variable warnings
                   const templateWarnings = memory.get(
