@@ -1,14 +1,15 @@
 // Redirect formdata-node imports to Node 20 built-in globals.
-const FormData = globalThis.FormData;
-const Blob = globalThis.Blob;
-const File = globalThis.File;
+// Lazy getters prevent load-time crashes when globals aren't ready yet.
 
-module.exports = { FormData, Blob, File };
-module.exports.FormData = FormData;
-module.exports.Blob = Blob;
-module.exports.File = File;
-module.exports.fileFromPath = async (path, name, options) => {
-  const fs = require('fs');
-  const buf = fs.readFileSync(path);
-  return new File([buf], name ?? require('path').basename(path), options);
+Object.defineProperty(module.exports, "FormData", { get: () => globalThis.FormData, enumerable: true });
+Object.defineProperty(module.exports, "Blob", { get: () => globalThis.Blob, enumerable: true });
+Object.defineProperty(module.exports, "File", { get: () => globalThis.File, enumerable: true });
+
+module.exports.fileFromPath = async (filePath, fileName, options) => {
+  const fs = require("fs");
+  const pathMod = require("path");
+  const FileClass = globalThis.File;
+  if (!FileClass) throw new TypeError("[champ-shim] globalThis.File is not defined.");
+  const buf = fs.readFileSync(filePath);
+  return new FileClass([buf], fileName ?? pathMod.basename(filePath), options);
 };

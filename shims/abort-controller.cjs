@@ -1,5 +1,6 @@
 // Redirect abort-controller imports to Node 20 built-in globals.
-module.exports = { AbortController: globalThis.AbortController, AbortSignal: globalThis.AbortSignal };
-module.exports.AbortController = globalThis.AbortController;
-module.exports.AbortSignal = globalThis.AbortSignal;
-module.exports.default = globalThis.AbortController;
+// Lazy getters prevent load-time crashes when globals aren't ready yet.
+
+Object.defineProperty(module.exports, "AbortController", { get: () => globalThis.AbortController, enumerable: true });
+Object.defineProperty(module.exports, "AbortSignal", { get: () => globalThis.AbortSignal, enumerable: true });
+Object.defineProperty(module.exports, "default", { get: () => globalThis.AbortController, enumerable: true });
