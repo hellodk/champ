@@ -254,6 +254,15 @@ export class MCPSSEConnection {
     this.pendingRequests.clear();
     this.connected = false;
   }
+
+  async reconnect(): Promise<void> {
+    this.sseAbort?.abort();
+    this.sseAbort = null;
+    this.reconnectAttempts = 0;
+    this.error = undefined;
+    this.connected = false;
+    await this.connect();
+  }
 }
 
 export class MCPClientManager {
