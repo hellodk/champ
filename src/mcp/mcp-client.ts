@@ -96,7 +96,7 @@ export class MCPSSEConnection {
   >();
   private sseAbort: AbortController | null = null;
   private reconnectAttempts = 0;
-  private static readonly MAX_RECONNECTS = 3;
+  private static readonly MAX_RECONNECTS = 10;
   readonly tools: MCPTool[] = [];
   connected = false;
   error: string | undefined;
@@ -168,11 +168,22 @@ export class MCPSSEConnection {
         if (this.reconnectAttempts > MCPSSEConnection.MAX_RECONNECTS) {
           this.connected = false;
           this.error = `SSE connection lost after ${MCPSSEConnection.MAX_RECONNECTS} retries`;
+          // After all retries are exhausted, schedule one final passive retry after 60s
+          // to recover from transient network blips without spamming reconnects.
+          if (!this.sseAbort?.signal.aborted) {
+            setTimeout(() => {
+              if (!this.connected && !this.sseAbort?.signal.aborted) {
+                this.reconnectAttempts = 0;
+                this.error = undefined;
+                void this.listenSSE();
+              }
+            }, 60_000);
+          }
           return;
         }
-        // Exponential backoff: 1s, 2s, 4s
+        // Linear backoff capped at 30s: 1s, 2s, … 30s, 30s, …
         await new Promise<void>((r) =>
-          setTimeout(r, 1000 * this.reconnectAttempts),
+          setTimeout(r, Math.min(30_000, 1_000 * this.reconnectAttempts)),
         );
       }
     }
