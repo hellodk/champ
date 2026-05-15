@@ -15,7 +15,21 @@
       "Bash(git commit *)",
       "Bash(git push *)",
       "Bash(git tag *)",
-      "Bash(npm version *)"
+      "Bash(npm version *)",
+      "Bash(node --check *)",
+      "Bash(node -e *)",
+      "Bash(node esbuild.mjs *)",
+      "Bash(grep *)",
+      "Bash(grep -n *)",
+      "Bash(grep -rn *)",
+      "Bash(find . *)",
+      "Bash(sed -n *)",
+      "Bash(wc -l *)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git status)",
+      "Bash(git show *)",
+      "Bash(mkdir -p *)"
     ]
   }
 }
