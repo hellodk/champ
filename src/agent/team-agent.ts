@@ -23,6 +23,7 @@ import type { TeamAgentDefinition } from "./team-definition";
 import { TemplateInterpolator } from "./template-interpolator";
 import { ToolCallingLoop } from "./tool-calling-loop";
 import type { ToolRegistry } from "../tools/registry";
+import { ContextWindowManager } from "../providers/context-manager";
 
 const BLOCKED_PREFIX = "BLOCKED:";
 
@@ -115,6 +116,31 @@ export class TeamAgent implements Agent {
       { role: "system", content: resolvedPrompt },
       { role: "user", content: userContent },
     ];
+
+    // Trim contextText if messages exceed the model's context window.
+    // ContextWindowManager.fitMessages() only drops middle messages, which
+    // doesn't apply to a 2-message array. Instead we estimate and character-trim.
+    const cm = new ContextWindowManager(this.provider);
+    const budget = cm.availableTokens(messages);
+    if (cm.estimateTokens(messages) > budget) {
+      const systemTokens = this.provider.countTokens(resolvedPrompt);
+      const requestTokens = this.provider.countTokens(input.userRequest);
+      const availableForContext = Math.max(
+        0,
+        budget - systemTokens - requestTokens - 20,
+      );
+      // Approximate: 1 token ≈ 4 chars
+      const maxContextChars = availableForContext * 4;
+      if (userContent.length > maxContextChars) {
+        console.warn(
+          `TeamAgent "${this.def.id}": context trimmed from ${userContent.length} to ${maxContextChars} chars to fit model window`,
+        );
+        messages[1] = {
+          role: "user",
+          content: userContent.slice(0, maxContextChars),
+        };
+      }
+    }
 
     let text: string;
     let usage: { inputTokens: number; outputTokens: number };
