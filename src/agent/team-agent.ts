@@ -77,6 +77,8 @@ export class TeamAgent implements Agent {
         `TeamAgent "${this.def.id}" has unresolved template variables:`,
         interp.warnings,
       );
+      // Store warnings in memory so TeamRunner can surface them to the panel
+      memory.set(`${this.def.id}_template_warnings`, interp.warnings);
     }
 
     // Build context from upstream chunks
@@ -125,16 +127,20 @@ export class TeamAgent implements Agent {
     // Extract from <output> tags if present
     const extracted = extractOutputBlock(text);
 
-    // JSON validation + storage for downstream template interpolation
+    // JSON validation + memory storage for downstream template interpolation
     if (this.def.outputFormat === "json") {
       const parsed = extractJson(extracted);
       if (parsed !== null) {
         // Store parsed object so {{outputKey.field}} works in other agents
         memory.set(this.def.outputKey, parsed);
+        // Also store the raw text under a _text suffix for string interpolation
+        memory.set(`${this.def.outputKey}_text`, extracted);
       } else {
+        // JSON parse failed — store raw text so downstream agents aren't broken
         console.warn(
-          `TeamAgent "${this.def.id}": outputFormat is "json" but output is not valid JSON`,
+          `TeamAgent "${this.def.id}": outputFormat is "json" but output is not valid JSON — storing raw text`,
         );
+        memory.set(this.def.outputKey, extracted);
       }
     }
 
@@ -155,8 +161,8 @@ export class TeamAgent implements Agent {
     };
 
     memory.setOutput(this.def.outputKey, agentOutput);
-    // Also set raw string for simple {{outputKey}} interpolation in other agents
-    if (!memory.has(this.def.outputKey)) {
+    // For text/files format: always store the output string
+    if (this.def.outputFormat !== "json") {
       memory.set(this.def.outputKey, finalOutput);
     }
 

@@ -184,6 +184,14 @@ export class TeamRunner {
 
               if (this.shouldSkipAgent(agentDef, memSnapshot)) {
                 agentState.status = "skipped";
+                // Store null sentinel so {{outputKey}} resolves to "(not available)"
+                // rather than crashing template interpolation for downstream agents
+                memory.set(agentDef.outputKey, null);
+                memory.setOutput(agentDef.outputKey, {
+                  success: true,
+                  output: "",
+                  error: undefined,
+                });
                 emit();
                 return;
               }
@@ -233,6 +241,16 @@ export class TeamRunner {
 
                 if (output.success) {
                   agentState.status = "done";
+
+                  // Surface template variable warnings
+                  const templateWarnings = memory.get(
+                    `${agentDef.id}_template_warnings`,
+                  );
+                  if (Array.isArray(templateWarnings)) {
+                    agentState.validationWarnings.push(
+                      ...templateWarnings.map((w) => `Template: ${w}`),
+                    );
+                  }
 
                   // File existence validation for "files" output format
                   if (agentDef.outputFormat === "files") {
