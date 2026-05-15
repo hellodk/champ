@@ -48,6 +48,11 @@ export interface ApprovalRequestMessage {
   type: "approvalRequest";
   id: string;
   description: string;
+  preview?: {
+    type: "diff" | "command";
+    content: string;
+    label?: string;
+  };
 }
 
 export interface ErrorMessage {

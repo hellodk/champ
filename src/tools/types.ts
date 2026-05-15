@@ -19,9 +19,25 @@ export interface ToolExecutionContext {
   /** Report streaming progress back to the UI (e.g., terminal output). */
   reportProgress: (message: string) => void;
   /** Request user approval for a destructive action. */
-  requestApproval: (description: string) => Promise<boolean>;
+  requestApproval: (
+    description: string,
+    preview?: { type: "diff" | "command"; content: string; label?: string },
+  ) => Promise<boolean>;
   /** Optional tracker for recording file edits for diff review. */
   editReviewTracker?: import("../agent/edit-review-tracker").EditReviewTracker;
+}
+
+/**
+ * Optional structured preview shown in the approval dialog before the
+ * user decides whether to allow or deny a tool execution.
+ *
+ * - "diff"    → old vs new content rendered with +/- colouring
+ * - "command" → verbatim shell command shown in a code block
+ */
+export interface ToolPreview {
+  type: "diff" | "command";
+  content: string;
+  label?: string;
 }
 
 /**
@@ -56,6 +72,12 @@ export interface Tool {
    * to true; read-only operations should set it to false.
    */
   requiresApproval: boolean;
+  /**
+   * Optionally return a structured preview of what the tool is about to do.
+   * Called just before the approval dialog is shown. When omitted, the dialog
+   * falls back to displaying the raw JSON args.
+   */
+  getPreview?(args: Record<string, unknown>): ToolPreview | undefined;
   /** Execute the tool with the given arguments and context. */
   execute(
     args: Record<string, unknown>,
