@@ -400,7 +400,6 @@
           cmdInput.style.outline = '1px solid var(--vscode-errorForeground)';
           return;
         }
-        const isSSE = transportSel.value === 'sse';
         const serverCfg = {
           name,
           transport: transportSel.value,
