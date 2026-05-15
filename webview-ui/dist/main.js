@@ -1932,10 +1932,44 @@
         panel.appendChild(el('div', { class: 'edit-summary-title' }, [
           '📝 Review ' + msg.edits.length + ' file change' + (msg.edits.length !== 1 ? 's' : '')
         ]));
+
+        // Collect per-file revert buttons so bulk actions can disable them
+        const perFileRevertBtns = [];
+
+        // Bulk action row
+        const bulkRow = el('div', { class: 'edit-summary-bulk-row' });
+        const acceptAllBtn = el('button', { class: 'edit-accept-all-btn' }, ['✓ Accept All']);
+        acceptAllBtn.title = 'Keep all agent file changes';
+        const rejectAllBtn = el('button', { class: 'edit-reject-all-btn' }, ['↩ Reject All']);
+        rejectAllBtn.title = 'Revert all agent file changes at once';
+
+        acceptAllBtn.addEventListener('click', function() {
+          vscode.postMessage({ type: 'acceptAllEdits' });
+          acceptAllBtn.textContent = '✓ Accepted';
+          acceptAllBtn.disabled = true;
+          rejectAllBtn.disabled = true;
+          perFileRevertBtns.forEach(function(btn) { btn.disabled = true; btn.textContent = '✓ Accepted'; });
+          panel.style.opacity = '0.5';
+        });
+
+        rejectAllBtn.addEventListener('click', function() {
+          var allEdits = msg.edits.map(function(e) { return { path: e.path, restoreContent: e.oldContent }; });
+          vscode.postMessage({ type: 'revertAllEdits', edits: allEdits });
+          rejectAllBtn.textContent = '✓ Reverted All';
+          rejectAllBtn.disabled = true;
+          acceptAllBtn.disabled = true;
+          perFileRevertBtns.forEach(function(btn) { btn.disabled = true; btn.textContent = '✓ Reverted'; });
+          panel.style.opacity = '0.5';
+        });
+
+        bulkRow.append(acceptAllBtn, rejectAllBtn);
+        panel.appendChild(bulkRow);
+
         msg.edits.forEach(function(edit) {
           const fileSection = el('div', { class: 'edit-summary-file' });
           const fileHeader = el('div', { class: 'edit-summary-file-header' });
           const rejectBtn = el('button', { class: 'edit-reject-btn' }, ['↩ Revert']);
+          perFileRevertBtns.push(rejectBtn);
           rejectBtn.title = 'Revert this file to its state before the agent edited it';
           rejectBtn.addEventListener('click', function() {
             vscode.postMessage({ type: 'revertEdit', path: edit.path, restoreContent: edit.oldContent });
