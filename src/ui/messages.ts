@@ -223,6 +223,11 @@ export interface EditSummaryMessage {
   edits: Array<{ path: string; oldContent: string; newContent: string }>;
 }
 
+export interface AutoContextNoticeMessage {
+  type: "autoContextNotice";
+  files: string[];
+}
+
 export type ExtensionToWebviewMessage =
   | StreamStartMessage
   | StreamDeltaMessage
@@ -243,7 +248,8 @@ export type ExtensionToWebviewMessage =
   | McpStatusMessage
   | WorkflowHistoryUpdateMessage
   | FileEditDiffMessage
-  | EditSummaryMessage;
+  | EditSummaryMessage
+  | AutoContextNoticeMessage;
 
 // ---------------------------------------------------------------------------
 // Webview -> Extension Host
