@@ -114,6 +114,33 @@ describe("TeamRunner — shouldSkipAgent", () => {
   });
 });
 
+describe("TeamRunner — getPendingAgents", () => {
+  it("returns agents not in the completed set", () => {
+    const runner = new TeamRunner();
+    const agents = [
+      makeAgent("pm"),
+      makeAgent("infra", ["pm"]),
+      makeAgent("security", ["infra"]),
+    ];
+    const pending = runner.getPendingAgents(agents, new Set(["pm", "infra"]));
+    expect(pending.map((a) => a.id)).toEqual(["security"]);
+  });
+
+  it("returns all agents when none completed", () => {
+    const runner = new TeamRunner();
+    const agents = [makeAgent("pm"), makeAgent("infra", ["pm"])];
+    const pending = runner.getPendingAgents(agents, new Set());
+    expect(pending.map((a) => a.id)).toEqual(["pm", "infra"]);
+  });
+
+  it("returns empty array when all agents completed", () => {
+    const runner = new TeamRunner();
+    const agents = [makeAgent("pm"), makeAgent("infra", ["pm"])];
+    const pending = runner.getPendingAgents(agents, new Set(["pm", "infra"]));
+    expect(pending).toHaveLength(0);
+  });
+});
+
 describe("TeamRunner — token counting", () => {
   it("accumulates token counts from agent memory in final state", async () => {
     const runner = new TeamRunner();

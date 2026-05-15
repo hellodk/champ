@@ -1649,6 +1649,97 @@ export async function activate(
       panel.update(pick.record.state);
     }),
     vscode.commands.registerCommand(
+      "champ.resumeTeamRun",
+      async (runId?: string) => {
+        if (!teamLoader || !workspaceRoot || !teamRunStore) {
+          void vscode.window.showErrorMessage("Champ: open a workspace first.");
+          return;
+        }
+        const provider = inlineProviderRef.current;
+        if (provider.name === "not-configured") {
+          void vscode.window.showErrorMessage(
+            "Champ: configure a provider first.",
+          );
+          return;
+        }
+
+        let targetRunId = runId;
+        if (!targetRunId) {
+          const records = await teamRunStore.loadAll();
+          const incomplete = records.filter(
+            (r) => r.state.status === "failed" || r.state.status === "paused",
+          );
+          if (incomplete.length === 0) {
+            void vscode.window.showInformationMessage(
+              "Champ: no incomplete team runs to resume.",
+            );
+            return;
+          }
+          const pick = await vscode.window.showQuickPick(
+            incomplete.map((r) => ({
+              label: `${r.state.teamName} — ${r.state.userRequest.slice(0, 50)}`,
+              description: `${r.state.status} · ${new Date(r.state.startTime).toLocaleString()}`,
+              runId: r.state.runId,
+            })),
+            { placeHolder: "Select a run to resume", title: "Resume Team Run" },
+          );
+          if (!pick) return;
+          targetRunId = pick.runId;
+        }
+
+        const record = await teamRunStore.load(targetRunId);
+        if (!record) {
+          void vscode.window.showErrorMessage(
+            `Champ: run ${targetRunId} not found.`,
+          );
+          return;
+        }
+
+        const teams = await teamLoader.loadAll();
+        const team = teams.find((t) => t.name === record.state.teamName);
+        if (!team) {
+          void vscode.window.showErrorMessage(
+            `Champ: team "${record.state.teamName}" not found. Ensure the YAML file exists.`,
+          );
+          return;
+        }
+
+        const panel = new TeamPanel(context.extensionUri, team.name);
+        const runner = new TeamRunner();
+        const abortController = new AbortController();
+        panel.onMessage((msg: import("./ui/team-panel").TeamPanelMessage) => {
+          if (msg.type === "teamStop") abortController.abort();
+        });
+
+        void runner
+          .resumeFromCheckpoint(
+            team,
+            targetRunId,
+            workspaceRoot,
+            provider,
+            toolRegistry,
+            {
+              workspaceRoot,
+              abortSignal: abortController.signal,
+              teamRunStore,
+              onEvent: (event) => {
+                if (
+                  event.type === "state_update" ||
+                  event.type === "complete"
+                ) {
+                  panel.update(event.state);
+                }
+              },
+            },
+          )
+          .catch((err: Error) => {
+            void vscode.window.showErrorMessage(
+              `Champ: resume failed — ${err.message}`,
+            );
+          });
+      },
+    ),
+    vscode.commands.registerCommand(
       "champ.createTeamFromTemplate",
       async () => {
         if (!workspaceRoot) {

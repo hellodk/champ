@@ -120,19 +120,28 @@ export class TeamRunner {
     return !this.evaluator.evaluate(agent.condition, memSnapshot);
   }
 
-  /** Execute a full team run. Emits TeamRunEvents throughout execution. */
-  async run(
+  /** Return agents that haven't completed yet (not in completedAgentIds). */
+  getPendingAgents(
+    agents: Required<TeamAgentDefinition>[],
+    completedAgentIds: Set<string>,
+  ): Required<TeamAgentDefinition>[] {
+    return agents.filter((a) => !completedAgentIds.has(a.id));
+  }
+
+  /** Execute a team run with a pre-populated SharedMemory (used for resume). */
+  async runWithMemory(
     team: TeamDefinition,
     userRequest: string,
     provider: LLMProvider,
     toolRegistry: ToolRegistry,
+    memory: SharedMemory,
     options: TeamRunOptions = {},
   ): Promise<TeamRunState> {
     const runId = `team-${Date.now().toString(36)}`;
-    const memory = new SharedMemory();
     const workspaceRoot = options.workspaceRoot ?? process.cwd();
     // Store workspaceRoot in memory so ToolCallingLoop can access it
     memory.set("__workspaceRoot", workspaceRoot);
+    memory.set("__userRequest", userRequest);
     const startTime = Date.now();
 
     const agentStates = new Map<string, TeamAgentRunState>(
@@ -434,6 +443,104 @@ export class TeamRunner {
       options.onEvent?.({ type: "error", message, state: finalState });
       return finalState;
     }
+  }
+
+  /** Execute a full team run. Emits TeamRunEvents throughout execution. */
+  async run(
+    team: TeamDefinition,
+    userRequest: string,
+    provider: LLMProvider,
+    toolRegistry: ToolRegistry,
+    options: TeamRunOptions = {},
+  ): Promise<TeamRunState> {
+    const memory = new SharedMemory();
+    return this.runWithMemory(
+      team,
+      userRequest,
+      provider,
+      toolRegistry,
+      memory,
+      options,
+    );
+  }
+
+  /**
+   * Resume a team run from the last written checkpoints.
+   * Reads checkpoint files from .champ/team-runs/<runId>/,
+   * restores SharedMemory from the last checkpoint, and re-runs only incomplete agents.
+   */
+  async resumeFromCheckpoint(
+    team: TeamDefinition,
+    runId: string,
+    workspaceRoot: string,
+    provider: LLMProvider,
+    toolRegistry: ToolRegistry,
+    options: TeamRunOptions = {},
+  ): Promise<TeamRunState> {
+    const checkpointDir = path.join(
+      workspaceRoot,
+      ".champ",
+      "team-runs",
+      runId,
+    );
+
+    let files: string[];
+    try {
+      files = await fs.readdir(checkpointDir);
+    } catch {
+      throw new Error(`No checkpoints found for run ${runId}. Cannot resume.`);
+    }
+
+    const checkpointFiles = files
+      .filter((f) => f.startsWith("checkpoint-") && f.endsWith(".json"))
+      .sort();
+
+    if (checkpointFiles.length === 0) {
+      throw new Error(`No checkpoint files found in ${checkpointDir}.`);
+    }
+
+    const completedIds = new Set<string>();
+    const memory = new SharedMemory();
+
+    // Restore memory from all checkpoints (later files overwrite earlier ones)
+    for (const file of checkpointFiles) {
+      const agentId = file.replace("checkpoint-", "").replace(".json", "");
+      completedIds.add(agentId);
+      try {
+        const content = await fs.readFile(
+          path.join(checkpointDir, file),
+          "utf-8",
+        );
+        const snapshot = JSON.parse(content) as Record<string, unknown>;
+        for (const [key, value] of Object.entries(snapshot)) {
+          memory.set(key, value);
+        }
+      } catch {
+        // Corrupt checkpoint — skip but keep agentId in completedIds
+      }
+    }
+
+    const pendingAgents = this.getPendingAgents(team.agents, completedIds);
+    if (pendingAgents.length === 0) {
+      throw new Error(
+        `Run ${runId} is already complete — all agents have checkpoints.`,
+      );
+    }
+
+    const resumedTeam: TeamDefinition = { ...team, agents: pendingAgents };
+    const userRequest =
+      (memory.get("__userRequest") as string | undefined) ?? "resumed run";
+
+    memory.set("__workspaceRoot", workspaceRoot);
+
+    return this.runWithMemory(
+      resumedTeam,
+      userRequest,
+      provider,
+      toolRegistry,
+      memory,
+      { ...options, workspaceRoot },
+    );
   }
 }
 
