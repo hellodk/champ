@@ -40,6 +40,15 @@ export interface TeamRunOptions {
   /** Called before each agent (supervised) or group (safe) to request user approval. Return false to skip/stop. */
   onApprovalRequired?: (agentName: string) => Promise<boolean>;
   teamRunStore?: TeamRunStore;
+  /**
+   * Called when an agent emits BLOCKED. Resolve with { action: "skip" } to
+   * skip and continue, or { action: "retry", context?: string } to re-run
+   * the agent with optional extra context. Defaults to skip if absent.
+   */
+  onBlocked?: (
+    agentId: string,
+    reason: string,
+  ) => Promise<{ action: "skip" | "retry"; context?: string }>;
 }
 
 async function writeCheckpoint(
@@ -370,7 +379,37 @@ export class TeamRunner {
                     agentId: agentDef.id,
                     reason: agentState.blockedReason,
                   });
-                  return;
+
+                  const resolution = options.onBlocked
+                    ? await options.onBlocked(
+                        agentDef.id,
+                        agentState.blockedReason,
+                      )
+                    : { action: "skip" as const };
+
+                  if (resolution.action === "skip") {
+                    agentState.status = "skipped";
+                    memory.set(agentDef.outputKey, null);
+                    memory.setOutput(agentDef.outputKey, {
+                      success: true,
+                      output: "",
+                      error: undefined,
+                    });
+                    emit();
+                    return;
+                  }
+
+                  // retry: inject extra context, reset status, loop
+                  if (resolution.context) {
+                    memory.set(
+                      `${agentDef.id}_retry_context`,
+                      resolution.context,
+                    );
+                  }
+                  agentState.status = "running";
+                  agentState.retryCount++;
+                  emit();
+                  continue;
                 }
 
                 if (output.success) {

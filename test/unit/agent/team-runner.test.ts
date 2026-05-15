@@ -300,3 +300,66 @@ describe("TeamRunner — token budget", () => {
     expect(cState?.status).toBe("skipped");
   });
 });
+
+describe("TeamRunner — skip/retry on blocked", () => {
+  it("calls onBlocked when agent is BLOCKED and skips when action is skip", async () => {
+    const runner = new TeamRunner();
+    const team = makeTeam([makeAgent("a"), makeAgent("b", ["a"])]);
+
+    let blockedCallCount = 0;
+    const fakeProvider = {
+      name: "test",
+      config: { provider: "test" as const, model: "test" },
+      chat: async function* (msgs: import("@/providers/types").LLMMessage[]) {
+        // agent "a" blocks; agent "b" succeeds
+        const isAgentA = (msgs[0].content as string).includes("role of a");
+        if (isAgentA) {
+          yield { type: "text" as const, text: "BLOCKED: missing schema" };
+          yield {
+            type: "done" as const,
+            usage: { inputTokens: 10, outputTokens: 5 },
+          };
+        } else {
+          yield { type: "text" as const, text: "<output>done</output>" };
+          yield {
+            type: "done" as const,
+            usage: { inputTokens: 10, outputTokens: 5 },
+          };
+        }
+      },
+      complete: async function* () {},
+      supportsToolUse: () => false,
+      supportsStreaming: () => true,
+      countTokens: () => 0,
+      modelInfo: () => ({
+        contextWindow: 4096,
+        name: "test",
+        provider: "test" as const,
+      }),
+      dispose: () => {},
+    };
+
+    const toolRegistry = {
+      get: () => undefined,
+      list: () => [],
+      execute: async () => ({ success: true, output: "" }),
+      register: () => {},
+    } as any;
+
+    let finalState: import("@/agent/team-definition").TeamRunState | undefined;
+    await runner.run(team, "test", fakeProvider as any, toolRegistry, {
+      onBlocked: async (agentId, _reason) => {
+        blockedCallCount++;
+        return { action: "skip" as const };
+      },
+      onEvent: (e) => {
+        if (e.type === "complete") finalState = e.state;
+      },
+    });
+
+    expect(blockedCallCount).toBe(1);
+    expect(finalState!.agents.find((a) => a.id === "a")?.status).toBe(
+      "skipped",
+    );
+  });
+});

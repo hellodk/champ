@@ -1623,14 +1623,43 @@ export async function activate(
         const runner = new TeamRunner();
         const abortController = new AbortController();
 
+        const blockedResolvers = new Map<
+          string,
+          (r: { action: "skip" | "retry"; context?: string }) => void
+        >();
+
         panel.onMessage((msg) => {
-          if (msg.type === "teamStop") abortController.abort();
+          if (msg.type === "teamStop") {
+            abortController.abort();
+          } else if (msg.type === "teamSkipAgent") {
+            blockedResolvers.get(msg.agentId)?.({ action: "skip" });
+            blockedResolvers.delete(msg.agentId);
+          } else if (msg.type === "teamRetryAgent") {
+            void vscode.window
+              .showInputBox({
+                prompt: `Additional context for "${msg.agentId}" retry (optional):`,
+                placeHolder:
+                  "e.g. The database schema is: users(id, email, name)",
+                ignoreFocusOut: true,
+              })
+              .then((ctx) => {
+                blockedResolvers.get(msg.agentId)?.({
+                  action: "retry",
+                  context: ctx || undefined,
+                });
+                blockedResolvers.delete(msg.agentId);
+              });
+          }
         });
 
         void runner.run(selectedTeam, userRequest, provider, toolRegistry, {
           workspaceRoot,
           abortSignal: abortController.signal,
           teamRunStore,
+          onBlocked: (agentId, _reason) =>
+            new Promise((resolve) => {
+              blockedResolvers.set(agentId, resolve);
+            }),
           onApprovalRequired: async (agentName: string) => {
             if (selectedTeam!.execution.mode === "auto") return true;
             const choice = await vscode.window.showInformationMessage(
@@ -1767,8 +1796,33 @@ export async function activate(
         const panel = new TeamPanel(context.extensionUri, team.name);
         const runner = new TeamRunner();
         const abortController = new AbortController();
+        const resumeBlockedResolvers = new Map<
+          string,
+          (r: { action: "skip" | "retry"; context?: string }) => void
+        >();
+
         panel.onMessage((msg: import("./ui/team-panel").TeamPanelMessage) => {
-          if (msg.type === "teamStop") abortController.abort();
+          if (msg.type === "teamStop") {
+            abortController.abort();
+          } else if (msg.type === "teamSkipAgent") {
+            resumeBlockedResolvers.get(msg.agentId)?.({ action: "skip" });
+            resumeBlockedResolvers.delete(msg.agentId);
+          } else if (msg.type === "teamRetryAgent") {
+            void vscode.window
+              .showInputBox({
+                prompt: `Additional context for "${msg.agentId}" retry (optional):`,
+                placeHolder:
+                  "e.g. The database schema is: users(id, email, name)",
+                ignoreFocusOut: true,
+              })
+              .then((ctx) => {
+                resumeBlockedResolvers.get(msg.agentId)?.({
+                  action: "retry",
+                  context: ctx || undefined,
+                });
+                resumeBlockedResolvers.delete(msg.agentId);
+              });
+          }
         });
 
         void runner
@@ -1782,6 +1836,10 @@ export async function activate(
               workspaceRoot,
               abortSignal: abortController.signal,
               teamRunStore,
+              onBlocked: (agentId, _reason) =>
+                new Promise((resolve) => {
+                  resumeBlockedResolvers.set(agentId, resolve);
+                }),
               onEvent: (event) => {
                 if (
                   event.type === "state_update" ||

@@ -104,9 +104,16 @@ export class TeamAgent implements Agent {
             .join("\n\n---\n\n")
         : "";
 
+    const retryContext = memory.get(`${this.def.id}_retry_context`) as
+      | string
+      | undefined;
+    const userContent = retryContext
+      ? `${input.userRequest}${contextText}\n\n[Additional context for retry]: ${retryContext}`
+      : input.userRequest + contextText;
+
     const messages: LLMMessage[] = [
       { role: "system", content: resolvedPrompt },
-      { role: "user", content: input.userRequest + contextText },
+      { role: "user", content: userContent },
     ];
 
     let text: string;

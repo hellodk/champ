@@ -104,8 +104,11 @@ body{font-family:var(--vscode-font-family);font-size:13px;background:var(--vscod
 .dot-skipped{background:var(--vscode-disabledForeground);opacity:.35}
 .dot-blocked{background:var(--vscode-editorWarning-foreground);animation:pulse 1s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-.ra-acts{display:flex;gap:4px;margin-top:5px}
+.ra-acts{display:flex;gap:4px;margin-top:5px;padding:2px 0}
 .ra-act{font-size:10px;padding:1px 6px;background:none;border:1px solid var(--vscode-panel-border);border-radius:3px;cursor:pointer;color:var(--vscode-foreground)}
+.ra-act-btn{padding:2px 8px;font-size:10px;border:1px solid var(--vscode-panel-border);border-radius:3px;cursor:pointer;background:transparent;color:var(--vscode-foreground)}
+.ra-act-btn:hover{background:var(--vscode-list-hoverBackground)}
+.ra-act-retry{border-color:var(--vscode-progressBar-background);color:var(--vscode-progressBar-background)}
 /* Metrics strip */
 .metrics{padding:8px 10px;border-top:1px solid var(--vscode-panel-border);font-size:10px;opacity:.7;margin-top:auto}
 .mrow{display:flex;justify-content:space-between;margin-bottom:1px}
@@ -186,13 +189,27 @@ function renderRoster() {
       +'</div>'
       +'<div class="ra-status">'+esc(a.status)+'</div>'
       +(a.validationWarnings&&a.validationWarnings.length?'<div class="ra-warn">⚠ '+a.validationWarnings.length+' warning(s)</div>':'');
-    if (a.status==='blocked'||a.status==='failed') {
-      // Skip/Retry wiring is planned — show as disabled hint until implemented
+    if (a.status==='blocked') {
+      const acts = document.createElement('div');
+      acts.className = 'ra-acts';
+      const skipBtn = document.createElement('button');
+      skipBtn.className = 'ra-act-btn';
+      skipBtn.textContent = 'Skip';
+      skipBtn.title = 'Skip this agent and continue with remaining agents';
+      skipBtn.onclick = (e) => skipAgent(a.id, e);
+      const retryBtn = document.createElement('button');
+      retryBtn.className = 'ra-act-btn ra-act-retry';
+      retryBtn.textContent = 'Retry';
+      retryBtn.title = 'Retry with additional context';
+      retryBtn.onclick = (e) => retryAgent(a.id, e);
+      acts.append(skipBtn, retryBtn);
+      div.append(acts);
+    } else if (a.status==='failed') {
       const acts = document.createElement('div');
       acts.className = 'ra-acts';
       const hint = document.createElement('span');
       hint.style.cssText='font-size:10px;opacity:.5;font-style:italic';
-      hint.textContent = a.status==='blocked' ? '⚠ Blocked — stop and restart with more context' : '✗ Failed — check output above';
+      hint.textContent = '✗ Failed — resume via Champ: Resume Team Run';
       acts.append(hint);
       div.append(acts);
     }
