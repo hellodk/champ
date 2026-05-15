@@ -14,6 +14,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as os from "os";
+import * as yaml from "js-yaml";
 import { ProviderRegistry } from "./providers/registry";
 import { ProviderFactory } from "./providers/factory";
 import { RulesEngine } from "./rules/rules-engine";
@@ -1298,7 +1299,6 @@ export async function activate(
           rawConfig = "provider: ollama\n";
         }
 
-        const yaml = require("js-yaml") as typeof import("js-yaml");
         const doc = (yaml.load(rawConfig) as Record<string, unknown>) ?? {};
         if (!doc.mcp) doc.mcp = { servers: [] };
         const mcp = doc.mcp as { servers: unknown[] };

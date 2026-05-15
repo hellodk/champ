@@ -32,3 +32,4 @@ package-lock.json
 !webview-ui/dist/**
 !media/icon.png
 !media/icon.svg
+shims/**

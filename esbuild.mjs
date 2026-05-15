@@ -15,6 +15,15 @@ const buildOptions = {
   external: ['vscode'],
   logLevel: 'info',
   target: 'node20',
+  // Redirect polyfill packages to native Node 20 globals.
+  // Removes ~500KB: node-fetch + tr46 + whatwg-url + web-streams-polyfill +
+  // formdata-node + abort-controller + event-target-shim.
+  alias: {
+    'node-fetch': './shims/node-fetch.cjs',
+    'formdata-node': './shims/formdata-node/index.cjs',
+    'formdata-node/file-from-path': './shims/formdata-node/file-from-path.cjs',
+    'abort-controller': './shims/abort-controller.cjs',
+  },
 };
 
 async function main() {
