@@ -186,7 +186,10 @@ export class SmartRouter {
   }
 
   isDiscovered(): boolean {
-    return this.discovered;
+    // Only report as discovered if at least one model was actually found.
+    // Returning true with an empty model list misleads callers into thinking
+    // the router is ready when all providers were unreachable.
+    return this.discovered && this.models.length > 0;
   }
 
   setMode(mode: "smart" | "manual"): void {
@@ -213,6 +216,9 @@ export class SmartRouter {
    */
   setTaskModel(task: TaskType, modelId: string | null): void {
     this.taskOverrides.set(task, modelId);
+    // Task override changes affect routing — must invalidate the route cache
+    // so the next select() re-evaluates with the new override in effect.
+    this.routeCache.clear();
   }
 
   onChange(listener: () => void): () => void {
@@ -267,9 +273,10 @@ export class SmartRouter {
             listModels: () => Promise<Array<{ id: string; name: string }>>;
           }
         ).listModels();
-        // Fix 3: don't use modelInfo().contextWindow for all models — use safe default
+        // Use safe context default; extract quantization from name when not in metadata
         for (const m of models) {
-          const classified = classify(m.name);
+          const quantFromName = extractQuantFromName(m.name);
+          const classified = classify(m.name, quantFromName);
           results.push({
             id: m.name,
             providerName: name,
@@ -384,6 +391,17 @@ export class SmartRouter {
 }
 
 /**
+ * Extract quantization level from a model name string when it's not available
+ * as a separate metadata field (e.g., from listModels() responses).
+ * Returns empty string if not detectable.
+ */
+function extractQuantFromName(name: string): string {
+  const lower = name.toLowerCase();
+  const m = lower.match(/[:\-_](q\d[_k_ms]*(?:\d[_k_ms]*)*|f16|f32|bf16)/);
+  return m ? m[1].toUpperCase() : "";
+}
+
+/**
  * Fix 1: Classify a model by name heuristics with known families, embedding
  * exclusivity, quantization-aware speed, and "general" always included for
  * non-embedding models. Pure string matching, <1ms.
@@ -422,15 +440,17 @@ function classify(
     capabilities.push("coding");
   }
 
-  // Instruction-tuned models
-  if (/instruct|chat|it\b|gguf/.test(lower)) {
+  // Instruction-tuned models (gguf removed — it's a file format, not a capability)
+  if (/instruct|chat|it\b/.test(lower)) {
     capabilities.push("instruct");
   }
 
-  // Models known to be excellent at coding regardless of name
-  // (modern general models — qwen3, llama3.1+, gemma3+, phi4, mistral, deepseek)
+  // Models known to be excellent at coding regardless of name.
+  // Covers: llama3:8b (colon, no dot), llama3.1:8b (dot), gemma2/3/4, phi3/4,
+  // qwen (all versions), mistral, deepseek, hermes, neural.
+  // llama-3\. removed — Ollama never uses dash-3 naming.
   if (
-    /qwen|llama3\.|llama-3\.|gemma3|gemma4|phi[34]|mistral|deepseek|hermes|neural/.test(
+    /qwen|llama3[:._ -]|llama3$|gemma[2-4]|phi[34]|mistral|deepseek|hermes|neural/.test(
       lower,
     )
   ) {
