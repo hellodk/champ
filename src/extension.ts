@@ -1752,6 +1752,147 @@ export async function activate(
       }
       channel.show(true);
     }),
+
+    vscode.commands.registerCommand("champ.inlineEdit", async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        void vscode.window.showErrorMessage(
+          "Champ: open a file to use inline edit.",
+        );
+        return;
+      }
+
+      const provider = inlineProviderRef.current;
+      if (provider.name === "not-configured") {
+        void vscode.window.showErrorMessage(
+          "Champ: configure a provider first.",
+        );
+        return;
+      }
+
+      const selection = editor.selection;
+      const hasSelection = !selection.isEmpty;
+      const targetRange = hasSelection
+        ? selection
+        : editor.document.lineAt(selection.active.line).range;
+      const targetText = editor.document.getText(targetRange);
+
+      if (targetText.split("\n").length > 500) {
+        void vscode.window.showWarningMessage(
+          "Champ: selection too large for inline edit (max 500 lines). Please select a smaller range.",
+        );
+        return;
+      }
+
+      // 3 lines of surrounding context
+      const startLine = Math.max(0, targetRange.start.line - 3);
+      const endLine = Math.min(
+        editor.document.lineCount - 1,
+        targetRange.end.line + 3,
+      );
+      const contextRange = new vscode.Range(
+        startLine,
+        0,
+        endLine,
+        editor.document.lineAt(endLine).text.length,
+      );
+      const contextText = editor.document.getText(contextRange);
+
+      const instruction = await vscode.window.showInputBox({
+        prompt: "What should I do with this code?",
+        placeHolder: "e.g. add error handling, convert to async/await",
+        ignoreFocusOut: true,
+      });
+      if (!instruction) return;
+
+      const lang = editor.document.languageId;
+      const systemPrompt = `You are an inline code editor for ${lang}. Return ONLY the replacement code. No explanations, no markdown fences, no surrounding text. Preserve indentation.`;
+      const userMessage = `Context:\n\`\`\`${lang}\n${contextText}\n\`\`\`\n\nCode to edit:\n\`\`\`${lang}\n${targetText}\n\`\`\`\n\nInstruction: ${instruction}`;
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Champ: generating edit…",
+          cancellable: true,
+        },
+        async (_, token) => {
+          const abort = new AbortController();
+          token.onCancellationRequested(() => abort.abort());
+
+          let replacement = "";
+          try {
+            for await (const delta of provider.chat(
+              [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userMessage },
+              ],
+              { abortSignal: abort.signal },
+            )) {
+              if (delta.type === "text" && delta.text)
+                replacement += delta.text;
+              if (delta.type === "done") break;
+            }
+          } catch (err) {
+            if ((err as Error).name !== "AbortError") {
+              void vscode.window.showErrorMessage(
+                `Champ inline edit failed: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+            return;
+          }
+
+          // Strip accidental markdown fences
+          replacement = replacement
+            .replace(/^```[\w]*\n?/, "")
+            .replace(/\n?```$/, "")
+            .trim();
+
+          // Register content provider for diff "after" side
+          const originalUri = editor.document.uri;
+          const diffScheme = "champ-inline-edit";
+          const diffUri = originalUri.with({ scheme: diffScheme });
+
+          const fullText = editor.document.getText();
+          const selStart = editor.document.offsetAt(targetRange.start);
+          const selEnd = editor.document.offsetAt(targetRange.end);
+          const previewContent =
+            fullText.slice(0, selStart) + replacement + fullText.slice(selEnd);
+
+          const disposable =
+            vscode.workspace.registerTextDocumentContentProvider(diffScheme, {
+              provideTextDocumentContent: () => previewContent,
+            });
+
+          await vscode.commands.executeCommand(
+            "vscode.diff",
+            originalUri,
+            diffUri,
+            `Champ: ${instruction.slice(0, 40)}`,
+            { preview: true },
+          );
+
+          const choice = await vscode.window.showInformationMessage(
+            "Apply this edit?",
+            { modal: false },
+            "Apply",
+            "Discard",
+          );
+
+          disposable.dispose();
+
+          if (choice === "Apply") {
+            const editSuccess = await editor.edit((editBuilder) => {
+              editBuilder.replace(targetRange, replacement);
+            });
+            if (editSuccess) {
+              void vscode.window.showInformationMessage(
+                "Champ: inline edit applied.",
+              );
+            }
+          }
+        },
+      );
+    }),
   );
 
   // ---- Config loader (YAML + VS Code settings fallback) -------------
