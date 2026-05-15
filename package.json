@@ -2,7 +2,7 @@
   "name": "champ",
   "displayName": "Champ - AI Coding Agent",
   "description": "AI coding agent with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "1.6.86",
+  "version": "1.6.87",
   "publisher": "champ-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -313,6 +313,11 @@
             }
           },
           "markdownDescription": "MCP server configurations. Each server extends the agent with external tools."
+        },
+        "champ.autoContext.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically inject the active editor file as context when no @-references are present in the user's message."
         }
       }
     },
