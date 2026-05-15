@@ -55,8 +55,10 @@ export class ToolRegistry {
     }
 
     if (tool.requiresApproval) {
+      const preview = tool.getPreview?.(args);
       const approved = await context.requestApproval(
         `Tool "${name}" wants to execute with args: ${JSON.stringify(args, null, 2)}`,
+        preview,
       );
       if (!approved) {
         return {

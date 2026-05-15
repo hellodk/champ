@@ -589,8 +589,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
    * the webview and waits for the matching approvalResponse. The
    * callback shape matches AgentController's ProcessMessageOptions.
    */
-  private buildApprovalCallback(): (description: string) => Promise<boolean> {
-    return (description: string) =>
+  private buildApprovalCallback(): (
+    description: string,
+    preview?: { type: "diff" | "command"; content: string; label?: string },
+  ) => Promise<boolean> {
+    return (description, preview) =>
       new Promise<boolean>((resolve) => {
         const id = `approval_${Date.now().toString(36)}_${Math.random()
           .toString(36)
@@ -600,6 +603,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           type: "approvalRequest",
           id,
           description,
+          ...(preview ? { preview } : {}),
         });
       });
   }
