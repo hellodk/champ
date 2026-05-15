@@ -1,0 +1,30 @@
+[
+  {
+    "name": "devops",
+    "description": "DevOps team: planner designs the pipeline, reviewer audits config, deployer runs the commands.",
+    "author": "hellodk",
+    "url": "https://raw.githubusercontent.com/hellodk/champ/master/marketplace/teams/devops.yaml",
+    "tags": ["devops", "ci", "deploy", "infrastructure"]
+  },
+  {
+    "name": "fullstack",
+    "description": "Full-stack team: frontend specialist builds UI components, backend specialist handles APIs.",
+    "author": "hellodk",
+    "url": "https://raw.githubusercontent.com/hellodk/champ/master/marketplace/teams/fullstack.yaml",
+    "tags": ["frontend", "backend", "fullstack", "web"]
+  },
+  {
+    "name": "code-review",
+    "description": "Code review team: security auditor, performance reviewer, and style checker collaborate on PRs.",
+    "author": "hellodk",
+    "url": "https://raw.githubusercontent.com/hellodk/champ/master/marketplace/teams/code-review.yaml",
+    "tags": ["review", "quality", "security", "performance"]
+  },
+  {
+    "name": "incident-response",
+    "description": "Incident response team: triage agent diagnoses the issue, fix agent applies the patch.",
+    "author": "hellodk",
+    "url": "https://raw.githubusercontent.com/hellodk/champ/master/marketplace/teams/incident-response.yaml",
+    "tags": ["incident", "ops", "debugging", "monitoring"]
+  }
+]
