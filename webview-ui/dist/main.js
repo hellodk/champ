@@ -349,7 +349,8 @@
                 ? `Error: ${s.error.slice(0, 60)}`
                 : 'Not connected — check server command in config')
         ]);
-        const reloadBtn = el('button', { class: 'mcp-reload', title: 'Reload server' }, ['↺']);
+        const reloadTitle = s.connected ? 'Reload server (full config reload)' : 'Reconnect server';
+        const reloadBtn = el('button', { class: 'mcp-reload', title: reloadTitle }, ['↺']);
         reloadBtn.addEventListener('click', () => vscode.postMessage({ type: 'reloadMcpServer', serverName: s.name }));
         const removeBtn = el('button', { class: 'mcp-reload mcp-remove', title: 'Remove this server' }, ['✕']);
         removeBtn.addEventListener('click', () => {
