@@ -72,11 +72,12 @@ export class TeamPanel {
   private renderHtml(teamName: string): string {
     const nonce =
       Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    const cspSource = this.panel.webview.cspSource ?? "vscode-resource:";
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src ${cspSource} https:; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--vscode-font-family);font-size:13px;background:var(--vscode-editor-background);color:var(--vscode-foreground);display:flex;flex-direction:column;height:100vh;overflow:hidden}

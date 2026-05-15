@@ -66,13 +66,15 @@ export class WorkflowPanel {
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
 
+    const cspSource = this.panel.webview.cspSource ?? "vscode-resource:";
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';"/>
+        content="default-src 'none'; connect-src ${cspSource} https:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';"/>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);
