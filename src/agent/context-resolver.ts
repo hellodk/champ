@@ -93,8 +93,12 @@ const AT_SYMBOL_CATALOGUE: AtSymbolSuggestion[] = [
     description: "Reference git diff, branch, or history",
     parameterized: false,
   },
-  // @Docs is parsed but not yet implemented — omitted from autocomplete
-  // so the dropdown only shows functional options.
+  {
+    label: "@Docs",
+    type: "docs",
+    description: "Reference local package documentation (from node_modules)",
+    parameterized: true,
+  },
 ];
 
 /**
@@ -145,6 +149,13 @@ export interface ContextResolverDeps {
   ) => Promise<
     Array<{ name: string; filePath: string; kind: string; line: number }>
   >;
+  /**
+   * Read documentation for a package from the workspace's node_modules.
+   * Returns README content (up to 200 lines) or null if not found.
+   */
+  docsReader?: {
+    readPackageDocs(packageName: string): Promise<string | null>;
+  };
 }
 
 export class ContextResolver {
@@ -432,13 +443,30 @@ export class ContextResolver {
           });
           break;
         }
-        case "docs":
+        case "docs": {
+          if (!this.deps.docsReader) {
+            resolved.push({
+              type: "docs",
+              label: ref.value,
+              content: `[Docs: ${ref.value} — configure docsReader for real content]`,
+            });
+            break;
+          }
+          let docsContent: string | null;
+          try {
+            docsContent = await this.deps.docsReader.readPackageDocs(ref.value);
+          } catch {
+            docsContent = null;
+          }
           resolved.push({
             type: "docs",
-            label: ref.value,
-            content: `[Docs reference: ${ref.value}]`,
+            label: `@Docs ${ref.value}`,
+            content:
+              docsContent ??
+              `Package "${ref.value}" not found in node_modules. Run \`npm install ${ref.value}\` to make docs available.`,
           });
           break;
+        }
       }
     }
 

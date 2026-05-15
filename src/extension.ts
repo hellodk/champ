@@ -419,6 +419,60 @@ export async function activate(
         line: s.location.range.start.line + 1,
       }));
     },
+    docsReader: {
+      readPackageDocs: async (packageName: string): Promise<string | null> => {
+        if (!workspaceRoot) return null;
+        const nodeModules = path.join(
+          workspaceRoot,
+          "node_modules",
+          packageName,
+        );
+        // Try README variants
+        for (const readme of ["README.md", "readme.md", "Readme.md"]) {
+          try {
+            const uri = vscode.Uri.file(path.join(nodeModules, readme));
+            const data = await vscode.workspace.fs.readFile(uri);
+            const text = new TextDecoder().decode(data);
+            return text.split("\n").slice(0, 200).join("\n");
+          } catch {
+            // try next
+          }
+        }
+        // Fallback: package.json description + main file header
+        try {
+          const pkgUri = vscode.Uri.file(
+            path.join(nodeModules, "package.json"),
+          );
+          const pkgData = await vscode.workspace.fs.readFile(pkgUri);
+          const pkg = JSON.parse(new TextDecoder().decode(pkgData)) as {
+            description?: string;
+            main?: string;
+            name?: string;
+            version?: string;
+          };
+          const lines: string[] = [
+            `# ${pkg.name ?? packageName} ${pkg.version ?? ""}`.trim(),
+            pkg.description ?? "",
+            "",
+          ];
+          if (pkg.main) {
+            try {
+              const mainUri = vscode.Uri.file(path.join(nodeModules, pkg.main));
+              const mainData = await vscode.workspace.fs.readFile(mainUri);
+              lines.push("## Entry point (first 30 lines)");
+              lines.push(
+                ...new TextDecoder().decode(mainData).split("\n").slice(0, 30),
+              );
+            } catch {
+              // main file not readable
+            }
+          }
+          return lines.join("\n") || null;
+        } catch {
+          return null;
+        }
+      },
+    },
   });
 
   // ---- Skills registry ------------------------------------------------

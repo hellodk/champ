@@ -270,4 +270,53 @@ describe("ContextResolver", () => {
     expect(resolved[0].content).toContain("path outside workspace");
     expect(mockReadFile).not.toHaveBeenCalled();
   });
+
+  describe("@Docs resolver", () => {
+    it("returns README content when docsReader resolves the package", async () => {
+      const resolver = new ContextResolver({
+        workspaceRoot: "/ws",
+        indexingService: { search: vi.fn().mockResolvedValue([]) },
+        webSearchTool: { execute: vi.fn() },
+        docsReader: {
+          readPackageDocs: vi
+            .fn()
+            .mockResolvedValue("# React\nA JavaScript library."),
+        },
+      });
+      const resolved = await resolver.resolve([
+        { type: "docs", value: "react", start: 0, end: 0 },
+      ]);
+      expect(resolved[0].content).toContain("React");
+      expect(resolved[0].content).toContain("A JavaScript library");
+    });
+
+    it("returns helpful message when package not found in node_modules", async () => {
+      const resolver = new ContextResolver({
+        workspaceRoot: "/ws",
+        indexingService: { search: vi.fn().mockResolvedValue([]) },
+        webSearchTool: { execute: vi.fn() },
+        docsReader: {
+          readPackageDocs: vi.fn().mockResolvedValue(null),
+        },
+      });
+      const resolved = await resolver.resolve([
+        { type: "docs", value: "nonexistent-pkg", start: 0, end: 0 },
+      ]);
+      expect(resolved[0].content).toContain("not found");
+      expect(resolved[0].content).toContain("nonexistent-pkg");
+    });
+
+    it("falls back gracefully when docsReader is not provided", async () => {
+      const resolver = new ContextResolver({
+        workspaceRoot: "/ws",
+        indexingService: { search: vi.fn().mockResolvedValue([]) },
+        webSearchTool: { execute: vi.fn() },
+      });
+      const resolved = await resolver.resolve([
+        { type: "docs", value: "react", start: 0, end: 0 },
+      ]);
+      // Falls back to stub behavior
+      expect(resolved[0].content).toBeDefined();
+    });
+  });
 });
