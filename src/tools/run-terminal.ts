@@ -35,6 +35,14 @@ export const runTerminalTool: Tool = {
   },
   requiresApproval: true,
 
+  getPreview(
+    args: Record<string, unknown>,
+  ): import("./types").ToolPreview | undefined {
+    const command = args.command as string | undefined;
+    if (!command) return undefined;
+    return { type: "command", content: command, label: "Run terminal" };
+  },
+
   async execute(
     args: Record<string, unknown>,
     context: ToolExecutionContext,
