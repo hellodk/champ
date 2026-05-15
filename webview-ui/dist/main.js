@@ -385,9 +385,21 @@
       const actions = el('div', { class: 'mcp-form-actions' });
       const saveBtn = el('button', { class: 'mcp-form-save' }, ['Save']);
       const cancelBtn = el('button', { class: 'mcp-form-cancel secondary' }, ['Cancel']);
+      nameInput.addEventListener('input', () => { nameInput.style.outline = ''; });
+      cmdInput.addEventListener('input', () => { cmdInput.style.outline = ''; });
+      urlInput.addEventListener('input', () => { urlInput.style.outline = ''; });
       saveBtn.addEventListener('click', () => {
         const name = nameInput.value.trim();
         if (!name) { nameInput.style.outline = '1px solid var(--vscode-errorForeground)'; return; }
+        const isSSE = transportSel.value === 'sse';
+        if (isSSE && !urlInput.value.trim()) {
+          urlInput.style.outline = '1px solid var(--vscode-errorForeground)';
+          return;
+        }
+        if (!isSSE && !cmdInput.value.trim()) {
+          cmdInput.style.outline = '1px solid var(--vscode-errorForeground)';
+          return;
+        }
         const isSSE = transportSel.value === 'sse';
         const serverCfg = {
           name,
