@@ -160,4 +160,35 @@ export class McpRegistry {
     }
     console.log(`Champ MCP: disconnected "${serverName}"`);
   }
+
+  /** List resources from a connected MCP server. */
+  async listResources(
+    serverName: string,
+  ): Promise<import("./mcp-client").McpResource[]> {
+    return this.manager.listResources(serverName);
+  }
+
+  /** Read a resource by URI from a connected MCP server. */
+  async readResource(serverName: string, uri: string): Promise<string | null> {
+    return this.manager.readResource(serverName, uri);
+  }
+
+  /** List prompt templates from a connected MCP server. */
+  async listPrompts(
+    serverName: string,
+  ): Promise<import("./mcp-client").McpPromptTemplate[]> {
+    return this.manager.listPrompts(serverName);
+  }
+
+  /**
+   * Get a rendered prompt template from a connected MCP server.
+   * @param args - Template arguments as key-value pairs
+   */
+  async getPrompt(
+    serverName: string,
+    promptName: string,
+    args?: Record<string, string>,
+  ): Promise<string | null> {
+    return this.manager.getPrompt(serverName, promptName, args);
+  }
 }

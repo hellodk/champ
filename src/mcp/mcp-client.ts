@@ -46,6 +46,23 @@ export interface MCPToolResult {
   isError?: boolean;
 }
 
+export interface McpResource {
+  uri: string;
+  name: string;
+  description?: string;
+  mimeType?: string;
+}
+
+export interface McpPromptTemplate {
+  name: string;
+  description?: string;
+  arguments?: Array<{
+    name: string;
+    description?: string;
+    required?: boolean;
+  }>;
+}
+
 interface MCPConnection {
   config: MCPServerConfig;
   tools: MCPTool[];
@@ -393,6 +410,108 @@ export class MCPClientManager {
         ],
         isError: true,
       };
+    }
+  }
+
+  /**
+   * List all resources exposed by a connected MCP server.
+   * Resources are file-like data objects the server can serve.
+   * Returns [] if server not connected or doesn't support resources.
+   */
+  async listResources(serverName: string): Promise<McpResource[]> {
+    const connection = this.connections.get(serverName);
+    if (!connection) return [];
+    try {
+      const result = (await this.sendRequest(
+        serverName,
+        "resources/list",
+        {},
+      )) as {
+        resources?: McpResource[];
+      };
+      return result?.resources?.slice(0, 50) ?? []; // cap at 50 per server
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Read a specific resource by URI.
+   * Returns text content (capped at 50K chars) or null for binary/unavailable resources.
+   */
+  async readResource(serverName: string, uri: string): Promise<string | null> {
+    const connection = this.connections.get(serverName);
+    if (!connection) return null;
+    try {
+      const result = (await this.sendRequest(serverName, "resources/read", {
+        uri,
+      })) as {
+        contents?: Array<{
+          uri: string;
+          mimeType?: string;
+          text?: string;
+          blob?: string;
+        }>;
+      };
+      const content = result?.contents?.[0];
+      if (!content) return null;
+      if (content.text) return content.text.slice(0, 50_000);
+      if (content.blob) return `[Binary resource: ${uri}]`;
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * List all prompt templates from a connected MCP server.
+   */
+  async listPrompts(serverName: string): Promise<McpPromptTemplate[]> {
+    const connection = this.connections.get(serverName);
+    if (!connection) return [];
+    try {
+      const result = (await this.sendRequest(
+        serverName,
+        "prompts/list",
+        {},
+      )) as {
+        prompts?: McpPromptTemplate[];
+      };
+      return result?.prompts ?? [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Get a specific prompt template with arguments applied.
+   * Returns the rendered prompt text or null if unavailable.
+   */
+  async getPrompt(
+    serverName: string,
+    promptName: string,
+    args: Record<string, string> = {},
+  ): Promise<string | null> {
+    const connection = this.connections.get(serverName);
+    if (!connection) return null;
+    try {
+      const result = (await this.sendRequest(serverName, "prompts/get", {
+        name: promptName,
+        arguments: args,
+      })) as {
+        messages?: Array<{
+          role: string;
+          content: { type: string; text?: string };
+        }>;
+      };
+      return (
+        result?.messages
+          ?.filter((m) => m.content.type === "text")
+          .map((m) => m.content.text ?? "")
+          .join("\n") ?? null
+      );
+    } catch {
+      return null;
     }
   }
 
