@@ -30,7 +30,8 @@ export type TeamRunEvent =
   | { type: "agent_stream"; agentId: string; chunk: string }
   | { type: "blocked"; agentId: string; reason: string }
   | { type: "complete"; state: TeamRunState }
-  | { type: "error"; message: string; state: TeamRunState };
+  | { type: "error"; message: string; state: TeamRunState }
+  | { type: "budget_warning"; usedTokens: number; budgetTokens: number };
 
 export interface TeamRunOptions {
   onEvent?: (event: TeamRunEvent) => void;
@@ -187,6 +188,7 @@ export class TeamRunner {
         endTime:
           status !== "running" && status !== "paused" ? Date.now() : undefined,
         totalTokens,
+        tokenBudget: team.execution.totalTokenBudget,
         filesChanged,
         mode: team.execution.mode,
       };
@@ -206,6 +208,25 @@ export class TeamRunner {
     try {
       for (const group of groups) {
         if (options.abortSignal?.aborted) break;
+
+        // Token budget: warn at 80%, soft-stop (skip remaining) at 100%
+        const budget = team.execution.totalTokenBudget;
+        if (budget && budget > 0) {
+          const pct = totalTokens / budget;
+          if (pct >= 1.0) {
+            for (const [, agState] of agentStates) {
+              if (agState.status === "pending") agState.status = "skipped";
+            }
+            break;
+          }
+          if (pct >= 0.8) {
+            options.onEvent?.({
+              type: "budget_warning",
+              usedTokens: totalTokens,
+              budgetTokens: budget,
+            });
+          }
+        }
 
         // Build memory snapshot for condition evaluation
         const memSnapshot: Record<string, unknown> = {};

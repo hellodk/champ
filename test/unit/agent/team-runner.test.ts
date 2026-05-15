@@ -201,3 +201,102 @@ describe("TeamRunner — token counting", () => {
     expect(finalState.status).toBe("completed");
   });
 });
+
+describe("TeamRunner — token budget", () => {
+  it("emits budget_warning when totalTokens exceeds 80% of budget", async () => {
+    const runner = new TeamRunner();
+    const team = makeTeam([makeAgent("a"), makeAgent("b", ["a"])]);
+    team.execution.totalTokenBudget = 100;
+
+    const fakeProvider = {
+      name: "test",
+      config: { provider: "test" as const, model: "test" },
+      chat: async function* () {
+        yield { type: "text" as const, text: "<output>done</output>" };
+        yield {
+          type: "done" as const,
+          usage: { inputTokens: 45, outputTokens: 45 },
+        };
+      },
+      complete: async function* () {},
+      supportsToolUse: () => false,
+      supportsStreaming: () => true,
+      countTokens: () => 0,
+      modelInfo: () => ({
+        contextWindow: 4096,
+        name: "test",
+        provider: "test" as const,
+      }),
+      dispose: () => {},
+    };
+
+    const toolRegistry = {
+      get: () => undefined,
+      list: () => [],
+      execute: async () => ({ success: true, output: "" }),
+      register: () => {},
+    } as any;
+
+    const events: import("@/agent/team-runner").TeamRunEvent[] = [];
+    await runner.run(team, "test", fakeProvider as any, toolRegistry, {
+      onEvent: (e) => events.push(e),
+    });
+
+    const warned = events.some((e) => e.type === "budget_warning");
+    expect(warned).toBe(true);
+  });
+
+  it("skips remaining pending agents when totalTokens reaches 100% of budget", async () => {
+    const runner = new TeamRunner();
+    // 3-agent chain: a → b → c. Budget is 80 tokens. Agent "a" uses 90 tokens.
+    // After "a" completes, totalTokens=90 > budget=80, so b and c should be skipped.
+    const team = makeTeam([
+      makeAgent("a"),
+      makeAgent("b", ["a"]),
+      makeAgent("c", ["b"]),
+    ]);
+    team.execution.totalTokenBudget = 80;
+
+    const fakeProvider = {
+      name: "test",
+      config: { provider: "test" as const, model: "test" },
+      chat: async function* () {
+        yield { type: "text" as const, text: "<output>done</output>" };
+        yield {
+          type: "done" as const,
+          usage: { inputTokens: 45, outputTokens: 45 },
+        };
+      },
+      complete: async function* () {},
+      supportsToolUse: () => false,
+      supportsStreaming: () => true,
+      countTokens: () => 0,
+      modelInfo: () => ({
+        contextWindow: 4096,
+        name: "test",
+        provider: "test" as const,
+      }),
+      dispose: () => {},
+    };
+
+    const toolRegistry = {
+      get: () => undefined,
+      list: () => [],
+      execute: async () => ({ success: true, output: "" }),
+      register: () => {},
+    } as any;
+
+    let finalState: import("@/agent/team-definition").TeamRunState | undefined;
+    await runner.run(team, "test", fakeProvider as any, toolRegistry, {
+      onEvent: (e) => {
+        if (e.type === "complete") finalState = e.state;
+      },
+    });
+
+    expect(finalState).toBeDefined();
+    const bState = finalState!.agents.find((a) => a.id === "b");
+    const cState = finalState!.agents.find((a) => a.id === "c");
+    expect(bState?.status).toBe("skipped");
+    expect(cState?.status).toBe("skipped");
+  });
+});

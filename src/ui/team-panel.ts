@@ -203,9 +203,18 @@ function renderRoster() {
   const elapsed = state.startTime ? ((Date.now()-state.startTime)/1000).toFixed(0)+'s' : '—';
   const m = document.createElement('div');
   m.className='metrics';
+  const budgetRow = state.tokenBudget && state.tokenBudget > 0
+    ? '<div class="mrow"><span>Budget</span><span style="color:'
+        + (state.totalTokens >= state.tokenBudget ? 'var(--vscode-errorForeground)'
+           : state.totalTokens >= state.tokenBudget * 0.8 ? 'var(--vscode-editorWarning-foreground)'
+           : 'inherit') + '">'
+        + (state.totalTokens||0).toLocaleString() + ' / ' + state.tokenBudget.toLocaleString()
+        + '</span></div>'
+    : '';
   m.innerHTML='<div class="mrow"><span>Agents</span><span>'+done+'/'+total+'</span></div>'
     +'<div class="mrow"><span>Time</span><span>'+elapsed+'</span></div>'
     +'<div class="mrow"><span>Tokens</span><span>'+(state.totalTokens||0).toLocaleString()+'</span></div>'
+    +budgetRow
     +'<div class="mrow"><span>Cost</span><span>~$0.00</span></div>';
   r.append(m);
 }

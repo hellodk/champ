@@ -139,6 +139,8 @@ export interface TeamRunState {
   startTime: number;
   endTime?: number;
   totalTokens: number;
+  /** Token budget from team config (0 or undefined = no budget set). */
+  tokenBudget?: number;
   filesChanged: string[];
   mode: TeamExecutionMode;
 }
