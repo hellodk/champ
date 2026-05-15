@@ -1360,7 +1360,11 @@ export async function activate(
                       .catch(() => "");
                     let updated: string;
                     const hunksForFile = acceptedHunks.get(msg.filePath);
-                    if (hunksForFile !== undefined && change.oldContent) {
+                    if (
+                      hunksForFile !== undefined &&
+                      change.oldContent &&
+                      change.newContent
+                    ) {
                       const hunks = splitIntoHunks(
                         change.oldContent,
                         change.newContent,
@@ -1393,6 +1397,7 @@ export async function activate(
               .getSnapshot()
               .filesChanged.filter((f) => f.status === "pending")) {
               session.acceptFile(fc.filePath);
+              acceptedHunks.delete(fc.filePath); // clear per-hunk state on bulk accept
               // Apply to disk
               void (async () => {
                 try {

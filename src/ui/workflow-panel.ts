@@ -333,7 +333,9 @@ export class WorkflowPanel {
       }
     }
 
-    // Minimal LCS-based diff for hunk display
+    // NOTE: computeLCS and splitHunks duplicate the logic in src/utils/diff-utils.ts.
+    // This is intentional — the webview runs in a sandboxed iframe with no module
+    // imports, so the diff logic must be inlined. Keep both versions in sync.
     function computeLCS(a, b) {
       const m = a.length, n = b.length;
       const dp = Array.from({length: m+1}, () => new Array(n+1).fill(0));
