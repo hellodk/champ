@@ -150,9 +150,9 @@ export class TeamRunner {
       ]),
     );
 
-    // Token counting not yet implemented — streamToString does not return usage data.
-    // Panel shows "~$0.00" which is accurate for local LLMs.
-    const totalTokens = 0;
+    // Token counting: TeamAgent stores usage in SharedMemory under ${agentId}_token_usage.
+    // TeamRunner accumulates these as agents complete.
+    let totalTokens = 0;
     const filesChanged: string[] = [];
 
     const buildState = (
@@ -345,6 +345,21 @@ export class TeamRunner {
 
                 if (output.success) {
                   agentState.status = "done";
+
+                  // Accumulate token usage that TeamAgent stored in SharedMemory
+                  const agentUsage = memory.get(
+                    `${agentDef.id}_token_usage`,
+                  ) as
+                    | { inputTokens: number; outputTokens: number }
+                    | undefined;
+                  if (agentUsage) {
+                    agentState.tokenCount =
+                      (agentUsage.inputTokens ?? 0) +
+                      (agentUsage.outputTokens ?? 0);
+                    totalTokens +=
+                      (agentUsage.inputTokens ?? 0) +
+                      (agentUsage.outputTokens ?? 0);
+                  }
 
                   if (team.execution.checkpoints) {
                     await writeCheckpoint(
