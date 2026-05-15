@@ -1566,7 +1566,7 @@
    *   Deny             — skip this tool, agent continues
    *   Deny & Stop      — skip and abort the entire agent loop
    */
-  function showApprovalDialog(id, description) {
+  function showApprovalDialog(id, description, preview) {
     // If session auto-approve is active, approve immediately.
     if (sessionAutoApprove) {
       vscode.postMessage({ type: 'approvalResponse', id, approved: true });
@@ -1576,6 +1576,35 @@
     const dialog = el('div', { class: 'approval-dialog' });
     const desc = el('div', { class: 'approval-desc' }, [description]);
     const btnRow = el('div', { class: 'approval-btns' });
+
+    if (preview && preview.content) {
+      const previewWrap = el('div', { class: 'approval-preview' });
+      if (preview.label) {
+        previewWrap.appendChild(el('div', { class: 'approval-preview-label' }, [preview.label]));
+      }
+      if (preview.type === 'diff') {
+        const diffEl = el('div', { class: 'approval-preview-diff' });
+        preview.content.split('\n').forEach(function(line) {
+          if (line.startsWith('-')) {
+            diffEl.appendChild(el('span', { class: 'diff-line del' }, [line]));
+          } else if (line.startsWith('+')) {
+            diffEl.appendChild(el('span', { class: 'diff-line add' }, [line]));
+          } else if (line.trim() !== '') {
+            diffEl.appendChild(el('span', { class: 'diff-line' }, [line]));
+          } else {
+            diffEl.appendChild(document.createElement('br'));
+          }
+        });
+        previewWrap.appendChild(diffEl);
+      } else if (preview.type === 'command') {
+        const codeEl = el('pre', { class: 'approval-preview-cmd' });
+        codeEl.appendChild(el('code', {}, [preview.content]));
+        previewWrap.appendChild(codeEl);
+      }
+      dialog.append(desc, previewWrap);
+    } else {
+      dialog.append(desc);
+    }
 
     const allowBtn = el('button', { class: 'approval-allow' }, ['Allow']);
     allowBtn.addEventListener('click', () => {
@@ -1606,7 +1635,7 @@
     });
 
     btnRow.append(allowBtn, allowSessionBtn, denyBtn, denyStopBtn);
-    dialog.append(desc, btnRow);
+    dialog.append(btnRow);
     messagesContainer.append(dialog);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
@@ -1768,7 +1797,7 @@
         break;
       }
       case 'approvalRequest':
-        showApprovalDialog(msg.id, msg.description);
+        showApprovalDialog(msg.id, msg.description, msg.preview);
         break;
       case 'attachFileAdded':
         pendingFiles.push({ filename: msg.filename });
