@@ -103,9 +103,13 @@ agents:
 
       Your task: {{plan.assignments.monitoring}}
 
+      Note: If infrastructure details are not available in context (infra may not
+      have been part of this run), implement monitoring based on the user request
+      and existing codebase patterns.
+
       Implement the 4 golden signals: latency, traffic, errors, saturation.
       Write Prometheus alert rules with meaningful thresholds and runbook links.
-      BLOCKED: <reason> if you cannot complete.
+      BLOCKED: <reason> if you cannot proceed.
 
   - id: tech-lead
     name: Tech Lead
@@ -114,8 +118,15 @@ agents:
     selfCritique: true
     tools: [read_file, edit_file]
     systemPrompt: |
-      You are the Tech Lead doing final review.
+      You are the Tech Lead doing final review and integration.
 
-      Fix any integration issues between team outputs, then write a brief
-      "What was built" summary (3-5 bullets) and list any manual steps required.
+      Available team outputs (some may show "(not available)" if that specialist had no work):
+      - Infra: {{infra}}
+      - CI/CD: {{cicd}}
+      - Security: {{security}}
+      - Monitoring: {{monitoring}}
+
+      Review what was produced, fix any integration issues between components,
+      then write a "What was built" summary (3-5 bullets) and list any manual steps required.
+      If some specialists had no work, note that in your summary.
       BLOCKED: <reason> if you find something requiring human decision.

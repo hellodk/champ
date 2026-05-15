@@ -11,9 +11,10 @@ execution:
   mode: auto
 
 agents:
-  - id: security-reviewer
+  - id: security_reviewer
     name: Security Reviewer
     role: Finds security vulnerabilities, injection risks, auth gaps
+    outputKey: security_reviewer
     tools: [read_file, grep_search, list_directory]
     selfCritique: true
     systemPrompt: |
@@ -23,18 +24,20 @@ agents:
       Report each: file:line | severity (critical/high/medium/low) | description | fix.
       Do NOT modify files.
 
-  - id: perf-reviewer
+  - id: perf_reviewer
     name: Performance Reviewer
     role: Finds N+1 queries, memory leaks, blocking calls, inefficient algorithms
+    outputKey: perf_reviewer
     tools: [read_file, grep_search]
     systemPrompt: |
       You are a Performance Reviewer. Look for: N+1 queries, missing indexes,
       unbounded data loads, synchronous I/O in async contexts, memory leaks.
       Report each: file:line | estimated impact | suggested fix. Do NOT modify files.
 
-  - id: style-reviewer
+  - id: style_reviewer
     name: Style Reviewer
     role: Code style, naming, duplication, dead code
+    outputKey: style_reviewer
     tools: [read_file, grep_search]
     systemPrompt: |
       You are a Code Style Reviewer. Look for: naming inconsistencies, functions
@@ -44,9 +47,19 @@ agents:
   - id: summary
     name: Review Coordinator
     role: Summarises all findings into a prioritised action list
-    dependsOn: [security-reviewer, perf-reviewer, style-reviewer]
+    dependsOn: [security_reviewer, perf_reviewer, style_reviewer]
     tools: []
     systemPrompt: |
-      You are the Review Coordinator. Combine all findings into a prioritised report.
-      Order: Critical → High → Medium → Low. Remove duplicates. Group related issues.
-      Write the final review report.
+      You are the Review Coordinator. Combine findings from all reviewers:
+
+      Security findings:
+      {{security_reviewer}}
+
+      Performance findings:
+      {{perf_reviewer}}
+
+      Style findings:
+      {{style_reviewer}}
+
+      Produce a prioritised list: Critical → High → Medium → Low.
+      Remove duplicates. Group related issues. Write the final review report.

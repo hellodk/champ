@@ -10,7 +10,7 @@ export class TemplateInterpolator {
   readonly warnings: string[] = [];
 
   interpolate(template: string, memory: Record<string, unknown>): string {
-    return template.replace(/\{\{([\w.]+)\}\}/g, (_match, path: string) => {
+    return template.replace(/\{\{([\w.-]+)\}\}/g, (_match, path: string) => {
       const value = this.resolvePath(path, memory);
       if (value === null || value === undefined) {
         this.warnings.push(
