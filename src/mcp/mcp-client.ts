@@ -545,6 +545,28 @@ export class MCPClientManager {
     }
   }
 
+  async reconnect(serverName: string): Promise<void> {
+    const conn = this.connections.get(serverName);
+    if (!conn) {
+      throw new Error(
+        `MCP server "${serverName}" not found in manager connections`,
+      );
+    }
+    if (conn.sseConnection) {
+      await conn.sseConnection.reconnect();
+      const toolsResult = (await conn.sseConnection.sendRequestInternal(
+        "tools/list",
+        {},
+      )) as { tools?: MCPTool[] };
+      (conn.tools as MCPTool[]).length = 0;
+      (conn.tools as MCPTool[]).push(...(toolsResult?.tools ?? []));
+    } else {
+      const config = conn.config;
+      await this.disconnect(serverName);
+      await this.connect(config);
+    }
+  }
+
   // ---- JSON-RPC helpers ------------------------------------------------
 
   private sendRequest(

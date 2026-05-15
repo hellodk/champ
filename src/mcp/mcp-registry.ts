@@ -120,6 +120,23 @@ export class McpRegistry {
     }
   }
 
+  async reconnect(serverName: string): Promise<void> {
+    this.connectionErrors.delete(serverName);
+    this.unregisterServerTools(serverName);
+    try {
+      await this.manager.reconnect(serverName);
+      await this.registerServerTools(serverName);
+      this.onStatusChange?.();
+      console.log(`Champ MCP: reconnected "${serverName}"`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.connectionErrors.set(serverName, msg);
+      this.onStatusChange?.();
+      console.error(`Champ MCP: reconnect failed for "${serverName}":`, msg);
+      throw err;
+    }
+  }
+
   private async registerServerTools(serverName: string): Promise<void> {
     const tools = await this.manager.listTools(serverName);
     const names: string[] = [];
