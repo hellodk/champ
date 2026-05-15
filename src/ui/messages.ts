@@ -410,6 +410,15 @@ export interface RevertEditRequest {
   restoreContent: string;
 }
 
+export interface AcceptAllEditsRequest {
+  type: "acceptAllEdits";
+}
+
+export interface RevertAllEditsRequest {
+  type: "revertAllEdits";
+  edits: Array<{ path: string; restoreContent: string }>;
+}
+
 export type WebviewToExtensionMessage =
   | UserMessageRequest
   | SetModeRequest
@@ -435,7 +444,9 @@ export type WebviewToExtensionMessage =
   | RunMultiAgentRequest
   | OpenWorkflowRunRequest
   | RerunWorkflowRequest
-  | RevertEditRequest;
+  | RevertEditRequest
+  | AcceptAllEditsRequest
+  | RevertAllEditsRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)
@@ -657,4 +668,16 @@ export function isRevertEditRequest(
   msg: WebviewToExtensionMessage,
 ): msg is RevertEditRequest {
   return msg.type === "revertEdit";
+}
+
+export function isAcceptAllEditsRequest(
+  msg: WebviewToExtensionMessage,
+): msg is AcceptAllEditsRequest {
+  return msg.type === "acceptAllEdits";
+}
+
+export function isRevertAllEditsRequest(
+  msg: WebviewToExtensionMessage,
+): msg is RevertAllEditsRequest {
+  return msg.type === "revertAllEdits";
 }
