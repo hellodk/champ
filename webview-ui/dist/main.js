@@ -1993,6 +1993,19 @@
         messagesWrapper.scrollTop = messagesWrapper.scrollHeight;
         break;
       }
+      case 'autoContextNotice': {
+        if (!msg.files || msg.files.length === 0) break;
+        var notice = el('div', { class: 'auto-context-notice' });
+        notice.appendChild(el('span', { class: 'auto-context-icon' }, ['📎']));
+        notice.appendChild(el('span', { class: 'auto-context-text' }, ['Auto-included: ' + msg.files.join(', ')]));
+        messagesContainer.appendChild(notice);
+        setTimeout(function() {
+          notice.style.transition = 'opacity 0.5s';
+          notice.style.opacity = '0';
+          setTimeout(function() { notice.remove(); }, 500);
+        }, 4000);
+        break;
+      }
     }
   });
 
