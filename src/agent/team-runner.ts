@@ -353,12 +353,11 @@ export class TeamRunner {
                     | { inputTokens: number; outputTokens: number }
                     | undefined;
                   if (agentUsage) {
-                    agentState.tokenCount =
+                    const agentTokens =
                       (agentUsage.inputTokens ?? 0) +
                       (agentUsage.outputTokens ?? 0);
-                    totalTokens +=
-                      (agentUsage.inputTokens ?? 0) +
-                      (agentUsage.outputTokens ?? 0);
+                    agentState.tokenCount = agentTokens;
+                    totalTokens += agentTokens;
                   }
 
                   if (team.execution.checkpoints) {

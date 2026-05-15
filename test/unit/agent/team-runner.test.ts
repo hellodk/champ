@@ -164,9 +164,13 @@ describe("TeamRunner — token counting", () => {
     });
 
     const finalState = states[states.length - 1];
-    // Just verify that the run completes successfully with totalTokens >= 0
-    // The exact token count depends on how TeamAgent integrates with the provider
-    expect(finalState.totalTokens).toBeGreaterThanOrEqual(0);
+    // Each agent receives { inputTokens: 100, outputTokens: 50 } = 150 per agent.
+    // Two agents (a, b) should accumulate to 300 total.
+    expect(finalState.totalTokens).toBe(300);
+    const agentA = finalState.agents.find((a) => a.id === "a")!;
+    const agentB = finalState.agents.find((a) => a.id === "b")!;
+    expect(agentA.tokenCount).toBe(150);
+    expect(agentB.tokenCount).toBe(150);
     expect(finalState.status).toBe("completed");
   });
 });
