@@ -245,6 +245,7 @@ export class AgentController {
    */
   private projectRules = "";
   private memoryBank: MemoryBank | undefined;
+  private editReviewTracker?: import("./edit-review-tracker").EditReviewTracker;
 
   constructor(
     provider: LLMProvider,
@@ -253,6 +254,12 @@ export class AgentController {
   ) {
     this.provider = provider;
     this.workspaceRoot = workspaceRoot;
+  }
+
+  setEditReviewTracker(
+    tracker: import("./edit-review-tracker").EditReviewTracker,
+  ): void {
+    this.editReviewTracker = tracker;
   }
 
   /**
@@ -758,6 +765,7 @@ export class AgentController {
             // Progress is streamed via listeners if needed.
           },
           requestApproval: options.requestApproval ?? (async () => true),
+          editReviewTracker: this.editReviewTracker,
         };
 
         const result = await this.toolRegistry.execute(
@@ -802,6 +810,7 @@ export class AgentController {
           toolName: call.name,
           toolResult: redactedOutput,
           toolSuccess: result.success,
+          fileEditDiff: result.metadata?.fileEditDiff,
         });
 
         // Record tool call for analytics

@@ -92,6 +92,7 @@ export type StreamDelta =
       toolName?: string;
       toolResult?: string;
       toolSuccess?: boolean;
+      fileEditDiff?: { path: string; oldContent: string; newContent: string };
     }
   | { type: "done"; usage: TokenUsage }
   | { type: "error"; error: string };

@@ -1693,6 +1693,31 @@
     messagesContainer.append(panel);
   }
 
+  // -------------------------------------------------------------------
+  // Diff hunk splitter — splits old/new full-file text into changed hunks
+  // -------------------------------------------------------------------
+  function splitHunks(oldText, newText) {
+    if (oldText === newText) return [];
+    var oldLines = oldText.split('\n');
+    var newLines = newText.split('\n');
+    var hunks = [];
+    var i = 0; var j = 0;
+    while (i < oldLines.length || j < newLines.length) {
+      if (i < oldLines.length && j < newLines.length && oldLines[i] === newLines[j]) {
+        i++; j++;
+      } else {
+        var oldStart = i; var newStart = j;
+        while (i < oldLines.length && (j >= newLines.length || oldLines[i] !== newLines[j])) { i++; }
+        while (j < newLines.length && (i >= oldLines.length || oldLines[i] !== newLines[j])) { j++; }
+        hunks.push({
+          oldLines: oldLines.slice(oldStart, i),
+          newLines: newLines.slice(newStart, j)
+        });
+      }
+    }
+    return hunks;
+  }
+
   window.addEventListener('message', (event) => {
     const msg = event.data;
     if (!msg || typeof msg !== 'object') return;
@@ -1845,6 +1870,65 @@
       case 'workflowHistoryUpdate':
         renderWorkflowStrip(msg.runs || []);
         break;
+      case 'fileEditDiff': {
+        const diffCard = el('div', { class: 'edit-diff-card' });
+        const header = el('div', { class: 'edit-diff-header' });
+        header.append(
+          el('span', { class: 'edit-diff-path' }, [msg.path]),
+          el('span', { class: 'edit-diff-badge' }, ['edited'])
+        );
+        const body = el('div', { class: 'edit-diff-body' });
+        const hunks = splitHunks(msg.oldContent, msg.newContent);
+        if (hunks.length === 0) {
+          body.appendChild(el('div', { style: 'opacity:.5;font-size:11px;padding:2px 4px' }, ['No changes detected']));
+        } else {
+          hunks.slice(0, 3).forEach(function(hunk) {
+            hunk.oldLines.forEach(function(l) { body.appendChild(el('div', { class: 'diff-line del' }, ['- ' + l])); });
+            hunk.newLines.forEach(function(l) { body.appendChild(el('div', { class: 'diff-line add' }, ['+ ' + l])); });
+          });
+          if (hunks.length > 3) {
+            body.appendChild(el('div', { style: 'opacity:.5;font-size:10px;padding:2px 4px' }, [
+              '… ' + (hunks.length - 3) + ' more hunk(s) — see Review panel below'
+            ]));
+          }
+        }
+        diffCard.append(header, body);
+        messagesWrapper.appendChild(diffCard);
+        messagesWrapper.scrollTop = messagesWrapper.scrollHeight;
+        break;
+      }
+      case 'editSummary': {
+        if (!msg.edits || msg.edits.length === 0) break;
+        const panel = el('div', { class: 'edit-summary-panel' });
+        panel.appendChild(el('div', { class: 'edit-summary-title' }, [
+          '📝 Review ' + msg.edits.length + ' file change' + (msg.edits.length !== 1 ? 's' : '')
+        ]));
+        msg.edits.forEach(function(edit) {
+          const fileSection = el('div', { class: 'edit-summary-file' });
+          const fileHeader = el('div', { class: 'edit-summary-file-header' });
+          const rejectBtn = el('button', { class: 'edit-reject-btn' }, ['↩ Revert']);
+          rejectBtn.title = 'Revert this file to its state before the agent edited it';
+          rejectBtn.addEventListener('click', function() {
+            vscode.postMessage({ type: 'revertEdit', path: edit.path, restoreContent: edit.oldContent });
+            rejectBtn.textContent = '✓ Reverted';
+            rejectBtn.disabled = true;
+            fileSection.style.opacity = '0.5';
+          });
+          fileHeader.append(el('span', { class: 'edit-diff-path' }, [edit.path]), rejectBtn);
+          const hunksEl = el('div', { class: 'edit-summary-hunks' });
+          splitHunks(edit.oldContent, edit.newContent).forEach(function(hunk) {
+            const hunkEl = el('div', { class: 'hunk' });
+            hunk.oldLines.forEach(function(l) { hunkEl.appendChild(el('span', { class: 'diff-line del' }, ['- ' + l])); });
+            hunk.newLines.forEach(function(l) { hunkEl.appendChild(el('span', { class: 'diff-line add' }, ['+ ' + l])); });
+            hunksEl.appendChild(hunkEl);
+          });
+          fileSection.append(fileHeader, hunksEl);
+          panel.appendChild(fileSection);
+        });
+        messagesWrapper.appendChild(panel);
+        messagesWrapper.scrollTop = messagesWrapper.scrollHeight;
+        break;
+      }
     }
   });
 

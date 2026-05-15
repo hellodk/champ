@@ -89,10 +89,32 @@ export const editFileTool: Tool = {
         };
       }
 
+      // Compute new full-file text for diff tracking
+      const newText =
+        text.slice(0, firstIdx) +
+        newContent +
+        text.slice(firstIdx + oldContent.length);
+
+      // Record in tracker for diff review panel
+      if (context.editReviewTracker) {
+        context.editReviewTracker.record({
+          path: relativePath,
+          oldContent: text,
+          newContent: newText,
+        });
+      }
+
       return {
         success: true,
         output: `Successfully edited ${relativePath}`,
-        metadata: { filesModified: [relativePath] },
+        metadata: {
+          filesModified: [relativePath],
+          fileEditDiff: {
+            path: relativePath,
+            oldContent: text,
+            newContent: newText,
+          },
+        },
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

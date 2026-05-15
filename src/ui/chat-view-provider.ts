@@ -46,6 +46,7 @@ import {
   isOpenGeneratedFileRequest,
   isReloadMcpServerRequest,
   isMcpConfigSaveRequest,
+  isRevertEditRequest,
   createSessionList,
   type ExtensionToWebviewMessage,
   type WebviewToExtensionMessage,
@@ -54,6 +55,7 @@ import {
   type FirstRunTemplate,
   type WorkflowHistoryRun,
 } from "./messages";
+import { EditReviewTracker } from "../agent/edit-review-tracker";
 import type { StreamDelta, ContentBlock } from "../providers/types";
 
 /**
@@ -158,6 +160,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
    * resolve the matching promise.
    */
   private pendingApprovals = new Map<string, (approved: boolean) => void>();
+  private readonly editTracker = new EditReviewTracker();
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -572,6 +575,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             );
           }
         });
+      } else if (isRevertEditRequest(msg)) {
+        void this.revertFileEdit(msg.path, msg.restoreContent);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -639,6 +644,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.forwardStreamDelta(delta);
       },
     );
+
+    // Attach the edit tracker so file edits are captured for diff review.
+    this.agent.setEditReviewTracker(this.editTracker);
 
     try {
       await this.agent.processMessage(enrichedContent, {
@@ -871,9 +879,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             ),
           );
         }
+        if (delta.fileEditDiff) {
+          this.postMessage({
+            type: "fileEditDiff",
+            path: delta.fileEditDiff.path,
+            oldContent: delta.fileEditDiff.oldContent,
+            newContent: delta.fileEditDiff.newContent,
+          });
+        }
         break;
       case "done":
         this.postMessage(createStreamEnd(delta.usage));
+        this.emitEditSummary();
+        this.editTracker.reset();
         // Stash usage for handleUserMessage to forward to the callback.
         // The callback itself is fired exactly once there, not here, to
         // avoid double-firing (processMessage emits "done" and then returns,
@@ -894,6 +912,35 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /** Public entry point for forwarding tool results from the registry. */
   notifyToolResult(toolName: string, result: string, success: boolean): void {
     this.postMessage(createToolCallResult(toolName, result, success));
+  }
+
+  /** Post an editSummary message for all edits accumulated this turn. */
+  private emitEditSummary(): void {
+    const edits = this.editTracker.flush();
+    if (edits.length === 0) return;
+    this.postMessage({ type: "editSummary", edits });
+  }
+
+  /** Revert a file to its pre-edit content. */
+  private async revertFileEdit(
+    relativePath: string,
+    restoreContent: string,
+  ): Promise<void> {
+    const workspaceRoot =
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
+    const absPath = path.isAbsolute(relativePath)
+      ? relativePath
+      : path.join(workspaceRoot, relativePath);
+    const uri = vscode.Uri.file(absPath);
+    const encoder = new TextEncoder();
+    try {
+      await vscode.workspace.fs.writeFile(uri, encoder.encode(restoreContent));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.postMessage(
+        createError(`Revert failed for ${relativePath}: ${message}`),
+      );
+    }
   }
 
   /**

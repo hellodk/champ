@@ -206,6 +206,18 @@ export interface RerunWorkflowRequest {
   runId: string;
 }
 
+export interface FileEditDiffMessage {
+  type: "fileEditDiff";
+  path: string;
+  oldContent: string;
+  newContent: string;
+}
+
+export interface EditSummaryMessage {
+  type: "editSummary";
+  edits: Array<{ path: string; oldContent: string; newContent: string }>;
+}
+
 export type ExtensionToWebviewMessage =
   | StreamStartMessage
   | StreamDeltaMessage
@@ -224,7 +236,9 @@ export type ExtensionToWebviewMessage =
   | SessionListMessage
   | MetricsUpdateMessage
   | McpStatusMessage
-  | WorkflowHistoryUpdateMessage;
+  | WorkflowHistoryUpdateMessage
+  | FileEditDiffMessage
+  | EditSummaryMessage;
 
 // ---------------------------------------------------------------------------
 // Webview -> Extension Host
@@ -385,6 +399,12 @@ export interface RunMultiAgentRequest {
   type: "runMultiAgent";
 }
 
+export interface RevertEditRequest {
+  type: "revertEdit";
+  path: string;
+  restoreContent: string;
+}
+
 export type WebviewToExtensionMessage =
   | UserMessageRequest
   | SetModeRequest
@@ -409,7 +429,8 @@ export type WebviewToExtensionMessage =
   | McpConfigSaveRequest
   | RunMultiAgentRequest
   | OpenWorkflowRunRequest
-  | RerunWorkflowRequest;
+  | RerunWorkflowRequest
+  | RevertEditRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)
@@ -625,4 +646,10 @@ export function isMcpConfigSaveRequest(
   msg: WebviewToExtensionMessage,
 ): msg is McpConfigSaveRequest {
   return msg.type === "mcpConfigSave";
+}
+
+export function isRevertEditRequest(
+  msg: WebviewToExtensionMessage,
+): msg is RevertEditRequest {
+  return msg.type === "revertEdit";
 }

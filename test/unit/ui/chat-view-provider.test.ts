@@ -19,6 +19,7 @@ function createMockAgent(): AgentController {
     getHistory: vi.fn().mockReturnValue([]),
     onStreamDelta: vi.fn().mockReturnValue(() => {}),
     getMode: vi.fn().mockReturnValue("chat"),
+    setEditReviewTracker: vi.fn(),
   } as unknown as AgentController;
 }
 

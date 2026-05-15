@@ -20,6 +20,8 @@ export interface ToolExecutionContext {
   reportProgress: (message: string) => void;
   /** Request user approval for a destructive action. */
   requestApproval: (description: string) => Promise<boolean>;
+  /** Optional tracker for recording file edits for diff review. */
+  editReviewTracker?: import("../agent/edit-review-tracker").EditReviewTracker;
 }
 
 /**
@@ -33,6 +35,7 @@ export interface ToolResult {
     filesModified?: string[];
     filesCreated?: string[];
     filesDeleted?: string[];
+    fileEditDiff?: { path: string; oldContent: string; newContent: string };
   };
 }
 

@@ -1792,3 +1792,16 @@ html, body {
 .mcp-form-cancel{padding:3px 12px;background:var(--vscode-button-secondaryBackground,var(--vscode-editor-background));color:var(--vscode-button-secondaryForeground,var(--vscode-foreground));border:1px solid var(--vscode-panel-border);border-radius:3px;cursor:pointer;font-size:11px}
 .mcp-remove{margin-left:2px;opacity:.6}
 .mcp-remove:hover{opacity:1;color:var(--vscode-errorForeground)}
+.edit-diff-card{margin:4px 8px;border:1px solid var(--vscode-panel-border);border-radius:4px;overflow:hidden;font-size:11px}
+.edit-diff-header{display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--vscode-sideBarSectionHeader-background)}
+.edit-diff-path{font-weight:600;font-family:var(--vscode-editor-font-family,monospace);font-size:11px}
+.edit-diff-badge{padding:1px 6px;border-radius:10px;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);font-size:10px}
+.edit-diff-body{padding:4px 8px;max-height:120px;overflow-y:auto}
+.edit-summary-panel{margin:6px 8px;border:1px solid var(--vscode-focusBorder);border-radius:4px;overflow:hidden;font-size:11px}
+.edit-summary-title{padding:6px 10px;background:var(--vscode-sideBarSectionHeader-background);font-weight:600}
+.edit-summary-file{border-top:1px solid var(--vscode-panel-border)}
+.edit-summary-file-header{display:flex;align-items:center;justify-content:space-between;padding:4px 8px}
+.edit-summary-hunks{padding:0 4px;max-height:200px;overflow-y:auto}
+.edit-reject-btn{padding:2px 8px;font-size:10px;border:1px solid var(--vscode-errorForeground);color:var(--vscode-errorForeground);border-radius:3px;cursor:pointer;background:transparent}
+.edit-reject-btn:hover{background:rgba(248,136,136,.15)}
+.edit-reject-btn:disabled{opacity:.5;cursor:default}
