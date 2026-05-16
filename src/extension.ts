@@ -246,13 +246,15 @@ export async function activate(
         smartRouter,
         cachedYamlConfig ?? {},
       );
-      void indexingService.initialize().then((stats) => {
-        if (stats) {
-          console.log(
-            `Champ: semantic index ready — ${stats.chunksIndexed} chunks from ${stats.filesIndexed} files (${stats.embeddingModel})`,
-          );
-        }
-      });
+      // Trigger auto-index immediately after IndexingService is ready.
+      // triggerAutoIndex probes embedding provider reachability before calling initialize().
+      void triggerAutoIndex(
+        indexingService,
+        cachedYamlConfig ?? {},
+        context,
+        statusBarItem,
+        analyticsChannel,
+      );
     }
     if (!chatViewProvider) return;
     const discovered = smartRouter!.getModels();
@@ -2889,28 +2891,8 @@ export async function activate(
       }
     })();
 
-    // 5. Eager auto-index: kick off the semantic index immediately so
-    //    codebase-search is ready before the user sends their first message.
-    //    IndexingService is wired inside smartRouter.onChange() which fires
-    //    after discover(); give it a short window to initialise.
-    if (cachedYamlConfig?.indexing?.enabled !== false) {
-      // Poll until indexingService is ready (max ~5 s) then trigger.
-      void (async () => {
-        for (let i = 0; i < 25; i++) {
-          if (indexingService) break;
-          await new Promise<void>((r) => setTimeout(r, 200));
-        }
-        if (indexingService) {
-          void triggerAutoIndex(
-            indexingService,
-            cachedYamlConfig ?? {},
-            context,
-            statusBarItem,
-            analyticsChannel,
-          );
-        }
-      })();
-    }
+    // Auto-index is triggered inside smartRouter.onChange() immediately after
+    // IndexingService is created — no polling needed.
   })();
 
   // ---- Config change watchers -----------------------------------------
