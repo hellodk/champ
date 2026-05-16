@@ -389,20 +389,6 @@ export class TeamRunner {
                 }
               }
 
-              const agent = new TeamAgent(
-                agentDef,
-                effectiveProvider,
-                (chunk: string) => {
-                  options.onEvent?.({
-                    type: "agent_stream",
-                    agentId: agentDef.id,
-                    chunk,
-                  });
-                },
-                scopedRegistry,
-                options.abortSignal,
-              );
-
               let attempts = 0;
               const maxAttempts = team.execution.retries + 1;
 
@@ -410,24 +396,59 @@ export class TeamRunner {
                 attempts++;
 
                 const timeoutMs = team.execution.timeoutSeconds * 1000;
-                const output = await Promise.race([
-                  agent.execute({ userRequest, context: [] }, memory),
-                  new Promise<never>((_, reject) =>
-                    setTimeout(
-                      () =>
-                        reject(
-                          new Error(
-                            `Agent "${agentDef.id}" timed out after ${team.execution.timeoutSeconds}s`,
-                          ),
-                        ),
-                      timeoutMs,
-                    ),
-                  ),
-                ]).catch((err: Error) => ({
-                  success: false as const,
-                  output: `Timed out: ${err.message}`,
-                  error: err.message,
-                }));
+                const timeoutController = new AbortController();
+                // If the parent run was already cancelled, abort immediately
+                if (options.abortSignal?.aborted) timeoutController.abort();
+                const parentAbortHandler = (): void =>
+                  timeoutController.abort();
+                options.abortSignal?.addEventListener(
+                  "abort",
+                  parentAbortHandler,
+                  { once: true },
+                );
+                const timeoutTimer = setTimeout(
+                  () => timeoutController.abort(),
+                  timeoutMs,
+                );
+
+                // Create a per-attempt agent wired to the timeout's abort signal
+                // so that AbortController.abort() cascades into ToolCallingLoop
+                const agent = new TeamAgent(
+                  agentDef,
+                  effectiveProvider,
+                  (chunk: string) => {
+                    options.onEvent?.({
+                      type: "agent_stream",
+                      agentId: agentDef.id,
+                      chunk,
+                    });
+                  },
+                  scopedRegistry,
+                  timeoutController.signal,
+                );
+
+                let output: import("./agents/types").AgentOutput;
+                try {
+                  output = await agent.execute(
+                    { userRequest, context: [] },
+                    memory,
+                  );
+                } catch (err) {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  output = {
+                    success: false as const,
+                    output: timeoutController.signal.aborted
+                      ? `Agent "${agentDef.id}" timed out after ${team.execution.timeoutSeconds}s`
+                      : `Agent "${agentDef.id}" error: ${msg}`,
+                    error: msg,
+                  };
+                } finally {
+                  clearTimeout(timeoutTimer);
+                  options.abortSignal?.removeEventListener(
+                    "abort",
+                    parentAbortHandler,
+                  );
+                }
 
                 agentState.output = output.output;
                 agentState.endTime = Date.now();

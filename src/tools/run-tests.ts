@@ -61,6 +61,7 @@ interface ParsedCounts {
   passed: number;
   failed: number;
   skipped: number;
+  total?: number;
   failedTests: string[];
 }
 
@@ -84,10 +85,60 @@ function parseJestOutput(output: string): ParsedCounts {
   return { passed, failed, skipped: 0, failedTests };
 }
 
+function parsePytestOutput(output: string): ParsedCounts {
+  // Match pytest summary line: "3 failed, 47 passed in 2.31s"
+  // or "50 passed in 1.23s" or "3 failed in 0.5s"
+  const summaryMatch = output.match(
+    /(?:(\d+) failed(?:, )?)?(?:(\d+) passed)?(?:(?:, )?(\d+) skipped)? in [\d.]+s/,
+  );
+  const failed = summaryMatch?.[1] ? parseInt(summaryMatch[1], 10) : 0;
+  const passed = summaryMatch?.[2] ? parseInt(summaryMatch[2], 10) : 0;
+  const skipped = summaryMatch?.[3] ? parseInt(summaryMatch[3], 10) : 0;
+
+  // Failed test names from lines like: "FAILED tests/test_auth.py::test_logout - AssertionError"
+  const failedTests = [
+    ...output.matchAll(/^FAILED (.+?)(?:\s+-\s+.*)?$/gm),
+  ].map((m) => m[1].trim());
+  return {
+    passed,
+    failed,
+    skipped,
+    total: passed + failed + skipped,
+    failedTests,
+  };
+}
+
+function parseGoTestOutput(output: string): ParsedCounts {
+  const passed = (output.match(/^--- PASS:/gm) ?? []).length;
+  const failed = (output.match(/^--- FAIL:/gm) ?? []).length;
+  const failedTests = [...output.matchAll(/^--- FAIL: (\S+)/gm)].map(
+    (m) => m[1],
+  );
+  return { passed, failed, skipped: 0, total: passed + failed, failedTests };
+}
+
+function parseCargoTestOutput(output: string): ParsedCounts {
+  const summaryMatch = output.match(
+    /test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed/,
+  );
+  const passed = summaryMatch?.[1] ? parseInt(summaryMatch[1], 10) : 0;
+  const failed = summaryMatch?.[2] ? parseInt(summaryMatch[2], 10) : 0;
+  const failedTests = [...output.matchAll(/^test (.+) \.\.\. FAILED/gm)].map(
+    (m) => m[1],
+  );
+  return { passed, failed, skipped: 0, total: passed + failed, failedTests };
+}
+
 function parseGenericOutput(output: string): ParsedCounts {
   const passed = (output.match(/\bPASS\b|\bok\b/g) ?? []).length;
   const failed = (output.match(/\bFAIL\b|\bFAILED\b/g) ?? []).length;
-  return { passed, failed, skipped: 0, failedTests: [] };
+  return {
+    passed,
+    failed,
+    skipped: 0,
+    total: passed + failed,
+    failedTests: [],
+  };
 }
 
 export const runTestsTool: Tool = {
@@ -169,7 +220,13 @@ export const runTestsTool: Tool = {
     const combined = `${stdout}\n${stderr}`.trim();
 
     let parsed: ParsedCounts;
-    if (runner === "vitest") {
+    if (runner === "pytest" || runner === "python") {
+      parsed = parsePytestOutput(combined);
+    } else if (runner === "go") {
+      parsed = parseGoTestOutput(combined);
+    } else if (runner === "cargo") {
+      parsed = parseCargoTestOutput(combined);
+    } else if (runner === "vitest") {
       parsed = parseVitestOutput(combined);
     } else if (runner === "jest") {
       parsed = parseJestOutput(combined);
