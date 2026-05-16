@@ -21,32 +21,74 @@ export class McpMarketplaceClient {
     private readonly manifestUrl: string = DEFAULT_MCP_MANIFEST_URL,
   ) {}
 
+  static isValidEntry(item: unknown): item is McpMarketplaceEntry {
+    return isValidManifestEntry(item);
+  }
+
   async fetchManifest(): Promise<McpMarketplaceEntry[]> {
     try {
-      const res = await fetch(this.manifestUrl);
+      const res = await fetch(this.manifestUrl, {
+        signal: AbortSignal.timeout(10_000),
+      });
       if (!res.ok) return [];
       const data = (await res.json()) as unknown;
       if (!Array.isArray(data)) return [];
-      return data as McpMarketplaceEntry[];
+      return (data as unknown[]).filter(isValidManifestEntry);
     } catch {
       return [];
     }
   }
 }
 
+/**
+ * Runtime guard: validates that a manifest entry has the required shape
+ * and correct field types before it is used. Rejects entries with missing
+ * required fields to prevent cryptic failures downstream.
+ */
+function isValidManifestEntry(item: unknown): item is McpMarketplaceEntry {
+  if (typeof item !== "object" || item === null) return false;
+  const e = item as Record<string, unknown>;
+  if (typeof e.name !== "string" || !e.name.trim()) return false;
+  if (typeof e.description !== "string") return false;
+  if (typeof e.author !== "string") return false;
+  if (typeof e.url !== "string") return false;
+  if (e.transport !== "stdio" && e.transport !== "sse") return false;
+  if (!Array.isArray(e.tags)) return false;
+  if (e.transport === "stdio" && typeof e.command !== "string") return false;
+  if (e.transport === "sse" && typeof e.baseUrl !== "string") return false;
+  return true;
+}
+
 export function buildMcpServerConfig(
   entry: McpMarketplaceEntry,
   resolvedEnv: Record<string, string>,
 ): MCPServerConfig {
-  const config: MCPServerConfig = {
-    name: entry.name,
-    transport: entry.transport,
-    ...(entry.transport === "stdio"
-      ? { command: entry.command!, args: entry.args ?? [] }
-      : { url: entry.baseUrl! }),
-    ...(Object.keys(resolvedEnv).length > 0 ? { env: resolvedEnv } : {}),
-  };
-  return config;
+  if (entry.transport === "stdio") {
+    if (!entry.command) {
+      throw new Error(
+        `MCP server "${entry.name}" has transport "stdio" but no command — cannot start`,
+      );
+    }
+    return {
+      name: entry.name,
+      transport: "stdio",
+      command: entry.command,
+      args: entry.args ?? [],
+      ...(Object.keys(resolvedEnv).length > 0 ? { env: resolvedEnv } : {}),
+    };
+  } else {
+    if (!entry.baseUrl) {
+      throw new Error(
+        `MCP server "${entry.name}" has transport "sse" but no baseUrl — cannot connect`,
+      );
+    }
+    return {
+      name: entry.name,
+      transport: "sse",
+      url: entry.baseUrl,
+      ...(Object.keys(resolvedEnv).length > 0 ? { env: resolvedEnv } : {}),
+    };
+  }
 }
 
 export function upsertMcpServer(

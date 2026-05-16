@@ -602,11 +602,28 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.editTracker.reset();
       } else if ((msg as { type: string }).type === "fetchMcpMarketplace") {
         void (async () => {
-          const { McpMarketplaceClient } =
-            await import("../marketplace/mcp-marketplace-client.js");
-          const client = new McpMarketplaceClient();
-          const entries = await client.fetchManifest();
-          this.postMessage({ type: "mcpMarketplaceEntries", entries });
+          try {
+            // Read the bundled manifest from the extension package.
+            // This eliminates the supply chain risk of fetching from a remote
+            // URL that could be compromised — no network call, no external trust.
+            const manifestUri = vscode.Uri.joinPath(
+              this.extensionUri,
+              "marketplace",
+              "mcp-manifest.json",
+            );
+            const bytes = await vscode.workspace.fs.readFile(manifestUri);
+            const raw = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+            const { McpMarketplaceClient } =
+              await import("../marketplace/mcp-marketplace-client.js");
+            const entries = Array.isArray(raw)
+              ? (raw as unknown[]).filter((e) =>
+                  McpMarketplaceClient.isValidEntry(e),
+                )
+              : [];
+            this.postMessage({ type: "mcpMarketplaceEntries", entries });
+          } catch {
+            this.postMessage({ type: "mcpMarketplaceEntries", entries: [] });
+          }
         })();
       } else if ((msg as { type: string }).type === "mcpMarketplaceInstall") {
         void vscode.commands.executeCommand("champ.browseMcpServers");
@@ -1013,7 +1030,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private emitEditSummary(): void {
     const edits = this.editTracker.flush();
     if (edits.length === 0) return;
-    this.postMessage({ type: "editSummary", edits });
+    // Cap content size before serialising through VS Code's postMessage channel.
+    // Oversized messages fail silently or crash the webview; 50 KB per side is
+    // generous for display purposes while staying well within safe limits.
+    const MAX_CHARS = 50_000;
+    const cappedEdits = edits.map((e) => ({
+      ...e,
+      oldContent:
+        e.oldContent.length > MAX_CHARS
+          ? e.oldContent.slice(0, MAX_CHARS) + "\n…[truncated]"
+          : e.oldContent,
+      newContent:
+        e.newContent.length > MAX_CHARS
+          ? e.newContent.slice(0, MAX_CHARS) + "\n…[truncated]"
+          : e.newContent,
+    }));
+    this.postMessage({ type: "editSummary", edits: cappedEdits });
   }
 
   /** Revert a file to its pre-edit content. */
@@ -1096,7 +1128,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none';
                  connect-src ${cspSource} https:;
-                 style-src ${cspSource} 'unsafe-inline';
+                 style-src ${cspSource};
                  script-src 'nonce-${nonce}';
                  img-src ${cspSource} data:;
                  font-src ${cspSource};" />

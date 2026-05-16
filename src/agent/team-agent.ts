@@ -50,24 +50,40 @@ export function extractSpawnRequests(
     try {
       const raw = JSON.parse(match[1]) as Partial<SpawnRequest>;
       if (
-        typeof raw.id === "string" && raw.id.trim() &&
-        typeof raw.name === "string" && raw.name.trim() &&
-        typeof raw.role === "string" && raw.role.trim() &&
-        typeof raw.systemPrompt === "string" && raw.systemPrompt.trim()
+        typeof raw.id === "string" &&
+        raw.id.trim() &&
+        typeof raw.name === "string" &&
+        raw.name.trim() &&
+        typeof raw.role === "string" &&
+        raw.role.trim() &&
+        typeof raw.systemPrompt === "string" &&
+        raw.systemPrompt.trim()
       ) {
         results.push({
           id: raw.id.trim(),
           name: raw.name.trim(),
           role: raw.role.trim(),
           systemPrompt: raw.systemPrompt.trim(),
-          dependsOn: Array.isArray(raw.dependsOn) ? (raw.dependsOn as string[]).map(String) : [],
-          tools: Array.isArray(raw.tools) ? (raw.tools as string[]).map(String) : [],
-          outputKey: typeof raw.outputKey === "string" ? raw.outputKey.trim() : raw.id.trim(),
-          model: typeof raw.model === "string" ? raw.model.trim() || undefined : undefined,
+          dependsOn: Array.isArray(raw.dependsOn)
+            ? (raw.dependsOn as string[]).map(String)
+            : [],
+          tools: Array.isArray(raw.tools)
+            ? (raw.tools as string[]).map(String)
+            : [],
+          outputKey:
+            typeof raw.outputKey === "string"
+              ? raw.outputKey.trim()
+              : raw.id.trim(),
+          model:
+            typeof raw.model === "string"
+              ? raw.model.trim() || undefined
+              : undefined,
         });
       }
     } catch (e) {
-      outputChannel?.appendLine(`[TeamAgent:${agentId}] Invalid SPAWN JSON: ${(e as Error).message}`);
+      outputChannel?.appendLine(
+        `[TeamAgent:${agentId}] Invalid SPAWN JSON: ${(e as Error).message}`,
+      );
     }
   }
   return results;
@@ -115,6 +131,7 @@ export class TeamAgent implements Agent {
     private readonly provider: LLMProvider,
     private readonly streamCallback?: (chunk: string) => void,
     private readonly toolRegistry?: ToolRegistry,
+    private readonly abortSignal?: AbortSignal,
   ) {
     this.name = def.id;
     this.role = def.role;
@@ -159,11 +176,15 @@ export class TeamAgent implements Agent {
       const channelData: Record<string, unknown> = {};
       const timeoutMs = 30_000;
       for (const channelName of this.def.subscribes) {
-        channelData[channelName] = await memory.subscribe(channelName, timeoutMs);
+        channelData[channelName] = await memory.subscribe(
+          channelName,
+          timeoutMs,
+        );
       }
-      channelBlock = Object.entries(channelData)
-        .map(([ch, val]) => `[Channel ${ch}]: ${JSON.stringify(val)}`)
-        .join("\n") + "\n\n";
+      channelBlock =
+        Object.entries(channelData)
+          .map(([ch, val]) => `[Channel ${ch}]: ${JSON.stringify(val)}`)
+          .join("\n") + "\n\n";
     }
 
     const retryContext = memory.get(`${this.def.id}_retry_context`) as
@@ -213,7 +234,7 @@ export class TeamAgent implements Agent {
         (memory.get("__workspaceRoot") as string | undefined) ?? process.cwd();
       const loop = new ToolCallingLoop(this.provider, this.toolRegistry, {
         workspaceRoot,
-        abortSignal: new AbortController().signal,
+        abortSignal: this.abortSignal ?? new AbortController().signal,
         reportProgress: () => {},
         requestApproval: async () => true,
       });
@@ -250,7 +271,8 @@ export class TeamAgent implements Agent {
     // SPAWN detection — collect dynamic agent requests before BLOCKED check
     const spawnRequests = extractSpawnRequests(text, this.def.id);
     if (spawnRequests.length > 0) {
-      const existing = (memory.get("__spawn_queue") as SpawnRequest[] | undefined) ?? [];
+      const existing =
+        (memory.get("__spawn_queue") as SpawnRequest[] | undefined) ?? [];
       memory.set("__spawn_queue", [...existing, ...spawnRequests]);
     }
 

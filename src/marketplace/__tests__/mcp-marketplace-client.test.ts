@@ -65,6 +65,7 @@ describe("McpMarketplaceClient.fetchManifest", () => {
     ).fetchManifest();
     expect(mockFetch).toHaveBeenCalledWith(
       "https://custom.com/mcp-manifest.json",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 });

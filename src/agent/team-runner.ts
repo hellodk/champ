@@ -400,6 +400,7 @@ export class TeamRunner {
                   });
                 },
                 scopedRegistry,
+                options.abortSignal,
               );
 
               let attempts = 0;
@@ -555,6 +556,7 @@ export class TeamRunner {
         memory.set("__spawn_queue", []);
         const maxDynamic = team.execution.maxDynamicAgents ?? 10;
 
+        let newAgentsThisGroup = 0;
         for (const request of spawnQueue) {
           // Cap at maxDynamicAgents
           if (spawnedCount >= maxDynamic) {
@@ -600,6 +602,7 @@ export class TeamRunner {
           // Accept the spawned agent
           allAgents.push(newAgentDef);
           spawnedCount++;
+          newAgentsThisGroup++;
 
           // Register state for this new agent
           agentStates.set(request.id, {
@@ -615,9 +618,10 @@ export class TeamRunner {
           console.info(`TeamRunner: accepted spawned agent "${request.id}"`);
         }
 
-        // If new agents were accepted, recompute remaining groups from all agents
-        // minus already-completed ones
-        if (spawnedCount > 0 && spawnQueue.length > 0) {
+        // If THIS group accepted new agents, recompute remaining execution groups.
+        // Uses per-group counter (not cumulative spawnedCount) so dropped-only
+        // rounds don't trigger a redundant recompute.
+        if (newAgentsThisGroup > 0) {
           const pendingAgents = allAgents.filter(
             (a) => !completedIds.has(a.id),
           );

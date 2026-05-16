@@ -305,6 +305,7 @@ export class DiffOverlayController
   implements vscode.HoverProvider, vscode.CodeLensProvider
 {
   private pendingDiffs = new Map<string, PendingFileDiff>();
+  private writeQueues = new Map<string, Promise<void>>();
 
   // ── Decoration types (created once, live for the controller's lifetime) ──
 
@@ -394,7 +395,7 @@ export class DiffOverlayController
     );
     if (!hunk) return;
     diff.acceptedIndices.add(hunk.index);
-    void this._checkAllResolved(filePath);
+    this._enqueueWrite(filePath);
     this._applyDecorationsForFile(filePath);
     this._onDidChangeCodeLenses.fire();
   }
@@ -408,7 +409,7 @@ export class DiffOverlayController
     );
     if (!hunk) return;
     diff.rejectedIndices.add(hunk.index);
-    void this._checkAllResolved(filePath);
+    this._enqueueWrite(filePath);
     this._applyDecorationsForFile(filePath);
     this._onDidChangeCodeLenses.fire();
   }
@@ -418,7 +419,7 @@ export class DiffOverlayController
     const diff = this.pendingDiffs.get(filePath);
     if (!diff) return;
     for (const h of diff.hunks) diff.acceptedIndices.add(h.index);
-    void this._checkAllResolved(filePath);
+    this._enqueueWrite(filePath);
     this._applyDecorationsForFile(filePath);
     this._onDidChangeCodeLenses.fire();
   }
@@ -428,7 +429,7 @@ export class DiffOverlayController
     const diff = this.pendingDiffs.get(filePath);
     if (!diff) return;
     for (const h of diff.hunks) diff.rejectedIndices.add(h.index);
-    void this._checkAllResolved(filePath);
+    this._enqueueWrite(filePath);
     this._applyDecorationsForFile(filePath);
     this._onDidChangeCodeLenses.fire();
   }
@@ -582,7 +583,20 @@ export class DiffOverlayController
     }
   }
 
-  private async _checkAllResolved(filePath: string): Promise<void> {
+  private _enqueueWrite(filePath: string): void {
+    const prev = this.writeQueues.get(filePath) ?? Promise.resolve();
+    const next = prev
+      .then(() => this._doCheckAllResolved(filePath))
+      .catch((err: unknown) => {
+        console.error(
+          `DiffOverlayController: write failed for ${filePath}:`,
+          err,
+        );
+      });
+    this.writeQueues.set(filePath, next);
+  }
+
+  private async _doCheckAllResolved(filePath: string): Promise<void> {
     const diff = this.pendingDiffs.get(filePath);
     if (!diff) return;
 
@@ -607,6 +621,7 @@ export class DiffOverlayController
     // Dispose decorations and remove from map.
     this._disposeDecorationsForFile(filePath);
     this.pendingDiffs.delete(filePath);
+    this.writeQueues.delete(filePath);
     this._onDidChangeCodeLenses.fire();
   }
 }
