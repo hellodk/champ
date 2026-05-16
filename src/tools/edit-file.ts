@@ -6,6 +6,7 @@
  * once in the file; ambiguous matches are rejected.
  */
 import * as vscode from "vscode";
+import * as fs from "fs/promises";
 import type {
   Tool,
   ToolResult,
@@ -77,9 +78,24 @@ export const editFileTool: Tool = {
     }
 
     try {
-      const uri = vscode.Uri.file(resolved);
-      const doc = await vscode.workspace.openTextDocument(uri);
-      const text = doc.getText();
+      // Staging mode: read from staging buffer (if already modified this turn)
+      // or from disk. Write to staging buffer only — flush happens after turn.
+      // This lets multiple edits to the same file within one turn compose
+      // correctly and makes the final write atomic across all edited files.
+      let text: string;
+      if (context.stagedEdits?.has(resolved)) {
+        text = context.stagedEdits.getCurrent(resolved)!;
+      } else {
+        // Prefer VS Code's live document model (reflects unsaved changes in
+        // open editors); fall back to reading from disk.
+        try {
+          const uri = vscode.Uri.file(resolved);
+          const doc = await vscode.workspace.openTextDocument(uri);
+          text = doc.getText();
+        } catch {
+          text = await fs.readFile(resolved, "utf-8");
+        }
+      }
 
       const firstIdx = text.indexOf(oldContent);
       let matchStart = firstIdx;
@@ -87,12 +103,8 @@ export const editFileTool: Tool = {
       let fuzzyWarning: string | undefined;
 
       if (firstIdx === -1) {
-        // Fuzzy fallback: try normalized whitespace match, then LCS proximity
         const fuzzyMatch = findFuzzyMatch(text, oldContent);
         if (fuzzyMatch === null) {
-          // Verbose error: include the actual file content (capped) so the
-          // model can self-correct on the next turn rather than retrying
-          // with the same wrong snippet. See HALLUCINATION_MITIGATION.md.
           return {
             success: false,
             output: formatNotFoundError(relativePath, text, oldContent),
@@ -100,51 +112,55 @@ export const editFileTool: Tool = {
         }
         matchStart = fuzzyMatch.start;
         matchEnd = fuzzyMatch.end;
-        // Compute 1-based line number for user-facing warning
         const matchLine = text.slice(0, matchStart).split("\n").length;
         fuzzyWarning = `Note: exact match not found — applied fuzzy match at line ${matchLine}. Review carefully.`;
       } else {
-        // Warn if the match is ambiguous.
         const secondIdx = text.indexOf(oldContent, firstIdx + 1);
         if (secondIdx !== -1) {
           return {
             success: false,
-            output: `Ambiguous match: old_content appears multiple times in ${relativePath}. Provide a longer, unique snippet that includes more surrounding context (e.g. the full enclosing function).`,
+            output: `Ambiguous match: old_content appears multiple times in ${relativePath}. Provide a longer, unique snippet that includes more surrounding context.`,
           };
         }
       }
 
-      const startPos = doc.positionAt(matchStart);
-      const endPos = doc.positionAt(matchEnd);
-      const range = new vscode.Range(startPos, endPos);
-
-      const edit = new vscode.WorkspaceEdit();
-      edit.replace(uri, range, newContent);
-      const applied = await vscode.workspace.applyEdit(edit);
-
-      if (!applied) {
-        return {
-          success: false,
-          output: `Failed to apply edit to ${relativePath}`,
-        };
-      }
-
-      // Compute new full-file text for diff tracking
       const newText =
         text.slice(0, matchStart) + newContent + text.slice(matchEnd);
 
-      // Record in tracker for diff review panel
-      if (context.editReviewTracker) {
-        context.editReviewTracker.record({
-          path: relativePath,
-          oldContent: text,
-          newContent: newText,
-        });
+      if (context.stagedEdits) {
+        // Staging mode: buffer the edit — do NOT write to disk yet.
+        context.stagedEdits.stage(resolved, text, newText, relativePath);
+      } else {
+        // Immediate mode (no staging): write through VS Code's document model.
+        const uri = vscode.Uri.file(resolved);
+        const doc = await vscode.workspace.openTextDocument(uri);
+        const startPos = doc.positionAt(matchStart);
+        const endPos = doc.positionAt(matchEnd);
+        const wsEdit = new vscode.WorkspaceEdit();
+        wsEdit.replace(uri, new vscode.Range(startPos, endPos), newContent);
+        const applied = await vscode.workspace.applyEdit(wsEdit);
+        if (!applied) {
+          return {
+            success: false,
+            output: `Failed to apply edit to ${relativePath}`,
+          };
+        }
+        // Record in tracker for diff review panel (immediate mode only;
+        // staging mode records are emitted after flush).
+        if (context.editReviewTracker) {
+          context.editReviewTracker.record({
+            path: relativePath,
+            oldContent: text,
+            newContent: newText,
+          });
+        }
       }
 
       const successMsg = fuzzyWarning
-        ? `Successfully edited ${relativePath}\n${fuzzyWarning}`
-        : `Successfully edited ${relativePath}`;
+        ? `Staged edit for ${relativePath}\n${fuzzyWarning}`
+        : context.stagedEdits
+          ? `Staged edit for ${relativePath} (will write when turn completes)`
+          : `Successfully edited ${relativePath}`;
 
       return {
         success: true,

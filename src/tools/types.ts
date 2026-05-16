@@ -25,6 +25,13 @@ export interface ToolExecutionContext {
   ) => Promise<boolean>;
   /** Optional tracker for recording file edits for diff review. */
   editReviewTracker?: import("../agent/edit-review-tracker").EditReviewTracker;
+  /**
+   * Optional staging buffer for atomic multi-file edits.
+   * When present, edit_file writes to this buffer instead of disk.
+   * read_file reads from this buffer before falling back to disk.
+   * Flushed to disk at the end of the agent turn.
+   */
+  stagedEdits?: import("../agent/staged-edits").StagedEdits;
 }
 
 /**

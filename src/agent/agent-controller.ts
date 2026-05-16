@@ -41,6 +41,7 @@ import type { ToolRegistry } from "../tools/registry";
 import type { ToolExecutionContext, ToolResult } from "../tools/types";
 import { ContextWindowManager } from "../providers/context-manager";
 import type { MemoryBank } from "../memory/memory-bank";
+import { StagedEdits } from "./staged-edits";
 
 export { PromptInjectionError };
 
@@ -562,6 +563,10 @@ export class AgentController {
       }
     }
 
+    // Staging buffer: all edit_file calls within this agent turn write to
+    // this buffer instead of disk. Flushed atomically after the loop ends.
+    const stagedEdits = new StagedEdits();
+
     let iterationRan = false;
     for (let iteration = 0; iteration < maxIterations; iteration++) {
       if (options.abortSignal?.aborted) break;
@@ -768,6 +773,7 @@ export class AgentController {
           },
           requestApproval: options.requestApproval ?? (async () => true),
           editReviewTracker: this.editReviewTracker,
+          stagedEdits,
         };
 
         const result = await this.toolRegistry.execute(
@@ -849,6 +855,22 @@ export class AgentController {
             role: "tool",
             content: [toolResultBlock],
             toolCallId: call.id,
+          });
+        }
+      }
+    }
+
+    // Flush all staged file edits to disk atomically now that the turn is done.
+    // This ensures edits across multiple files are applied together — no half-
+    // applied states — and later edits to the same file correctly compose.
+    if (stagedEdits.size() > 0) {
+      const flushed = await stagedEdits.flush();
+      for (const change of flushed) {
+        if (this.editReviewTracker) {
+          this.editReviewTracker.record({
+            path: change.relativePath,
+            oldContent: change.oldContent,
+            newContent: change.newContent,
           });
         }
       }

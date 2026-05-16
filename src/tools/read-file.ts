@@ -49,9 +49,16 @@ export const readFileTool: Tool = {
     }
 
     try {
-      const uri = vscode.Uri.file(resolved);
-      const data = await vscode.workspace.fs.readFile(uri);
-      const content = new TextDecoder().decode(data);
+      // Check staging buffer first: if the agent already modified this file
+      // in the current turn, the staged content is the ground truth.
+      let content: string;
+      if (context.stagedEdits?.has(resolved)) {
+        content = context.stagedEdits.getCurrent(resolved)!;
+      } else {
+        const uri = vscode.Uri.file(resolved);
+        const data = await vscode.workspace.fs.readFile(uri);
+        content = new TextDecoder().decode(data);
+      }
       const lines = content.split("\n");
 
       const startLine = Math.max(
