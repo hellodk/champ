@@ -47,6 +47,7 @@ export class SmartRouter {
   private discovered = false;
   private lastModelsSig = "";
   private discovering = false; // Fix 4: race guard
+  private pendingRediscover = false; // missed-wake guard
   private routeCache = new Map<string, RouteResult | null>(); // Fix 6: cache
 
   /**
@@ -66,8 +67,12 @@ export class SmartRouter {
    * Non-blocking — call with `void`, don't await during activation.
    */
   async discover(): Promise<void> {
-    // Fix 4: debounce concurrent calls
-    if (this.discovering) return;
+    // Fix 4: debounce concurrent calls; track if a re-discover was requested
+    // while one was already in flight (missed-wake guard).
+    if (this.discovering) {
+      this.pendingRediscover = true;
+      return;
+    }
     this.discovering = true;
     try {
       const entries = Array.from(this.providerMap.entries());
@@ -75,12 +80,21 @@ export class SmartRouter {
         entries.map(([name, entry]) => this.discoverFromProvider(name, entry)),
       );
 
-      const allModels: DiscoveredModel[] = [];
+      const raw: DiscoveredModel[] = [];
       for (const result of results) {
         if (result.status === "fulfilled") {
-          allModels.push(...result.value);
+          raw.push(...result.value);
         }
       }
+
+      // Deduplicate: same providerName+id from two registered entries
+      const seen = new Set<string>();
+      const allModels = raw.filter((m) => {
+        const key = `${m.providerName}:${m.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
 
       const wasDiscovered = this.discovered;
       this.models = allModels;
@@ -104,6 +118,11 @@ export class SmartRouter {
       }
     } finally {
       this.discovering = false;
+      // Flush any missed wake that arrived while we were busy
+      if (this.pendingRediscover) {
+        this.pendingRediscover = false;
+        void this.discover();
+      }
     }
   }
 
@@ -129,13 +148,24 @@ export class SmartRouter {
       if (override !== null && override !== undefined) {
         const model = this.models.find((m) => m.id === override);
         if (model) {
-          const entry = this.providerMap.get(model.providerName);
-          if (entry) {
-            return {
-              model,
-              provider: entry.provider,
-              reason: `routing.${taskType} override`,
-            };
+          // Guard: never use an embedding model for a non-embedding task,
+          // even when explicitly overridden in config — it will always error.
+          if (
+            taskType !== "embedding" &&
+            model.capabilities.includes("embedding")
+          ) {
+            console.warn(
+              `Champ SmartRouter: routing.${taskType} override "${override}" is an embedding model — ignoring.`,
+            );
+          } else {
+            const entry = this.providerMap.get(model.providerName);
+            if (entry) {
+              return {
+                model,
+                provider: entry.provider,
+                reason: `routing.${taskType} override`,
+              };
+            }
           }
         }
       }
@@ -146,13 +176,21 @@ export class SmartRouter {
     if (this.mode === "manual" && this.manualModelId) {
       const model = this.models.find((m) => m.id === this.manualModelId);
       if (model) {
-        const entry = this.providerMap.get(model.providerName);
-        if (entry) {
-          return {
-            model,
-            provider: entry.provider,
-            reason: "manual selection",
-          };
+        // Guard: never use an embedding model for a non-embedding task.
+        if (
+          taskType !== "embedding" &&
+          model.capabilities.includes("embedding")
+        ) {
+          // Fall through to smart selection rather than erroring
+        } else {
+          const entry = this.providerMap.get(model.providerName);
+          if (entry) {
+            return {
+              model,
+              provider: entry.provider,
+              reason: "manual selection",
+            };
+          }
         }
       }
       return null;
@@ -165,6 +203,14 @@ export class SmartRouter {
     let bestReason = "";
 
     for (const model of this.models) {
+      // Hard-exclude embedding models from non-embedding tasks.
+      // The -999 score penalty is a soft signal; this is the hard gate.
+      if (
+        taskType !== "embedding" &&
+        model.capabilities.includes("embedding")
+      ) {
+        continue;
+      }
       const s = score(model, taskType);
       if (s > bestScore) {
         bestScore = s;
@@ -239,23 +285,30 @@ export class SmartRouter {
   }
 
   /**
-   * Discover models from a single provider with a timeout.
+   * Discover models from a single provider with a hard timeout.
+   * Uses AbortController so in-flight fetch calls are actually cancelled
+   * when the timeout fires — no resource leak.
    */
   private async discoverFromProvider(
     name: string,
     entry: ProviderEntry,
   ): Promise<DiscoveredModel[]> {
-    return Promise.race([
-      this.fetchModels(name, entry),
-      new Promise<DiscoveredModel[]>((resolve) =>
-        setTimeout(() => resolve([]), DISCOVERY_TIMEOUT_MS),
-      ),
-    ]);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), DISCOVERY_TIMEOUT_MS);
+    try {
+      return await this.fetchModels(name, entry, controller.signal);
+    } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") return [];
+      return [];
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private async fetchModels(
     name: string,
     entry: ProviderEntry,
+    signal: AbortSignal,
   ): Promise<DiscoveredModel[]> {
     const results: DiscoveredModel[] = [];
     const baseUrl = (entry.baseUrl ?? "").replace(/\/+$/, "");
@@ -273,16 +326,16 @@ export class SmartRouter {
             listModels: () => Promise<Array<{ id: string; name: string }>>;
           }
         ).listModels();
-        // Use safe context default; extract quantization from name when not in metadata
         for (const m of models) {
+          // Classify by display name (better heuristics) but store by id
           const quantFromName = extractQuantFromName(m.name);
           const classified = classify(m.name, quantFromName);
           results.push({
-            id: m.name,
+            id: m.id, // use canonical ID, not display name
             providerName: name,
             providerType: entry.type,
             ...classified,
-            contextWindow: 8192, // safe default; /api/tags overrides this for Ollama
+            contextWindow: 8192,
           });
         }
         if (results.length > 0) return results;
@@ -293,30 +346,24 @@ export class SmartRouter {
 
     // Fix 3: Fallback: try Ollama /api/tags — use real context window and quantization
     try {
-      const res = await fetch(`${baseUrl}/api/tags`);
+      const res = await fetch(`${baseUrl}/api/tags`, { signal });
       if (res.ok) {
         const data = (await res.json()) as {
           models?: Array<{
             name: string;
             details?: {
-              parameter_size?: string; // e.g. "8B", "14B"
-              quantization_level?: string; // e.g. "Q4_0", "Q4_K_M"
+              parameter_size?: string;
+              quantization_level?: string;
               context_length?: number;
             };
           }>;
         };
         for (const m of data.models ?? []) {
-          // Use parameter_size from details if available (more reliable than name parsing)
           const paramSize = m.details?.parameter_size ?? "";
           const quantLevel = m.details?.quantization_level ?? "";
           const contextLength = m.details?.context_length ?? 8192;
-
-          // Merge name-based and details-based size info
           const classified = classify(m.name, quantLevel);
-
-          // Override sizeHint with more reliable details data if available
           const sizeHint = paramSize || classified.sizeHint;
-
           results.push({
             id: m.name,
             providerName: name,
@@ -331,13 +378,13 @@ export class SmartRouter {
         if (results.length > 0) return results;
       }
     } catch {
-      /* offline */
+      /* offline or aborted */
     }
 
     // Fallback: try /v1/models (OpenAI-compatible)
     try {
       const cleanBase = baseUrl.replace(/\/v1\/?$/, "");
-      const res = await fetch(`${cleanBase}/v1/models`);
+      const res = await fetch(`${cleanBase}/v1/models`, { signal });
       if (res.ok) {
         const data = (await res.json()) as {
           data?: Array<{ id: string }>;
@@ -354,14 +401,14 @@ export class SmartRouter {
         }
       }
     } catch {
-      /* offline */
+      /* offline or aborted */
     }
 
     // Fallback: try /props (llama.cpp)
     if (results.length === 0) {
       try {
         const cleanBase = baseUrl.replace(/\/v1\/?$/, "");
-        const res = await fetch(`${cleanBase}/props`);
+        const res = await fetch(`${cleanBase}/props`, { signal });
         if (res.ok) {
           const data = (await res.json()) as {
             default_generation_settings?: {
@@ -382,7 +429,7 @@ export class SmartRouter {
           });
         }
       } catch {
-        /* offline */
+        /* offline or aborted */
       }
     }
 
@@ -418,9 +465,11 @@ function classify(
   const lower = name.toLowerCase();
   const capabilities: ModelCapability[] = [];
 
-  // Embedding models (exclusive — never mix with chat/coding)
+  // Embedding models (exclusive — never mix with chat/coding).
+  // Early return ensures embedding models ONLY get ["embedding"] — they never
+  // accumulate "general" or "instruct" from later checks.
   if (
-    /embed|nomic|bge|e5-|gte|jina|minilm|all-mini|mxbai|voyage|rerank/.test(
+    /embed|nomic|bge|e5-|gte|jina|minilm|all-mini|mxbai|voyage|rerank|instructor|mpnet|labse|sentence-t5|splade/.test(
       lower,
     )
   ) {
@@ -433,15 +482,20 @@ function classify(
     };
   }
 
-  // Coding-specialist models
+  // Coding-specialist models.
+  // Use \bcoder to avoid false-positive on "decoder" (common architecture term).
   if (
-    /coder|codestral|deepseek-coder|codellama|wizardcoder|starcoder/.test(lower)
+    /\bcoder|codestral|deepseek-coder|codellama|wizardcoder|starcoder/.test(
+      lower,
+    )
   ) {
     capabilities.push("coding");
   }
 
-  // Instruction-tuned models (gguf removed — it's a file format, not a capability)
-  if (/instruct|chat|it\b/.test(lower)) {
+  // Instruction-tuned models.
+  // [-_.]it matches the standard "-it" / "_it" suffix (gemma-2-9b-it, phi3-mini-it).
+  // Avoids false positives from words that end in "it" (audit, orbit, profit).
+  if (/instruct|chat|[-_.]it(?:\b|$)/.test(lower)) {
     capabilities.push("instruct");
   }
 
@@ -465,8 +519,20 @@ function classify(
   const sizeMatch =
     lower.match(/(?:[:_\-x]|^)(\d+\.?\d*)b(?:\b|$)/) ??
     lower.match(/(\d+\.?\d*)b$/);
-  const sizeB = sizeMatch ? parseFloat(sizeMatch[1]) : 7;
-  const sizeHint = sizeMatch ? `${sizeMatch[1]}B` : "unknown";
+  let sizeB = sizeMatch ? parseFloat(sizeMatch[1]) : 7;
+  let sizeHint = sizeMatch ? `${sizeMatch[1]}B` : "unknown";
+
+  // MoE (Mixture-of-Experts) size correction: the per-expert size from the model
+  // name (e.g. "8x7B" → 7B) massively underestimates memory footprint because
+  // ALL expert weights must reside in VRAM even though only 2 are active per token.
+  // Use experts × per-expert as the effective size for speed/scoring purposes.
+  const moeMatch = lower.match(/(\d+)x(\d+\.?\d*)b/);
+  if (moeMatch) {
+    const experts = parseInt(moeMatch[1], 10);
+    const perExpert = parseFloat(moeMatch[2]);
+    sizeB = experts * perExpert;
+    sizeHint = `${sizeB}B`; // e.g. "46B" for mixtral:8x7b
+  }
 
   // Quantization-aware speed classification
   const quant = (quantization ?? "").toLowerCase();

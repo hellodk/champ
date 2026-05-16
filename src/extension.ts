@@ -261,12 +261,16 @@ export async function activate(
     const discovered = smartRouter!.getModels();
     const discoveredProviders = new Set(discovered.map((m) => m.providerName));
 
-    // Build the available list: only auto-detected (reachable) models.
-    const available: AvailableProviderModel[] = discovered.map((m) => ({
-      providerName: m.providerName,
-      modelName: m.id,
-      label: `${m.id} (${m.providerName}) ${m.capabilities.join(", ")}`,
-    }));
+    // Build the available list: only auto-detected (reachable) chat/coding models.
+    // Embedding-only models are excluded — selecting one as active chat model
+    // would route every user message to an embedding endpoint.
+    const available: AvailableProviderModel[] = discovered
+      .filter((m) => !m.capabilities.includes("embedding"))
+      .map((m) => ({
+        providerName: m.providerName,
+        modelName: m.id,
+        label: `${m.id} (${m.providerName}) ${m.capabilities.join(", ")}`,
+      }));
 
     // Append config-defined but unreachable providers.
     // Cloud providers (no baseUrl) show normally — they just need an API key.
@@ -657,15 +661,18 @@ export async function activate(
     const provider = inlineProviderRef.current;
     if (provider.name !== "not-configured") {
       // Rebuild current available list from SmartRouter state + YAML static models.
+      // Exclude embedding-only models from the picker.
       const discovered = smartRouter?.getModels() ?? [];
       const discoveredProviders = new Set(
         discovered.map((m) => m.providerName),
       );
-      const available: AvailableProviderModel[] = discovered.map((m) => ({
-        providerName: m.providerName,
-        modelName: m.id,
-        label: `${m.id} (${m.providerName}) ${m.capabilities.join(", ")}`,
-      }));
+      const available: AvailableProviderModel[] = discovered
+        .filter((m) => !m.capabilities.includes("embedding"))
+        .map((m) => ({
+          providerName: m.providerName,
+          modelName: m.id,
+          label: `${m.id} (${m.providerName}) ${m.capabilities.join(", ")}`,
+        }));
       if (cachedYamlConfig?.providers) {
         for (const [pName, pConf] of Object.entries(
           cachedYamlConfig.providers,

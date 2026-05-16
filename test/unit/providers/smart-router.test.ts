@@ -223,7 +223,7 @@ describe("SmartRouter", () => {
     expect(result!.model.id).toBe("deepseek-v2:16b");
   });
 
-  it("disqualifies embedding models from chat and coding tasks", () => {
+  it("hard-excludes embedding models from chat and coding tasks", () => {
     (router as unknown as { models: DiscoveredModel[] }).models = [
       mockModel({
         id: "nomic-embed",
@@ -237,11 +237,12 @@ describe("SmartRouter", () => {
       "ollama",
     );
 
-    const coding = router.select("coding");
-    const chat = router.select("chat");
-    // Should still return something (even with negative score) but the
-    // embedding model is heavily penalized.
-    expect(coding!.model.id).toBe("nomic-embed");
-    // Score should be very low.
+    // When only embedding models are available, coding and chat must return
+    // null — never route a user message to an embedding endpoint.
+    expect(router.select("coding")).toBeNull();
+    expect(router.select("chat")).toBeNull();
+
+    // The embedding model IS returned for the embedding task type.
+    expect(router.select("embedding")!.model.id).toBe("nomic-embed");
   });
 });
