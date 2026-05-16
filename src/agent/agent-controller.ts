@@ -31,6 +31,7 @@ import {
   injectToolsIntoPrompt,
   parseToolCallsFromText,
   extractTextContent,
+  extractPreToolText,
 } from "../providers/prompt-based-tools";
 import { SecretScanner } from "../safety/secret-scanner";
 import { PiiScanner } from "../safety/pii-scanner";
@@ -78,6 +79,7 @@ These tools work. They execute in the user's real workspace. Use them without he
 
 1. **Act, don't describe.** User asks for action → call the tool. A description is not a result.
 2. **Verify before claim.** Before stating a file/function/variable exists, read or grep for it first.
+3. **Never narrate outcomes before seeing results.** After writing a <tool_call> block, write NOTHING else in that response. The tool result appears automatically. Phrases like "The file has been saved", "The command succeeded", "The diagram has been generated" written before the tool runs are fabrications. State only your intent, call the tool, stop.
 3. **Read before edit.** Always read_file before edit_file so you use the actual current content.
 4. **Honest failure.** If a tool returns nothing or errors, say so. Never fabricate a result.
 5. **No permission-asking.** The user has already given you permission by asking. Just do it.
@@ -710,7 +712,7 @@ export class AgentController {
           pendingToolCalls.push(call);
           toolStartTimes.set(call.id, promptToolStart);
         }
-        const cleaned = extractTextContent(assistantText);
+        const cleaned = extractPreToolText(assistantText);
         if (cleaned) {
           this.emit({ type: "text", text: cleaned });
           collectedText.push(cleaned);
