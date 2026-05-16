@@ -69,6 +69,13 @@ export interface TeamAgentDefinition {
    * is triggered. Default: false.
    */
   selfCritique?: boolean;
+  /**
+   * List of channel names this agent subscribes to before executing.
+   * For each channel, the agent waits (up to 30s) for a publish event
+   * before starting its main LLM call. Channel data is injected into the
+   * user message as [Channel <name>]: <json>. Default: [].
+   */
+  subscribes?: string[];
 }
 
 /** Team-level execution configuration. */
@@ -85,6 +92,11 @@ export interface TeamExecutionConfig {
   checkpoints: boolean;
   /** Whether to pause for user approval at each agent boundary. Default: "auto". */
   mode: TeamExecutionMode;
+  /**
+   * Maximum number of dynamically spawned agents allowed during a run.
+   * SPAWN requests beyond this cap are silently dropped. Default: 10.
+   */
+  maxDynamicAgents?: number;
 }
 
 /** Default model + parameters applied to agents that don't override. */

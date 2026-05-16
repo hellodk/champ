@@ -20,6 +20,7 @@ function makeAgent(
     outputKey: id,
     outputFormat: "text" as const,
     selfCritique: false,
+    subscribes: [],
   };
 }
 

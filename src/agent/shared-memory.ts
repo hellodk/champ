@@ -63,4 +63,25 @@ export class SharedMemory implements ISharedMemory {
     this.outputs.clear();
     this.mailboxes.clear();
   }
+
+  publish(channel: string, data: unknown): void {
+    this.state.set(`__channel:${channel}`, data);
+  }
+
+  hasChannel(channel: string): boolean {
+    return this.state.has(`__channel:${channel}`);
+  }
+
+  async subscribe(channel: string, timeoutMs: number): Promise<unknown> {
+    const deadline = Date.now() + timeoutMs;
+    let delay = 50;
+    while (Date.now() < deadline) {
+      if (this.state.has(`__channel:${channel}`)) {
+        return this.state.get(`__channel:${channel}`);
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, delay));
+      delay = Math.min(delay * 2, 2000);
+    }
+    return null;
+  }
 }

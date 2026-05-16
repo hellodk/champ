@@ -25,6 +25,54 @@ import { ToolCallingLoop } from "./tool-calling-loop";
 import type { ToolRegistry } from "../tools/registry";
 import { ContextWindowManager } from "../providers/context-manager";
 
+export interface SpawnRequest {
+  id: string;
+  name: string;
+  role: string;
+  systemPrompt: string;
+  dependsOn: string[];
+  tools: string[];
+  outputKey: string;
+  model?: string;
+}
+
+const SPAWN_LINE_RE = /^SPAWN: (\{.+\})$/gm;
+
+export function extractSpawnRequests(
+  rawOutput: string,
+  agentId: string,
+  outputChannel?: { appendLine: (line: string) => void },
+): SpawnRequest[] {
+  const results: SpawnRequest[] = [];
+  let match: RegExpExecArray | null;
+  SPAWN_LINE_RE.lastIndex = 0;
+  while ((match = SPAWN_LINE_RE.exec(rawOutput)) !== null) {
+    try {
+      const raw = JSON.parse(match[1]) as Partial<SpawnRequest>;
+      if (
+        typeof raw.id === "string" && raw.id.trim() &&
+        typeof raw.name === "string" && raw.name.trim() &&
+        typeof raw.role === "string" && raw.role.trim() &&
+        typeof raw.systemPrompt === "string" && raw.systemPrompt.trim()
+      ) {
+        results.push({
+          id: raw.id.trim(),
+          name: raw.name.trim(),
+          role: raw.role.trim(),
+          systemPrompt: raw.systemPrompt.trim(),
+          dependsOn: Array.isArray(raw.dependsOn) ? (raw.dependsOn as string[]).map(String) : [],
+          tools: Array.isArray(raw.tools) ? (raw.tools as string[]).map(String) : [],
+          outputKey: typeof raw.outputKey === "string" ? raw.outputKey.trim() : raw.id.trim(),
+          model: typeof raw.model === "string" ? raw.model.trim() || undefined : undefined,
+        });
+      }
+    } catch (e) {
+      outputChannel?.appendLine(`[TeamAgent:${agentId}] Invalid SPAWN JSON: ${(e as Error).message}`);
+    }
+  }
+  return results;
+}
+
 const BLOCKED_PREFIX = "BLOCKED:";
 
 const CRITIC_PROMPT = `Review your previous response critically.
@@ -105,12 +153,25 @@ export class TeamAgent implements Agent {
             .join("\n\n---\n\n")
         : "";
 
+    // Channel subscription: wait for upstream channels before executing
+    let channelBlock = "";
+    if (this.def.subscribes && this.def.subscribes.length > 0) {
+      const channelData: Record<string, unknown> = {};
+      const timeoutMs = 30_000;
+      for (const channelName of this.def.subscribes) {
+        channelData[channelName] = await memory.subscribe(channelName, timeoutMs);
+      }
+      channelBlock = Object.entries(channelData)
+        .map(([ch, val]) => `[Channel ${ch}]: ${JSON.stringify(val)}`)
+        .join("\n") + "\n\n";
+    }
+
     const retryContext = memory.get(`${this.def.id}_retry_context`) as
       | string
       | undefined;
     const userContent = retryContext
-      ? `${input.userRequest}${contextText}\n\n[Additional context for retry]: ${retryContext}`
-      : input.userRequest + contextText;
+      ? `${channelBlock}${input.userRequest}${contextText}\n\n[Additional context for retry]: ${retryContext}`
+      : channelBlock + input.userRequest + contextText;
 
     const messages: LLMMessage[] = [
       { role: "system", content: resolvedPrompt },
@@ -184,6 +245,13 @@ export class TeamAgent implements Agent {
       };
       memory.setOutput(this.def.outputKey, output);
       return output;
+    }
+
+    // SPAWN detection — collect dynamic agent requests before BLOCKED check
+    const spawnRequests = extractSpawnRequests(text, this.def.id);
+    if (spawnRequests.length > 0) {
+      const existing = (memory.get("__spawn_queue") as SpawnRequest[] | undefined) ?? [];
+      memory.set("__spawn_queue", [...existing, ...spawnRequests]);
     }
 
     // BLOCKED detection

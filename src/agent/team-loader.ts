@@ -138,6 +138,10 @@ export class TeamLoader {
         );
       }
 
+      const subscribes: string[] = Array.isArray(a.subscribes)
+        ? (a.subscribes as unknown[]).map(String)
+        : [];
+
       return {
         id,
         name: agentName,
@@ -151,6 +155,7 @@ export class TeamLoader {
         outputKey: String(a.outputKey ?? id).trim(),
         outputFormat: outputFormat as "text" | "json" | "files",
         selfCritique: Boolean(a.selfCritique ?? false),
+        subscribes,
       };
     });
 
@@ -185,6 +190,10 @@ export class TeamLoader {
       mode:
         (execRaw.mode as "auto" | "safe" | "supervised") ??
         DEFAULT_EXECUTION.mode,
+      maxDynamicAgents:
+        execRaw.maxDynamicAgents != null
+          ? Number(execRaw.maxDynamicAgents)
+          : undefined,
     };
 
     // Validate execution.mode

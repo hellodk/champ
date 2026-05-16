@@ -17,10 +17,13 @@ import { TeamAgent } from "./team-agent";
 import type {
   TeamDefinition,
   TeamAgentDefinition,
+  TeamExecutionConfig,
+  TeamDefaults,
   TeamRunState,
   TeamAgentRunState,
   TeamAgentStatus,
 } from "./team-definition";
+import type { SpawnRequest } from "./team-agent";
 import type { LLMProvider } from "../providers/types";
 import type { ToolRegistry } from "../tools/registry";
 import type { TeamRunStore } from "../ui/team-run-store";
@@ -72,6 +75,58 @@ async function writeCheckpoint(
   } catch {
     // Checkpoint write failure is non-fatal
   }
+}
+
+function hasCycle(agents: Required<TeamAgentDefinition>[]): boolean {
+  const inDegree = new Map<string, number>();
+  const adj = new Map<string, string[]>();
+  for (const a of agents) { inDegree.set(a.id, 0); adj.set(a.id, []); }
+  const knownIds = new Set(agents.map((a) => a.id));
+  for (const a of agents) {
+    for (const dep of a.dependsOn) {
+      if (knownIds.has(dep)) {
+        adj.get(dep)!.push(a.id);
+        inDegree.set(a.id, (inDegree.get(a.id) ?? 0) + 1);
+      }
+    }
+  }
+  let frontier = [...inDegree.entries()].filter(([, d]) => d === 0).map(([id]) => id);
+  let processed = 0;
+  while (frontier.length > 0) {
+    const next: string[] = [];
+    for (const nodeId of frontier) {
+      processed++;
+      for (const neighborId of adj.get(nodeId) ?? []) {
+        const newDeg = (inDegree.get(neighborId) ?? 0) - 1;
+        inDegree.set(neighborId, newDeg);
+        if (newDeg === 0) next.push(neighborId);
+      }
+    }
+    frontier = next;
+  }
+  return processed < agents.length;
+}
+
+function toAgentDef(
+  request: SpawnRequest,
+  defaults: TeamDefaults,
+  _executionConfig: TeamExecutionConfig,
+): Required<TeamAgentDefinition> {
+  return {
+    id: request.id,
+    name: request.name,
+    role: request.role,
+    systemPrompt: request.systemPrompt,
+    dependsOn: request.dependsOn,
+    condition: "",
+    tools: request.tools,
+    model: request.model ?? defaults.model ?? "",
+    maxTokens: defaults.maxTokens ?? 4096,
+    outputKey: request.outputKey,
+    outputFormat: "text",
+    selfCritique: false,
+    subscribes: [],
+  };
 }
 
 export class TeamRunner {
@@ -211,12 +266,17 @@ export class TeamRunner {
       return state;
     };
 
-    const groups = this.computeExecutionGroups(team.agents);
+    let remainingGroups = this.computeExecutionGroups(team.agents);
+    let spawnedCount = 0;
+    const completedIds = new Set<string>();
+    // allAgents tracks both static and dynamically spawned agents for cycle detection
+    const allAgents: Required<TeamAgentDefinition>[] = [...team.agents];
     emit("running");
 
     try {
-      for (const group of groups) {
+      while (remainingGroups.length > 0) {
         if (options.abortSignal?.aborted) break;
+        const group = remainingGroups.shift()!;
 
         // Token budget: warn at 80%, soft-stop (skip remaining) at 100%
         const budget = team.execution.totalTokenBudget;
@@ -478,6 +538,79 @@ export class TeamRunner {
               emit();
             }),
           );
+        }
+
+        // Mark all agents in this group as completed
+        for (const agentDef of group) {
+          completedIds.add(agentDef.id);
+        }
+
+        // Drain the spawn queue: collect dynamic agent requests left by agents in this group
+        const spawnQueue = (memory.get("__spawn_queue") as SpawnRequest[] | undefined) ?? [];
+        memory.set("__spawn_queue", []);
+        const maxDynamic = team.execution.maxDynamicAgents ?? 10;
+
+        for (const request of spawnQueue) {
+          // Cap at maxDynamicAgents
+          if (spawnedCount >= maxDynamic) {
+            console.warn(
+              `TeamRunner: spawn cap (${maxDynamic}) reached — dropping spawn request "${request.id}"`,
+            );
+            continue;
+          }
+
+          // Reject duplicate IDs
+          if (agentStates.has(request.id)) {
+            console.warn(
+              `TeamRunner: spawn request "${request.id}" conflicts with existing agent — dropping`,
+            );
+            continue;
+          }
+
+          // Validate dependsOn references (all must be known & completed)
+          const unknownDeps = request.dependsOn.filter(
+            (dep) => !agentStates.has(dep),
+          );
+          if (unknownDeps.length > 0) {
+            console.warn(
+              `TeamRunner: spawn request "${request.id}" has unknown dependsOn [${unknownDeps.join(", ")}] — dropping`,
+            );
+            continue;
+          }
+
+          // Tentatively add this agent and check for cycles
+          const newAgentDef = toAgentDef(request, team.defaults, team.execution);
+          const candidateAgents = [...allAgents, newAgentDef];
+          if (hasCycle(candidateAgents)) {
+            console.warn(
+              `TeamRunner: spawn request "${request.id}" would introduce a cycle — dropping`,
+            );
+            continue;
+          }
+
+          // Accept the spawned agent
+          allAgents.push(newAgentDef);
+          spawnedCount++;
+
+          // Register state for this new agent
+          agentStates.set(request.id, {
+            id: request.id,
+            name: request.name,
+            status: "pending",
+            output: "",
+            tokenCount: 0,
+            validationWarnings: [],
+            retryCount: 0,
+          });
+
+          console.info(`TeamRunner: accepted spawned agent "${request.id}"`);
+        }
+
+        // If new agents were accepted, recompute remaining groups from all agents
+        // minus already-completed ones
+        if (spawnedCount > 0 && spawnQueue.length > 0) {
+          const pendingAgents = allAgents.filter((a) => !completedIds.has(a.id));
+          remainingGroups = this.computeExecutionGroups(pendingAgents);
         }
       }
 

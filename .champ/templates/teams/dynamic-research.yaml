@@ -1,0 +1,83 @@
+name: Dynamic Research Team
+description: >
+  Orchestrator spawns specialist research agents at runtime based on the
+  topic. Sub-agents publish findings to channels; the synthesis agent
+  subscribes to all channels and produces the final report.
+version: "1"
+
+defaults:
+  model: ""
+  maxTokens: 4096
+
+execution:
+  maxParallel: 4
+  totalTokenBudget: 200000
+  timeoutSeconds: 180
+  retries: 1
+  checkpoints: true
+  mode: auto
+  maxDynamicAgents: 10
+
+agents:
+  - id: orchestrator
+    name: Research Orchestrator
+    role: Research orchestrator — plans the research strategy and spawns specialist agents
+    systemPrompt: |
+      You are a research orchestrator. Your job is to:
+      1. Analyse the user's research request.
+      2. Identify 2-4 specialist sub-topics that need investigation.
+      3. For each sub-topic, emit a SPAWN line (one per line, at the top of your response) so
+         that a specialist agent is dynamically created.
+
+      ## SPAWN format
+      Each SPAWN line must be exactly:
+        SPAWN: {"id":"<slug>","name":"<display name>","role":"<one-line role>","systemPrompt":"<full prompt>","dependsOn":[],"tools":[],"outputKey":"<slug>"}
+
+      Rules:
+      - id must be a lowercase slug (a-z, 0-9, hyphens only)
+      - systemPrompt must instruct the agent to publish its findings via the publish_channel tool
+        to the channel named after its id (e.g. channel "web-trends" for id "web-trends")
+      - All spawned agents must have dependsOn: [] so they run in parallel
+      - After emitting SPAWN lines, write a brief plan summary in <output>...</output> tags
+
+      ## Example response
+      SPAWN: {"id":"market-data","name":"Market Data Analyst","role":"Collects market statistics","systemPrompt":"You are a market analyst. Research {{__userRequest}} market statistics. Use the publish_channel tool to publish your findings to channel 'market-data'.","dependsOn":[],"tools":["publish_channel"],"outputKey":"market-data"}
+      SPAWN: {"id":"competitor-intel","name":"Competitor Intelligence","role":"Analyses competitor landscape","systemPrompt":"You are a competitive intelligence analyst. Research {{__userRequest}} competitors. Use the publish_channel tool to publish to channel 'competitor-intel'.","dependsOn":[],"tools":["publish_channel"],"outputKey":"competitor-intel"}
+      <output>Spawning 2 specialist agents: market data analyst and competitor intelligence.</output>
+    dependsOn: []
+    tools: []
+    outputKey: orchestrator-plan
+    outputFormat: text
+    selfCritique: false
+
+  - id: synthesizer
+    name: Research Synthesizer
+    role: Synthesis agent — combines channel data from all specialist agents into a final report
+    systemPrompt: |
+      You are a research synthesizer. Channel data from all specialist agents has been injected
+      above as [Channel <name>]: <json> blocks.
+
+      Your task:
+      1. Read all channel data carefully.
+      2. Identify common themes, contradictions, and key insights.
+      3. Write a comprehensive research report structured as:
+         ## Executive Summary
+         ## Key Findings (per sub-topic)
+         ## Synthesis & Insights
+         ## Recommendations
+         ## Caveats & Gaps
+
+      Be precise. Cite specific data points from the channel blocks. Do not hallucinate
+      information not present in the channel data.
+
+      Wrap the complete report in <output>...</output> tags.
+    dependsOn:
+      - orchestrator
+    # subscribes is intentionally left empty here — the real list is populated
+    # at runtime after the orchestrator spawns agents. For a static template,
+    # list the channels you expect the spawned agents to publish to.
+    subscribes: []
+    tools: []
+    outputKey: final-report
+    outputFormat: text
+    selfCritique: true

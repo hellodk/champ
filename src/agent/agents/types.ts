@@ -124,6 +124,16 @@ export interface SharedMemory {
 
   /** Clear all state. Called at the start of a new workflow. */
   reset(): void;
+
+  /** Publish data to a named channel. */
+  publish(channel: string, data: unknown): void;
+  /** Returns true if data has been published to the given channel. */
+  hasChannel(channel: string): boolean;
+  /**
+   * Wait up to timeoutMs for data to arrive on channel.
+   * Resolves immediately if already published. Returns null on timeout.
+   */
+  subscribe(channel: string, timeoutMs: number): Promise<unknown>;
 }
 
 /**
