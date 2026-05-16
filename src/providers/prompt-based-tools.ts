@@ -268,6 +268,26 @@ function extractFilename(context: string, lang: string): string | null {
 }
 
 /**
+ * Extracts ONLY the text that appears before the first tool call in a model
+ * response. Text after a tool call is the model's prediction of the result —
+ * not the actual result. Emitting it before the tool runs causes the agent
+ * to appear to lie when the tool fails or produces different output.
+ */
+export function extractPreToolText(text: string): string {
+  const TOOL_CALL_MARKERS = [
+    "<tool_call>",
+    "<｜tool▁calls▁begin｜>",
+    "<｜tool▁call▁begin｜>",
+  ];
+  let firstIdx = text.length;
+  for (const marker of TOOL_CALL_MARKERS) {
+    const idx = text.indexOf(marker);
+    if (idx >= 0 && idx < firstIdx) firstIdx = idx;
+  }
+  return text.slice(0, firstIdx).trim();
+}
+
+/**
  * Extracts the non-tool-call text from a model response, so the caller can
  * render it to the user separately from tool invocations.
  *

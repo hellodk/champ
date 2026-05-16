@@ -60,6 +60,14 @@ export const generateDiagramTool: Tool = {
       content: string;
     };
 
+    if (!ctx.workspaceRoot || ctx.workspaceRoot.trim() === "") {
+      return {
+        success: false,
+        output:
+          "No workspace folder is open. Open a folder in VS Code first before generating diagrams.",
+      };
+    }
+
     // Relative paths are resolved against workspaceRoot.
     // Absolute paths must still fall inside workspaceRoot.
     const fullPath = path.isAbsolute(filename)
@@ -83,6 +91,16 @@ export const generateDiagramTool: Tool = {
 
     const markdown = `# ${title}\n\n\`\`\`mermaid\n${diagramType}\n${content}\n\`\`\`\n`;
     await fs.writeFile(fullPath, markdown, "utf-8");
+
+    // Verify the file was actually written before claiming success.
+    try {
+      await fs.access(fullPath);
+    } catch {
+      return {
+        success: false,
+        output: `generate_diagram: file write appeared to succeed but ${filename} is not readable. Check disk space and permissions.`,
+      };
+    }
 
     ctx.reportProgress(`Diagram written to ${filename}`);
     return {
