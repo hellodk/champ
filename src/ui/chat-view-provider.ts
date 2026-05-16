@@ -49,6 +49,20 @@ import {
   isRevertEditRequest,
   isAcceptAllEditsRequest,
   isRevertAllEditsRequest,
+  isSetYoloModeRequest,
+  isSetAutocompleteRequest,
+  isOpenWorkflowRunRequest,
+  isRerunWorkflowRequest,
+  isRunMultiAgentRequest,
+  isRunTeamRequest,
+  isOpenConfigFileRequest,
+  isRescanModelsRequest,
+  isResetToAutoRequest,
+  isFetchMcpMarketplaceRequest,
+  isMcpMarketplaceInstallRequest,
+  isAcceptHunkAtLineRequest,
+  isRejectHunkAtLineRequest,
+  isFocusTeamAgentRequest,
   createSessionList,
   type ExtensionToWebviewMessage,
   type WebviewToExtensionMessage,
@@ -382,18 +396,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // it if needed) — that's the primary config surface. Falls back to
         // VS Code settings if no workspace is open (generateConfig handles it).
         void vscode.commands.executeCommand("champ.generateConfig");
-      } else if ((msg as { type: string }).type === "setYoloMode") {
-        const enabled = (msg as { type: string; enabled: boolean }).enabled;
+      } else if (isSetYoloModeRequest(msg)) {
         void vscode.workspace
           .getConfiguration("champ")
-          .update("yoloMode", enabled, vscode.ConfigurationTarget.Global);
-      } else if ((msg as { type: string }).type === "setAutocomplete") {
-        const enabled = (msg as { type: string; enabled: boolean }).enabled;
+          .update("yoloMode", msg.enabled, vscode.ConfigurationTarget.Global);
+      } else if (isSetAutocompleteRequest(msg)) {
         void vscode.workspace
           .getConfiguration("champ")
           .update(
             "autocomplete.enabled",
-            enabled,
+            msg.enabled,
             vscode.ConfigurationTarget.Global,
           );
       } else if (isShowHelpRequest(msg)) {
@@ -535,25 +547,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           msg.server,
           msg.action,
         );
-      } else if ((msg as { type: string }).type === "openWorkflowRun") {
-        void vscode.commands.executeCommand(
-          "champ.openWorkflowRun",
-          (msg as { runId: string }).runId,
-        );
-      } else if ((msg as { type: string }).type === "rerunWorkflow") {
-        void vscode.commands.executeCommand(
-          "champ.rerunWorkflow",
-          (msg as { runId: string }).runId,
-        );
-      } else if ((msg as { type: string }).type === "runMultiAgent") {
+      } else if (isOpenWorkflowRunRequest(msg)) {
+        void vscode.commands.executeCommand("champ.openWorkflowRun", msg.runId);
+      } else if (isRerunWorkflowRequest(msg)) {
+        void vscode.commands.executeCommand("champ.rerunWorkflow", msg.runId);
+      } else if (isRunMultiAgentRequest(msg)) {
         void vscode.commands.executeCommand("champ.runMultiAgent");
-      } else if ((msg as { type: string }).type === "runTeam") {
+      } else if (isRunTeamRequest(msg)) {
         void vscode.commands.executeCommand("champ.runTeam");
-      } else if ((msg as { type: string }).type === "openConfigFile") {
+      } else if (isOpenConfigFileRequest(msg)) {
         void vscode.commands.executeCommand("champ.generateConfig");
-      } else if ((msg as { type: string }).type === "rescanModels") {
+      } else if (isRescanModelsRequest(msg)) {
         void vscode.commands.executeCommand("champ.rescanModels");
-      } else if ((msg as { type: string }).type === "resetToAutoRequest") {
+      } else if (isResetToAutoRequest(msg)) {
         void vscode.commands.executeCommand("champ.resetToAuto");
       } else if (isOpenGeneratedFileRequest(msg)) {
         const raw = msg.filePath;
@@ -600,7 +606,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           await this.revertFileEdit(edit.path, edit.restoreContent);
         }
         this.editTracker.reset();
-      } else if ((msg as { type: string }).type === "fetchMcpMarketplace") {
+      } else if (isFetchMcpMarketplaceRequest(msg)) {
         void (async () => {
           try {
             // Read the bundled manifest from the extension package.
@@ -625,15 +631,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             this.postMessage({ type: "mcpMarketplaceEntries", entries: [] });
           }
         })();
-      } else if ((msg as { type: string }).type === "mcpMarketplaceInstall") {
+      } else if (isMcpMarketplaceInstallRequest(msg)) {
         void vscode.commands.executeCommand("champ.browseMcpServers");
-      } else if ((msg as { type: string }).type === "acceptHunkAtLine") {
-        const req = msg as import("../ui/messages").AcceptHunkAtLineRequest;
-        this.diffOverlayController?.acceptHunkAtLine(req.filePath, req.line);
-      } else if ((msg as { type: string }).type === "rejectHunkAtLine") {
-        const req = msg as import("../ui/messages").RejectHunkAtLineRequest;
-        this.diffOverlayController?.rejectHunkAtLine(req.filePath, req.line);
-      } else if ((msg as { type: string }).type === "focusTeamAgent") {
+      } else if (isAcceptHunkAtLineRequest(msg)) {
+        this.diffOverlayController?.acceptHunkAtLine(msg.filePath, msg.line);
+      } else if (isRejectHunkAtLineRequest(msg)) {
+        this.diffOverlayController?.rejectHunkAtLine(msg.filePath, msg.line);
+      } else if (isFocusTeamAgentRequest(msg)) {
         // no-op for now
       }
     } catch (err) {

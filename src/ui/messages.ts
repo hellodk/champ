@@ -437,6 +437,32 @@ export interface RunMultiAgentRequest {
   type: "runMultiAgent";
 }
 
+export interface RunTeamRequest {
+  type: "runTeam";
+}
+
+export interface SetYoloModeRequest {
+  type: "setYoloMode";
+  enabled: boolean;
+}
+
+export interface SetAutocompleteRequest {
+  type: "setAutocomplete";
+  enabled: boolean;
+}
+
+export interface OpenConfigFileRequest {
+  type: "openConfigFile";
+}
+
+export interface RescanModelsRequest {
+  type: "rescanModels";
+}
+
+export interface ResetToAutoRequest {
+  type: "resetToAutoRequest";
+}
+
 export interface RevertEditRequest {
   type: "revertEdit";
   path: string;
@@ -501,6 +527,12 @@ export type WebviewToExtensionMessage =
   | ReloadMcpServerRequest
   | McpConfigSaveRequest
   | RunMultiAgentRequest
+  | RunTeamRequest
+  | SetYoloModeRequest
+  | SetAutocompleteRequest
+  | OpenConfigFileRequest
+  | RescanModelsRequest
+  | ResetToAutoRequest
   | OpenWorkflowRunRequest
   | RerunWorkflowRequest
   | RevertEditRequest
@@ -744,4 +776,91 @@ export function isRevertAllEditsRequest(
   msg: WebviewToExtensionMessage,
 ): msg is RevertAllEditsRequest {
   return msg.type === "revertAllEdits";
+}
+
+// ── Additional runtime type guards ─────────────────────────────────────────
+// For message types handled via raw casts in chat-view-provider.ts
+
+export function isSetYoloModeRequest(
+  msg: WebviewToExtensionMessage,
+): msg is SetYoloModeRequest {
+  return msg.type === "setYoloMode";
+}
+
+export function isSetAutocompleteRequest(
+  msg: WebviewToExtensionMessage,
+): msg is SetAutocompleteRequest {
+  return msg.type === "setAutocomplete";
+}
+
+export function isOpenWorkflowRunRequest(
+  msg: WebviewToExtensionMessage,
+): msg is OpenWorkflowRunRequest {
+  return msg.type === "openWorkflowRun";
+}
+
+export function isRerunWorkflowRequest(
+  msg: WebviewToExtensionMessage,
+): msg is RerunWorkflowRequest {
+  return msg.type === "rerunWorkflow";
+}
+
+export function isRunMultiAgentRequest(
+  msg: WebviewToExtensionMessage,
+): msg is RunMultiAgentRequest {
+  return msg.type === "runMultiAgent";
+}
+
+export function isRunTeamRequest(
+  msg: WebviewToExtensionMessage,
+): msg is RunTeamRequest {
+  return msg.type === "runTeam";
+}
+
+export function isOpenConfigFileRequest(
+  msg: WebviewToExtensionMessage,
+): msg is OpenConfigFileRequest {
+  return msg.type === "openConfigFile";
+}
+
+export function isRescanModelsRequest(
+  msg: WebviewToExtensionMessage,
+): msg is RescanModelsRequest {
+  return msg.type === "rescanModels";
+}
+
+export function isResetToAutoRequest(
+  msg: WebviewToExtensionMessage,
+): msg is ResetToAutoRequest {
+  return msg.type === "resetToAutoRequest";
+}
+
+export function isFetchMcpMarketplaceRequest(
+  msg: WebviewToExtensionMessage,
+): msg is FetchMcpMarketplaceRequest {
+  return msg.type === "fetchMcpMarketplace";
+}
+
+export function isMcpMarketplaceInstallRequest(
+  msg: WebviewToExtensionMessage,
+): msg is McpMarketplaceInstallRequest {
+  return msg.type === "mcpMarketplaceInstall";
+}
+
+export function isAcceptHunkAtLineRequest(
+  msg: WebviewToExtensionMessage,
+): msg is AcceptHunkAtLineRequest {
+  return msg.type === "acceptHunkAtLine";
+}
+
+export function isRejectHunkAtLineRequest(
+  msg: WebviewToExtensionMessage,
+): msg is RejectHunkAtLineRequest {
+  return msg.type === "rejectHunkAtLine";
+}
+
+export function isFocusTeamAgentRequest(
+  msg: WebviewToExtensionMessage,
+): msg is FocusTeamAgentRequest {
+  return msg.type === "focusTeamAgent";
 }
