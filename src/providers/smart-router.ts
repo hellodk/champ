@@ -39,6 +39,7 @@ const DISCOVERY_TIMEOUT_MS = 2000;
 
 export class SmartRouter {
   private models: DiscoveredModel[] = [];
+  private staticModels: DiscoveredModel[] = [];
   private providerMap = new Map<string, ProviderEntry>();
   private mode: "smart" | "manual" = "smart";
   private manualModelId: string | null = null;
@@ -60,6 +61,17 @@ export class SmartRouter {
     baseUrl?: string,
   ): void {
     this.providerMap.set(name, { provider, type, baseUrl });
+  }
+
+  /**
+   * Register a static list of models for providers that cannot be discovered
+   * via network scanning (e.g. cloud APIs like Claude and OpenAI that require
+   * an API key for /models endpoints). Static models are merged with discovered
+   * ones and take the same routing logic. Call before discover().
+   */
+  registerStaticModels(models: DiscoveredModel[]): void {
+    this.staticModels = models;
+    this.routeCache.clear();
   }
 
   /**
@@ -87,9 +99,11 @@ export class SmartRouter {
         }
       }
 
-      // Deduplicate: same providerName+id from two registered entries
+      // Merge static models (cloud providers) with discovered (local providers).
+      // Static models are prepended so discovered ones win on dedup if there
+      // is ever an overlap (e.g. user running Claude-compatible local server).
       const seen = new Set<string>();
-      const allModels = raw.filter((m) => {
+      const allModels = [...this.staticModels, ...raw].filter((m) => {
         const key = `${m.providerName}:${m.id}`;
         if (seen.has(key)) return false;
         seen.add(key);

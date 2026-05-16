@@ -237,6 +237,115 @@ export async function activate(
 
   // ---- Smart Router (multi-provider model discovery) ----------------
   smartRouter = new SmartRouter();
+  // Register static catalogs for cloud providers that cannot be auto-discovered
+  // via network scanning (they have no baseUrl to query). Without this the model
+  // picker is empty for Claude/OpenAI/Gemini users and SmartRouter auto-routing
+  // silently falls back to whatever local model happens to be available.
+  smartRouter.registerStaticModels([
+    // Claude (Anthropic) — updated when Anthropic releases new models
+    {
+      id: "claude-opus-4-7",
+      providerName: "claude",
+      providerType: "claude",
+      capabilities: ["coding", "general", "instruct"],
+      speed: "slow",
+      contextWindow: 200000,
+      sizeHint: "unknown",
+      quantizationLevel: "",
+    },
+    {
+      id: "claude-sonnet-4-6",
+      providerName: "claude",
+      providerType: "claude",
+      capabilities: ["coding", "general", "instruct"],
+      speed: "medium",
+      contextWindow: 200000,
+      sizeHint: "unknown",
+      quantizationLevel: "",
+    },
+    {
+      id: "claude-haiku-4-5",
+      providerName: "claude",
+      providerType: "claude",
+      capabilities: ["general", "instruct"],
+      speed: "fast",
+      contextWindow: 200000,
+      sizeHint: "unknown",
+      quantizationLevel: "",
+    },
+    {
+      id: "claude-sonnet-4-20250514",
+      providerName: "claude",
+      providerType: "claude",
+      capabilities: ["coding", "general", "instruct"],
+      speed: "medium",
+      contextWindow: 200000,
+      sizeHint: "unknown",
+      quantizationLevel: "",
+    },
+    // OpenAI
+    {
+      id: "gpt-4o",
+      providerName: "openai",
+      providerType: "openai",
+      capabilities: ["coding", "general", "instruct"],
+      speed: "medium",
+      contextWindow: 128000,
+      sizeHint: "unknown",
+      quantizationLevel: "",
+    },
+    {
+      id: "gpt-4o-mini",
+      providerName: "openai",
+      providerType: "openai",
+      capabilities: ["general", "instruct"],
+      speed: "fast",
+      contextWindow: 128000,
+      sizeHint: "unknown",
+      quantizationLevel: "",
+    },
+    {
+      id: "o3-mini",
+      providerName: "openai",
+      providerType: "openai",
+      capabilities: ["coding", "general", "instruct"],
+      speed: "medium",
+      contextWindow: 128000,
+      sizeHint: "unknown",
+      quantizationLevel: "",
+    },
+    {
+      id: "o1",
+      providerName: "openai",
+      providerType: "openai",
+      capabilities: ["coding", "general", "instruct"],
+      speed: "slow",
+      contextWindow: 200000,
+      sizeHint: "unknown",
+      quantizationLevel: "",
+    },
+    // Gemini (Google)
+    {
+      id: "gemini-2.5-pro",
+      providerName: "gemini",
+      providerType: "gemini",
+      capabilities: ["coding", "general", "instruct"],
+      speed: "medium",
+      contextWindow: 1000000,
+      sizeHint: "unknown",
+      quantizationLevel: "",
+    },
+    {
+      id: "gemini-2.0-flash",
+      providerName: "gemini",
+      providerType: "gemini",
+      capabilities: ["general", "instruct"],
+      speed: "fast",
+      contextWindow: 1000000,
+      sizeHint: "unknown",
+      quantizationLevel: "",
+    },
+  ]);
   // Wire SmartRouter into AgentController and AgentManager for per-message
   // model selection (coding tasks → best coding model, ask/plan → chat model).
   agentController.setSmartRouter(smartRouter);
@@ -869,6 +978,36 @@ export async function activate(
           try {
             if (statusBarItem)
               statusBarItem.text = `$(loading~spin) Champ: completing…`;
+            // Pass the first 60 lines of the file as import/type context so
+            // the model can see what symbols are in scope at the cursor.
+            const headerEnd = Math.min(60, document.lineCount);
+            const fileHeader = document
+              .getText(
+                new vscode.Range(
+                  new vscode.Position(0, 0),
+                  new vscode.Position(headerEnd, 0),
+                ),
+              )
+              .split("\n")
+              .filter((l) => {
+                const t = l.trim();
+                // Keep imports, exports, type/interface/class/const declarations
+                return (
+                  t.startsWith("import ") ||
+                  t.startsWith("export ") ||
+                  t.startsWith("type ") ||
+                  t.startsWith("interface ") ||
+                  t.startsWith("class ") ||
+                  t.startsWith("const ") ||
+                  t.startsWith("from ") ||
+                  t.startsWith("use ") || // Rust
+                  t.startsWith("def ") || // Python
+                  t.startsWith("class ") ||
+                  t.startsWith("pub ") // Rust
+                );
+              })
+              .slice(0, 30) // max 30 lines of header context
+              .join("\n");
             const completions = await inlineProvider.provideCompletions(
               prefix,
               {
@@ -876,6 +1015,7 @@ export async function activate(
                 language: document.languageId,
                 lineNumber: position.line + 1,
                 suffix,
+                fileHeader: fileHeader || undefined,
               },
               abort.signal,
             );

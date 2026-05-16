@@ -22,6 +22,11 @@ export interface CompletionContext {
   lineNumber: number;
   /** Optional suffix (text after the cursor) for FIM-style completion. */
   suffix?: string;
+  /**
+   * First N lines of the file (imports, type declarations, top-level symbols).
+   * Gives the model type context it cannot infer from the cursor region alone.
+   */
+  fileHeader?: string;
 }
 
 /**
@@ -221,10 +226,13 @@ export class ChampInlineCompletionProvider {
     const suffix = context.suffix ?? "";
     const language = context.language || "text";
     const filePath = context.filePath;
+    // Prepend the file header (imports + top-level symbols) so the model has
+    // type context. Capped to avoid blowing the completion context window.
+    const header = context.fileHeader
+      ? `// File: ${filePath}\n// Language: ${language}\n// Imports and declarations:\n${context.fileHeader}\n\n`
+      : `// Language: ${language}\n// File: ${filePath}\n`;
 
-    return `<|fim_prefix|>// Language: ${language}
-// File: ${filePath}
-${prefix}<|fim_suffix|>${suffix}<|fim_middle|>`;
+    return `<|fim_prefix|>${header}${prefix}<|fim_suffix|>${suffix}<|fim_middle|>`;
   }
 
   /**

@@ -1,4 +1,7 @@
 import * as fs from "fs";
+import * as fsp from "fs/promises";
+import * as crypto from "crypto";
+import * as os from "os";
 import * as path from "path";
 import { EmbeddingService } from "./embedding-service";
 import { VectorStore, type VectorSearchResult } from "./vector-store";
@@ -160,11 +163,71 @@ export class IndexingService {
     console.log(
       `Champ: indexed ${filesIndexed} files, ${chunksIndexed} chunks`,
     );
+
+    // Persist index to disk so subsequent sessions skip re-embedding.
+    // Stored at ~/.champ/index/<workspace-hash>.idx
+    void this.saveIndex();
+
     return {
       filesIndexed,
       chunksIndexed,
       embeddingModel: this.embeddingModelId!,
     };
+  }
+
+  private indexCachePath(): string {
+    const hash = crypto
+      .createHash("sha1")
+      .update(this.workspaceRoot)
+      .digest("hex")
+      .slice(0, 12);
+    return path.join(os.homedir(), ".champ", "index", `${hash}.idx`);
+  }
+
+  private async saveIndex(): Promise<void> {
+    try {
+      await this.vectorStore.save(this.indexCachePath());
+      console.log(
+        `Champ: index persisted to disk (${this.vectorStore.size()} chunks)`,
+      );
+    } catch {
+      // Persistence is best-effort
+    }
+  }
+
+  /**
+   * Try to load a previously saved index from disk. Returns true if the
+   * index was loaded successfully and indexing can be skipped.
+   */
+  async tryLoadIndex(): Promise<boolean> {
+    try {
+      const cachePath = this.indexCachePath();
+      // Only load if the cache file is less than 24 hours old
+      const stat = await fsp.stat(cachePath);
+      const ageMs = Date.now() - stat.mtimeMs;
+      if (ageMs > 24 * 60 * 60 * 1000) return false;
+      const loaded = await this.vectorStore.load(cachePath);
+      if (loaded > 0) {
+        console.log(
+          `Champ: loaded ${loaded} chunks from disk index (skip re-embedding)`,
+        );
+        return true;
+      }
+    } catch {
+      // Cache miss or stale — will re-index
+    }
+    return false;
+  }
+
+  /**
+   * Invalidate the disk cache (called when files change significantly).
+   */
+  async invalidateIndex(): Promise<void> {
+    try {
+      await fsp.unlink(this.indexCachePath());
+    } catch {
+      // Already gone
+    }
   }
 
   private async indexFile(filePath: string, content: string): Promise<number> {

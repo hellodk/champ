@@ -10,6 +10,7 @@
  */
 import * as vscode from "vscode";
 import * as path from "path";
+import { execFile } from "child_process";
 import {
   type AgentController,
   PromptInjectionError,
@@ -858,8 +859,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           const sections = injectedResolved
             .map((r) => `--- ${r.label} ---\n${r.content}`)
             .join("\n\n");
-          return `${text}\n\n# Referenced context\n\n${sections}`;
+
+          // Also inject a passive git diff summary so the agent sees what
+          // files are currently changed without the user having to say so.
+          const gitContext = await this.getGitDiffSummary();
+          const gitSection = gitContext
+            ? `\n\n# Current git changes\n${gitContext}`
+            : "";
+
+          return `${text}\n\n# Referenced context\n\n${sections}${gitSection}`;
         }
+      }
+
+      // Even without an active file, inject git diff summary as passive context
+      const gitContext = await this.getGitDiffSummary();
+      if (gitContext) {
+        return `${text}\n\n# Current git changes\n${gitContext}`;
       }
       return text;
     }
@@ -1024,6 +1039,33 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /** Public entry point for forwarding tool results from the registry. */
   notifyToolResult(toolName: string, result: string, success: boolean): void {
     this.postMessage(createToolCallResult(toolName, result, success));
+  }
+
+  /**
+   * Return a compact git diff --stat summary of the current workspace.
+   * Shows which files are changed and by how many lines — no content.
+   * Returns empty string on any failure (no git, not a repo, etc.).
+   */
+  private async getGitDiffSummary(): Promise<string> {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) return "";
+    return new Promise<string>((resolve) => {
+      execFile(
+        "git",
+        ["diff", "--stat", "HEAD", "--no-color"],
+        { cwd: root, timeout: 2000, maxBuffer: 16 * 1024 },
+        (err, stdout) => {
+          if (err || !stdout.trim()) {
+            resolve("");
+          } else {
+            // Keep only the stat lines, strip the summary line (last line)
+            const lines = stdout.trim().split("\n");
+            const stat = lines.slice(0, -1).join("\n"); // drop "N files changed…"
+            resolve(stat.length > 0 ? stat.slice(0, 2000) : ""); // cap at 2KB
+          }
+        },
+      );
+    });
   }
 
   /** Post an editSummary message for all edits accumulated this turn. */

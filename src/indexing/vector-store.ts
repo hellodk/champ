@@ -1,16 +1,17 @@
 /**
- * VectorStore: in-memory vector storage with cosine-similarity KNN search.
+ * VectorStore: in-memory vector storage with cosine-similarity KNN search
+ * and optional disk persistence.
  *
- * The production plan was to use sqlite-vec for persistence and native
- * KNN, but that requires a native SQLite extension that's not available
- * on every platform. This implementation stores vectors in a plain array
- * and does a brute-force cosine scan on every query. For workspaces up
- * to ~50K chunks it's fast enough (well under 100ms per query) and it
- * works everywhere Node.js does.
+ * Persistence: call save(path) after indexing completes; call load(path)
+ * on startup to skip re-indexing sessions. The format is a single binary
+ * buffer: a JSON header (chunk metadata) followed by raw Float32 embedding
+ * bytes, allowing fast mmap-style loading without JSON-encoding large arrays.
  *
- * The public interface matches what a sqlite-vec-backed store would
- * expose, so we can swap implementations later without touching callers.
+ * KNN: brute-force L2 scan. Fast for ≤50K chunks. For larger workspaces
+ * the save/load cycle avoids re-embedding on every session, which is the
+ * real bottleneck at scale.
  */
+import * as fs from "fs/promises";
 
 export interface VectorStoreEntry {
   filePath: string;
@@ -120,6 +121,95 @@ export class VectorStore {
    */
   size(): number {
     return this.entries.size;
+  }
+
+  /**
+   * Persist the entire index to disk. Format: JSON metadata header (one line)
+   * followed by raw Float32 embedding bytes packed sequentially.
+   * Skips silently if the store is empty or disposed.
+   */
+  async save(filePath: string): Promise<void> {
+    if (this.disposed || this.entries.size === 0) return;
+    try {
+      await fs.mkdir(require("path").dirname(filePath), { recursive: true });
+      const entries = [...this.entries.values()];
+      const dim = entries[0]?.embedding.length ?? 0;
+      const meta = {
+        version: 1,
+        count: entries.length,
+        dim,
+        chunks: entries.map((e) => ({
+          k: chunkKey(e),
+          filePath: e.filePath,
+          chunkText: e.chunkText,
+          startLine: e.startLine,
+          endLine: e.endLine,
+          symbolName: e.symbolName,
+          chunkType: e.chunkType,
+        })),
+      };
+      const header = Buffer.from(JSON.stringify(meta) + "\n", "utf-8");
+      const embBytes = dim * 4 * entries.length;
+      const embBuf = Buffer.allocUnsafe(embBytes);
+      entries.forEach((e, i) => {
+        const view = new Float32Array(
+          embBuf.buffer,
+          embBuf.byteOffset + i * dim * 4,
+          dim,
+        );
+        view.set(
+          e.embedding.length === dim
+            ? e.embedding
+            : e.embedding.subarray(0, dim),
+        );
+      });
+      await fs.writeFile(filePath, Buffer.concat([header, embBuf]));
+    } catch {
+      // Persistence is best-effort — indexing still works without it
+    }
+  }
+
+  /**
+   * Load a previously saved index from disk. Replaces any existing entries.
+   * Returns the number of chunks loaded, or 0 on failure.
+   */
+  async load(filePath: string): Promise<number> {
+    if (this.disposed) return 0;
+    try {
+      const raw = await fs.readFile(filePath);
+      const nlIdx = raw.indexOf(0x0a); // newline after JSON header
+      if (nlIdx < 0) return 0;
+      const meta = JSON.parse(raw.subarray(0, nlIdx).toString("utf-8")) as {
+        version: number;
+        count: number;
+        dim: number;
+        chunks: Array<{
+          k: string;
+          filePath: string;
+          chunkText: string;
+          startLine: number;
+          endLine: number;
+          symbolName?: string;
+          chunkType: string;
+        }>;
+      };
+      if (meta.version !== 1 || meta.count !== meta.chunks.length) return 0;
+      const embStart = nlIdx + 1;
+      const { dim, chunks } = meta;
+      this.entries.clear();
+      chunks.forEach((c, i) => {
+        const offset = embStart + i * dim * 4;
+        const embedding = new Float32Array(
+          raw.buffer,
+          raw.byteOffset + offset,
+          dim,
+        ).slice();
+        this.entries.set(c.k, { ...c, embedding });
+      });
+      return this.entries.size;
+    } catch {
+      return 0;
+    }
   }
 
   /**
