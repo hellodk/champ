@@ -82,27 +82,40 @@ export const editFileTool: Tool = {
       const text = doc.getText();
 
       const firstIdx = text.indexOf(oldContent);
+      let matchStart = firstIdx;
+      let matchEnd = firstIdx + oldContent.length;
+      let fuzzyWarning: string | undefined;
+
       if (firstIdx === -1) {
-        // Verbose error: include the actual file content (capped) so the
-        // model can self-correct on the next turn rather than retrying
-        // with the same wrong snippet. See HALLUCINATION_MITIGATION.md.
-        return {
-          success: false,
-          output: formatNotFoundError(relativePath, text, oldContent),
-        };
+        // Fuzzy fallback: try normalized whitespace match, then LCS proximity
+        const fuzzyMatch = findFuzzyMatch(text, oldContent);
+        if (fuzzyMatch === null) {
+          // Verbose error: include the actual file content (capped) so the
+          // model can self-correct on the next turn rather than retrying
+          // with the same wrong snippet. See HALLUCINATION_MITIGATION.md.
+          return {
+            success: false,
+            output: formatNotFoundError(relativePath, text, oldContent),
+          };
+        }
+        matchStart = fuzzyMatch.start;
+        matchEnd = fuzzyMatch.end;
+        // Compute 1-based line number for user-facing warning
+        const matchLine = text.slice(0, matchStart).split("\n").length;
+        fuzzyWarning = `Note: exact match not found — applied fuzzy match at line ${matchLine}. Review carefully.`;
+      } else {
+        // Warn if the match is ambiguous.
+        const secondIdx = text.indexOf(oldContent, firstIdx + 1);
+        if (secondIdx !== -1) {
+          return {
+            success: false,
+            output: `Ambiguous match: old_content appears multiple times in ${relativePath}. Provide a longer, unique snippet that includes more surrounding context (e.g. the full enclosing function).`,
+          };
+        }
       }
 
-      // Warn if the match is ambiguous.
-      const secondIdx = text.indexOf(oldContent, firstIdx + 1);
-      if (secondIdx !== -1) {
-        return {
-          success: false,
-          output: `Ambiguous match: old_content appears multiple times in ${relativePath}. Provide a longer, unique snippet that includes more surrounding context (e.g. the full enclosing function).`,
-        };
-      }
-
-      const startPos = doc.positionAt(firstIdx);
-      const endPos = doc.positionAt(firstIdx + oldContent.length);
+      const startPos = doc.positionAt(matchStart);
+      const endPos = doc.positionAt(matchEnd);
       const range = new vscode.Range(startPos, endPos);
 
       const edit = new vscode.WorkspaceEdit();
@@ -118,9 +131,7 @@ export const editFileTool: Tool = {
 
       // Compute new full-file text for diff tracking
       const newText =
-        text.slice(0, firstIdx) +
-        newContent +
-        text.slice(firstIdx + oldContent.length);
+        text.slice(0, matchStart) + newContent + text.slice(matchEnd);
 
       // Record in tracker for diff review panel
       if (context.editReviewTracker) {
@@ -131,9 +142,13 @@ export const editFileTool: Tool = {
         });
       }
 
+      const successMsg = fuzzyWarning
+        ? `Successfully edited ${relativePath}\n${fuzzyWarning}`
+        : `Successfully edited ${relativePath}`;
+
       return {
         success: true,
-        output: `Successfully edited ${relativePath}`,
+        output: successMsg,
         metadata: {
           filesModified: [relativePath],
           fileEditDiff: {
@@ -152,6 +167,84 @@ export const editFileTool: Tool = {
     }
   },
 };
+
+// ---------------------------------------------------------------------------
+// Fuzzy match helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalize a block of text by trimming each line and removing blank lines,
+ * so that minor whitespace differences don't prevent a match.
+ */
+function normalizeBlock(text: string): string {
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .join("\n");
+}
+
+/**
+ * Find the best contiguous block of lines in `fileContent` that matches the
+ * lines of `oldString` with >= 85% similarity (after trimming each line).
+ *
+ * Returns character-offset { start, end } into `fileContent`, or null when
+ * no window reaches the threshold.
+ */
+function findFuzzyMatch(
+  fileContent: string,
+  oldString: string,
+): { start: number; end: number } | null {
+  // Fast path: normalized exact match
+  const normalizedFile = normalizeBlock(fileContent);
+  const normalizedOld = normalizeBlock(oldString);
+  if (normalizedOld.length === 0) return null;
+  if (normalizedFile.includes(normalizedOld)) {
+    // Rebuild match boundaries using a line-scan approach below
+    // (fall through to LCS path which handles this correctly)
+  }
+
+  const fileLines = fileContent.split("\n");
+  const targetLines = oldString
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  if (targetLines.length === 0) return null;
+
+  let bestScore = 0;
+  let bestStart = -1;
+  let bestEnd = -1;
+  const windowSize = Math.max(targetLines.length, 1);
+
+  for (let i = 0; i <= fileLines.length - windowSize; i++) {
+    const windowLines = fileLines
+      .slice(i, i + windowSize)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    let matches = 0;
+    const minLen = Math.min(windowLines.length, targetLines.length);
+    for (let j = 0; j < minLen; j++) {
+      if (windowLines[j] === targetLines[j]) matches++;
+    }
+    const score = matches / Math.max(targetLines.length, windowLines.length);
+    if (score > bestScore) {
+      bestScore = score;
+      bestStart = i;
+      bestEnd = i + windowSize;
+    }
+  }
+
+  if (bestScore >= 0.85) {
+    // Convert line indices back to character positions
+    const lines = fileContent.split("\n");
+    let start = 0;
+    for (let i = 0; i < bestStart; i++) start += lines[i].length + 1;
+    let end = start;
+    for (let i = bestStart; i < bestEnd; i++) end += lines[i].length + 1;
+    return { start, end: end - 1 };
+  }
+  return null;
+}
 
 /**
  * Format the "old_content not found" error with the actual file content
