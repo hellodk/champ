@@ -1991,6 +1991,7 @@
         });
         messagesWrapper.appendChild(panel);
         messagesWrapper.scrollTop = messagesWrapper.scrollHeight;
+        window.dispatchEvent(new CustomEvent('champ:editSummary', { detail: msg }));
         break;
       }
       case 'autoContextNotice': {
@@ -2006,6 +2007,18 @@
         }, 4000);
         break;
       }
+      case 'mcpMarketplaceOpen':
+        window.dispatchEvent(new CustomEvent('champ:mcpMarketplaceOpen', { detail: msg }));
+        break;
+      case 'mcpMarketplaceEntries':
+        window.dispatchEvent(new CustomEvent('champ:mcpMarketplaceEntries', { detail: msg }));
+        break;
+      case 'mcpMarketplaceInstallComplete':
+        window.dispatchEvent(new CustomEvent('champ:mcpMarketplaceInstallComplete', { detail: msg }));
+        break;
+      case 'teamRunSnapshot':
+        window.dispatchEvent(new CustomEvent('champ:teamUpdate', { detail: msg }));
+        break;
     }
   });
 

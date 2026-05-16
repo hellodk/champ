@@ -600,6 +600,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           await this.revertFileEdit(edit.path, edit.restoreContent);
         }
         this.editTracker.reset();
+      } else if ((msg as { type: string }).type === "fetchMcpMarketplace") {
+        void (async () => {
+          const { McpMarketplaceClient } =
+            await import("../marketplace/mcp-marketplace-client.js");
+          const client = new McpMarketplaceClient();
+          const entries = await client.fetchManifest();
+          this.postMessage({ type: "mcpMarketplaceEntries", entries });
+        })();
+      } else if ((msg as { type: string }).type === "mcpMarketplaceInstall") {
+        void vscode.commands.executeCommand("champ.browseMcpServers");
+      } else if ((msg as { type: string }).type === "acceptHunkAtLine") {
+        const req = msg as import("../ui/messages").AcceptHunkAtLineRequest;
+        this.diffOverlayController?.acceptHunkAtLine(req.filePath, req.line);
+      } else if ((msg as { type: string }).type === "rejectHunkAtLine") {
+        const req = msg as import("../ui/messages").RejectHunkAtLineRequest;
+        this.diffOverlayController?.rejectHunkAtLine(req.filePath, req.line);
+      } else if ((msg as { type: string }).type === "focusTeamAgent") {
+        // no-op for now
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1033,12 +1051,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     let scriptUri = "";
     let styleUri = "";
     let codiconUri = "";
+    let componentsUri = "";
     try {
       const scriptPath = vscode.Uri.joinPath(
         this.extensionUri,
         "webview-ui",
         "dist",
         "main.js",
+      );
+      const componentsPath = vscode.Uri.joinPath(
+        this.extensionUri,
+        "webview-ui",
+        "dist",
+        "components.js",
       );
       const stylePath = vscode.Uri.joinPath(
         this.extensionUri,
@@ -1054,6 +1079,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         "codicon.css",
       );
       scriptUri = webview.asWebviewUri(scriptPath).toString();
+      componentsUri = webview.asWebviewUri(componentsPath).toString();
       styleUri = webview.asWebviewUri(stylePath).toString();
       codiconUri = webview.asWebviewUri(codiconPath).toString();
     } catch {
@@ -1081,7 +1107,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
   <div id="app"></div>
+  <div id="champ-panels"></div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
+  <script nonce="${nonce}" src="${componentsUri}"></script>
 </body>
 </html>`;
   }

@@ -9,6 +9,8 @@
 import type { AgentMode } from "../prompts/system-prompt";
 import type { LLMMessage } from "../providers/types";
 import type { SessionMetadata } from "../agent-manager/types";
+import type { McpMarketplaceEntry } from "../marketplace/mcp-marketplace-client";
+import type { TeamRunState } from "../agent/team-definition";
 
 // ---------------------------------------------------------------------------
 // Extension Host -> Webview
@@ -228,6 +230,27 @@ export interface AutoContextNoticeMessage {
   files: string[];
 }
 
+export interface McpMarketplaceOpenMessage {
+  type: "mcpMarketplaceOpen";
+}
+
+export interface McpMarketplaceEntriesMessage {
+  type: "mcpMarketplaceEntries";
+  entries: McpMarketplaceEntry[];
+}
+
+export interface McpMarketplaceInstallCompleteMessage {
+  type: "mcpMarketplaceInstallComplete";
+  name: string;
+  success: boolean;
+  errorMessage?: string;
+}
+
+export interface TeamRunSnapshotMessage {
+  type: "teamRunSnapshot";
+  state: TeamRunState;
+}
+
 export type ExtensionToWebviewMessage =
   | StreamStartMessage
   | StreamDeltaMessage
@@ -249,7 +272,11 @@ export type ExtensionToWebviewMessage =
   | WorkflowHistoryUpdateMessage
   | FileEditDiffMessage
   | EditSummaryMessage
-  | AutoContextNoticeMessage;
+  | AutoContextNoticeMessage
+  | McpMarketplaceOpenMessage
+  | McpMarketplaceEntriesMessage
+  | McpMarketplaceInstallCompleteMessage
+  | TeamRunSnapshotMessage;
 
 // ---------------------------------------------------------------------------
 // Webview -> Extension Host
@@ -425,6 +452,32 @@ export interface RevertAllEditsRequest {
   edits: Array<{ path: string; restoreContent: string }>;
 }
 
+export interface FetchMcpMarketplaceRequest {
+  type: "fetchMcpMarketplace";
+}
+
+export interface McpMarketplaceInstallRequest {
+  type: "mcpMarketplaceInstall";
+  entry: McpMarketplaceEntry;
+}
+
+export interface AcceptHunkAtLineRequest {
+  type: "acceptHunkAtLine";
+  filePath: string;
+  line: number;
+}
+
+export interface RejectHunkAtLineRequest {
+  type: "rejectHunkAtLine";
+  filePath: string;
+  line: number;
+}
+
+export interface FocusTeamAgentRequest {
+  type: "focusTeamAgent";
+  agentId: string;
+}
+
 export type WebviewToExtensionMessage =
   | UserMessageRequest
   | SetModeRequest
@@ -452,7 +505,12 @@ export type WebviewToExtensionMessage =
   | RerunWorkflowRequest
   | RevertEditRequest
   | AcceptAllEditsRequest
-  | RevertAllEditsRequest;
+  | RevertAllEditsRequest
+  | FetchMcpMarketplaceRequest
+  | McpMarketplaceInstallRequest
+  | AcceptHunkAtLineRequest
+  | RejectHunkAtLineRequest
+  | FocusTeamAgentRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)
