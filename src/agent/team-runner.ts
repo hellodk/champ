@@ -13,7 +13,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { ConditionEvaluator } from "./condition-evaluator";
 import { SharedMemory } from "./shared-memory";
-import { TeamAgent } from "./team-agent";
+import { TeamAgent, type SpawnRequest } from "./team-agent";
 import type {
   TeamDefinition,
   TeamAgentDefinition,
@@ -23,7 +23,6 @@ import type {
   TeamAgentRunState,
   TeamAgentStatus,
 } from "./team-definition";
-import type { SpawnRequest } from "./team-agent";
 import type { LLMProvider } from "../providers/types";
 import type { ToolRegistry } from "../tools/registry";
 import type { TeamRunStore } from "../ui/team-run-store";
@@ -80,7 +79,10 @@ async function writeCheckpoint(
 function hasCycle(agents: Required<TeamAgentDefinition>[]): boolean {
   const inDegree = new Map<string, number>();
   const adj = new Map<string, string[]>();
-  for (const a of agents) { inDegree.set(a.id, 0); adj.set(a.id, []); }
+  for (const a of agents) {
+    inDegree.set(a.id, 0);
+    adj.set(a.id, []);
+  }
   const knownIds = new Set(agents.map((a) => a.id));
   for (const a of agents) {
     for (const dep of a.dependsOn) {
@@ -90,7 +92,9 @@ function hasCycle(agents: Required<TeamAgentDefinition>[]): boolean {
       }
     }
   }
-  let frontier = [...inDegree.entries()].filter(([, d]) => d === 0).map(([id]) => id);
+  let frontier = [...inDegree.entries()]
+    .filter(([, d]) => d === 0)
+    .map(([id]) => id);
   let processed = 0;
   while (frontier.length > 0) {
     const next: string[] = [];
@@ -546,7 +550,8 @@ export class TeamRunner {
         }
 
         // Drain the spawn queue: collect dynamic agent requests left by agents in this group
-        const spawnQueue = (memory.get("__spawn_queue") as SpawnRequest[] | undefined) ?? [];
+        const spawnQueue =
+          (memory.get("__spawn_queue") as SpawnRequest[] | undefined) ?? [];
         memory.set("__spawn_queue", []);
         const maxDynamic = team.execution.maxDynamicAgents ?? 10;
 
@@ -579,7 +584,11 @@ export class TeamRunner {
           }
 
           // Tentatively add this agent and check for cycles
-          const newAgentDef = toAgentDef(request, team.defaults, team.execution);
+          const newAgentDef = toAgentDef(
+            request,
+            team.defaults,
+            team.execution,
+          );
           const candidateAgents = [...allAgents, newAgentDef];
           if (hasCycle(candidateAgents)) {
             console.warn(
@@ -609,7 +618,9 @@ export class TeamRunner {
         // If new agents were accepted, recompute remaining groups from all agents
         // minus already-completed ones
         if (spawnedCount > 0 && spawnQueue.length > 0) {
-          const pendingAgents = allAgents.filter((a) => !completedIds.has(a.id));
+          const pendingAgents = allAgents.filter(
+            (a) => !completedIds.has(a.id),
+          );
           remainingGroups = this.computeExecutionGroups(pendingAgents);
         }
       }
