@@ -167,6 +167,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
    */
   private pendingApprovals = new Map<string, (approved: boolean) => void>();
   private readonly editTracker = new EditReviewTracker();
+  private diffOverlayController:
+    | import("./diff-overlay-controller").DiffOverlayController
+    | null = null;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -185,6 +188,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // don't accidentally bleed into the new session's first message.
     this.pendingAttachments = [];
     this.postMessage({ type: "clearAttachments" as never } as never);
+  }
+
+  /** Called from extension.ts after DiffOverlayController is instantiated. */
+  setDiffOverlayController(
+    controller: import("./diff-overlay-controller").DiffOverlayController,
+  ): void {
+    this.diffOverlayController = controller;
   }
 
   /**
@@ -942,8 +952,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           });
         }
         break;
-      case "done":
+      case "done": {
         this.postMessage(createStreamEnd(delta.usage));
+        // Snapshot edit records before emitEditSummary (which calls flush internally)
+        const editRecords = this.editTracker.flush();
         this.emitEditSummary();
         this.editTracker.reset();
         // Stash usage for handleUserMessage to forward to the callback.
@@ -951,7 +963,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // avoid double-firing (processMessage emits "done" and then returns,
         // and handleUserMessage would fire a second time).
         this._pendingStreamUsage = delta.usage;
+        // Register edits with DiffOverlayController for inline gutter decorations
+        if (this.diffOverlayController && editRecords.length > 0) {
+          for (const record of editRecords) {
+            this.diffOverlayController.registerEdit({
+              path: record.path,
+              oldContent: record.oldContent,
+              newContent: record.newContent,
+            });
+          }
+        }
         break;
+      }
       case "error":
         if (delta.error) {
           this.postMessage(createError(delta.error));

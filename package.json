@@ -2,7 +2,7 @@
   "name": "champ",
   "displayName": "Champ - AI Coding Agent",
   "description": "AI coding agent with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "1.6.98",
+  "version": "1.6.99",
   "publisher": "champ-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -179,6 +179,31 @@
       {
         "command": "champ.browseMcpServers",
         "title": "Champ: Browse MCP Servers",
+        "category": "Champ"
+      },
+      {
+        "command": "champ.acceptHunkAtLine",
+        "title": "Champ: Accept Hunk",
+        "category": "Champ"
+      },
+      {
+        "command": "champ.rejectHunkAtLine",
+        "title": "Champ: Reject Hunk",
+        "category": "Champ"
+      },
+      {
+        "command": "champ.acceptAllHunks",
+        "title": "Champ: Accept All Hunks",
+        "category": "Champ"
+      },
+      {
+        "command": "champ.rejectAllHunks",
+        "title": "Champ: Reject All Hunks",
+        "category": "Champ"
+      },
+      {
+        "command": "champ.clearDiffOverlay",
+        "title": "Champ: Clear Diff Overlay",
         "category": "Champ"
       }
     ],

@@ -79,6 +79,7 @@ import {
   buildMcpServerConfig,
   upsertMcpServer,
 } from "./marketplace/mcp-marketplace-client";
+import { DiffOverlayController } from "./ui/diff-overlay-controller";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -705,6 +706,41 @@ export async function activate(
       { webviewOptions: { retainContextWhenHidden: true } },
     ),
   );
+
+  // ---- Inline hunk diff overlay (gutter decorations + CodeLens) ------
+  const diffOverlayController = new DiffOverlayController(context);
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "champ.acceptHunkAtLine",
+      (filePath: string, line: number) => {
+        diffOverlayController.acceptHunkAtLine(filePath, line);
+      },
+    ),
+    vscode.commands.registerCommand(
+      "champ.rejectHunkAtLine",
+      (filePath: string, line: number) => {
+        diffOverlayController.rejectHunkAtLine(filePath, line);
+      },
+    ),
+    vscode.commands.registerCommand(
+      "champ.acceptAllHunks",
+      (filePath: string) => {
+        diffOverlayController.acceptAllHunks(filePath);
+      },
+    ),
+    vscode.commands.registerCommand(
+      "champ.rejectAllHunks",
+      (filePath: string) => {
+        diffOverlayController.rejectAllHunks(filePath);
+      },
+    ),
+    vscode.commands.registerCommand("champ.clearDiffOverlay", () => {
+      diffOverlayController.clearAll();
+    }),
+  );
+
+  chatViewProvider.setDiffOverlayController(diffOverlayController);
 
   // ---- Chat participant (VS Code native Chat view) -------------------
   // Registers Champ as @champ in VS Code's built-in Chat view,
