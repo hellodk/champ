@@ -844,6 +844,12 @@ export async function activate(
           token,
         ) {
           if (!isProviderReady()) return [];
+          // Respect autocomplete.enabled from YAML config or VS Code settings.
+          const acEnabledYaml = cachedYamlConfig?.autocomplete?.enabled;
+          const acEnabledVsCode = vscode.workspace
+            .getConfiguration("champ")
+            .get<boolean>("autocomplete.enabled", true);
+          if ((acEnabledYaml ?? acEnabledVsCode) === false) return [];
           const prefix = document.getText(
             new vscode.Range(new vscode.Position(0, 0), position),
           );
@@ -2517,6 +2523,18 @@ export async function activate(
           yamlConfig.autocomplete.model,
         );
         if (acProvider) inlineProvider.setProvider(acProvider);
+      } else if (!yamlConfig) {
+        // No YAML config: apply the VS Code setting champ.autocomplete.model
+        // (default: "qwen2.5-coder:1.5b"). This was defined in package.json
+        // but never read — meaning users without YAML got the main chat model
+        // (Claude/GPT-4) doing FIM completions with garbage output.
+        const vsAcModel = vscode.workspace
+          .getConfiguration("champ")
+          .get<string>("autocomplete.model", "");
+        if (vsAcModel && vsAcModel !== newProvider.config.model) {
+          const acProvider = newProvider.withModel?.(vsAcModel);
+          if (acProvider) inlineProvider.setProvider(acProvider);
+        }
       }
       setStatusReady(newProvider);
       // Broadcast a minimal status immediately (SmartRouter's onChange
