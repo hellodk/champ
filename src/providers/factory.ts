@@ -136,29 +136,40 @@ export class ProviderFactory {
           ...this.baseConfig("ollama"),
           model: providerEntry.model ?? "llama3.1",
           baseUrl: providerEntry.baseUrl ?? "http://localhost:11434",
+          // apiKey from YAML (operator-issued) takes precedence over SecretStorage
+          apiKey:
+            providerEntry.apiKey ??
+            (await getKey("champ.ollama.apiKey", "OLLAMA_API_KEY")),
         });
       case "llamacpp":
         return new LlamaCppProvider({
           ...this.baseConfig("llamacpp"),
           model: providerEntry.model ?? "default",
           baseUrl: providerEntry.baseUrl ?? "http://localhost:8080/v1",
+          apiKey:
+            providerEntry.apiKey ??
+            (await getKey("champ.llamacpp.apiKey", "LLAMACPP_API_KEY")),
         });
       case "vllm":
         return new VLLMProvider({
           ...this.baseConfig("vllm"),
           model: providerEntry.model ?? "",
           baseUrl: providerEntry.baseUrl ?? "http://localhost:8000/v1",
-          apiKey: await getKey("champ.vllm.apiKey", "VLLM_API_KEY"),
+          apiKey:
+            providerEntry.apiKey ??
+            (await getKey("champ.vllm.apiKey", "VLLM_API_KEY")),
         });
       case "openai-compatible":
         return new OpenAICompatibleProvider({
           ...this.baseConfig("openai-compatible"),
           model: providerEntry.model ?? "default",
           baseUrl: providerEntry.baseUrl ?? "",
-          apiKey: await getKey(
-            "champ.openaiCompatible.apiKey",
-            "OPENAI_COMPATIBLE_API_KEY",
-          ),
+          apiKey:
+            providerEntry.apiKey ??
+            (await getKey(
+              "champ.openaiCompatible.apiKey",
+              "OPENAI_COMPATIBLE_API_KEY",
+            )),
         });
       default: {
         const _exhaustive: never = providerName as never;

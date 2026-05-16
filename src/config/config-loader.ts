@@ -39,13 +39,21 @@ export type ProviderName =
 export type AgentModeName = "agent" | "ask" | "manual" | "plan" | "composer";
 
 /**
- * Per-provider settings. Note: apiKey is intentionally absent — secrets
- * must go through SecretStorage. The validator rejects any config that
- * tries to put a key under providers.*.apiKey.
+ * Per-provider settings.
+ *
+ * Cloud providers (claude, openai, gemini): apiKey must go through
+ * SecretStorage — never commit cloud credentials to YAML.
+ *
+ * Self-hosted providers (ollama, llamacpp, vllm, openai-compatible):
+ * apiKey may be set in YAML. These keys are issued by the operator's own
+ * LLM service and are not cloud credentials. The key is sent as
+ * `Authorization: Bearer <apiKey>` on every request.
  */
 export interface ProviderConfig {
   baseUrl?: string;
   model?: string;
+  /** Self-hosted providers only. Sent as Authorization: Bearer <apiKey>. */
+  apiKey?: string;
 }
 
 export interface AutocompleteConfig {
@@ -138,6 +146,14 @@ const VALID_PROVIDERS: ProviderName[] = [
   "claude",
   "openai",
   "gemini",
+  "ollama",
+  "llamacpp",
+  "vllm",
+  "openai-compatible",
+];
+
+/** Providers where apiKey is allowed in YAML (operator-issued keys, not cloud credentials). */
+const SELF_HOSTED_PROVIDERS: ProviderName[] = [
   "ollama",
   "llamacpp",
   "vllm",
@@ -246,11 +262,14 @@ export class ConfigLoader {
           }
           const c = conf as Record<string, unknown>;
           if ("apiKey" in c) {
-            pushError(
-              `providers.${name}.apiKey is not allowed in YAML. ` +
-                `Store API keys via the 'Champ: Set API Key' command (SecretStorage).`,
-            );
-            continue;
+            if (!SELF_HOSTED_PROVIDERS.includes(name as ProviderName)) {
+              pushError(
+                `providers.${name}.apiKey is not allowed in YAML for cloud providers. ` +
+                  `Store API keys via the 'Champ: Set API Key' command (SecretStorage).`,
+              );
+              continue;
+            }
+            // Self-hosted providers: apiKey allowed in YAML (operator-issued key).
           }
           const pc: ProviderConfig = {};
           if ("baseUrl" in c) {
@@ -265,6 +284,16 @@ export class ConfigLoader {
               pushError(`providers.${name}.model must be a string`);
             } else {
               pc.model = c.model;
+            }
+          }
+          if (
+            "apiKey" in c &&
+            SELF_HOSTED_PROVIDERS.includes(name as ProviderName)
+          ) {
+            if (typeof c.apiKey !== "string" || !c.apiKey.trim()) {
+              pushError(`providers.${name}.apiKey must be a non-empty string`);
+            } else {
+              pc.apiKey = c.apiKey;
             }
           }
           result.providers[name as ProviderName] = pc;

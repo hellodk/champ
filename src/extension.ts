@@ -3093,15 +3093,24 @@ providers:
   ollama:
     baseUrl: http://localhost:11434
     model: qwen2.5-coder:7b-instruct
+    # apiKey: your-key-here   # Set if your Ollama endpoint requires auth
+                               # Sent as: Authorization: Bearer <apiKey>
 
   # Uncomment any provider you have running:
   llamacpp:
     baseUrl: http://localhost:8080/v1
     model: default
+    # apiKey: your-key-here   # For protected llama.cpp endpoints
 
   # vllm:
   #   baseUrl: http://localhost:8000/v1
   #   model: meta-llama/Llama-3.1-8B
+  #   apiKey: your-key-here   # For protected vLLM endpoints
+
+  # openai-compatible:          # Any OpenAI-spec LLM service you operate
+  #   baseUrl: https://your-llm-service.example.com/v1
+  #   model: your-model-name
+  #   apiKey: issued-by-your-service   # Identifies the user to your service
 
   # claude:
   #   model: claude-sonnet-4-20250514

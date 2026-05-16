@@ -70,6 +70,15 @@ export class OllamaProvider implements LLMProvider {
     };
   }
 
+  private buildHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (this.config.apiKey)
+      headers["Authorization"] = `Bearer ${this.config.apiKey}`;
+    return headers;
+  }
+
   supportsToolUse(): boolean {
     const baseModel = this.config.model.split(":")[0];
     return (
@@ -118,7 +127,7 @@ export class OllamaProvider implements LLMProvider {
     try {
       const res = await fetch(`${this.config.baseUrl}/api/show`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: this.buildHeaders(),
         body: JSON.stringify({ name: this.config.model }),
       });
       if (res.ok) {
@@ -180,7 +189,7 @@ export class OllamaProvider implements LLMProvider {
     try {
       const response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: this.buildHeaders(),
         body: JSON.stringify(body),
         signal: options?.abortSignal,
       });
@@ -237,7 +246,7 @@ export class OllamaProvider implements LLMProvider {
     try {
       const response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: this.buildHeaders(),
         body: JSON.stringify(body),
         signal: options?.abortSignal,
       });
