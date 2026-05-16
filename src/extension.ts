@@ -74,6 +74,11 @@ import { TeamLoader } from "./agent/team-loader";
 import { TeamRunner } from "./agent/team-runner";
 import { TeamPanel } from "./ui/team-panel";
 import { TeamMarketplaceClient } from "./marketplace/team-marketplace-client";
+import {
+  McpMarketplaceClient,
+  buildMcpServerConfig,
+  upsertMcpServer,
+} from "./marketplace/mcp-marketplace-client";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -104,6 +109,40 @@ let activeWorkflowSession: WorkflowSession | undefined;
 let workflowStore: WorkflowStore | undefined;
 let teamRunStore: TeamRunStore | undefined;
 let teamLoader: TeamLoader | undefined;
+
+/**
+ * Eagerly trigger the semantic index on extension activation so search is
+ * ready before the user sends their first message.
+ *
+ * The function is intentionally fire-and-forget (called with `void`): a
+ * failure here must never block the extension from activating.
+ */
+async function triggerAutoIndex(
+  svc: IndexingService,
+  config: import("./config/config-loader").ChampConfig,
+  _context: vscode.ExtensionContext,
+  bar: vscode.StatusBarItem | undefined,
+  channel: vscode.OutputChannel | undefined,
+): Promise<void> {
+  try {
+    bar?.tooltip && void 0; // no-op — we don't mutate the bar to keep UX clean
+    channel?.appendLine("[Champ] Auto-indexing workspace on activation…");
+    const stats = await svc.initialize();
+    if (stats) {
+      const msg =
+        `[Champ] Auto-index complete: ${stats.chunksIndexed} chunks ` +
+        `from ${stats.filesIndexed} files (${stats.embeddingModel})`;
+      channel?.appendLine(msg);
+      console.log(msg);
+    }
+  } catch (err) {
+    const msg = `[Champ] Auto-index failed: ${err instanceof Error ? err.message : String(err)}`;
+    channel?.appendLine(msg);
+    console.warn(msg);
+  }
+  // suppress unused-variable warning — config reserved for future filtering
+  void config;
+}
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -1344,6 +1383,99 @@ export async function activate(
         // Hot-reload picks up the change via file watcher automatically
       },
     ),
+    vscode.commands.registerCommand("champ.browseMcpServers", async () => {
+      const client = new McpMarketplaceClient();
+      void vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Champ: fetching MCP server catalogue…",
+          cancellable: false,
+        },
+        async () => {
+          const entries = await client.fetchManifest();
+          if (entries.length === 0) {
+            void vscode.window.showWarningMessage(
+              "Champ MCP Marketplace: no servers found (check network).",
+            );
+            return;
+          }
+
+          const picks = entries.map((e) => ({
+            label: e.name,
+            description: e.tags.join(", "),
+            detail: e.description,
+            entry: e,
+          }));
+
+          const selected = await vscode.window.showQuickPick(picks, {
+            placeHolder: "Select an MCP server to install",
+            matchOnDescription: true,
+            matchOnDetail: true,
+          });
+          if (!selected) return;
+
+          const entry = selected.entry;
+
+          // Collect env values from the user if the entry defines env vars.
+          const resolvedEnv: Record<string, string> = {};
+          for (const [key, hint] of Object.entries(entry.env ?? {})) {
+            const value = await vscode.window.showInputBox({
+              prompt: `${key}: ${hint}`,
+              placeHolder: key,
+              ignoreFocusOut: true,
+            });
+            if (value === undefined) return; // user cancelled
+            resolvedEnv[key] = value;
+          }
+
+          const newServer = buildMcpServerConfig(entry, resolvedEnv);
+
+          if (!workspaceRoot) {
+            void vscode.window.showErrorMessage(
+              "Champ: open a workspace to install MCP servers.",
+            );
+            return;
+          }
+
+          const configPath = path.join(workspaceRoot, ".champ", "config.yaml");
+          let rawConfig = "";
+          try {
+            rawConfig = new TextDecoder().decode(
+              await vscode.workspace.fs.readFile(vscode.Uri.file(configPath)),
+            );
+          } catch {
+            rawConfig = "provider: ollama\n";
+          }
+
+          const yaml = require("js-yaml") as typeof import("js-yaml");
+          const doc = (yaml.load(rawConfig) as Record<string, unknown>) ?? {};
+          if (!doc.mcp) doc.mcp = { servers: [] };
+          const mcp = doc.mcp as { servers: unknown[] };
+          if (!Array.isArray(mcp.servers)) mcp.servers = [];
+
+          const { wasUpdate } = upsertMcpServer(
+            mcp.servers as import("./mcp/mcp-client").MCPServerConfig[],
+            newServer,
+          );
+          mcp.servers = (
+            mcp.servers as import("./mcp/mcp-client").MCPServerConfig[]
+          ).map((s) => s);
+
+          await vscode.workspace.fs.writeFile(
+            vscode.Uri.file(configPath),
+            new TextEncoder().encode(yaml.dump(doc)),
+          );
+
+          void vscode.window.showInformationMessage(
+            `Champ MCP: server "${entry.name}" ${wasUpdate ? "updated" : "added"}. Reloading…`,
+          );
+          void vscode.commands.executeCommand(
+            "champ.reloadMcpServer",
+            entry.name,
+          );
+        },
+      );
+    }),
     vscode.commands.registerCommand(
       "champ.runMultiAgent",
       async (prefilledRequest?: string) => {
@@ -2756,6 +2888,29 @@ export async function activate(
         // Pruning failure must never surface to the user.
       }
     })();
+
+    // 5. Eager auto-index: kick off the semantic index immediately so
+    //    codebase-search is ready before the user sends their first message.
+    //    IndexingService is wired inside smartRouter.onChange() which fires
+    //    after discover(); give it a short window to initialise.
+    if (cachedYamlConfig?.indexing?.enabled !== false) {
+      // Poll until indexingService is ready (max ~5 s) then trigger.
+      void (async () => {
+        for (let i = 0; i < 25; i++) {
+          if (indexingService) break;
+          await new Promise<void>((r) => setTimeout(r, 200));
+        }
+        if (indexingService) {
+          void triggerAutoIndex(
+            indexingService,
+            cachedYamlConfig ?? {},
+            context,
+            statusBarItem,
+            analyticsChannel,
+          );
+        }
+      })();
+    }
   })();
 
   // ---- Config change watchers -----------------------------------------

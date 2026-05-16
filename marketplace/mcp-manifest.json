@@ -1,0 +1,46 @@
+[
+  {
+    "name": "sqlite",
+    "description": "Read and query local SQLite databases via natural language",
+    "author": "anthropics",
+    "url": "https://raw.githubusercontent.com/anthropics/mcp-servers/main/servers/sqlite/README.md",
+    "transport": "stdio",
+    "command": "uvx",
+    "args": ["mcp-server-sqlite", "--db-path", "$SQLITE_DB_PATH"],
+    "env": { "SQLITE_DB_PATH": "Absolute path to the SQLite database file to expose" },
+    "tags": ["database", "local", "sql"]
+  },
+  {
+    "name": "filesystem",
+    "description": "Expose a local directory tree for reading and writing files",
+    "author": "anthropics",
+    "url": "https://raw.githubusercontent.com/anthropics/mcp-servers/main/servers/filesystem/README.md",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@anthropic-ai/mcp-server-filesystem", "$FS_ROOT"],
+    "env": { "FS_ROOT": "Absolute path to the root directory to expose" },
+    "tags": ["filesystem", "local"]
+  },
+  {
+    "name": "postgres",
+    "description": "Execute read-only SQL queries against a PostgreSQL database",
+    "author": "anthropics",
+    "url": "https://raw.githubusercontent.com/anthropics/mcp-servers/main/servers/postgres/README.md",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@anthropic-ai/mcp-server-postgres", "$POSTGRES_CONNECTION_STRING"],
+    "env": { "POSTGRES_CONNECTION_STRING": "PostgreSQL connection URI, e.g. postgresql://user:pass@localhost/db" },
+    "tags": ["database", "postgres", "sql"]
+  },
+  {
+    "name": "brave-search",
+    "description": "Search the web using the Brave Search API",
+    "author": "anthropics",
+    "url": "https://raw.githubusercontent.com/anthropics/mcp-servers/main/servers/brave-search/README.md",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@anthropic-ai/mcp-server-brave-search"],
+    "env": { "BRAVE_API_KEY": "Your Brave Search API key from https://api.search.brave.com/" },
+    "tags": ["search", "web", "brave"]
+  }
+]
