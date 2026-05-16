@@ -235,6 +235,36 @@ export async function activate(
   );
   mcpRegistry.onStatusChange = () => broadcastMcpStatus();
 
+  // Tracks which cloud providers have an API key set. Updated by loadProvider()
+  // so the model picker can show greyed-out entries for keyless providers.
+  const cloudKeyStatus = new Map<string, boolean>([
+    ["claude", false],
+    ["openai", false],
+    ["gemini", false],
+  ]);
+  const CLOUD_PROVIDERS = new Set(["claude", "openai", "gemini"]);
+
+  /** Build the model picker list, marking cloud models without keys as unavailable. */
+  function buildModelList(
+    discovered: import("./providers/smart-router").DiscoveredModel[],
+  ): import("./ui/messages").AvailableProviderModel[] {
+    return discovered
+      .filter((m) => !m.capabilities.includes("embedding"))
+      .map((m) => {
+        const missingKey =
+          CLOUD_PROVIDERS.has(m.providerName) &&
+          !cloudKeyStatus.get(m.providerName);
+        return {
+          providerName: m.providerName,
+          modelName: m.id,
+          label: `${m.id} (${m.providerName}) ${m.capabilities.join(", ")}`,
+          unavailable: missingKey
+            ? "API key not set — click to configure"
+            : undefined,
+        };
+      });
+  }
+
   // ---- Smart Router (multi-provider model discovery) ----------------
   smartRouter = new SmartRouter();
   // Register static catalogs for cloud providers that cannot be auto-discovered
@@ -374,16 +404,9 @@ export async function activate(
     const discovered = smartRouter!.getModels();
     const discoveredProviders = new Set(discovered.map((m) => m.providerName));
 
-    // Build the available list: only auto-detected (reachable) chat/coding models.
-    // Embedding-only models are excluded — selecting one as active chat model
-    // would route every user message to an embedding endpoint.
-    const available: AvailableProviderModel[] = discovered
-      .filter((m) => !m.capabilities.includes("embedding"))
-      .map((m) => ({
-        providerName: m.providerName,
-        modelName: m.id,
-        label: `${m.id} (${m.providerName}) ${m.capabilities.join(", ")}`,
-      }));
+    // Build the available list via buildModelList() which marks cloud models
+    // as unavailable when their API key is missing.
+    const available: AvailableProviderModel[] = buildModelList(discovered);
 
     // Append config-defined but unreachable providers.
     // Cloud providers (no baseUrl) show normally — they just need an API key.
@@ -774,18 +797,12 @@ export async function activate(
     const provider = inlineProviderRef.current;
     if (provider.name !== "not-configured") {
       // Rebuild current available list from SmartRouter state + YAML static models.
-      // Exclude embedding-only models from the picker.
+      // Exclude embedding-only models; mark cloud models missing keys as unavailable.
       const discovered = smartRouter?.getModels() ?? [];
       const discoveredProviders = new Set(
         discovered.map((m) => m.providerName),
       );
-      const available: AvailableProviderModel[] = discovered
-        .filter((m) => !m.capabilities.includes("embedding"))
-        .map((m) => ({
-          providerName: m.providerName,
-          modelName: m.id,
-          label: `${m.id} (${m.providerName}) ${m.capabilities.join(", ")}`,
-        }));
+      const available: AvailableProviderModel[] = buildModelList(discovered);
       if (cachedYamlConfig?.providers) {
         for (const [pName, pConf] of Object.entries(
           cachedYamlConfig.providers,
@@ -1253,6 +1270,28 @@ export async function activate(
     vscode.commands.registerCommand(
       "champ.setActiveModel",
       async (providerName: string, modelName?: string) => {
+        // Guard: if the user picks a cloud model without a key, offer to set it
+        // instead of silently switching to a broken provider.
+        if (
+          CLOUD_PROVIDERS.has(providerName) &&
+          !cloudKeyStatus.get(providerName)
+        ) {
+          const providerLabels: Record<string, string> = {
+            claude: "Anthropic (Claude)",
+            openai: "OpenAI",
+            gemini: "Google (Gemini)",
+          };
+          const action = await vscode.window.showWarningMessage(
+            `${providerLabels[providerName] ?? providerName} requires an API key. Set it now to use ${modelName ?? providerName}.`,
+            "Set API Key",
+            "Cancel",
+          );
+          if (action === "Set API Key") {
+            await vscode.commands.executeCommand("champ.setApiKey");
+          }
+          return; // Don't switch to the provider — key is required first
+        }
+
         // Tell SmartRouter to switch to manual mode for this specific model.
         // modelName is the exact model ID from the UI picker; fall back to
         // first-discovered only when it's absent (shouldn't happen in practice).
@@ -2634,6 +2673,20 @@ export async function activate(
         const sess = agentManager!.getSession(meta.id);
         sess?.controller.setAnalytics(sessionAnalytics!, "champ");
       });
+      // Refresh cloud key status so the model picker reflects current key state.
+      cloudKeyStatus.set(
+        "claude",
+        !!(await context.secrets.get("champ.claude.apiKey")),
+      );
+      cloudKeyStatus.set(
+        "openai",
+        !!(await context.secrets.get("champ.openai.apiKey")),
+      );
+      cloudKeyStatus.set(
+        "gemini",
+        !!(await context.secrets.get("champ.gemini.apiKey")),
+      );
+
       inlineProvider.setProvider(newProvider);
       inlineProviderRef.current = newProvider;
       // If YAML configures a separate autocomplete provider or model, wire it.

@@ -121,6 +121,12 @@ export interface AvailableProviderModel {
   modelName: string;
   /** Pre-formatted user-facing label, e.g. "ollama: qwen2.5-coder:14b". */
   label: string;
+  /**
+   * When set, the model cannot be used yet. Value is a short human-readable
+   * reason shown in the picker (e.g. "API key not set"). The model is still
+   * shown in the list but rendered greyed-out with a click-to-fix action.
+   */
+  unavailable?: string;
 }
 
 export interface ProviderStatusMessage {

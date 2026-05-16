@@ -57,7 +57,7 @@
       providerName: undefined,
       modelName: undefined,
       errorMessage: undefined,
-      available: /** @type {Array<{providerName: string, modelName: string, label: string}>} */ ([]),
+      available: /** @type {Array<{providerName: string, modelName: string, label: string, unavailable?: string}>} */ ([]),
     },
     /** Whether YOLO mode (skip approval prompts) is enabled. */
     yoloMode: false,
@@ -673,9 +673,13 @@
           (m.modelName || '').toLowerCase().includes(query))
       : available;
 
-    // Separate reachable vs offline models.
-    const reachable = filtered.filter(m => !(m.label || '').startsWith('[offline]'));
-    const offline = filtered.filter(m => (m.label || '').startsWith('[offline]'));
+    // Separate into three buckets:
+    // 1. reachable — ready to use
+    // 2. needsKey  — cloud provider with no API key set
+    // 3. offline   — local provider that isn't reachable
+    const reachable = filtered.filter(m => !m.unavailable && !(m.label || '').startsWith('[offline]'));
+    const needsKey  = filtered.filter(m => !!m.unavailable);
+    const offline   = filtered.filter(m => !m.unavailable && (m.label || '').startsWith('[offline]'));
 
     // ── Group reachable by provider ──
     const groups = {};
@@ -714,7 +718,35 @@
       }
     }
 
-    // ── Offline / unreachable models (greyed out) ──
+    // ── Needs API key — greyed out, click prompts key setup ──
+    if (needsKey.length > 0) {
+      const keyHeader = el('div', { class: 'model-group-header offline' }, ['Needs API key']);
+      modelListEl.append(keyHeader);
+      // Group by provider so each provider shows once with its models
+      const keyGroups = {};
+      for (const m of needsKey) {
+        const k = m.providerName || 'unknown';
+        if (!keyGroups[k]) keyGroups[k] = [];
+        keyGroups[k].push(m);
+      }
+      for (const [pName, pModels] of Object.entries(keyGroups)) {
+        // Show one clickable row per provider (not per model — all models from
+        // this provider are blocked by the same missing key)
+        const row = el('div', { class: 'model-row offline', style: 'cursor:pointer;' });
+        row.title = pModels[0].unavailable || 'API key required';
+        const nameEl = el('span', { class: 'model-name', style: 'opacity:0.5;' }, [pName]);
+        const tagEl  = el('span', { class: 'model-tag',  style: 'opacity:0.5;' }, ['⚙ Set API key to enable']);
+        row.append(nameEl, tagEl);
+        row.addEventListener('click', () => {
+          modelPickerPopup.setAttribute('hidden', 'true');
+          // Ask the extension to open the key-setup flow for this provider
+          vscode.postMessage({ type: 'setModelRequest', providerName: pName, modelName: pModels[0].modelName });
+        });
+        modelListEl.append(row);
+      }
+    }
+
+    // ── Offline / unreachable models (greyed out, not clickable) ──
     if (offline.length > 0) {
       const offlineHeader = el('div', { class: 'model-group-header offline' }, ['Offline']);
       modelListEl.append(offlineHeader);
@@ -728,7 +760,7 @@
       }
     }
 
-    if (reachable.length === 0 && offline.length === 0) {
+    if (reachable.length === 0 && needsKey.length === 0 && offline.length === 0) {
       modelListEl.append(el('div', { class: 'model-empty' }, ['Scanning providers...']));
     }
     // Footer: + Add model + shortcut hint.
