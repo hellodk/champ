@@ -3,10 +3,10 @@ import { describe, it, expect } from "vitest";
 import {
   createSessionTokenUsage,
   isSessionTokenUsageMessage,
+  type ExtensionToWebviewMessage,
 } from "../messages";
 import { ChatViewProvider } from "../chat-view-provider";
 import type { AgentController } from "../../agent/agent-controller";
-import type { ExtensionToWebviewMessage } from "../messages";
 import * as vscode from "vscode";
 
 describe("SessionTokenUsageMessage", () => {
@@ -37,7 +37,11 @@ describe("SessionTokenUsageMessage", () => {
 // Minimal fake webview that captures postMessage calls.
 function makeTestProvider() {
   const posted: ExtensionToWebviewMessage[] = [];
-  const fakeUri = { fsPath: "/fake", with: () => fakeUri, toString: () => "/fake" } as unknown as vscode.Uri;
+  const fakeUri = {
+    fsPath: "/fake",
+    with: () => fakeUri,
+    toString: () => "/fake",
+  } as unknown as vscode.Uri;
   const fakeAgent = {
     getHistory: () => [],
     reset: () => {},
@@ -49,7 +53,10 @@ function makeTestProvider() {
   // Inject a fake view so postMessage works.
   (provider as unknown as { view: unknown }).view = {
     webview: {
-      postMessage: (msg: ExtensionToWebviewMessage) => { posted.push(msg); return Promise.resolve(true); },
+      postMessage: (msg: ExtensionToWebviewMessage) => {
+        posted.push(msg);
+        return Promise.resolve(true);
+      },
       options: {},
       html: "",
       onDidReceiveMessage: () => ({ dispose: () => {} }),
