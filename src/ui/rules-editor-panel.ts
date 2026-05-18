@@ -22,9 +22,24 @@ export function buildRuleMarkdown(rule: {
   type: "always" | "auto-attached" | "agent-requested";
   glob?: string;
 }): string {
-  let frontmatter = `---\nname: ${rule.name}\ntype: ${rule.type}`;
-  if (rule.type === "auto-attached" && rule.glob) {
-    frontmatter += `\nglob: "${rule.glob}"`;
+  const allowedTypes = ["always", "auto-attached", "agent-requested"] as const;
+  if (!allowedTypes.includes(rule.type)) {
+    throw new Error(`Invalid rule type: ${rule.type}`);
+  }
+
+  // Strip newlines to prevent YAML frontmatter injection
+  let name = rule.name.replace(/[\n\r]/g, " ").trim();
+  const type = rule.type; // already validated against the enum above
+  const glob = rule.glob ? rule.glob.replace(/[\n\r]/g, " ").trim() : undefined;
+
+  // Quote name if it contains special YAML characters
+  if (/[:#\[\]{}|>&*!,?'"]/.test(name)) {
+    name = JSON.stringify(name);
+  }
+
+  let frontmatter = `---\nname: ${name}\ntype: ${type}`;
+  if (rule.type === "auto-attached" && glob) {
+    frontmatter += `\nglob: "${glob}"`;
   }
   frontmatter += "\n---\n";
   return frontmatter + rule.content;
@@ -176,8 +191,8 @@ export class RulesEditorPanel {
   }
 
   private renderHtml(): string {
-    const nonce =
-      Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    const { randomBytes } = require("crypto") as typeof import("crypto");
+    const nonce = randomBytes(32).toString("base64url");
     const cspSource = this.panel.webview.cspSource ?? "vscode-resource:";
     const scriptUri = this.panel.webview.asWebviewUri(
       vscode.Uri.joinPath(

@@ -29,6 +29,8 @@ export class MemoryPanel {
       null,
       this.disposables,
     );
+    // Set HTML once in the constructor; subsequent refreshes only post data.
+    this.panel.webview.html = this.getHtml();
     void this.refresh();
   }
 
@@ -41,9 +43,14 @@ export class MemoryPanel {
       : undefined;
 
     if (MemoryPanel.currentPanel) {
-      MemoryPanel.currentPanel.panel.reveal(column);
-      void MemoryPanel.currentPanel.refresh();
-      return MemoryPanel.currentPanel;
+      try {
+        MemoryPanel.currentPanel.panel.reveal(column);
+        void MemoryPanel.currentPanel.refresh();
+        return MemoryPanel.currentPanel;
+      } catch {
+        // Panel was disposed externally — create a new one
+        MemoryPanel.currentPanel = undefined;
+      }
     }
 
     const panel = vscode.window.createWebviewPanel(
@@ -64,7 +71,8 @@ export class MemoryPanel {
 
   public async refresh(): Promise<void> {
     const items = this.memoryBank.getAll();
-    this.panel.webview.html = this.getHtml(items);
+    // HTML is set once in the constructor — only update data via postMessage
+    // to avoid tearing down the JS runtime and causing flicker.
     await this.panel.webview.postMessage({ type: "memoryList", items });
   }
 
@@ -100,11 +108,9 @@ export class MemoryPanel {
     }
   }
 
-  private getHtml(items: import("../memory/memory-bank").MemoryItem[]): string {
-    const nonce = Array.from(
-      { length: 16 },
-      () => Math.random().toString(36)[2],
-    ).join("");
+  private getHtml(): string {
+    const { randomBytes } = require("crypto") as typeof import("crypto");
+    const nonce = randomBytes(32).toString("base64url");
     const componentsUri = this.panel.webview
       .asWebviewUri(
         vscode.Uri.joinPath(
@@ -115,9 +121,6 @@ export class MemoryPanel {
         ),
       )
       .toString();
-
-    // Suppress unused variable warning — items reserved for future SSR use.
-    void items;
 
     return `<!DOCTYPE html>
 <html lang="en">

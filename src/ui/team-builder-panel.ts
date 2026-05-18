@@ -83,6 +83,16 @@ export function parseAgentPositions(
 /**
  * Serializes a team definition (from TeamBuilderSaveRequest) to YAML,
  * omitting empty optional fields so the output stays clean.
+ *
+ * NOTE: This function manually maps each known field of TeamAgentDefinition.
+ * If new fields are added to that type, they must also be added here or they
+ * will be silently dropped from the serialized output.
+ * TODO: consider using js-yaml dump for agent nodes directly (with a
+ * schema/filter) to make this exhaustive automatically.
+ *
+ * multiline / special-character values (e.g. systemPrompt) are safe because
+ * the entire doc is serialized via yaml.dump(), which applies block scalar
+ * style for multiline strings and quoting for values containing colons etc.
  */
 export function buildTeamYaml(team: TeamBuilderSaveRequest["team"]): string {
   const doc: Record<string, unknown> = {
@@ -251,8 +261,8 @@ export class TeamBuilderPanel {
   }
 
   private renderHtml(): string {
-    const nonce =
-      Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    const { randomBytes } = require("crypto") as typeof import("crypto");
+    const nonce = randomBytes(32).toString("base64url");
     const cspSource = this.panel.webview.cspSource ?? "vscode-resource:";
     const scriptUri = this.panel.webview.asWebviewUri(
       vscode.Uri.joinPath(

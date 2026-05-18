@@ -79,7 +79,7 @@ import { WorkflowSession } from "./ui/workflow-session";
 import { WorkflowPanel } from "./ui/workflow-panel";
 import { applyHunks, splitIntoHunks } from "./utils/diff-utils";
 import { TeamLoader } from "./agent/team-loader";
-import { TeamRunner } from "./agent/team-runner";
+import { TeamRunner, type PauseSignal } from "./agent/team-runner";
 import { TeamPanel } from "./ui/team-panel";
 import { TeamBuilderPanel } from "./ui/team-builder-panel";
 import { RulesEditorPanel } from "./ui/rules-editor-panel";
@@ -808,8 +808,10 @@ export async function activate(
       sessionInputTokens += usage.inputTokens;
       sessionOutputTokens += usage.outputTokens;
       const activeProvider = inlineProviderRef.current?.name ?? "";
+      const activeModel = inlineProviderRef.current?.config.model ?? "";
       const costUsd = estimateCost(
         activeProvider,
+        activeModel,
         sessionInputTokens,
         sessionOutputTokens,
       );
@@ -1540,6 +1542,10 @@ export async function activate(
       // Swap the chat view to the new session's controller.
       chatViewProvider?.setAgent(session.controller);
       void saveSession(session.metadata.id);
+      // Reset token accumulators for the new session.
+      sessionInputTokens = 0;
+      sessionOutputTokens = 0;
+      chatViewProvider?.broadcastSessionTokenUsage(0, 0, 0);
       chatViewProvider?.postMessage({
         type: "conversationHistory",
         messages: [],
@@ -2085,6 +2091,22 @@ export async function activate(
           (r: { action: "skip" | "retry"; context?: string }) => void
         >();
 
+        let _isPaused = false;
+        let _resumeResolve: (() => void) | null = null;
+        const pauseSignal: PauseSignal = {
+          get isPaused() {
+            return _isPaused;
+          },
+          waitForResume() {
+            return new Promise<void>((resolve) => {
+              _resumeResolve = resolve;
+            });
+          },
+          requestPause() {
+            _isPaused = true;
+          },
+        };
+
         panel.onMessage((msg) => {
           if (msg.type === "teamStop") {
             abortController.abort();
@@ -2106,12 +2128,20 @@ export async function activate(
                 });
                 blockedResolvers.delete(msg.agentId);
               });
+          } else if (msg.type === "teamPause") {
+            pauseSignal.requestPause();
+          } else if (msg.type === "teamResume") {
+            _isPaused = false;
+            const res = _resumeResolve;
+            _resumeResolve = null;
+            res?.();
           }
         });
 
         void runner.run(selectedTeam, userRequest, provider, toolRegistry, {
           workspaceRoot,
           abortSignal: abortController.signal,
+          pauseSignal,
           teamRunStore,
           onBlocked: (agentId, _reason) =>
             new Promise((resolve) => {
