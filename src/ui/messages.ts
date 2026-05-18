@@ -358,6 +358,21 @@ export interface RerunTeamRequest {
   runId: string;
 }
 
+/**
+ * Streamed terminal output chunk sent from the extension host to the
+ * webview as run_terminal_cmd executes. One message per stdout chunk.
+ * A final message with done=true marks the end of the execution.
+ */
+export interface TerminalOutputChunkMessage {
+  type: "terminalOutputChunk";
+  /** Unique identifier for this execution run, matches RunInTerminalRequest.executionId. */
+  executionId: string;
+  /** Partial stdout text (may be empty on the done=true sentinel). */
+  chunk: string;
+  /** True on the final message; the webview should close the streaming block. */
+  done: boolean;
+}
+
 export type ExtensionToWebviewMessage =
   | StreamStartMessage
   | StreamDeltaMessage
@@ -387,7 +402,8 @@ export type ExtensionToWebviewMessage =
   | TeamRunSnapshotMessage
   | MemoryBadgeMessage
   | MemoryListMessage
-  | TeamCostEstimateMessage;
+  | TeamCostEstimateMessage
+  | TerminalOutputChunkMessage;
 
 // ---------------------------------------------------------------------------
 // Webview -> Extension Host
@@ -628,6 +644,19 @@ export interface EditUserMessageRequest {
   newText: string;
 }
 
+/**
+ * The user clicked the "Run" button on a bash code block in the chat.
+ * The host runs the command via run_terminal_cmd and streams output back
+ * as TerminalOutputChunkMessage.
+ */
+export interface RunInTerminalRequest {
+  type: "runInTerminal";
+  /** The shell command extracted from the fenced code block. */
+  command: string;
+  /** Webview-generated identifier so the host can correlate streaming chunks. */
+  executionId: string;
+}
+
 export type WebviewToExtensionMessage =
   | UserMessageRequest
   | SetModeRequest
@@ -674,7 +703,8 @@ export type WebviewToExtensionMessage =
   | TeamPauseRequest
   | TeamResumeRequest
   | RerunTeamRequest
-  | EditUserMessageRequest;
+  | EditUserMessageRequest
+  | RunInTerminalRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)
@@ -1062,4 +1092,26 @@ export function isEditUserMessage(
   msg: WebviewToExtensionMessage,
 ): msg is EditUserMessageRequest {
   return msg.type === "editUserMessage";
+}
+
+// Factory helper
+export function createTerminalOutputChunk(
+  executionId: string,
+  chunk: string,
+  done: boolean,
+): TerminalOutputChunkMessage {
+  return { type: "terminalOutputChunk", executionId, chunk, done };
+}
+
+// Type guards
+export function isTerminalOutputChunkMessage(
+  msg: ExtensionToWebviewMessage,
+): msg is TerminalOutputChunkMessage {
+  return msg.type === "terminalOutputChunk";
+}
+
+export function isRunInTerminalRequest(
+  msg: WebviewToExtensionMessage,
+): msg is RunInTerminalRequest {
+  return msg.type === "runInTerminal";
 }
