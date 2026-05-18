@@ -10,7 +10,10 @@ import type { TeamRunState } from "../agent/team-definition";
 export type TeamPanelMessage =
   | { type: "teamStop" }
   | { type: "teamSkipAgent"; agentId: string }
-  | { type: "teamRetryAgent"; agentId: string };
+  | { type: "teamRetryAgent"; agentId: string }
+  | { type: "teamPause" }
+  | { type: "teamResume" }
+  | { type: "rerunTeam"; runId: string };
 
 export class TeamPanel {
   private panel: vscode.WebviewPanel;
@@ -58,6 +61,24 @@ export class TeamPanel {
   setTitle(title: string): void {
     if (this._disposed) return;
     this.panel.title = `👥 ${title}`;
+  }
+
+  showCostEstimate(estimate: {
+    agentCount: number;
+    estimatedTokens: number;
+    estimatedCostUsd: string;
+    teamName: string;
+  }): void {
+    if (this._disposed) return;
+    void this.panel.webview.postMessage({
+      type: "teamCostEstimate",
+      ...estimate,
+    });
+  }
+
+  setRunId(runId: string): void {
+    if (this._disposed) return;
+    void this.panel.webview.postMessage({ type: "teamSetRunId", runId });
   }
 
   dispose(): void {
@@ -132,10 +153,17 @@ body{font-family:var(--vscode-font-family);font-size:13px;background:var(--vscod
 </style>
 </head>
 <body>
+<div id="costBanner" style="display:none;padding:5px 12px;font-size:11px;
+  background:var(--vscode-inputValidation-infoBackground,rgba(0,128,255,.12));
+  border-bottom:1px solid var(--vscode-panel-border);
+  color:var(--vscode-foreground);"></div>
 <div class="tb">
   <span class="tb-title">👥 ${this.escHtml(teamName)}</span>
   <span class="tb-meta" id="meta">Starting…</span>
   <button class="btn btn-stop" id="stopBtn" onclick="stop()">■ Stop</button>
+  <button class="btn" id="pauseBtn" onclick="pauseRun()" style="display:none" title="Pause after current group">⏸ Pause</button>
+  <button class="btn" id="resumeBtn" onclick="resumeRun()" style="display:none" title="Resume run">▶ Resume</button>
+  <button class="btn" id="rerunBtn" onclick="rerunRun()" style="display:none" title="Re-run with same task">↺ Re-run</button>
 </div>
 <div class="main">
   <div class="roster" id="roster"></div>
@@ -157,6 +185,7 @@ const vscode = acquireVsCodeApi();
 let state = null;
 let sel = null;
 const streams = {};
+let currentRunId = null;
 
 const DOTS = {pending:'dot-pending',running:'dot-running',done:'dot-done',failed:'dot-failed',skipped:'dot-skipped',blocked:'dot-blocked'};
 const ICONS = {pending:'○',running:'●',done:'✓',failed:'✗',skipped:'⊘',blocked:'⚠'};
@@ -164,6 +193,11 @@ const ICONS = {pending:'○',running:'●',done:'✓',failed:'✗',skipped:'⊘'
 function stop() { vscode.postMessage({type:'teamStop'}); }
 function skipAgent(id,e) { e.stopPropagation(); vscode.postMessage({type:'teamSkipAgent',agentId:id}); }
 function retryAgent(id,e) { e.stopPropagation(); vscode.postMessage({type:'teamRetryAgent',agentId:id}); }
+function pauseRun() { vscode.postMessage({type:'teamPause'}); }
+function resumeRun() { vscode.postMessage({type:'teamResume'}); }
+function rerunRun() {
+  if (currentRunId) vscode.postMessage({type:'rerunTeam', runId:currentRunId});
+}
 
 function esc(s) {
   return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -286,6 +320,12 @@ function updateMeta() {
   const STATUS_TEXT={running:'Running…',paused:'Paused — agent blocked',completed:'✓ Completed',failed:'Failed',stopped:'Stopped'};
   document.getElementById('meta').textContent=STATUS_TEXT[state.status]||state.status;
   document.getElementById('stopBtn').style.display=['completed','stopped'].includes(state.status)?'none':'';
+  const isRunning = state.status === 'running';
+  const isPaused = state.status === 'paused';
+  const isDone = ['completed','stopped','failed'].includes(state.status);
+  document.getElementById('pauseBtn').style.display = isRunning ? '' : 'none';
+  document.getElementById('resumeBtn').style.display = isPaused ? '' : 'none';
+  document.getElementById('rerunBtn').style.display = isDone ? '' : 'none';
 }
 
 function renderDag() {
@@ -356,7 +396,15 @@ window.addEventListener('message', e => {
   } else if (msg.type==='agentStream') {
     streams[msg.agentId]=(streams[msg.agentId]||'')+msg.chunk;
     if (sel===msg.agentId) renderOutput();
-  }
+  } else if (msg.type==='teamCostEstimate') {
+    const banner = document.getElementById('costBanner');
+    if (banner) {
+      banner.textContent = 'Estimated: ' + msg.agentCount + ' agent(s) · ~'
+        + msg.estimatedTokens.toLocaleString() + ' tokens · ' + msg.estimatedCostUsd;
+      banner.style.display = '';
+    }
+    return;
+  } else if (msg.type==='teamSetRunId') { currentRunId = msg.runId; return; }
 });
 </script>
 </body>
