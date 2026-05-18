@@ -64,6 +64,10 @@ import {
   isAcceptHunkAtLineRequest,
   isRejectHunkAtLineRequest,
   isFocusTeamAgentRequest,
+  isOpenMemoryBankRequest,
+  isMemoryDeleteRequest,
+  isMemoryPinRequest,
+  isMemoryAddRequest,
   createSessionList,
   type ExtensionToWebviewMessage,
   type WebviewToExtensionMessage,
@@ -185,6 +189,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private diffOverlayController:
     | import("./diff-overlay-controller").DiffOverlayController
     | null = null;
+  private memoryBank?: import("../memory/memory-bank").MemoryBank;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -210,6 +215,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     controller: import("./diff-overlay-controller").DiffOverlayController,
   ): void {
     this.diffOverlayController = controller;
+  }
+
+  /** Attach the MemoryBank so CRUD operations from the webview can be forwarded. */
+  setMemoryBank(bank: import("../memory/memory-bank").MemoryBank): void {
+    this.memoryBank = bank;
   }
 
   /**
@@ -640,11 +650,35 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.diffOverlayController?.rejectHunkAtLine(msg.filePath, msg.line);
       } else if (isFocusTeamAgentRequest(msg)) {
         // no-op for now
+      } else if (isOpenMemoryBankRequest(msg)) {
+        void vscode.commands.executeCommand("champ.openMemoryBank");
+      } else if (isMemoryDeleteRequest(msg)) {
+        void this.memoryBank
+          ?.delete(msg.id)
+          .then(() => this.broadcastMemoryBadge());
+      } else if (isMemoryPinRequest(msg)) {
+        const op = msg.pinned
+          ? this.memoryBank?.pin(msg.id)
+          : this.memoryBank?.unpin(msg.id);
+        void op?.then(() => this.broadcastMemoryBadge());
+      } else if (isMemoryAddRequest(msg)) {
+        void this.memoryBank
+          ?.addManual(msg.text)
+          .then(() => this.broadcastMemoryBadge());
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.postMessage(createError(message));
     }
+  }
+
+  /** Broadcast memory count badge to the chat webview. */
+  private broadcastMemoryBadge(): void {
+    if (!this.memoryBank) return;
+    this.postMessage({
+      type: "memoryBadge",
+      count: this.memoryBank.getAll().length,
+    } as never);
   }
 
   /**

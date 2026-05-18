@@ -904,6 +904,7 @@ export async function activate(
   );
 
   chatViewProvider.setDiffOverlayController(diffOverlayController);
+  if (memoryBank) chatViewProvider.setMemoryBank(memoryBank);
 
   // ---- Chat participant (VS Code native Chat view) -------------------
   // Registers Champ as @champ in VS Code's built-in Chat view,
