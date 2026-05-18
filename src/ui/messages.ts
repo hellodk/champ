@@ -306,6 +306,34 @@ export interface MemoryAddRequest {
   text: string;
 }
 
+// Team execution control messages
+
+/** Extension → Webview: pre-run cost estimate before a team run starts. */
+export interface TeamCostEstimateMessage {
+  type: "teamCostEstimate";
+  agentCount: number;
+  estimatedTokens: number;
+  /** Formatted e.g. "~$0.04" or "< $0.01". */
+  estimatedCostUsd: string;
+  teamName: string;
+}
+
+/** Webview → Extension: user clicked "Pause" in TeamPanel. */
+export interface TeamPauseRequest {
+  type: "teamPause";
+}
+
+/** Webview → Extension: user clicked "Resume" in TeamPanel after a pause. */
+export interface TeamResumeRequest {
+  type: "teamResume";
+}
+
+/** Webview → Extension: re-run a previous team execution with the same task. */
+export interface RerunTeamRequest {
+  type: "rerunTeam";
+  runId: string;
+}
+
 export type ExtensionToWebviewMessage =
   | StreamStartMessage
   | StreamDeltaMessage
@@ -333,7 +361,8 @@ export type ExtensionToWebviewMessage =
   | McpMarketplaceInstallCompleteMessage
   | TeamRunSnapshotMessage
   | MemoryBadgeMessage
-  | MemoryListMessage;
+  | MemoryListMessage
+  | TeamCostEstimateMessage;
 
 // ---------------------------------------------------------------------------
 // Webview -> Extension Host
@@ -603,7 +632,10 @@ export type WebviewToExtensionMessage =
   | OpenMemoryBankRequest
   | MemoryDeleteRequest
   | MemoryPinRequest
-  | MemoryAddRequest;
+  | MemoryAddRequest
+  | TeamPauseRequest
+  | TeamResumeRequest
+  | RerunTeamRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)
@@ -948,4 +980,22 @@ export function isMemoryAddRequest(
   msg: WebviewToExtensionMessage,
 ): msg is MemoryAddRequest {
   return msg.type === "memoryAdd";
+}
+
+export function isTeamPauseRequest(
+  msg: WebviewToExtensionMessage,
+): msg is TeamPauseRequest {
+  return msg.type === "teamPause";
+}
+
+export function isTeamResumeRequest(
+  msg: WebviewToExtensionMessage,
+): msg is TeamResumeRequest {
+  return msg.type === "teamResume";
+}
+
+export function isRerunTeamRequest(
+  msg: WebviewToExtensionMessage,
+): msg is RerunTeamRequest {
+  return msg.type === "rerunTeam";
 }
