@@ -52,3 +52,65 @@ describe("ContextResolver @MCP reference", () => {
     );
   });
 });
+
+describe("ContextResolver @MCPPrompt reference", () => {
+  it("parses @MCPPrompt(server:name) without args", () => {
+    const resolver = new ContextResolver(
+      {
+        workspaceRoot: "/",
+        indexingService: { search: vi.fn() },
+        webSearchTool: { execute: vi.fn() },
+      } as never,
+      makeMockRegistry(null) as never,
+    );
+    const refs = resolver.parseReferences("Use @MCPPrompt(myserver:greeting)");
+    expect(refs).toHaveLength(1);
+    expect(refs[0].type).toBe("mcpPrompt");
+    expect(refs[0].value).toBe("myserver:greeting");
+  });
+
+  it("parses @MCPPrompt(server:name?k=v) with query args", () => {
+    const resolver = new ContextResolver(
+      {
+        workspaceRoot: "/",
+        indexingService: { search: vi.fn() },
+        webSearchTool: { execute: vi.fn() },
+      } as never,
+      makeMockRegistry(null) as never,
+    );
+    const refs = resolver.parseReferences(
+      "Use @MCPPrompt(myserver:greeting?name=Alice&lang=en)",
+    );
+    expect(refs[0].value).toBe("myserver:greeting?name=Alice&lang=en");
+  });
+
+  it("resolves @MCPPrompt by calling mcpRegistry.getPrompt with parsed args", async () => {
+    const mockRegistry = makeMockRegistry(null);
+    mockRegistry.getPrompt = vi.fn().mockResolvedValue("Hello Alice!");
+    const resolver = new ContextResolver(
+      {
+        workspaceRoot: "/",
+        indexingService: { search: vi.fn() },
+        webSearchTool: { execute: vi.fn() },
+      } as never,
+      mockRegistry as never,
+    );
+    const refs = [
+      {
+        type: "mcpPrompt",
+        value: "myserver:greeting?name=Alice",
+        start: 0,
+        end: 10,
+      },
+    ];
+    const result = await resolver.resolve(refs as never);
+    expect(result[0].content).toBe("Hello Alice!");
+    expect(mockRegistry.getPrompt).toHaveBeenCalledWith(
+      "myserver",
+      "greeting",
+      {
+        name: "Alice",
+      },
+    );
+  });
+});
