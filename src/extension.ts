@@ -44,6 +44,7 @@ import { BUILT_IN_SKILL_TEXTS } from "./skills/built-in";
 import type { LLMProvider, StreamDelta } from "./providers/types";
 import type { AvailableProviderModel, WorkflowHistoryRun } from "./ui/messages";
 import { SAMPLE_CONFIGS } from "./config/sample-configs";
+import { estimateCost } from "./config/token-cost";
 import { AgentManager } from "./agent-manager/agent-manager";
 import { SessionStore } from "./agent-manager/session-store";
 import { SmartRouter } from "./providers/smart-router";
@@ -784,6 +785,10 @@ export async function activate(
       }
     }
   });
+  // Session-scoped token accumulator — reset on every newChat / session switch.
+  let sessionInputTokens = 0;
+  let sessionOutputTokens = 0;
+
   // Metrics + session persistence — fires on every LLM turn completion.
   chatViewProvider.onStreamCompleted((usage) => {
     if (usage) {
@@ -793,6 +798,19 @@ export async function activate(
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
       });
+      sessionInputTokens += usage.inputTokens;
+      sessionOutputTokens += usage.outputTokens;
+      const activeProvider = inlineProviderRef.current?.name ?? "";
+      const costUsd = estimateCost(
+        activeProvider,
+        sessionInputTokens,
+        sessionOutputTokens,
+      );
+      chatViewProvider?.broadcastSessionTokenUsage(
+        sessionInputTokens,
+        sessionOutputTokens,
+        costUsd,
+      );
     }
     broadcastMetrics();
     if (sessionAnalytics) {
@@ -820,6 +838,8 @@ export async function activate(
   // When the webview resolves, re-broadcast all state that may have
   // been sent before it was ready (provider status, session list).
   chatViewProvider.onWebviewReady(() => {
+    sessionInputTokens = 0;
+    sessionOutputTokens = 0;
     const provider = inlineProviderRef.current;
     if (provider.name !== "not-configured") {
       // Rebuild current available list from SmartRouter state + YAML static models.
@@ -1458,6 +1478,8 @@ export async function activate(
           const outgoingId = agentManager.getActiveId();
           if (outgoingId) void saveSession(outgoingId);
           agentManager.setActive(sessionId);
+          sessionInputTokens = 0;
+          sessionOutputTokens = 0;
           const session = agentManager.getActive();
           if (session) {
             // Swap the chat view's agent to the new session's controller.
