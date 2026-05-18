@@ -71,6 +71,7 @@ import {
   isMemoryPinRequest,
   isMemoryAddRequest,
   isEditUserMessage,
+  isRegenerateResponseRequest,
   createSessionList,
   createSessionTokenUsage,
   type ExtensionToWebviewMessage,
@@ -422,6 +423,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           this.agent.truncateHistory(truncateAt);
         }
         await this.handleUserMessage(msg.newText);
+      } else if (isRegenerateResponseRequest(msg)) {
+        // Truncate the last assistant turn and re-run the last user message.
+        const history = this.agent.getHistory();
+        // Find the last user message before any trailing assistant turns.
+        let lastUserIdx = -1;
+        for (let i = history.length - 1; i >= 0; i--) {
+          if (history[i].role === "user") {
+            lastUserIdx = i;
+            break;
+          }
+        }
+        if (lastUserIdx !== -1) {
+          const lastUserMsg = history[lastUserIdx];
+          const lastUserText =
+            typeof lastUserMsg.content === "string"
+              ? lastUserMsg.content
+              : JSON.stringify(lastUserMsg.content);
+          // Truncate back to just before the last user turn, then resubmit.
+          this.agent.truncateHistory(lastUserIdx);
+          await this.handleUserMessage(lastUserText);
+        }
       } else if (isNewChat(msg)) {
         this.handleNewChat();
       } else if (isCancelRequest(msg)) {

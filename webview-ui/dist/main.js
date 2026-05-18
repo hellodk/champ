@@ -1523,6 +1523,10 @@
     if (!userScrolledUp) {
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
+    // Phase 1 (Feature 2): track the last assistant message for regeneration.
+    if (role === 'assistant') {
+      lastAssistantMsg = messageEl;
+    }
     return messageEl;
   }
 
@@ -2148,6 +2152,15 @@
             }
           }
         }
+        // Phase 1: inject copy buttons on all code blocks now that streaming is done.
+        injectRunButtons();
+        // Phase 1: inject regenerate button and follow-up suggestions.
+        if (lastAssistantMsg) {
+          const body = lastAssistantMsg.querySelector('.body');
+          const responseText = body ? (body.dataset.rawText || body.textContent || '') : '';
+          injectRegenerateButton(lastAssistantMsg);
+          injectFollowUps(lastAssistantMsg, responseText);
+        }
         break;
       case 'toolCallStart': {
         appendToolCallCard(msg.toolName, msg.args);
@@ -2482,6 +2495,121 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Phase 1 — Copy button on every code block (Feature 1)
+  // ---------------------------------------------------------------------------
+
+  function injectCopyButton(pre) {
+    if (pre.querySelector('.copy-btn')) return; // idempotent
+    const btn = document.createElement('button');
+    btn.className = 'copy-btn';
+    btn.title = 'Copy code';
+    btn.textContent = '⎘';
+    btn.addEventListener('click', () => {
+      const code = pre.querySelector('code');
+      const text = code ? (code.dataset.rawCode || code.textContent) : pre.textContent;
+      navigator.clipboard.writeText(text || '').then(() => {
+        btn.textContent = '✓';
+        setTimeout(() => { btn.textContent = '⎘'; }, 1500);
+      });
+    });
+    pre.style.position = 'relative';
+    pre.appendChild(btn);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 1 — Response regeneration button (Feature 2)
+  // ---------------------------------------------------------------------------
+
+  let lastAssistantMsg = null;
+
+  function injectRegenerateButton(msgEl) {
+    const existing = document.getElementById('champ-regen-btn');
+    if (existing) existing.remove();
+    const btn = document.createElement('button');
+    btn.id = 'champ-regen-btn';
+    btn.className = 'regen-btn';
+    btn.textContent = '↺ Regenerate';
+    btn.title = 'Re-run the last prompt with a fresh response';
+    btn.addEventListener('click', () => {
+      btn.remove();
+      vscode.postMessage({ type: 'regenerateResponse' });
+    });
+    msgEl.parentNode.insertBefore(btn, msgEl.nextSibling);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 1 — Suggested follow-ups (Feature 3)
+  // ---------------------------------------------------------------------------
+
+  function getSuggestedFollowUps(responseText) {
+    const lower = responseText.toLowerCase();
+    if (lower.includes('```') || lower.includes('function') || lower.includes('class ')) {
+      return ['Explain this code', 'Write tests for this', 'What could go wrong?'];
+    }
+    if (lower.includes('error') || lower.includes('exception') || lower.includes('failed')) {
+      return ['How do I fix this?', 'Show me an example', 'What causes this?'];
+    }
+    if (lower.includes('because') || lower.includes('means') || lower.includes('refers to')) {
+      return ['Give me an example', 'What are the alternatives?', 'Go deeper on this'];
+    }
+    return ['Can you elaborate?', 'Show me an example', 'What should I do next?'];
+  }
+
+  function injectFollowUps(msgEl, responseText) {
+    const existing = document.getElementById('champ-followups');
+    if (existing) existing.remove();
+    const suggestions = getSuggestedFollowUps(responseText);
+    const container = document.createElement('div');
+    container.id = 'champ-followups';
+    container.className = 'followup-chips';
+    for (const s of suggestions) {
+      const chip = document.createElement('button');
+      chip.className = 'followup-chip';
+      chip.textContent = s;
+      chip.addEventListener('click', () => {
+        container.remove();
+        document.getElementById('champ-regen-btn')?.remove();
+        // populate the input and submit
+        const input = document.getElementById('userInput') || document.querySelector('textarea');
+        if (input) { input.value = s; input.dispatchEvent(new Event('input')); }
+        vscode.postMessage({ type: 'userMessage', text: s });
+      });
+      container.appendChild(chip);
+    }
+    msgEl.parentNode.insertBefore(container, msgEl.nextSibling);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 1 — Conversation search (Feature 4)
+  // ---------------------------------------------------------------------------
+
+  function initChatSearch() {
+    if (document.getElementById('chat-search')) return;
+    const bar = document.createElement('div');
+    bar.id = 'chat-search';
+    bar.innerHTML = '<input id="chat-search-input" type="text" placeholder="Search conversation…" /><button id="chat-search-clear" style="display:none">\xd7</button>';
+    const app = document.getElementById('app');
+    if (!app) return;
+    app.insertBefore(bar, app.firstChild);
+
+    const input = document.getElementById('chat-search-input');
+    const clear = document.getElementById('chat-search-clear');
+
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase();
+      clear.style.display = q ? '' : 'none';
+      document.querySelectorAll('.message, .msg-row').forEach(el => {
+        el.style.display = (!q || el.textContent.toLowerCase().includes(q)) ? '' : 'none';
+      });
+    });
+    clear.addEventListener('click', () => {
+      input.value = '';
+      clear.style.display = 'none';
+      document.querySelectorAll('.message, .msg-row').forEach(el => { el.style.display = ''; });
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // Run button injection for bash/sh code blocks (Sprint O)
   // ---------------------------------------------------------------------------
 
@@ -2548,7 +2676,11 @@
 
       pre.style.position = 'relative';
       pre.appendChild(btn);
+      // Also inject the floating copy button on every code block.
+      injectCopyButton(pre);
     });
+    // Sweep all pre elements that didn't get a run button (non-bash blocks).
+    document.querySelectorAll('pre').forEach(injectCopyButton);
   }
 
   // Delegated copy handler for code blocks.
@@ -2569,6 +2701,8 @@
       // Will be populated properly when sessionList arrives.
     }
   } catch {}
+  // Phase 1 (Feature 4): initialise the conversation search bar.
+  initChatSearch();
   // Signal readiness to the host.
   vscode.postMessage({ type: 'requestHistory' });
 })();

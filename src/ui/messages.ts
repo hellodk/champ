@@ -757,6 +757,15 @@ export interface RunInTerminalRequest {
   executionId: string;
 }
 
+/**
+ * The user clicked the "↺ Regenerate" button below the last assistant
+ * response. The host should truncate the last assistant turn and re-run
+ * the last user message.
+ */
+export interface RegenerateResponseRequest {
+  type: "regenerateResponse";
+}
+
 export type WebviewToExtensionMessage =
   | UserMessageRequest
   | SetModeRequest
@@ -807,7 +816,8 @@ export type WebviewToExtensionMessage =
   | TeamResumeRequest
   | RerunTeamRequest
   | EditUserMessageRequest
-  | RunInTerminalRequest;
+  | RunInTerminalRequest
+  | RegenerateResponseRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)
@@ -1235,4 +1245,10 @@ export function isRuleDeleteRequest(
   msg: WebviewToExtensionMessage,
 ): msg is RuleDeleteRequest {
   return msg.type === "ruleDelete";
+}
+
+export function isRegenerateResponseRequest(
+  msg: WebviewToExtensionMessage,
+): msg is RegenerateResponseRequest {
+  return msg.type === "regenerateResponse";
 }
