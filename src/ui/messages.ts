@@ -184,6 +184,10 @@ export interface McpServerStatus {
   name: string;
   connected: boolean;
   toolCount: number;
+  /** Number of resources exposed by this server (0 if server doesn't support resources). */
+  resourceCount: number;
+  /** Number of prompt templates exposed by this server (0 if server doesn't support prompts). */
+  promptCount: number;
   error?: string;
 }
 

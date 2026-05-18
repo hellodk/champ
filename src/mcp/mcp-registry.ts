@@ -18,6 +18,8 @@ export class McpRegistry {
   /** serverName → tool names registered from that server */
   private registeredTools = new Map<string, string[]>();
   private connectionErrors = new Map<string, string>();
+  private resourceCounts = new Map<string, number>();
+  private promptCounts = new Map<string, number>();
   private loading = false;
   private pendingServers: MCPServerConfig[] | null = null;
 
@@ -103,11 +105,24 @@ export class McpRegistry {
   getStatus(): import("../ui/messages").McpServerStatus[] {
     const result: import("../ui/messages").McpServerStatus[] = [];
     for (const [name, toolNames] of this.registeredTools) {
-      result.push({ name, connected: true, toolCount: toolNames.length });
+      result.push({
+        name,
+        connected: true,
+        toolCount: toolNames.length,
+        resourceCount: this.resourceCounts.get(name) ?? 0,
+        promptCount: this.promptCounts.get(name) ?? 0,
+      });
     }
     for (const [name, error] of this.connectionErrors) {
       if (!this.registeredTools.has(name)) {
-        result.push({ name, connected: false, toolCount: 0, error });
+        result.push({
+          name,
+          connected: false,
+          toolCount: 0,
+          resourceCount: 0,
+          promptCount: 0,
+          error,
+        });
       }
     }
     return result;
