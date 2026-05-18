@@ -4,7 +4,7 @@
  *
  * Facts are stored as JSON in <workspaceRoot>/.champ/memory.json and
  * loaded on startup. The bank caps at MAX_MEMORIES items, evicting the
- * oldest entry when the limit is exceeded.
+ * oldest non-pinned entry when the limit is exceeded.
  */
 import * as path from "path";
 import * as fs from "fs/promises";
@@ -15,6 +15,8 @@ export interface MemoryItem {
   userQuery: string;
   assistantSummary: string;
   sessionId: string;
+  /** When true, always injected into system prompt regardless of recency. */
+  pinned?: boolean;
 }
 
 const MAX_MEMORIES = 50;
@@ -49,7 +51,7 @@ export class MemoryBank {
 
   /**
    * Stores a new memory entry. Generates a unique id, pushes to
-   * this.items, evicts oldest when > MAX_MEMORIES, then persists.
+   * this.items, evicts oldest non-pinned entry when > MAX_MEMORIES, then persists.
    */
   async store(entry: Omit<MemoryItem, "id" | "timestamp">): Promise<void> {
     const id = `mem-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -59,11 +61,57 @@ export class MemoryBank {
       ...entry,
     };
     this.items.push(item);
-    // Evict oldest entries beyond the cap.
+    // Evict oldest non-pinned entries beyond the cap; fall back to oldest if all pinned.
     while (this.items.length > MAX_MEMORIES) {
-      this.items.shift();
+      const evictIdx = this.items.findIndex((m) => !m.pinned);
+      this.items.splice(evictIdx === -1 ? 0 : evictIdx, 1);
     }
     await this.persist();
+  }
+
+  /** Add a manually entered fact (not tied to a specific session interaction). */
+  async addManual(text: string): Promise<void> {
+    await this.store({
+      userQuery: "manual",
+      assistantSummary: text,
+      sessionId: "manual",
+    });
+  }
+
+  /** Pin a memory so it is always injected into the system prompt. */
+  async pin(id: string): Promise<void> {
+    const item = this.items.find((m) => m.id === id);
+    if (item) {
+      item.pinned = true;
+      await this.persist();
+    }
+  }
+
+  /** Unpin a memory (reverts to recency-based injection). */
+  async unpin(id: string): Promise<void> {
+    const item = this.items.find((m) => m.id === id);
+    if (item) {
+      item.pinned = false;
+      await this.persist();
+    }
+  }
+
+  /** Permanently remove a memory entry. No-op for unknown ids. */
+  async delete(id: string): Promise<void> {
+    const before = this.items.length;
+    this.items = this.items.filter((m) => m.id !== id);
+    if (this.items.length !== before) {
+      await this.persist();
+    }
+  }
+
+  /** Returns all stored memories (pinned first, then by insertion order / timestamp asc). */
+  getAll(): MemoryItem[] {
+    return [...this.items].sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      return a.timestamp - b.timestamp;
+    });
   }
 
   /**
@@ -74,17 +122,27 @@ export class MemoryBank {
   }
 
   /**
-   * Returns the last n items formatted as a markdown block for injection
-   * into the system prompt. Returns "" when there are no items.
+   * Returns the last n non-pinned items formatted as a markdown block for
+   * injection into the system prompt. Returns "" when there are no items.
+   * Pinned items are handled separately by getPinnedContext().
    */
   getRecentContext(n = 5): string {
     if (this.items.length === 0) return "";
-    const recent = this.items.slice(-n);
+    const recent = this.items.filter((m) => !m.pinned).slice(-n);
+    if (recent.length === 0) return "";
     const lines = recent.map(
       (item) =>
         `- User asked: "${item.userQuery}" → "${item.assistantSummary}"`,
     );
     return `## Recent conversation history\n${lines.join("\n")}`;
+  }
+
+  /** Returns all pinned memories as a markdown block (always injected). */
+  getPinnedContext(): string {
+    const pinned = this.items.filter((m) => m.pinned);
+    if (pinned.length === 0) return "";
+    const lines = pinned.map((item) => `- ${item.assistantSummary}`);
+    return `## Pinned project context\n${lines.join("\n")}`;
   }
 
   /**
