@@ -130,3 +130,39 @@ describe("session token accumulator helpers", () => {
     expect(cost).toBeCloseTo(6.25, 1);
   });
 });
+
+import {
+  EMPTY_STATE_PROMPTS,
+  EMPTY_STATE_TITLES,
+} from "../../ui/empty-state-prompts";
+
+describe("EMPTY_STATE_PROMPTS", () => {
+  it("has entries for agent, ask, and plan modes", () => {
+    expect(EMPTY_STATE_PROMPTS).toHaveProperty("agent");
+    expect(EMPTY_STATE_PROMPTS).toHaveProperty("ask");
+    expect(EMPTY_STATE_PROMPTS).toHaveProperty("plan");
+  });
+
+  it("each mode has exactly 4 prompts", () => {
+    for (const mode of ["agent", "ask", "plan"] as const) {
+      expect(EMPTY_STATE_PROMPTS[mode]).toHaveLength(4);
+    }
+  });
+
+  it("each prompt has icon, label, and text fields", () => {
+    for (const mode of ["agent", "ask", "plan"] as const) {
+      for (const p of EMPTY_STATE_PROMPTS[mode]) {
+        expect(typeof p.icon).toBe("string");
+        expect(typeof p.label).toBe("string");
+        expect(typeof p.text).toBe("string");
+        expect(p.text.length).toBeGreaterThan(5);
+      }
+    }
+  });
+
+  it("EMPTY_STATE_TITLES has a title for each mode", () => {
+    expect(typeof EMPTY_STATE_TITLES.agent).toBe("string");
+    expect(typeof EMPTY_STATE_TITLES.ask).toBe("string");
+    expect(typeof EMPTY_STATE_TITLES.plan).toBe("string");
+  });
+});
