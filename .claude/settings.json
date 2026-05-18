@@ -29,7 +29,30 @@
       "Bash(git diff *)",
       "Bash(git status)",
       "Bash(git show *)",
-      "Bash(mkdir -p *)"
+      "Bash(mkdir -p *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(ls *)",
+      "Bash(ls -la *)",
+      "Bash(cat *)",
+      "Bash(wc -c *)",
+      "Bash(diff *)",
+      "Bash(python3 *)",
+      "Bash(node *)",
+      "Bash(npm install *)",
+      "Bash(npm audit *)",
+      "Bash(npm run build*)",
+      "Bash(npx @vscode/vsce publish *)",
+      "Bash(npx vitest run src/* *)",
+      "Bash(npx vitest run scripts/* *)",
+      "Bash(npx vitest run webview-ui/* *)",
+      "Bash(npx vitest run test/* *)",
+      "Bash(git stash)",
+      "Bash(git stash pop)",
+      "Bash(git stash list)",
+      "Bash(node esbuild.webview.mjs *)",
+      "Bash(tail *)",
+      "Bash(head *)"
     ]
   }
 }
