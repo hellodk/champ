@@ -1,15 +1,13 @@
 // src/ui/__tests__/team-execution-messages.test.ts
 import { it, expect } from "vitest";
-import type {
-  TeamCostEstimateMessage,
-  TeamPauseRequest,
-  TeamResumeRequest,
-  RerunTeamRequest,
-} from "../messages";
 import {
   isTeamPauseRequest,
   isTeamResumeRequest,
   isRerunTeamRequest,
+  type TeamCostEstimateMessage,
+  type TeamPauseRequest,
+  type TeamResumeRequest,
+  type RerunTeamRequest,
 } from "../messages";
 
 it("TeamCostEstimateMessage has required fields", () => {
