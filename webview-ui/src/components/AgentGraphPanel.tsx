@@ -5,6 +5,7 @@ import type {
   TeamAgentRunState,
   TeamAgentStatus,
 } from "../types";
+import type { TeamBuilderLoadMessage } from "../../../src/ui/messages";
 
 export const teamStateSignal = signal<TeamRunState | null>(null);
 const isVisibleSignal = computed(() => teamStateSignal.value !== null);
@@ -12,6 +13,32 @@ const isVisibleSignal = computed(() => teamStateSignal.value !== null);
 type AgentGraphTab = "graph" | "timeline";
 const activeTabSignal = signal<AgentGraphTab>("graph");
 const expandedAgentIdSignal = signal<string | null>(null);
+
+// Design-mode state — populated when a teamBuilderLoad message arrives
+const designTeamSignal = signal<{
+  name: string;
+  agents: Array<{ id: string; name: string; dependsOn: string[] }>;
+} | null>(null);
+type PanelMode = "live" | "design";
+const activePanelModeSignal = signal<PanelMode>("live");
+
+window.addEventListener("message", (e: MessageEvent) => {
+  const msg = e.data as { type: string };
+  if (msg.type === "teamBuilderLoad") {
+    const m = msg as TeamBuilderLoadMessage;
+    if (m.team) {
+      designTeamSignal.value = {
+        name: m.team.name,
+        agents: m.team.agents.map((a) => ({
+          id: a.id,
+          name: a.name,
+          dependsOn: a.dependsOn ?? [],
+        })),
+      };
+      activePanelModeSignal.value = "design";
+    }
+  }
+});
 
 window.addEventListener("champ:teamUpdate", (e: Event) => {
   const msg = (e as CustomEvent<{ state: TeamRunState }>).detail;
@@ -284,8 +311,142 @@ function TimelineRow({ agent }: { agent: TeamAgentRunState }): JSX.Element {
 }
 
 export function AgentGraphPanel(): JSX.Element | null {
-  if (!isVisibleSignal.value) return null;
+  const hasLive = isVisibleSignal.value;
+  const hasDesign = designTeamSignal.value !== null;
 
+  if (!hasLive && !hasDesign) return null;
+
+  // If only one mode is active, force that tab
+  const panelMode: PanelMode =
+    hasLive && !hasDesign
+      ? "live"
+      : !hasLive && hasDesign
+        ? "design"
+        : activePanelModeSignal.value;
+
+  function handleClose(): void {
+    if (panelMode === "live") {
+      teamStateSignal.value = null;
+    } else {
+      designTeamSignal.value = null;
+    }
+  }
+
+  // ── Design mode rendering ─────────────────────────────────────────────────
+  if (panelMode === "design") {
+    const dt = designTeamSignal.value!;
+    const dependsOnMap = new Map<string, string[]>(
+      dt.agents.map((a) => [a.id, a.dependsOn]),
+    );
+
+    // Build fake TeamAgentRunState[] for reuse of computeLayout
+    const fakeAgents: TeamAgentRunState[] = dt.agents.map((a) => ({
+      id: a.id,
+      name: a.name,
+      status: "pending" as const,
+      output: "",
+      tokenCount: 0,
+      validationWarnings: [],
+      retryCount: 0,
+    }));
+
+    const positions = computeLayout(fakeAgents, dependsOnMap);
+
+    let maxX = 0;
+    let maxY = 0;
+    for (const { x, y } of positions.values()) {
+      if (x + NODE_WIDTH / 2 + PADDING > maxX)
+        maxX = x + NODE_WIDTH / 2 + PADDING;
+      if (y + NODE_HEIGHT / 2 + PADDING > maxY)
+        maxY = y + NODE_HEIGHT / 2 + PADDING;
+    }
+
+    return (
+      <div
+        style="position:fixed; top:48px; right:12px; width:340px;
+               background:var(--vscode-sideBar-background);
+               border:1px solid var(--vscode-panel-border);
+               border-radius:6px; z-index:60; box-shadow:0 4px 16px rgba(0,0,0,0.3);
+               overflow:hidden;"
+      >
+        <div
+          style="display:flex; justify-content:space-between; align-items:center;
+                 padding:6px 10px; background:var(--vscode-titleBar-activeBackground);"
+        >
+          <div style="display:flex; gap:4px; align-items:center;">
+            {hasLive && (
+              <button
+                onClick={() => {
+                  activePanelModeSignal.value = "live";
+                }}
+                style={`background:none; border:none; cursor:pointer; font-size:11px; font-weight:600; padding:2px 6px; border-radius:3px; ${panelMode === "live" ? "color:var(--vscode-foreground); background:var(--vscode-panel-border);" : "color:var(--vscode-descriptionForeground);"}`}
+              >
+                Live
+              </button>
+            )}
+            {hasDesign && (
+              <button
+                onClick={() => {
+                  activePanelModeSignal.value = "design";
+                }}
+                style={`background:none; border:none; cursor:pointer; font-size:11px; font-weight:600; padding:2px 6px; border-radius:3px; ${panelMode === "design" ? "color:var(--vscode-foreground); background:var(--vscode-panel-border);" : "color:var(--vscode-descriptionForeground);"}`}
+              >
+                Design
+              </button>
+            )}
+            <span style="font-size:12px; font-weight:600; margin-left:4px;">
+              {dt.name}
+            </span>
+          </div>
+          <button
+            onClick={handleClose}
+            style="background:none; border:none; cursor:pointer; color:var(--vscode-icon-foreground); font-size:14px;"
+            aria-label="Close design preview"
+          >
+            x
+          </button>
+        </div>
+        <div style="overflow:auto; max-height:300px;">
+          <svg
+            width={Math.max(maxX, 200)}
+            height={Math.max(maxY, 120)}
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            {fakeAgents.map((agent) =>
+              (dependsOnMap.get(agent.id) ?? []).map((depId) => {
+                const fromPos = positions.get(depId);
+                const toPos = positions.get(agent.id);
+                if (!fromPos || !toPos) return null;
+                return (
+                  <EdgeLine
+                    key={`${depId}->${agent.id}`}
+                    fromPos={fromPos}
+                    toPos={toPos}
+                  />
+                );
+              }),
+            )}
+            {fakeAgents.map((agent) => {
+              const pos = positions.get(agent.id);
+              if (!pos) return null;
+              return (
+                <AgentNode key={agent.id} agent={agent} x={pos.x} y={pos.y} />
+              );
+            })}
+          </svg>
+        </div>
+        <div
+          style="padding:4px 10px; font-size:10px; color:var(--vscode-descriptionForeground);
+                 border-top:1px solid var(--vscode-panel-border);"
+        >
+          {fakeAgents.length} agent{fakeAgents.length !== 1 ? "s" : ""} — design
+          preview
+        </div>
+      </div>
+    );
+  }
+
+  // ── Live mode rendering (original code) ───────────────────────────────────
   const state = teamStateSignal.value!;
 
   const dependsOnMap = new Map<string, string[]>();
@@ -306,10 +467,6 @@ export function AgentGraphPanel(): JSX.Element | null {
   const svgWidth = Math.max(maxX, 200);
   const svgHeight = Math.max(maxY, 120);
 
-  function handleClose(): void {
-    teamStateSignal.value = null;
-  }
-
   return (
     <div
       style="position:fixed; top:48px; right:12px; width:340px;
@@ -323,9 +480,21 @@ export function AgentGraphPanel(): JSX.Element | null {
         style="display:flex; justify-content:space-between; align-items:center;
                padding:6px 10px; background:var(--vscode-titleBar-activeBackground);"
       >
-        <span style="font-size:12px; font-weight:600;">
-          {state.teamName} — {state.status}
-        </span>
+        <div style="display:flex; gap:4px; align-items:center;">
+          {hasDesign && (
+            <button
+              onClick={() => {
+                activePanelModeSignal.value = "design";
+              }}
+              style="background:none; border:none; cursor:pointer; font-size:11px; font-weight:600; padding:2px 6px; border-radius:3px; color:var(--vscode-descriptionForeground);"
+            >
+              Design
+            </button>
+          )}
+          <span style="font-size:12px; font-weight:600;">
+            {state.teamName} — {state.status}
+          </span>
+        </div>
         <button
           onClick={handleClose}
           style="background:none; border:none; cursor:pointer; color:var(--vscode-icon-foreground); font-size:14px;"
