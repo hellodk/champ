@@ -368,6 +368,43 @@ html, body {
   border-color: var(--vscode-errorForeground);
 }
 
+/* Collapsible tool card header */
+.tool-card-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
+}
+
+.tool-card-chevron {
+  font-size: 10px;
+  width: 12px;
+  color: var(--vscode-descriptionForeground);
+  flex-shrink: 0;
+}
+
+.tool-card-summary {
+  flex: 1;
+  font-weight: 600;
+  color: var(--vscode-symbolIcon-functionForeground, #dcdcaa);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: calc(var(--vscode-font-size) - 1px);
+}
+
+/* Body hidden when collapsed */
+.tool-card[data-collapsed="true"] .tool-card-body {
+  display: none;
+}
+
+.tool-card[data-collapsed="false"] .tool-card-body {
+  display: block;
+  margin-top: 6px;
+}
+
 /* -------------------------------------------------------------------
  * Input area + bottom bar
  * ---------------------------------------------------------------- */

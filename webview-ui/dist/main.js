@@ -1575,6 +1575,21 @@
     codeEl.dataset.highlighted = 'true';
   }
 
+  /**
+   * Build a one-line summary for a collapsed tool card header.
+   * Shows "toolName(key=val, key=val +N)" truncated to readable length.
+   */
+  function buildSummaryLine(toolName, args) {
+    const keys = Object.keys(args || {});
+    if (keys.length === 0) return toolName;
+    const parts = keys.slice(0, 2).map((k) => {
+      const v = String(args[k] != null ? args[k] : '');
+      return `${k}=${v.length > 40 ? v.slice(0, 37) + '…' : v}`;
+    });
+    const more = keys.length > 2 ? ` +${keys.length - 2}` : '';
+    return `${toolName}(${parts.join(', ')}${more})`;
+  }
+
   function appendToolCallCard(toolName, args) {
     if (!state.currentAssistantMessage) {
       state.currentAssistantMessage = appendMessage('assistant', '');
@@ -1582,24 +1597,38 @@
       if (b) b.classList.add('streaming-cursor');
     }
     const card = el('div', { class: 'tool-card' });
-    // Tool name row with copy button on the right.
-    const nameRow = el('div', { class: 'tool-name-row' });
-    const toolIcon = codicon('tools');
-    toolIcon.style.marginRight = '6px';
-    const name = el('span', { class: 'tool-name' });
-    name.append(toolIcon, document.createTextNode(toolName));
-    const copyToolBtn = el('button', { class: 'tool-copy-btn', title: 'Copy' });
-    copyToolBtn.append(codicon('copy'));
-    copyToolBtn.addEventListener('click', () => {
-      const text = JSON.stringify(args, null, 2);
-      navigator.clipboard.writeText(text).catch(() => {});
-    });
-    nameRow.append(name, copyToolBtn);
-    const argsEl = el('div', { class: 'tool-args' }, [JSON.stringify(args, null, 2)]);
-    const resultEl = el('div', { class: 'tool-result' }, ['Running...']);
-    card.append(nameRow, argsEl, resultEl);
-    state.currentAssistantMessage.append(card);
+    card.dataset.collapsed = 'true';
     card.dataset.toolName = toolName;
+
+    // ── Header row (always visible) ──────────────────────────────────
+    const header = el('div', { class: 'tool-card-header' });
+    const chevron = el('span', { class: 'tool-card-chevron' }, ['▶']);
+    const toolIcon = codicon('tools');
+    toolIcon.style.marginRight = '5px';
+    const summary = el('span', { class: 'tool-card-summary' }, [buildSummaryLine(toolName, args)]);
+    const copyToolBtn = el('button', { class: 'tool-copy-btn', title: 'Copy args' });
+    copyToolBtn.append(codicon('copy'));
+    copyToolBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      navigator.clipboard.writeText(JSON.stringify(args, null, 2)).catch(() => {});
+    });
+    header.append(chevron, toolIcon, summary, copyToolBtn);
+
+    // ── Body (collapsed by default) ───────────────────────────────────
+    const body = el('div', { class: 'tool-card-body' });
+    const argsEl = el('div', { class: 'tool-args' }, [JSON.stringify(args, null, 2)]);
+    const resultEl = el('div', { class: 'tool-result' }, ['Running…']);
+    body.append(argsEl, resultEl);
+
+    // Toggle on header click.
+    header.addEventListener('click', () => {
+      const collapsed = card.dataset.collapsed === 'true';
+      card.dataset.collapsed = collapsed ? 'false' : 'true';
+      chevron.textContent = collapsed ? '▼' : '▶';
+    });
+
+    card.append(header, body);
+    state.currentAssistantMessage.append(card);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
     return card;
   }
