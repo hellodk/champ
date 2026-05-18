@@ -233,4 +233,39 @@ export class McpRegistry {
   ): Promise<string | null> {
     return this.manager.getPrompt(serverName, promptName, args);
   }
+
+  /** Returns all resources across all connected servers, keyed by serverName. */
+  async listAllResources(): Promise<
+    Map<string, import("./mcp-client").McpResource[]>
+  > {
+    const result = new Map<string, import("./mcp-client").McpResource[]>();
+    for (const serverName of this.manager.getConnectedServers()) {
+      const resources = await this.manager
+        .listResources(serverName)
+        .catch(() => []);
+      if (resources.length > 0) {
+        result.set(serverName, resources);
+      }
+    }
+    return result;
+  }
+
+  /** Returns all prompt templates across all connected servers. */
+  async listAllPrompts(): Promise<
+    Map<string, import("./mcp-client").McpPromptTemplate[]>
+  > {
+    const result = new Map<
+      string,
+      import("./mcp-client").McpPromptTemplate[]
+    >();
+    for (const serverName of this.manager.getConnectedServers()) {
+      const prompts = await this.manager
+        .listPrompts(serverName)
+        .catch(() => []);
+      if (prompts.length > 0) {
+        result.set(serverName, prompts);
+      }
+    }
+    return result;
+  }
 }
