@@ -261,6 +261,51 @@ export interface TeamRunSnapshotMessage {
   state: TeamRunState;
 }
 
+// ---- Memory messages ----
+
+export interface MemoryItem {
+  id: string;
+  timestamp: number;
+  userQuery: string;
+  assistantSummary: string;
+  sessionId: string;
+  pinned?: boolean;
+}
+
+/** Sent to webview to update the memory badge count in the chat header. */
+export interface MemoryBadgeMessage {
+  type: "memoryBadge";
+  count: number;
+}
+
+/** Sent to webview when memory panel requests the full list. */
+export interface MemoryListMessage {
+  type: "memoryList";
+  items: MemoryItem[];
+}
+
+// Webview → Extension
+
+export interface OpenMemoryBankRequest {
+  type: "openMemoryBank";
+}
+
+export interface MemoryDeleteRequest {
+  type: "memoryDelete";
+  id: string;
+}
+
+export interface MemoryPinRequest {
+  type: "memoryPin";
+  id: string;
+  pinned: boolean;
+}
+
+export interface MemoryAddRequest {
+  type: "memoryAdd";
+  text: string;
+}
+
 export type ExtensionToWebviewMessage =
   | StreamStartMessage
   | StreamDeltaMessage
@@ -286,7 +331,9 @@ export type ExtensionToWebviewMessage =
   | McpMarketplaceOpenMessage
   | McpMarketplaceEntriesMessage
   | McpMarketplaceInstallCompleteMessage
-  | TeamRunSnapshotMessage;
+  | TeamRunSnapshotMessage
+  | MemoryBadgeMessage
+  | MemoryListMessage;
 
 // ---------------------------------------------------------------------------
 // Webview -> Extension Host
@@ -552,7 +599,11 @@ export type WebviewToExtensionMessage =
   | McpMarketplaceInstallRequest
   | AcceptHunkAtLineRequest
   | RejectHunkAtLineRequest
-  | FocusTeamAgentRequest;
+  | FocusTeamAgentRequest
+  | OpenMemoryBankRequest
+  | MemoryDeleteRequest
+  | MemoryPinRequest
+  | MemoryAddRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)
@@ -873,4 +924,28 @@ export function isFocusTeamAgentRequest(
   msg: WebviewToExtensionMessage,
 ): msg is FocusTeamAgentRequest {
   return msg.type === "focusTeamAgent";
+}
+
+export function isOpenMemoryBankRequest(
+  msg: WebviewToExtensionMessage,
+): msg is OpenMemoryBankRequest {
+  return msg.type === "openMemoryBank";
+}
+
+export function isMemoryDeleteRequest(
+  msg: WebviewToExtensionMessage,
+): msg is MemoryDeleteRequest {
+  return msg.type === "memoryDelete";
+}
+
+export function isMemoryPinRequest(
+  msg: WebviewToExtensionMessage,
+): msg is MemoryPinRequest {
+  return msg.type === "memoryPin";
+}
+
+export function isMemoryAddRequest(
+  msg: WebviewToExtensionMessage,
+): msg is MemoryAddRequest {
+  return msg.type === "memoryAdd";
 }

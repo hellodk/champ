@@ -17,6 +17,10 @@
  */
 import { spawn, type ChildProcess } from "child_process";
 
+export type MCPServerAuth =
+  | { type: "bearer"; token: string }
+  | { type: "header"; name: string; value: string };
+
 export interface MCPServerConfig {
   name: string;
   command?: string;
@@ -25,6 +29,8 @@ export interface MCPServerConfig {
   baseUrl?: string;
   transport?: "stdio" | "sse";
   url?: string;
+  /** Optional authentication for SSE transport. */
+  auth?: MCPServerAuth;
 }
 
 export interface MCPTool {
@@ -103,14 +109,22 @@ export class MCPSSEConnection {
 
   private readonly messageUrl: string;
   private readonly sseUrl: string;
+  private readonly extraHeaders: Record<string, string>;
 
   constructor(
     private readonly baseUrl: string,
-    private readonly extraHeaders: Record<string, string> = {},
+    auth?: MCPServerAuth,
   ) {
     const base = baseUrl.replace(/\/$/, "");
     this.messageUrl = `${base}/message`;
     this.sseUrl = `${base}/sse`;
+    if (auth?.type === "bearer") {
+      this.extraHeaders = { Authorization: `Bearer ${auth.token}` };
+    } else if (auth?.type === "header") {
+      this.extraHeaders = { [auth.name]: auth.value };
+    } else {
+      this.extraHeaders = {};
+    }
   }
 
   async connect(): Promise<void> {
@@ -289,7 +303,7 @@ export class MCPClientManager {
           `MCP server "${config.name}" requires a \`url\` field for SSE transport`,
         );
       }
-      const sseConn = new MCPSSEConnection(url, {});
+      const sseConn = new MCPSSEConnection(url, config.auth);
       await sseConn.connect();
       const stub: MCPConnection = {
         config,

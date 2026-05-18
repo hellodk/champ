@@ -35,6 +35,16 @@ export type TeamRunEvent =
   | { type: "error"; message: string; state: TeamRunState }
   | { type: "budget_warning"; usedTokens: number; budgetTokens: number };
 
+/** Controls pause/resume of a team run between execution groups. */
+export interface PauseSignal {
+  /** True when a pause has been requested externally. */
+  readonly isPaused: boolean;
+  /** Resolves when the consumer calls resume (sets isPaused back to false). */
+  waitForResume(): Promise<void>;
+  /** External caller sets this to indicate a pause is desired. */
+  requestPause(): void;
+}
+
 export interface TeamRunOptions {
   onEvent?: (event: TeamRunEvent) => void;
   abortSignal?: AbortSignal;
@@ -51,6 +61,8 @@ export interface TeamRunOptions {
     agentId: string,
     reason: string,
   ) => Promise<{ action: "skip" | "retry"; context?: string }>;
+  /** Optional pause/resume signal checked between execution groups. */
+  pauseSignal?: PauseSignal;
 }
 
 async function writeCheckpoint(
@@ -280,6 +292,12 @@ export class TeamRunner {
     try {
       while (remainingGroups.length > 0) {
         if (options.abortSignal?.aborted) break;
+        if (options.pauseSignal?.isPaused) {
+          const pausedState = { ...buildState("paused"), pauseRequested: true };
+          options.onEvent?.({ type: "state_update", state: pausedState });
+          void options.teamRunStore?.save(pausedState);
+          await options.pauseSignal.waitForResume();
+        }
         const group = remainingGroups.shift()!;
 
         // Token budget: warn at 80%, soft-stop (skip remaining) at 100%

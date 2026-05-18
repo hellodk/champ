@@ -153,6 +153,8 @@ export interface TeamRunState {
   totalTokens: number;
   /** Token budget from team config (0 or undefined = no budget set). */
   tokenBudget?: number;
+  /** Set to true by the runner when suspended between groups waiting for resume. */
+  pauseRequested?: boolean;
   filesChanged: string[];
   mode: TeamExecutionMode;
 }
