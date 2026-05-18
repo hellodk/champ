@@ -93,6 +93,12 @@ export interface ReadyMessage {
 export interface SkillSuggestion {
   name: string;
   description: string;
+  /**
+   * One-line example of what the skill produces, shown as a third
+   * row in the slash-command autocomplete dropdown.
+   * e.g. "Outputs: 3 issues found in src/auth.ts"
+   */
+  example?: string;
 }
 
 export interface SkillAutocompleteResponseMessage {

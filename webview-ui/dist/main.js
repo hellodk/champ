@@ -1273,6 +1273,11 @@
       const name = el('div', { class: 'skill-name' }, [`/${s.name}`]);
       const desc = el('div', { class: 'skill-desc' }, [s.description]);
       row.append(name, desc);
+      // Show example output as a third line if the host sent one.
+      if (s.example) {
+        const ex = el('div', { class: 'skill-example' }, [s.example]);
+        row.append(ex);
+      }
       row.addEventListener('mouseenter', () => setSkillHighlight(idx));
       row.addEventListener('mousedown', (ev) => {
         ev.preventDefault();
