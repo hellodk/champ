@@ -81,6 +81,8 @@ import { applyHunks, splitIntoHunks } from "./utils/diff-utils";
 import { TeamLoader } from "./agent/team-loader";
 import { TeamRunner } from "./agent/team-runner";
 import { TeamPanel } from "./ui/team-panel";
+import { TeamBuilderPanel } from "./ui/team-builder-panel";
+import { RulesEditorPanel } from "./ui/rules-editor-panel";
 import { TeamMarketplaceClient } from "./marketplace/team-marketplace-client";
 import {
   McpMarketplaceClient,
@@ -3370,6 +3372,51 @@ export async function activate(
       }));
     context.subscriptions.push(yamlWatcher);
   }
+
+  // ---- Team Builder and Rules Editor commands -------------------------
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "champ.openTeamBuilder",
+      async (teamName?: string) => {
+        if (!workspaceRoot) {
+          void vscode.window.showErrorMessage(
+            "Champ: open a workspace to use the team builder.",
+          );
+          return;
+        }
+        let teamToEdit:
+          | import("./agent/team-definition").TeamDefinition
+          | undefined;
+        if (teamName && teamLoader) {
+          const all = await teamLoader.loadAll();
+          teamToEdit = all.find((t) => t.name === teamName);
+        }
+        const builderPanel = new TeamBuilderPanel(
+          context.extensionUri,
+          workspaceRoot,
+          teamToEdit,
+        );
+        builderPanel.onTeamLoaded((team) => {
+          if (chatViewProvider && team) {
+            chatViewProvider.postMessage({
+              type: "teamBuilderLoad",
+              team,
+              existingNames: [],
+            } as import("./ui/messages").TeamBuilderLoadMessage);
+          }
+        });
+      },
+    ),
+    vscode.commands.registerCommand("champ.openRulesEditor", () => {
+      if (!workspaceRoot) {
+        void vscode.window.showErrorMessage(
+          "Champ: open a workspace to use the rules editor.",
+        );
+        return;
+      }
+      new RulesEditorPanel(context.extensionUri, workspaceRoot);
+    }),
+  );
 
   // ---- Memory Bank command -------------------------------------------
   context.subscriptions.push(

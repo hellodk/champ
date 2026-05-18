@@ -169,6 +169,14 @@
         "title": "Champ: Resume Team Run"
       },
       {
+        "command": "champ.openTeamBuilder",
+        "title": "Champ: Open Team Builder"
+      },
+      {
+        "command": "champ.openRulesEditor",
+        "title": "Champ: Open Rules Editor"
+      },
+      {
         "command": "champ.inlineEdit",
         "title": "Champ: Edit Selection (Inline)"
       },
