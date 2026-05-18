@@ -11,6 +11,7 @@ export default defineConfig({
     exclude: ["node_modules", "dist"],
     globals: true,
     environment: "node",
+    environmentMatchGlobs: [["test/unit/webview/**", "jsdom"]],
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html"],
