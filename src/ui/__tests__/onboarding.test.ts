@@ -170,6 +170,7 @@ describe("EMPTY_STATE_PROMPTS", () => {
 import {
   FIRST_RUN_COMPLETE_KEY,
   ONBOARDING_DISMISSED_KEY,
+  isFirstRunRequired,
 } from "../../config/first-run-keys";
 
 describe("first-run state key constants", () => {
@@ -182,8 +183,6 @@ describe("first-run state key constants", () => {
   });
 });
 
-import { isFirstRunRequired } from "../../config/first-run-keys";
-
 describe("isFirstRunRequired helper", () => {
   it("returns true when neither key is set", () => {
     const fakeState = new Map<string, boolean>();
@@ -191,12 +190,16 @@ describe("isFirstRunRequired helper", () => {
   });
 
   it("returns false when FIRST_RUN_COMPLETE_KEY is true", () => {
-    const fakeState = new Map<string, boolean>([["champ.firstRunComplete", true]]);
+    const fakeState = new Map<string, boolean>([
+      ["champ.firstRunComplete", true],
+    ]);
     expect(isFirstRunRequired(fakeState)).toBe(false);
   });
 
   it("returns false when ONBOARDING_DISMISSED_KEY is true (legacy)", () => {
-    const fakeState = new Map<string, boolean>([["champ.onboardingDismissed", true]]);
+    const fakeState = new Map<string, boolean>([
+      ["champ.onboardingDismissed", true],
+    ]);
     expect(isFirstRunRequired(fakeState)).toBe(false);
   });
 });
