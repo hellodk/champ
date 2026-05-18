@@ -938,6 +938,12 @@ export async function activate(
     vscode.commands.registerCommand("champ.clearDiffOverlay", () => {
       diffOverlayController.clearAll();
     }),
+    vscode.commands.registerCommand(
+      "champ.openDiffEditor",
+      (filePath: string) => {
+        void diffOverlayController.openDiffEditor(filePath);
+      },
+    ),
   );
 
   chatViewProvider.setDiffOverlayController(diffOverlayController);

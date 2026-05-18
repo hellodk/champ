@@ -443,6 +443,44 @@ export class DiffOverlayController
     this._onDidChangeCodeLenses.fire();
   }
 
+  /**
+   * Open a native VS Code diff editor for the given file path.
+   * Creates two virtual TextDocuments (before/after) and calls
+   * vscode.diff() to open the side-by-side diff view.
+   * No-op if there is no pending diff for the given path.
+   */
+  async openDiffEditor(filePath: string): Promise<void> {
+    const diff = this.pendingDiffs.get(filePath);
+    if (!diff) return;
+
+    const filename = filePath.split(/[\\/]/).pop() ?? "file";
+
+    // Create virtual URIs for old and new content.
+    // Use the 'untitled' scheme with a unique label so VS Code doesn't
+    // try to read them from disk — content is supplied via openTextDocument.
+    const oldUri = vscode.Uri.from({
+      scheme: "untitled",
+      path: `${filename} (before Champ)`,
+    });
+    const newUri = vscode.Uri.file(filePath);
+
+    // Write old content into a new untitled document.
+    const oldDoc = await vscode.workspace.openTextDocument(
+      oldUri.with({ scheme: "untitled" }),
+    );
+    const edit = new vscode.WorkspaceEdit();
+    edit.insert(oldUri, new vscode.Position(0, 0), diff.oldContent);
+    await vscode.workspace.applyEdit(edit);
+
+    await vscode.commands.executeCommand(
+      "vscode.diff",
+      oldDoc.uri,
+      newUri,
+      `Champ: ${filename} (before ↔ after)`,
+      { preview: true },
+    );
+  }
+
   // ── HoverProvider ──
 
   provideHover(
@@ -532,6 +570,16 @@ export class DiffOverlayController
         new vscode.CodeLens(fileRange, {
           title: `Reject all ${unresolvedHunks.length} changes`,
           command: "champ.rejectAllHunks",
+          arguments: [filePath],
+        }),
+      );
+
+      // "Open Diff" CodeLens — opens native VS Code side-by-side diff editor
+      const diffRange = new vscode.Range(firstHunkLine, 0, firstHunkLine, 0);
+      lenses.push(
+        new vscode.CodeLens(diffRange, {
+          title: "⊞ Open Diff",
+          command: "champ.openDiffEditor",
           arguments: [filePath],
         }),
       );

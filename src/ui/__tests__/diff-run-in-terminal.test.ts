@@ -7,6 +7,7 @@ import {
   type TerminalOutputChunkMessage,
   type RunInTerminalRequest,
 } from "../messages";
+import { computeHunks } from "../diff-overlay-controller";
 
 describe("TerminalOutputChunkMessage", () => {
   it("createTerminalOutputChunk produces a correctly shaped message", () => {
@@ -55,5 +56,20 @@ describe("RunInTerminalRequest", () => {
     expect(
       isRunInTerminalRequest({ type: "userMessage", text: "hi" } as never),
     ).toBe(false);
+  });
+});
+
+describe("DiffOverlayController — openDiffEditor CodeLens presence", () => {
+  it("computeHunks returns at least one hunk for differing content (precondition for CodeLens)", () => {
+    const old = "const x = 1;\nconst y = 2;";
+    const neu = "const x = 99;\nconst y = 2;";
+    const hunks = computeHunks(old, neu);
+    expect(hunks.length).toBeGreaterThan(0);
+    expect(hunks[0].newDocStartLine).toBe(0);
+  });
+
+  it("computeHunks returns empty for identical content (no CodeLens shown)", () => {
+    const content = "line1\nline2";
+    expect(computeHunks(content, content)).toHaveLength(0);
   });
 });
