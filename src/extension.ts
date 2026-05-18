@@ -48,6 +48,7 @@ import { estimateCost } from "./config/token-cost";
 import {
   FIRST_RUN_COMPLETE_KEY,
   ONBOARDING_DISMISSED_KEY,
+  isFirstRunRequired,
 } from "./config/first-run-keys";
 import { AgentManager } from "./agent-manager/agent-manager";
 import { SessionStore } from "./agent-manager/session-store";
@@ -885,6 +886,18 @@ export async function activate(
     broadcastSessionList();
     broadcastMcpStatus();
     void broadcastWorkflowHistory();
+    // On first install, the background init fires before the webview
+    // resolves, so the firstRunWelcome message is dropped. Re-broadcast
+    // here if first-run is still required and there is no config yet.
+    if (isFirstRunRequired(context.globalState) && !cachedYamlConfig) {
+      chatViewProvider?.broadcastFirstRunWelcome(
+        SAMPLE_CONFIGS.map((c) => ({
+          id: c.id,
+          label: c.label,
+          description: c.description,
+        })),
+      );
+    }
   });
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
@@ -3214,10 +3227,7 @@ export async function activate(
     await loadProvider();
 
     // 2. First-run detection. Use cached config (loadProvider already read it).
-    const firstRunComplete =
-      context.globalState.get<boolean>(FIRST_RUN_COMPLETE_KEY, false) ||
-      context.globalState.get<boolean>(ONBOARDING_DISMISSED_KEY, false);
-    if (!firstRunComplete && !cachedYamlConfig) {
+    if (isFirstRunRequired(context.globalState) && !cachedYamlConfig) {
       chatViewProvider?.broadcastFirstRunWelcome(
         SAMPLE_CONFIGS.map((c) => ({
           id: c.id,

@@ -14,3 +14,17 @@ export const FIRST_RUN_COMPLETE_KEY = "champ.firstRunComplete";
  * who already dismissed the wizard are not shown it again.
  */
 export const ONBOARDING_DISMISSED_KEY = "champ.onboardingDismissed";
+
+/**
+ * Returns true when neither the new nor legacy key is set, meaning the
+ * user has never completed or dismissed onboarding.
+ *
+ * Accepts any Map-like object so it is unit-testable without VS Code mocks.
+ */
+export function isFirstRunRequired(
+  store: { get: (key: string) => boolean | undefined },
+): boolean {
+  const complete = store.get(FIRST_RUN_COMPLETE_KEY);
+  const dismissed = store.get(ONBOARDING_DISMISSED_KEY);
+  return !complete && !dismissed;
+}

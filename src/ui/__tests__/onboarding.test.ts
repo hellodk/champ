@@ -181,3 +181,22 @@ describe("first-run state key constants", () => {
     expect(ONBOARDING_DISMISSED_KEY).toBe("champ.onboardingDismissed");
   });
 });
+
+import { isFirstRunRequired } from "../../config/first-run-keys";
+
+describe("isFirstRunRequired helper", () => {
+  it("returns true when neither key is set", () => {
+    const fakeState = new Map<string, boolean>();
+    expect(isFirstRunRequired(fakeState)).toBe(true);
+  });
+
+  it("returns false when FIRST_RUN_COMPLETE_KEY is true", () => {
+    const fakeState = new Map<string, boolean>([["champ.firstRunComplete", true]]);
+    expect(isFirstRunRequired(fakeState)).toBe(false);
+  });
+
+  it("returns false when ONBOARDING_DISMISSED_KEY is true (legacy)", () => {
+    const fakeState = new Map<string, boolean>([["champ.onboardingDismissed", true]]);
+    expect(isFirstRunRequired(fakeState)).toBe(false);
+  });
+});
