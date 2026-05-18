@@ -81,6 +81,38 @@ html, body {
   color: var(--vscode-errorForeground);
 }
 
+/* Compact model chip — shown in the header left area */
+.model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 3px;
+  padding: 1px 7px;
+  font-size: calc(var(--vscode-font-size) - 2px);
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-badge-foreground, var(--vscode-foreground));
+  background: var(--vscode-badge-background, var(--vscode-button-secondaryBackground, #3c3c3c));
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.5;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.model-chip:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground));
+  border-color: var(--vscode-panel-border);
+}
+
+.model-chip:active {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+
 .header-right {
   display: flex;
   gap: 4px;

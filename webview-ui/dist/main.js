@@ -88,7 +88,21 @@
   const headerVersion = el('span', { class: 'header-version' }, [v ? `v${v}` : '']);
   headerTitleRow.append(headerTitle, headerVersion);
   const headerSubtitle = el('div', { class: 'header-subtitle' }, ['loading…']);
-  headerLeft.append(headerTitleRow, headerSubtitle);
+  const modelChip = el('button', { class: 'model-chip', title: 'Switch model' }, ['…']);
+  modelChip.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    // Toggle the existing model picker popup (already in the DOM via inputArea).
+    modePickerPopup.setAttribute('hidden', 'true');
+    if (modelPickerPopup.hidden) {
+      modelPickerPopup.removeAttribute('hidden');
+      modelSearchInput.value = '';
+      renderModelList('');
+      modelSearchInput.focus();
+    } else {
+      modelPickerPopup.setAttribute('hidden', 'true');
+    }
+  });
+  headerLeft.append(headerTitleRow, headerSubtitle, modelChip);
 
   const headerRight = el('div', { class: 'header-right' });
   const newChatBtn = iconButton('codicon-add', 'New chat', () => {
@@ -674,6 +688,7 @@
     autoRow.addEventListener('click', () => {
       modelAutoMode = true;
       modelPickerBtn.textContent = 'Auto ▾';
+      modelChip.textContent = 'Auto';
       modelPickerPopup.setAttribute('hidden', 'true');
       vscode.postMessage({ type: 'resetToAutoRequest' });
     });
@@ -727,6 +742,7 @@
           modelAutoMode = false;
           vscode.postMessage({ type: 'setModelRequest', providerName: m.providerName, modelName: m.modelName });
           modelPickerBtn.textContent = (m.modelName || m.providerName) + ' ▾';
+          modelChip.textContent = m.modelName || m.providerName || 'model';
           modelPickerPopup.setAttribute('hidden', 'true');
         });
         modelListEl.append(row);
@@ -1098,9 +1114,13 @@
     if (ps.state === 'loading') {
       headerSubtitle.textContent = 'loading…';
       headerSubtitle.classList.remove('error');
+      modelChip.textContent = '…';
+      modelChip.style.display = '';
     } else if (ps.state === 'error') {
       headerSubtitle.textContent = `error: ${ps.errorMessage || 'provider not ready'}`;
       headerSubtitle.classList.add('error');
+      modelChip.textContent = '!';
+      modelChip.style.display = '';
     } else {
       const label =
         ps.providerName && ps.modelName
@@ -1108,6 +1128,13 @@
           : ps.providerName || 'ready';
       headerSubtitle.textContent = label;
       headerSubtitle.classList.remove('error');
+      // Update the header model chip label too.
+      if (modelAutoMode) {
+        modelChip.textContent = 'Auto';
+      } else {
+        modelChip.textContent = ps.modelName || ps.providerName || 'model';
+      }
+      modelChip.style.display = '';
     }
 
     // Model picker button — show "Auto" in smart mode, specific model in manual.
