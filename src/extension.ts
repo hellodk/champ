@@ -45,6 +45,10 @@ import type { LLMProvider, StreamDelta } from "./providers/types";
 import type { AvailableProviderModel, WorkflowHistoryRun } from "./ui/messages";
 import { SAMPLE_CONFIGS } from "./config/sample-configs";
 import { estimateCost } from "./config/token-cost";
+import {
+  FIRST_RUN_COMPLETE_KEY,
+  ONBOARDING_DISMISSED_KEY,
+} from "./config/first-run-keys";
 import { AgentManager } from "./agent-manager/agent-manager";
 import { SessionStore } from "./agent-manager/session-store";
 import { SmartRouter } from "./providers/smart-router";
@@ -1453,11 +1457,13 @@ export async function activate(
         void vscode.window.showInformationMessage(
           `Champ: created .champ/config.yaml from "${template.label}". Edit and save to customize.`,
         );
+        void context.globalState.update(FIRST_RUN_COMPLETE_KEY, true);
         // The file watcher fires loadProvider() automatically.
       },
     ),
     vscode.commands.registerCommand("champ.firstRunDismiss", () => {
-      context.globalState.update("champ.onboardingDismissed", true);
+      void context.globalState.update(ONBOARDING_DISMISSED_KEY, true);
+      void context.globalState.update(FIRST_RUN_COMPLETE_KEY, true);
     }),
     vscode.commands.registerCommand("champ.showOnboarding", () => {
       chatViewProvider?.broadcastFirstRunWelcome(
@@ -3208,11 +3214,10 @@ export async function activate(
     await loadProvider();
 
     // 2. First-run detection. Use cached config (loadProvider already read it).
-    const onboardingDismissed = context.globalState.get<boolean>(
-      "champ.onboardingDismissed",
-      false,
-    );
-    if (!onboardingDismissed && !cachedYamlConfig) {
+    const firstRunComplete =
+      context.globalState.get<boolean>(FIRST_RUN_COMPLETE_KEY, false) ||
+      context.globalState.get<boolean>(ONBOARDING_DISMISSED_KEY, false);
+    if (!firstRunComplete && !cachedYamlConfig) {
       chatViewProvider?.broadcastFirstRunWelcome(
         SAMPLE_CONFIGS.map((c) => ({
           id: c.id,

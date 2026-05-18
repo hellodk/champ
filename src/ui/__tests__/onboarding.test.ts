@@ -166,3 +166,18 @@ describe("EMPTY_STATE_PROMPTS", () => {
     expect(typeof EMPTY_STATE_TITLES.plan).toBe("string");
   });
 });
+
+import {
+  FIRST_RUN_COMPLETE_KEY,
+  ONBOARDING_DISMISSED_KEY,
+} from "../../config/first-run-keys";
+
+describe("first-run state key constants", () => {
+  it("FIRST_RUN_COMPLETE_KEY matches expected value", () => {
+    expect(FIRST_RUN_COMPLETE_KEY).toBe("champ.firstRunComplete");
+  });
+
+  it("ONBOARDING_DISMISSED_KEY matches legacy value", () => {
+    expect(ONBOARDING_DISMISSED_KEY).toBe("champ.onboardingDismissed");
+  });
+});

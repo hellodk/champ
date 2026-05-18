@@ -1826,10 +1826,55 @@
     panel.append(radioGroup);
 
     const actions = el('div', { class: 'onboarding-actions' });
-    const createBtn = el('button', { class: 'onboarding-create' }, ['Create Config']);
+    const createBtn = el('button', { class: 'onboarding-create' }, ['Create Config & Test']);
     createBtn.addEventListener('click', () => {
       if (!selectedId) return;
       vscode.postMessage({ type: 'firstRunSelectRequest', templateId: selectedId });
+      // Step 3: show the test-query nudge after config is written.
+      // The file watcher will reload the provider; we just pre-fill the textarea.
+      messagesContainer.innerHTML = '';
+      const step3 = el('div', { class: 'onboarding-panel' });
+      step3.append(
+        el('div', { class: 'onboarding-title' }, ['Almost ready!']),
+        el('div', { class: 'onboarding-subtitle' }, [
+          'Config written. The provider is loading — send a test message to confirm everything works.',
+        ]),
+      );
+      const testQueries = [
+        'Say hello and tell me which AI model you are.',
+        'List the files in the current directory.',
+        'What is 2 + 2? Show your reasoning.',
+      ];
+      const queryList = el('div', { class: 'onboarding-radios' });
+      let selectedQuery = testQueries[0];
+      for (const q of testQueries) {
+        const row = el('label', { class: 'onboarding-radio-row' });
+        const radio = el('input', { type: 'radio', name: 'test-query' });
+        radio.value = q;
+        if (q === selectedQuery) radio.checked = true;
+        radio.addEventListener('change', () => { selectedQuery = q; });
+        const textGroup = el('div', { class: 'onboarding-radio-text' });
+        textGroup.append(el('div', { class: 'onboarding-radio-label' }, [q]));
+        row.append(radio, textGroup);
+        queryList.append(row);
+      }
+      const sendBtn = el('button', { class: 'onboarding-create' }, ['Send Test Message']);
+      sendBtn.addEventListener('click', () => {
+        textarea.value = selectedQuery;
+        textarea.dispatchEvent(new Event('input'));
+        textarea.focus();
+        renderEmptyState();
+        vscode.postMessage({ type: 'firstRunDismissRequest' });
+      });
+      const skipStep3Btn = el('button', { class: 'onboarding-skip secondary' }, ['Skip']);
+      skipStep3Btn.addEventListener('click', () => {
+        renderEmptyState();
+        vscode.postMessage({ type: 'firstRunDismissRequest' });
+      });
+      const step3Actions = el('div', { class: 'onboarding-actions' });
+      step3Actions.append(sendBtn, skipStep3Btn);
+      step3.append(queryList, step3Actions);
+      messagesContainer.append(step3);
     });
     const skipBtn = el('button', { class: 'onboarding-skip secondary' }, ['Skip']);
     skipBtn.addEventListener('click', () => {
