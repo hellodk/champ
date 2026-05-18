@@ -88,3 +88,21 @@ describe("reportProgress wiring (unit — pure callback)", () => {
     expect(chunks).toEqual(["line1\n", "line2\n", "done\n"]);
   });
 });
+
+describe("isRunInTerminalRequest type guard", () => {
+  it("returns true for runInTerminal type", () => {
+    expect(
+      isRunInTerminalRequest({
+        type: "runInTerminal",
+        command: "echo hello",
+        executionId: "e-1",
+      } as never),
+    ).toBe(true);
+  });
+
+  it("returns false for unrelated type", () => {
+    expect(isRunInTerminalRequest({ type: "cancelRequest" } as never)).toBe(
+      false,
+    );
+  });
+});

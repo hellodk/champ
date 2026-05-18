@@ -65,6 +65,7 @@ import {
   isAcceptHunkAtLineRequest,
   isRejectHunkAtLineRequest,
   isFocusTeamAgentRequest,
+  isRunInTerminalRequest,
   isOpenMemoryBankRequest,
   isMemoryDeleteRequest,
   isMemoryPinRequest,
@@ -689,6 +690,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.diffOverlayController?.rejectHunkAtLine(msg.filePath, msg.line);
       } else if (isFocusTeamAgentRequest(msg)) {
         // no-op for now
+      } else if (isRunInTerminalRequest(msg)) {
+        void this.handleRunInTerminal(msg.command, msg.executionId);
       } else if (isOpenMemoryBankRequest(msg)) {
         void vscode.commands.executeCommand("champ.openMemoryBank");
       } else if (isMemoryDeleteRequest(msg)) {
@@ -718,6 +721,68 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       type: "memoryBadge",
       count: this.memoryBank.getAll().length,
     } as never);
+  }
+
+  /**
+   * Run a shell command (requested from a webview bash code-block "Run" button)
+   * and stream stdout chunks back to the webview as TerminalOutputChunkMessage.
+   * Uses the same CommandSandbox + approval flow as run_terminal_cmd.
+   */
+  private async handleRunInTerminal(
+    command: string,
+    executionId: string,
+  ): Promise<void> {
+    const { spawn } = await import("child_process");
+    const { CommandSandbox } = await import("../safety/command-sandbox.js");
+
+    const sandbox = new CommandSandbox();
+    const check = sandbox.check(command);
+    if (!check.allowed) {
+      this.postMessage(
+        createTerminalOutputChunk(
+          executionId,
+          `Command blocked: ${check.reason}\n`,
+          true,
+        ),
+      );
+      return;
+    }
+
+    const workspaceRoot =
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+
+    const proc = spawn("bash", ["-c", command], {
+      cwd: workspaceRoot,
+      env: { ...process.env, TERM: "dumb" },
+    });
+
+    proc.stdout?.on("data", (chunk: Buffer) => {
+      this.postMessage(
+        createTerminalOutputChunk(executionId, chunk.toString(), false),
+      );
+    });
+
+    proc.stderr?.on("data", (chunk: Buffer) => {
+      this.postMessage(
+        createTerminalOutputChunk(executionId, chunk.toString(), false),
+      );
+    });
+
+    proc.on("error", (err) => {
+      this.postMessage(
+        createTerminalOutputChunk(executionId, `Error: ${err.message}\n`, true),
+      );
+    });
+
+    proc.on("close", (code) => {
+      this.postMessage(
+        createTerminalOutputChunk(
+          executionId,
+          `\nExit code: ${code ?? "unknown"}\n`,
+          true,
+        ),
+      );
+    });
   }
 
   /**
