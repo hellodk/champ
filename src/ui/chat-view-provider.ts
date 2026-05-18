@@ -80,7 +80,10 @@ import {
   type FirstRunTemplate,
   type WorkflowHistoryRun,
 } from "./messages";
-import { EditReviewTracker } from "../agent/edit-review-tracker";
+import {
+  EditReviewTracker,
+  type EditRecord,
+} from "../agent/edit-review-tracker";
 import type { StreamDelta, ContentBlock } from "../providers/types";
 
 /**
@@ -726,7 +729,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /**
    * Run a shell command (requested from a webview bash code-block "Run" button)
    * and stream stdout chunks back to the webview as TerminalOutputChunkMessage.
-   * Uses the same CommandSandbox + approval flow as run_terminal_cmd.
+   *
+   * Security controls:
+   *  1. CommandSandbox blocks known-dangerous commands.
+   *  2. User must explicitly approve via the same approval dialog used by
+   *     run_terminal_cmd — denial aborts execution before any process is spawned.
+   *  3. Hard 30-second timeout: the child process is killed and a final chunk
+   *     is appended if it has not exited by then.
+   *  4. Output is capped at 50 KB; collection stops and a truncation notice is
+   *     appended when the limit is reached.
    */
   private async handleRunInTerminal(
     command: string,
@@ -735,6 +746,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const { spawn } = await import("child_process");
     const { CommandSandbox } = await import("../safety/command-sandbox.js");
 
+    // --- 1. Static sandbox check ---
     const sandbox = new CommandSandbox();
     const check = sandbox.check(command);
     if (!check.allowed) {
@@ -742,6 +754,35 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         createTerminalOutputChunk(
           executionId,
           `Command blocked: ${check.reason}\n`,
+          true,
+        ),
+      );
+      return;
+    }
+
+    // --- 2. User approval (same pattern as AgentController / run_terminal_cmd) ---
+    const approvalId = `approval_${Date.now().toString(36)}_${Math.random()
+      .toString(36)
+      .slice(2, 9)}`;
+    const approved = await new Promise<boolean>((resolve) => {
+      this.pendingApprovals.set(approvalId, resolve);
+      this.postMessage({
+        type: "approvalRequest",
+        id: approvalId,
+        description: `Run shell command: ${command}`,
+        preview: {
+          type: "command",
+          content: command,
+          label: "Run in Terminal",
+        },
+      });
+    });
+
+    if (!approved) {
+      this.postMessage(
+        createTerminalOutputChunk(
+          executionId,
+          "Command denied by user.\n",
           true,
         ),
       );
@@ -756,32 +797,69 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       env: { ...process.env, TERM: "dumb" },
     });
 
-    proc.stdout?.on("data", (chunk: Buffer) => {
+    // --- 3. 30-second timeout ---
+    const TIMEOUT_MS = 30_000;
+    const timeoutHandle = setTimeout(() => {
+      proc.kill();
       this.postMessage(
-        createTerminalOutputChunk(executionId, chunk.toString(), false),
+        createTerminalOutputChunk(
+          executionId,
+          "[Command timed out after 30s]",
+          true,
+        ),
       );
+    }, TIMEOUT_MS);
+
+    // --- 4. 50 KB output cap ---
+    const OUTPUT_CAP = 50 * 1024;
+    let totalBytes = 0;
+    let truncated = false;
+
+    const handleChunk = (chunk: Buffer, isFinal: boolean): void => {
+      if (truncated) return;
+      const text = chunk.toString();
+      totalBytes += Buffer.byteLength(text, "utf8");
+      if (totalBytes > OUTPUT_CAP) {
+        truncated = true;
+        this.postMessage(
+          createTerminalOutputChunk(
+            executionId,
+            "[Output truncated at 50KB]",
+            isFinal,
+          ),
+        );
+        proc.kill();
+        return;
+      }
+      this.postMessage(createTerminalOutputChunk(executionId, text, isFinal));
+    };
+
+    proc.stdout?.on("data", (chunk: Buffer) => {
+      handleChunk(chunk, false);
     });
 
     proc.stderr?.on("data", (chunk: Buffer) => {
-      this.postMessage(
-        createTerminalOutputChunk(executionId, chunk.toString(), false),
-      );
+      handleChunk(chunk, false);
     });
 
     proc.on("error", (err) => {
+      clearTimeout(timeoutHandle);
       this.postMessage(
         createTerminalOutputChunk(executionId, `Error: ${err.message}\n`, true),
       );
     });
 
     proc.on("close", (code) => {
-      this.postMessage(
-        createTerminalOutputChunk(
-          executionId,
-          `\nExit code: ${code ?? "unknown"}\n`,
-          true,
-        ),
-      );
+      clearTimeout(timeoutHandle);
+      if (!truncated) {
+        this.postMessage(
+          createTerminalOutputChunk(
+            executionId,
+            `\nExit code: ${code ?? "unknown"}\n`,
+            true,
+          ),
+        );
+      }
     });
   }
 
@@ -1151,9 +1229,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         break;
       case "done": {
         this.postMessage(createStreamEnd(delta.usage));
-        // Snapshot edit records before emitEditSummary (which calls flush internally)
+        // flush() collects accumulated edit records without clearing them;
+        // call it once here and pass the result through. Use reset() to clear.
         const editRecords = this.editTracker.flush();
-        this.emitEditSummary();
+        this.emitEditSummary(editRecords);
         this.editTracker.reset();
         // Stash usage for handleUserMessage to forward to the callback.
         // The callback itself is fired exactly once there, not here, to
@@ -1216,8 +1295,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   /** Post an editSummary message for all edits accumulated this turn. */
-  private emitEditSummary(): void {
-    const edits = this.editTracker.flush();
+  private emitEditSummary(edits: EditRecord[]): void {
     if (edits.length === 0) return;
     // Cap content size before serialising through VS Code's postMessage channel.
     // Oversized messages fail silently or crash the webview; 50 KB per side is
@@ -1316,7 +1394,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none';
-                 connect-src ${cspSource} https:;
+                 connect-src ${cspSource} https://cdnjs.cloudflare.com;
                  style-src ${cspSource} https://cdnjs.cloudflare.com;
                  script-src 'nonce-${nonce}';
                  img-src ${cspSource} data:;
