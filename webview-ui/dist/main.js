@@ -545,7 +545,7 @@
 
   // Attach button — sends a message to the host which opens VS Code's
   // native file picker (webview CSP blocks <input type="file">).
-  const attachBtn = el('button', { class: 'attach-btn', title: 'Attach file', 'aria-label': 'Attach file' });
+  const attachBtn = el('button', { class: 'attach-btn', title: 'Attach file (or paste/drop image)', 'aria-label': 'Attach file or paste image' });
   attachBtn.append(codicon('attach'));
   attachBtn.addEventListener('click', () => {
     vscode.postMessage({ type: 'openFilePickerRequest' });
@@ -555,6 +555,10 @@
     attachChips.innerHTML = '';
     for (let i = 0; i < pendingFiles.length; i++) {
       const chip = el('span', { class: 'attach-chip' });
+      if (pendingFiles[i].previewUrl) {
+        const thumb = el('img', { src: pendingFiles[i].previewUrl, alt: pendingFiles[i].filename });
+        chip.append(thumb);
+      }
       chip.append(
         el('span', {}, [pendingFiles[i].filename]),
         (() => {
@@ -571,7 +575,7 @@
   }
 
   const textarea = el('textarea', {
-    placeholder: 'Ask Champ anything... (@ for context, / for commands, ↑↓ history)',
+    placeholder: 'Ask Champ anything... (@ for context, / for commands, paste image)',
   });
   // Slash-command autocomplete dropdown — hidden until the user types
   // a / at the start of the input.
@@ -956,6 +960,34 @@
     }
   });
 
+  // Image paste handler — intercept clipboard images before they
+  // become text, convert to base64, and queue as an attachment.
+  textarea.addEventListener('paste', (ev) => {
+    const items = ev.clipboardData ? Array.from(ev.clipboardData.items) : [];
+    const imageItem = items.find((i) => i.type.startsWith('image/'));
+    if (!imageItem) return; // let normal paste proceed
+    ev.preventDefault();
+    const file = imageItem.getAsFile();
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = /** @type {string} */ (reader.result);
+      const base64 = result.split(',')[1] || '';
+      pendingFiles.push({
+        filename: file.name || `paste-${Date.now()}.png`,
+        previewUrl: result, // data URL for thumbnail
+      });
+      renderAttachChips();
+      vscode.postMessage({
+        type: 'attachFileRequest',
+        filename: file.name || `paste-${Date.now()}.png`,
+        mimeType: file.type,
+        contentBase64: base64,
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+
   // Move attachBtn into the bottom bar (left-most item, before mode picker).
   // The textarea now lives directly inside the unified chatBox.
   bottomBar.prepend(attachBtn);
@@ -963,6 +995,49 @@
   // Unified chat input box — textarea on top, bottom strip inside the same border.
   const chatBox = el('div', { class: 'chat-box' });
   chatBox.append(attachChips, textarea, bottomBar);
+
+  // Drag-and-drop image support — highlight chatBox on dragover,
+  // read dropped image files and send as attachments.
+  chatBox.addEventListener('dragover', (ev) => {
+    if (!ev.dataTransfer) return;
+    const hasImage = Array.from(ev.dataTransfer.items).some((i) =>
+      i.kind === 'file' && i.type.startsWith('image/')
+    );
+    if (!hasImage) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'copy';
+    chatBox.classList.add('drag-over');
+  });
+
+  chatBox.addEventListener('dragleave', (ev) => {
+    // Only remove the class when leaving the chatBox entirely (not a child).
+    if (!chatBox.contains(/** @type {Node} */ (ev.relatedTarget))) {
+      chatBox.classList.remove('drag-over');
+    }
+  });
+
+  chatBox.addEventListener('drop', (ev) => {
+    ev.preventDefault();
+    chatBox.classList.remove('drag-over');
+    const files = ev.dataTransfer ? Array.from(ev.dataTransfer.files) : [];
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = /** @type {string} */ (reader.result);
+        const base64 = result.split(',')[1] || '';
+        pendingFiles.push({ filename: file.name, previewUrl: result });
+        renderAttachChips();
+        vscode.postMessage({
+          type: 'attachFileRequest',
+          filename: file.name,
+          mimeType: file.type,
+          contentBase64: base64,
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+  });
 
   // Metrics footer — tiny status line below the chat box.
   const metricsFooter = el('div', { class: 'metrics-footer' });

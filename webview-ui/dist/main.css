@@ -505,6 +505,25 @@ html, body {
   border-color: var(--vscode-focusBorder);
 }
 
+/* Drag-over affordance */
+.chat-box.drag-over {
+  border-color: var(--vscode-focusBorder);
+  background: var(--vscode-list-activeSelectionBackground);
+  outline: 2px dashed var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+/* Image thumbnail inside attach chips */
+.attach-chip img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin-right: 4px;
+  border: 1px solid var(--vscode-panel-border);
+}
+
 /* Textarea sits bare inside the box — no own border or background */
 .input-area textarea {
   resize: none;
