@@ -285,6 +285,102 @@ export interface TeamRunSnapshotMessage {
   state: TeamRunState;
 }
 
+// ---------------------------------------------------------------------------
+// Team Builder — Extension Host -> Webview
+// ---------------------------------------------------------------------------
+
+/** Sent when champ.openTeamBuilder opens; passes the definition to display. */
+export interface TeamBuilderLoadMessage {
+  type: "teamBuilderLoad";
+  /** Serialized TeamDefinition JSON, or null when opening a blank canvas. */
+  team: import("../agent/team-definition").TeamDefinition | null;
+  /** All available team names already on disk (for overwrite detection). */
+  existingNames: string[];
+}
+
+/** Sent after a successful save to notify the webview. */
+export interface TeamBuilderSaveAckMessage {
+  type: "teamBuilderSaveAck";
+  savedPath: string;
+}
+
+/** Sent when champ.openRulesEditor opens. */
+export interface RulesListMessage {
+  type: "rulesList";
+  rules: Array<{
+    name: string;
+    content: string;
+    type: "always" | "auto-attached" | "agent-requested";
+    glob?: string;
+  }>;
+}
+
+/** Sent after a successful rule save or delete. */
+export interface RulesListAckMessage {
+  type: "rulesListAck";
+  rules: Array<{
+    name: string;
+    content: string;
+    type: "always" | "auto-attached" | "agent-requested";
+    glob?: string;
+  }>;
+}
+
+// ---------------------------------------------------------------------------
+// Team Builder — Webview -> Extension Host
+// ---------------------------------------------------------------------------
+
+/** The user clicked Save in the team builder. */
+export interface TeamBuilderSaveRequest {
+  type: "teamBuilderSave";
+  team: {
+    name: string;
+    description: string;
+    version: string;
+    agents: Array<{
+      id: string;
+      name: string;
+      role: string;
+      systemPrompt: string;
+      dependsOn: string[];
+      condition: string;
+      tools: string[];
+      model: string;
+      maxTokens: number;
+      outputKey: string;
+      outputFormat: "text" | "json" | "files";
+      selfCritique: boolean;
+      subscribes: string[];
+    }>;
+    defaults: { model?: string; maxTokens?: number; temperature?: number };
+    execution: {
+      maxParallel: number;
+      totalTokenBudget: number;
+      timeoutSeconds: number;
+      retries: number;
+      checkpoints: boolean;
+      mode: "auto" | "safe" | "supervised";
+    };
+  };
+}
+
+/** The user clicked "Add Rule" or "Save Rule" in the rules editor. */
+export interface RuleAddRequest {
+  type: "ruleAdd";
+  rule: {
+    name: string;
+    content: string;
+    type: "always" | "auto-attached" | "agent-requested";
+    glob?: string;
+  };
+}
+
+/** The user clicked "Delete" on a rule. */
+export interface RuleDeleteRequest {
+  type: "ruleDelete";
+  name: string;
+}
+
 // ---- Memory messages ----
 
 export interface MemoryItem {
@@ -400,6 +496,10 @@ export type ExtensionToWebviewMessage =
   | McpMarketplaceEntriesMessage
   | McpMarketplaceInstallCompleteMessage
   | TeamRunSnapshotMessage
+  | TeamBuilderLoadMessage
+  | TeamBuilderSaveAckMessage
+  | RulesListMessage
+  | RulesListAckMessage
   | MemoryBadgeMessage
   | MemoryListMessage
   | TeamCostEstimateMessage
@@ -696,6 +796,9 @@ export type WebviewToExtensionMessage =
   | AcceptHunkAtLineRequest
   | RejectHunkAtLineRequest
   | FocusTeamAgentRequest
+  | TeamBuilderSaveRequest
+  | RuleAddRequest
+  | RuleDeleteRequest
   | OpenMemoryBankRequest
   | MemoryDeleteRequest
   | MemoryPinRequest
@@ -1114,4 +1217,22 @@ export function isRunInTerminalRequest(
   msg: WebviewToExtensionMessage,
 ): msg is RunInTerminalRequest {
   return msg.type === "runInTerminal";
+}
+
+export function isTeamBuilderSaveRequest(
+  msg: WebviewToExtensionMessage,
+): msg is TeamBuilderSaveRequest {
+  return msg.type === "teamBuilderSave";
+}
+
+export function isRuleAddRequest(
+  msg: WebviewToExtensionMessage,
+): msg is RuleAddRequest {
+  return msg.type === "ruleAdd";
+}
+
+export function isRuleDeleteRequest(
+  msg: WebviewToExtensionMessage,
+): msg is RuleDeleteRequest {
+  return msg.type === "ruleDelete";
 }
