@@ -391,6 +391,11 @@ export class AgentController {
     this.history = [...messages];
   }
 
+  /** Remove all history entries at index >= from. */
+  truncateHistory(from: number): void {
+    this.history.splice(from);
+  }
+
   /**
    * Lazily fetch the repo map from the configured provider, caching
    * the result for the session. Returns empty string if no provider

@@ -615,6 +615,19 @@ export interface FocusTeamAgentRequest {
   agentId: string;
 }
 
+/**
+ * The user edited a previous user message and wants to re-run from that
+ * point. The host truncates the conversation history back to just before
+ * `originalText` and resubmits `newText` as a fresh user turn.
+ */
+export interface EditUserMessageRequest {
+  type: "editUserMessage";
+  /** The original message text (used to find the turn to truncate from). */
+  originalText: string;
+  /** The replacement text the user typed. */
+  newText: string;
+}
+
 export type WebviewToExtensionMessage =
   | UserMessageRequest
   | SetModeRequest
@@ -660,7 +673,8 @@ export type WebviewToExtensionMessage =
   | MemoryAddRequest
   | TeamPauseRequest
   | TeamResumeRequest
-  | RerunTeamRequest;
+  | RerunTeamRequest
+  | EditUserMessageRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)
@@ -1042,4 +1056,10 @@ export function isSessionTokenUsageMessage(
   msg: WebviewToExtensionMessage | ExtensionToWebviewMessage,
 ): msg is SessionTokenUsageMessage {
   return (msg as SessionTokenUsageMessage).type === "sessionTokenUsage";
+}
+
+export function isEditUserMessage(
+  msg: WebviewToExtensionMessage,
+): msg is EditUserMessageRequest {
+  return msg.type === "editUserMessage";
 }

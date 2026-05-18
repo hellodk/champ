@@ -68,6 +68,7 @@ import {
   isMemoryDeleteRequest,
   isMemoryPinRequest,
   isMemoryAddRequest,
+  isEditUserMessage,
   createSessionList,
   createSessionTokenUsage,
   type ExtensionToWebviewMessage,
@@ -398,6 +399,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     try {
       if (isUserMessage(msg)) {
         await this.handleUserMessage(msg.text);
+      } else if (isEditUserMessage(msg)) {
+        // Truncate history back to the edited turn and resubmit.
+        const history = this.agent.getHistory();
+        const idx = [...history]
+          .reverse()
+          .findIndex(
+            (m) =>
+              m.role === "user" &&
+              (typeof m.content === "string"
+                ? m.content
+                : JSON.stringify(m.content)
+              ).startsWith(msg.originalText),
+          );
+        if (idx !== -1) {
+          const truncateAt = history.length - 1 - idx;
+          this.agent.truncateHistory(truncateAt);
+        }
+        await this.handleUserMessage(msg.newText);
       } else if (isNewChat(msg)) {
         this.handleNewChat();
       } else if (isCancelRequest(msg)) {
