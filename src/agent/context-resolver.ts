@@ -22,7 +22,9 @@ export type ReferenceType =
   | "codebase"
   | "web"
   | "git"
-  | "docs";
+  | "docs"
+  | "mcp"
+  | "mcpPrompt";
 
 /** A parsed @-reference before resolution. */
 export interface ContextReference {
@@ -159,7 +161,10 @@ export interface ContextResolverDeps {
 }
 
 export class ContextResolver {
-  constructor(private readonly deps: ContextResolverDeps) {}
+  constructor(
+    private readonly deps: ContextResolverDeps,
+    private readonly mcpRegistry?: import("../mcp/mcp-registry").McpRegistry,
+  ) {}
 
   /** Returns the active editor context if `getEditorContext` dep is wired. */
   getEditorContext():
@@ -176,9 +181,12 @@ export class ContextResolver {
     const refs: ContextReference[] = [];
 
     // Parameterized references: @Files(path), @Folders(path), @Symbols(name), @Docs(name)
+    // @MCPPrompt must come before @MCP to avoid the @MCP prefix swallowing @MCPPrompt.
     // Scan in declared order so the first match wins when references overlap.
     const parameterizedPatterns: Array<{ regex: RegExp; type: ReferenceType }> =
       [
+        { regex: /@MCPPrompt\(([^)]+)\)/g, type: "mcpPrompt" },
+        { regex: /@MCP\(([^)]+)\)/g, type: "mcp" },
         { regex: /@Files\(([^)]+)\)/g, type: "file" },
         { regex: /@Folders\(([^)]+)\)/g, type: "folder" },
         { regex: /@Symbols\(([^)]+)\)/g, type: "symbol" },
@@ -471,6 +479,85 @@ export class ContextResolver {
             content:
               docsContent ??
               `Package "${ref.value}" not found in node_modules. Run \`npm install ${ref.value}\` to make docs available.`,
+          });
+          break;
+        }
+        case "mcp": {
+          if (!this.mcpRegistry) {
+            resolved.push({
+              type: "mcp",
+              label: ref.value,
+              content: "[MCP registry not available]",
+            });
+            break;
+          }
+          const colonIdx = ref.value.indexOf(":");
+          if (colonIdx === -1) {
+            resolved.push({
+              type: "mcp",
+              label: ref.value,
+              content: `[Invalid @MCP reference: missing server:uri separator]`,
+            });
+            break;
+          }
+          const serverName = ref.value.slice(0, colonIdx);
+          const uri = ref.value.slice(colonIdx + 1);
+          const content = await this.mcpRegistry.readResource(serverName, uri);
+          resolved.push({
+            type: "mcp",
+            label: `MCP resource: ${serverName}/${uri}`,
+            content:
+              content ?? `[Resource not found: ${uri} on server ${serverName}]`,
+          });
+          break;
+        }
+        case "mcpPrompt": {
+          if (!this.mcpRegistry) {
+            resolved.push({
+              type: "mcpPrompt",
+              label: ref.value,
+              content: "[MCP registry not available]",
+            });
+            break;
+          }
+          // Split on first colon to get server:rest
+          const mcpColonIdx = ref.value.indexOf(":");
+          if (mcpColonIdx === -1) {
+            resolved.push({
+              type: "mcpPrompt",
+              label: ref.value,
+              content: `[Invalid @MCPPrompt reference: missing server:name separator]`,
+            });
+            break;
+          }
+          const mcpServer = ref.value.slice(0, mcpColonIdx);
+          const rest = ref.value.slice(mcpColonIdx + 1);
+          // Split on ? to get promptName and query string
+          const qIdx = rest.indexOf("?");
+          const promptName = qIdx === -1 ? rest : rest.slice(0, qIdx);
+          const queryStr = qIdx === -1 ? "" : rest.slice(qIdx + 1);
+          // Parse query string into args object
+          const args: Record<string, string> = {};
+          if (queryStr) {
+            for (const pair of queryStr.split("&")) {
+              const eqIdx = pair.indexOf("=");
+              if (eqIdx !== -1) {
+                args[decodeURIComponent(pair.slice(0, eqIdx))] =
+                  decodeURIComponent(pair.slice(eqIdx + 1));
+              }
+            }
+          }
+          const promptContent = await this.mcpRegistry.getPrompt(
+            mcpServer,
+            promptName,
+            args,
+          );
+          resolved.push({
+            type: "mcpPrompt",
+            label: `MCP prompt: ${mcpServer}/${promptName}`,
+            content:
+              promptContent ??
+              `[Prompt not found: ${promptName} on server ${mcpServer}]`,
           });
           break;
         }
