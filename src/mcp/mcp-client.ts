@@ -69,6 +69,13 @@ export interface McpPromptTemplate {
   }>;
 }
 
+export interface MCPServerCapabilities {
+  tools?: Record<string, unknown>;
+  resources?: Record<string, unknown>;
+  prompts?: Record<string, unknown>;
+  experimental?: Record<string, unknown>;
+}
+
 interface MCPConnection {
   config: MCPServerConfig;
   tools: MCPTool[];
@@ -85,6 +92,8 @@ interface MCPConnection {
   buffer: string;
   /** Set when transport is SSE. Null for stdio connections. */
   sseConnection?: MCPSSEConnection;
+  /** Capabilities declared by the server in its initialize response. */
+  capabilities: MCPServerCapabilities;
 }
 
 /**
@@ -106,6 +115,7 @@ export class MCPSSEConnection {
   readonly tools: MCPTool[] = [];
   connected = false;
   error: string | undefined;
+  capabilities: MCPServerCapabilities = {};
 
   private readonly messageUrl: string;
   private readonly sseUrl: string;
@@ -134,13 +144,14 @@ export class MCPSSEConnection {
     // Small delay to let SSE connection establish
     await new Promise<void>((r) => setTimeout(r, 100));
 
-    const result = await this.sendRequestInternal("initialize", {
+    const result = (await this.sendRequestInternal("initialize", {
       protocolVersion: "2024-11-05",
       capabilities: {},
       clientInfo: { name: "champ", version: "1" },
-    });
+    })) as { capabilities?: MCPServerCapabilities };
     if (!result)
       throw new Error(`MCP SSE initialize failed at ${this.baseUrl}`);
+    this.capabilities = result.capabilities ?? {};
     await this.sendNotificationInternal("notifications/initialized", {});
     const toolsResult = (await this.sendRequestInternal("tools/list", {})) as {
       tools?: MCPTool[];
@@ -313,6 +324,7 @@ export class MCPClientManager {
         pendingRequests: new Map(),
         buffer: "",
         sseConnection: sseConn,
+        capabilities: sseConn.capabilities,
       };
       this.connections.set(config.name, stub);
       return;
@@ -335,6 +347,7 @@ export class MCPClientManager {
       nextId: 1,
       pendingRequests: new Map(),
       buffer: "",
+      capabilities: {},
     };
 
     // Wire stdout to parse JSON-RPC responses.
@@ -367,11 +380,12 @@ export class MCPClientManager {
 
     // MCP handshake: initialize.
     try {
-      await this.sendRequest(config.name, "initialize", {
+      const initResult = (await this.sendRequest(config.name, "initialize", {
         protocolVersion: "2024-11-05",
         capabilities: {},
         clientInfo: { name: "champ-vscode", version: "0.3.0" },
-      });
+      })) as { capabilities?: MCPServerCapabilities };
+      connection.capabilities = initResult?.capabilities ?? {};
 
       // Notify initialized.
       this.sendNotification(config.name, "notifications/initialized", {});
@@ -455,6 +469,8 @@ export class MCPClientManager {
   async listResources(serverName: string): Promise<McpResource[]> {
     const connection = this.connections.get(serverName);
     if (!connection) return [];
+    // Skip the call if the server didn't declare resources capability
+    if (!connection.capabilities.resources) return [];
     try {
       const result = (await this.sendRequest(
         serverName,
@@ -503,6 +519,7 @@ export class MCPClientManager {
   async listPrompts(serverName: string): Promise<McpPromptTemplate[]> {
     const connection = this.connections.get(serverName);
     if (!connection) return [];
+    if (!connection.capabilities.prompts) return [];
     try {
       const result = (await this.sendRequest(
         serverName,
@@ -551,6 +568,10 @@ export class MCPClientManager {
 
   getConnectedServers(): string[] {
     return Array.from(this.connections.keys());
+  }
+
+  getCapabilities(serverName: string): MCPServerCapabilities {
+    return this.connections.get(serverName)?.capabilities ?? {};
   }
 
   async disconnectAll(): Promise<void> {

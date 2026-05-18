@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { McpServerStatus } from "../../ui/messages";
-import { MCPSSEConnection } from "../../mcp/mcp-client";
+import { MCPSSEConnection, MCPClientManager } from "../../mcp/mcp-client";
 
 describe("McpServerStatus", () => {
   it("includes resourceCount and promptCount fields", () => {
@@ -39,5 +39,12 @@ describe("MCPSSEConnection auth", () => {
       conn as unknown as { extraHeaders: Record<string, string> }
     ).extraHeaders;
     expect(headers["X-Api-Key"]).toBe("secret");
+  });
+});
+
+describe("MCPClientManager capability negotiation", () => {
+  it("getCapabilities returns empty object for unknown server", () => {
+    const manager = new MCPClientManager();
+    expect(manager.getCapabilities("unknown")).toEqual({});
   });
 });
