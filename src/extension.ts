@@ -487,193 +487,203 @@ export async function activate(
   // ---- @-symbol context resolver -------------------------------------
   // Wire ContextResolver so chat input can use @Files, @Folders,
   // @Codebase, etc.
-  const contextResolver = new ContextResolver({
-    workspaceRoot,
-    indexingService: {
-      search: async (query: string, topK?: number) => {
-        if (!indexingService) return [];
-        return indexingService.search(query, topK);
+  const contextResolver = new ContextResolver(
+    {
+      workspaceRoot,
+      indexingService: {
+        search: async (query: string, topK?: number) => {
+          if (!indexingService) return [];
+          return indexingService.search(query, topK);
+        },
       },
-    },
-    webSearchTool: {
-      execute: async (args: Record<string, unknown>) => {
-        const query = String(args.query ?? "");
-        if (!query) return { success: false, output: "No query provided." };
+      webSearchTool: {
+        execute: async (args: Record<string, unknown>) => {
+          const query = String(args.query ?? "");
+          if (!query) return { success: false, output: "No query provided." };
 
-        const apiKey = await context.secrets?.get("brave_api_key");
-        if (!apiKey) {
-          return {
-            success: false,
-            output:
-              "Web search requires a Brave Search API key. " +
-              "Run 'Champ: Set Brave API Key' from the command palette " +
-              "(free tier at https://brave.com/search/api/).",
-          };
-        }
-
-        try {
-          const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5`;
-          const res = await fetch(url, {
-            headers: {
-              Accept: "application/json",
-              "Accept-Encoding": "gzip",
-              "X-Subscription-Token": apiKey,
-            },
-          });
-          if (!res.ok) {
-            if (res.status === 429) {
-              return {
-                success: false,
-                output:
-                  "Brave Search rate limit exceeded (free tier: 10 requests/min). Please wait a moment before searching again.",
-              };
-            }
+          const apiKey = await context.secrets?.get("brave_api_key");
+          if (!apiKey) {
             return {
               success: false,
-              output: `Brave Search error: ${res.status} ${res.statusText}`,
+              output:
+                "Web search requires a Brave Search API key. " +
+                "Run 'Champ: Set Brave API Key' from the command palette " +
+                "(free tier at https://brave.com/search/api/).",
             };
           }
-          const data = (await res.json()) as {
-            web?: {
-              results?: Array<{
-                title?: string;
-                url?: string;
-                description?: string;
-              }>;
-            };
-          };
-          const results = data.web?.results ?? [];
-          if (results.length === 0) {
-            return { success: true, output: "No results found." };
-          }
-          const formatted = results
-            .map(
-              (r, i) =>
-                `${i + 1}. **${r.title ?? "Untitled"}**\n   ${r.url ?? ""}\n   ${r.description ?? ""}`,
-            )
-            .join("\n\n");
-          return { success: true, output: formatted };
-        } catch (err) {
-          return {
-            success: false,
-            output: `Web search failed: ${err instanceof Error ? err.message : String(err)}`,
-          };
-        }
-      },
-    },
-    fileReader: {
-      readFile: async (absPath: string): Promise<string> => {
-        const data = await Promise.resolve(
-          vscode.workspace.fs.readFile(vscode.Uri.file(absPath)),
-        );
-        return new TextDecoder().decode(data);
-      },
-      readdir: async (
-        absPath: string,
-      ): Promise<Array<[string, "file" | "directory"]>> => {
-        const entries = await Promise.resolve(
-          vscode.workspace.fs.readDirectory(vscode.Uri.file(absPath)),
-        );
-        return entries.map(([name, type]) => [
-          name,
-          type === vscode.FileType.Directory ? "directory" : "file",
-        ]);
-      },
-    },
-    getEditorContext: () => {
-      const editor = vscode.window.activeTextEditor;
-      if (!editor) return undefined;
-      const selectionText = editor.document.getText(editor.selection);
-      return {
-        selection:
-          selectionText ||
-          "(no text selected — place cursor in editor and select code before using @Code)",
-        filePath: vscode.workspace.asRelativePath(editor.document.uri),
-        language: editor.document.languageId,
-      };
-    },
-    runShellCommand: (cmd: string, cwd: string): Promise<string> =>
-      new Promise((resolve) => {
-        // Safe: cmd is constructed internally by the resolver, not from user input.
 
-        const { exec } =
-          require("child_process") as typeof import("child_process");
-        exec(cmd, { cwd, timeout: 5000 }, (err, stdout, stderr) => {
-          if (err && !stdout) {
-            resolve(`(git command failed: ${err.message})`);
-          } else {
-            resolve(stdout || stderr || "");
-          }
-        });
-      }),
-    workspaceSymbols: async (query: string) => {
-      const symbols =
-        (await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
-          "vscode.executeWorkspaceSymbolProvider",
-          query,
-        )) ?? [];
-      return symbols.slice(0, 10).map((s) => ({
-        name: s.name,
-        filePath: vscode.workspace.asRelativePath(s.location.uri),
-        kind: vscode.SymbolKind[s.kind] ?? String(s.kind),
-        line: s.location.range.start.line + 1,
-      }));
-    },
-    docsReader: {
-      readPackageDocs: async (packageName: string): Promise<string | null> => {
-        if (!workspaceRoot) return null;
-        const nodeModules = path.join(
-          workspaceRoot,
-          "node_modules",
-          packageName,
-        );
-        // Try README variants
-        for (const readme of ["README.md", "readme.md", "Readme.md"]) {
           try {
-            const uri = vscode.Uri.file(path.join(nodeModules, readme));
-            const data = await vscode.workspace.fs.readFile(uri);
-            const text = new TextDecoder().decode(data);
-            return text.split("\n").slice(0, 200).join("\n");
-          } catch {
-            // try next
+            const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5`;
+            const res = await fetch(url, {
+              headers: {
+                Accept: "application/json",
+                "Accept-Encoding": "gzip",
+                "X-Subscription-Token": apiKey,
+              },
+            });
+            if (!res.ok) {
+              if (res.status === 429) {
+                return {
+                  success: false,
+                  output:
+                    "Brave Search rate limit exceeded (free tier: 10 requests/min). Please wait a moment before searching again.",
+                };
+              }
+              return {
+                success: false,
+                output: `Brave Search error: ${res.status} ${res.statusText}`,
+              };
+            }
+            const data = (await res.json()) as {
+              web?: {
+                results?: Array<{
+                  title?: string;
+                  url?: string;
+                  description?: string;
+                }>;
+              };
+            };
+            const results = data.web?.results ?? [];
+            if (results.length === 0) {
+              return { success: true, output: "No results found." };
+            }
+            const formatted = results
+              .map(
+                (r, i) =>
+                  `${i + 1}. **${r.title ?? "Untitled"}**\n   ${r.url ?? ""}\n   ${r.description ?? ""}`,
+              )
+              .join("\n\n");
+            return { success: true, output: formatted };
+          } catch (err) {
+            return {
+              success: false,
+              output: `Web search failed: ${err instanceof Error ? err.message : String(err)}`,
+            };
           }
-        }
-        // Fallback: package.json description + main file header
-        try {
-          const pkgUri = vscode.Uri.file(
-            path.join(nodeModules, "package.json"),
+        },
+      },
+      fileReader: {
+        readFile: async (absPath: string): Promise<string> => {
+          const data = await Promise.resolve(
+            vscode.workspace.fs.readFile(vscode.Uri.file(absPath)),
           );
-          const pkgData = await vscode.workspace.fs.readFile(pkgUri);
-          const pkg = JSON.parse(new TextDecoder().decode(pkgData)) as {
-            description?: string;
-            main?: string;
-            name?: string;
-            version?: string;
-          };
-          const lines: string[] = [
-            `# ${pkg.name ?? packageName} ${pkg.version ?? ""}`.trim(),
-            pkg.description ?? "",
-            "",
-          ];
-          if (pkg.main) {
+          return new TextDecoder().decode(data);
+        },
+        readdir: async (
+          absPath: string,
+        ): Promise<Array<[string, "file" | "directory"]>> => {
+          const entries = await Promise.resolve(
+            vscode.workspace.fs.readDirectory(vscode.Uri.file(absPath)),
+          );
+          return entries.map(([name, type]) => [
+            name,
+            type === vscode.FileType.Directory ? "directory" : "file",
+          ]);
+        },
+      },
+      getEditorContext: () => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) return undefined;
+        const selectionText = editor.document.getText(editor.selection);
+        return {
+          selection:
+            selectionText ||
+            "(no text selected — place cursor in editor and select code before using @Code)",
+          filePath: vscode.workspace.asRelativePath(editor.document.uri),
+          language: editor.document.languageId,
+        };
+      },
+      runShellCommand: (cmd: string, cwd: string): Promise<string> =>
+        new Promise((resolve) => {
+          // Safe: cmd is constructed internally by the resolver, not from user input.
+
+          const { exec } =
+            require("child_process") as typeof import("child_process");
+          exec(cmd, { cwd, timeout: 5000 }, (err, stdout, stderr) => {
+            if (err && !stdout) {
+              resolve(`(git command failed: ${err.message})`);
+            } else {
+              resolve(stdout || stderr || "");
+            }
+          });
+        }),
+      workspaceSymbols: async (query: string) => {
+        const symbols =
+          (await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
+            "vscode.executeWorkspaceSymbolProvider",
+            query,
+          )) ?? [];
+        return symbols.slice(0, 10).map((s) => ({
+          name: s.name,
+          filePath: vscode.workspace.asRelativePath(s.location.uri),
+          kind: vscode.SymbolKind[s.kind] ?? String(s.kind),
+          line: s.location.range.start.line + 1,
+        }));
+      },
+      docsReader: {
+        readPackageDocs: async (
+          packageName: string,
+        ): Promise<string | null> => {
+          if (!workspaceRoot) return null;
+          const nodeModules = path.join(
+            workspaceRoot,
+            "node_modules",
+            packageName,
+          );
+          // Try README variants
+          for (const readme of ["README.md", "readme.md", "Readme.md"]) {
             try {
-              const mainUri = vscode.Uri.file(path.join(nodeModules, pkg.main));
-              const mainData = await vscode.workspace.fs.readFile(mainUri);
-              lines.push("## Entry point (first 30 lines)");
-              lines.push(
-                ...new TextDecoder().decode(mainData).split("\n").slice(0, 30),
-              );
+              const uri = vscode.Uri.file(path.join(nodeModules, readme));
+              const data = await vscode.workspace.fs.readFile(uri);
+              const text = new TextDecoder().decode(data);
+              return text.split("\n").slice(0, 200).join("\n");
             } catch {
-              // main file not readable
+              // try next
             }
           }
-          return lines.join("\n") || null;
-        } catch {
-          return null;
-        }
+          // Fallback: package.json description + main file header
+          try {
+            const pkgUri = vscode.Uri.file(
+              path.join(nodeModules, "package.json"),
+            );
+            const pkgData = await vscode.workspace.fs.readFile(pkgUri);
+            const pkg = JSON.parse(new TextDecoder().decode(pkgData)) as {
+              description?: string;
+              main?: string;
+              name?: string;
+              version?: string;
+            };
+            const lines: string[] = [
+              `# ${pkg.name ?? packageName} ${pkg.version ?? ""}`.trim(),
+              pkg.description ?? "",
+              "",
+            ];
+            if (pkg.main) {
+              try {
+                const mainUri = vscode.Uri.file(
+                  path.join(nodeModules, pkg.main),
+                );
+                const mainData = await vscode.workspace.fs.readFile(mainUri);
+                lines.push("## Entry point (first 30 lines)");
+                lines.push(
+                  ...new TextDecoder()
+                    .decode(mainData)
+                    .split("\n")
+                    .slice(0, 30),
+                );
+              } catch {
+                // main file not readable
+              }
+            }
+            return lines.join("\n") || null;
+          } catch {
+            return null;
+          }
+        },
       },
     },
-  });
+    mcpRegistry,
+  );
 
   // ---- Skills registry ------------------------------------------------
   // Built-in skills are inlined as TS constants and registered first.
