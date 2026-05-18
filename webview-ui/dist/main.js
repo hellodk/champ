@@ -152,7 +152,18 @@
   const helpBtn = iconButton('codicon-question', 'Show user guide', () => {
     vscode.postMessage({ type: 'showHelpRequest' });
   });
-  headerRight.append(newChatBtn, historyBtn, settingsBtn, helpBtn);
+
+  // Memory badge button — shows count of stored memories; click opens Memory Bank panel.
+  const memoryBadgeBtn = el('button', { class: 'icon-btn', title: 'Memory Bank (empty)' }, ['🧠']);
+  memoryBadgeBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'openMemoryBank' });
+  });
+  function updateMemoryBadge(count) {
+    memoryBadgeBtn.textContent = count > 0 ? `🧠 ${count}` : '🧠';
+    memoryBadgeBtn.title = count > 0 ? `${count} memories stored — click to view` : 'Memory Bank (empty)';
+  }
+
+  headerRight.append(newChatBtn, historyBtn, memoryBadgeBtn, settingsBtn, helpBtn);
 
   header.append(headerLeft, headerRight);
 
@@ -2050,6 +2061,9 @@
         break;
       case 'teamRunSnapshot':
         window.dispatchEvent(new CustomEvent('champ:teamUpdate', { detail: msg }));
+        break;
+      case 'memoryBadge':
+        updateMemoryBadge(msg.count);
         break;
     }
   });
