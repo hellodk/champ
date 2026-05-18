@@ -95,7 +95,13 @@ export type StreamDelta =
       fileEditDiff?: { path: string; oldContent: string; newContent: string };
     }
   | { type: "done"; usage: TokenUsage }
-  | { type: "error"; error: string };
+  | { type: "error"; error: string }
+  | {
+      type: "terminal_chunk";
+      executionId: string;
+      chunk: string;
+      done: boolean;
+    };
 
 /**
  * Token accounting for a single request.

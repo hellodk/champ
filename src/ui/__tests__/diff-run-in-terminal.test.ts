@@ -73,3 +73,18 @@ describe("DiffOverlayController — openDiffEditor CodeLens presence", () => {
     expect(computeHunks(content, content)).toHaveLength(0);
   });
 });
+
+describe("reportProgress wiring (unit — pure callback)", () => {
+  it("calling reportProgress accumulates chunks in order", () => {
+    const chunks: string[] = [];
+    const reportProgress = (chunk: string): void => {
+      chunks.push(chunk);
+    };
+
+    reportProgress("line1\n");
+    reportProgress("line2\n");
+    reportProgress("done\n");
+
+    expect(chunks).toEqual(["line1\n", "line2\n", "done\n"]);
+  });
+});

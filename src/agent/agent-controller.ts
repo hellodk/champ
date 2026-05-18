@@ -773,8 +773,13 @@ export class AgentController {
         const toolContext: ToolExecutionContext = {
           workspaceRoot: this.workspaceRoot,
           abortSignal: options.abortSignal ?? new AbortController().signal,
-          reportProgress: () => {
-            // Progress is streamed via listeners if needed.
+          reportProgress: (chunk: string) => {
+            this.emit({
+              type: "terminal_chunk",
+              executionId: call.id,
+              chunk,
+              done: false,
+            });
           },
           requestApproval: options.requestApproval ?? (async () => true),
           editReviewTracker: this.editReviewTracker,
@@ -786,6 +791,14 @@ export class AgentController {
           call.arguments,
           toolContext,
         );
+
+        // Emit terminal done sentinel so the webview closes the streaming block.
+        this.emit({
+          type: "terminal_chunk",
+          executionId: call.id,
+          chunk: "",
+          done: true,
+        });
 
         // Re-check after tool execution — user may have cancelled during a
         // long-running tool. Don't commit the result to history if aborted.

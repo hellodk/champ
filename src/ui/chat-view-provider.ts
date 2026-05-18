@@ -21,6 +21,7 @@ import {
   createToolCallStart,
   createToolCallResult,
   createError,
+  createTerminalOutputChunk,
   createPiiNotice,
   createConversationHistory,
   createSkillAutocompleteResponse,
@@ -1077,6 +1078,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             newContent: delta.fileEditDiff.newContent,
           });
         }
+        break;
+      case "terminal_chunk":
+        this.postMessage(
+          createTerminalOutputChunk(delta.executionId, delta.chunk, delta.done),
+        );
         break;
       case "done": {
         this.postMessage(createStreamEnd(delta.usage));
