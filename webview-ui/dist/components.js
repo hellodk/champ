@@ -1361,9 +1361,7 @@ var ChampPanels = (() => {
       }
     );
   }
-  function TimelineRow({
-    agent
-  }) {
+  function TimelineRow({ agent }) {
     const durationMs = agent.startTime && agent.endTime ? agent.endTime - agent.startTime : null;
     const durationStr = durationMs !== null ? `${(durationMs / 1e3).toFixed(1)}s` : "\u2014";
     const tokenStr = agent.tokenCount ? agent.tokenCount.toLocaleString() + " tk" : "\u2014";
@@ -1450,27 +1448,21 @@ var ChampPanels = (() => {
           "x"
         )
       ),
-      /* @__PURE__ */ React.createElement(
-        "div",
+      /* @__PURE__ */ React.createElement("div", { style: "display:flex;border-bottom:1px solid var(--vscode-panel-border);background:var(--vscode-sideBarSectionHeader-background);" }, ["graph", "timeline"].map((tab) => /* @__PURE__ */ React.createElement(
+        "button",
         {
-          style: "display:flex;border-bottom:1px solid var(--vscode-panel-border);background:var(--vscode-sideBarSectionHeader-background);"
-        },
-        ["graph", "timeline"].map((tab) => /* @__PURE__ */ React.createElement(
-          "button",
-          {
-            key: tab,
-            onClick: () => {
-              activeTabSignal.value = tab;
-            },
-            style: `flex:1;padding:5px 0;border:none;cursor:pointer;font-size:11px;font-weight:600;
+          key: tab,
+          onClick: () => {
+            activeTabSignal.value = tab;
+          },
+          style: `flex:1;padding:5px 0;border:none;cursor:pointer;font-size:11px;font-weight:600;
               text-transform:capitalize;
               background:${activeTabSignal.value === tab ? "var(--vscode-list-activeSelectionBackground)" : "transparent"};
               color:${activeTabSignal.value === tab ? "var(--vscode-list-activeSelectionForeground)" : "var(--vscode-foreground)"};
               border-bottom:${activeTabSignal.value === tab ? "2px solid var(--vscode-focusBorder)" : "2px solid transparent"};`
-          },
-          tab === "graph" ? "Graph" : "Timeline"
-        ))
-      ),
+        },
+        tab === "graph" ? "Graph" : "Timeline"
+      ))),
       activeTabSignal.value === "graph" && /* @__PURE__ */ React.createElement("div", { style: "overflow:auto; max-height:300px;" }, /* @__PURE__ */ React.createElement(
         "svg",
         {
@@ -1496,27 +1488,10 @@ var ChampPanels = (() => {
         state.agents.map((agent) => {
           const pos = positions.get(agent.id);
           if (!pos) return null;
-          return /* @__PURE__ */ React.createElement(
-            AgentNode,
-            {
-              key: agent.id,
-              agent,
-              x: pos.x,
-              y: pos.y
-            }
-          );
+          return /* @__PURE__ */ React.createElement(AgentNode, { key: agent.id, agent, x: pos.x, y: pos.y });
         })
       )),
-      activeTabSignal.value === "timeline" && /* @__PURE__ */ React.createElement("div", { style: "overflow-y:auto;max-height:300px;" }, /* @__PURE__ */ React.createElement(
-        "div",
-        {
-          style: "display:flex;padding:4px 8px;font-size:10px;opacity:0.6;border-bottom:1px solid var(--vscode-panel-border);gap:8px;"
-        },
-        /* @__PURE__ */ React.createElement("span", { style: "width:8px;flex-shrink:0;" }),
-        /* @__PURE__ */ React.createElement("span", { style: "flex:1;" }, "Agent"),
-        /* @__PURE__ */ React.createElement("span", { style: "width:48px;text-align:right;flex-shrink:0;" }, "Duration"),
-        /* @__PURE__ */ React.createElement("span", { style: "width:52px;text-align:right;flex-shrink:0;" }, "Tokens")
-      ), state.agents.map((agent) => /* @__PURE__ */ React.createElement(TimelineRow, { key: agent.id, agent }))),
+      activeTabSignal.value === "timeline" && /* @__PURE__ */ React.createElement("div", { style: "overflow-y:auto;max-height:300px;" }, /* @__PURE__ */ React.createElement("div", { style: "display:flex;padding:4px 8px;font-size:10px;opacity:0.6;border-bottom:1px solid var(--vscode-panel-border);gap:8px;" }, /* @__PURE__ */ React.createElement("span", { style: "width:8px;flex-shrink:0;" }), /* @__PURE__ */ React.createElement("span", { style: "flex:1;" }, "Agent"), /* @__PURE__ */ React.createElement("span", { style: "width:48px;text-align:right;flex-shrink:0;" }, "Duration"), /* @__PURE__ */ React.createElement("span", { style: "width:52px;text-align:right;flex-shrink:0;" }, "Tokens")), state.agents.map((agent) => /* @__PURE__ */ React.createElement(TimelineRow, { key: agent.id, agent }))),
       /* @__PURE__ */ React.createElement(
         "div",
         {
