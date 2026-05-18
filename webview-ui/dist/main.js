@@ -2133,6 +2133,7 @@
         break;
       case 'streamDelta':
         appendStreamDelta(msg.text || '');
+        injectRunButtons();
         break;
       case 'streamEnd':
         setStreaming(false);
@@ -2162,6 +2163,7 @@
             break;
           }
         }
+        injectRunButtons();
         break;
       }
       case 'approvalRequest':
@@ -2401,6 +2403,27 @@
       case 'memoryBadge':
         updateMemoryBadge(msg.count);
         break;
+      case 'terminalOutputChunk': {
+        const outputDiv = document.getElementById('terminal-output-' + msg.executionId);
+        if (outputDiv) {
+          if (msg.chunk) {
+            outputDiv.textContent += msg.chunk;
+            outputDiv.scrollTop = outputDiv.scrollHeight;
+          }
+          if (msg.done) {
+            // Re-enable the Run button
+            const pre = outputDiv.previousElementSibling;
+            if (pre) {
+              const btn = pre.querySelector("button[title='Run this command in the workspace terminal']");
+              if (btn) {
+                btn.disabled = false;
+                btn.textContent = '▶ Run';
+              }
+            }
+          }
+        }
+        break;
+      }
     }
   });
 
@@ -2456,6 +2479,76 @@
     }
     btn.addEventListener('click', onClick);
     return btn;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Run button injection for bash/sh code blocks (Sprint O)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * injectRunButtons — scan the DOM for bash/sh code blocks that have not yet
+   * had a "▶ Run" button injected, and add one to each. Safe to call multiple
+   * times; the data-run-injected attribute guards against double-injection.
+   */
+  function injectRunButtons() {
+    const codeBlocks = document.querySelectorAll(
+      'pre > code[class*="language-bash"]:not([data-run-injected]), ' +
+      'pre > code[class*="language-sh"]:not([data-run-injected])'
+    );
+    codeBlocks.forEach(function(codeEl) {
+      codeEl.setAttribute('data-run-injected', 'true');
+      const pre = codeEl.parentElement;
+      if (!pre) return;
+
+      const btn = document.createElement('button');
+      btn.textContent = '▶ Run';
+      btn.title = 'Run this command in the workspace terminal';
+      btn.style.cssText = [
+        'position:absolute',
+        'top:4px',
+        'right:4px',
+        'font-size:11px',
+        'padding:2px 8px',
+        'cursor:pointer',
+        'background:var(--vscode-button-background)',
+        'color:var(--vscode-button-foreground)',
+        'border:none',
+        'border-radius:2px',
+        'opacity:0.85',
+      ].join(';');
+
+      btn.addEventListener('click', function() {
+        const command = codeEl.textContent || '';
+        const executionId = 'run-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+
+        const outputDiv = document.createElement('div');
+        outputDiv.id = 'terminal-output-' + executionId;
+        outputDiv.style.cssText = [
+          'margin-top:4px',
+          'padding:6px 8px',
+          'background:var(--vscode-terminal-background, var(--vscode-editor-background))',
+          'border:1px solid var(--vscode-panel-border)',
+          'border-radius:2px',
+          'font-family:var(--vscode-editor-font-family, monospace)',
+          'font-size:12px',
+          'white-space:pre-wrap',
+          'word-break:break-all',
+          'max-height:240px',
+          'overflow-y:auto',
+          'color:var(--vscode-terminal-foreground, var(--vscode-editor-foreground))',
+        ].join(';');
+        outputDiv.textContent = '$ ' + command.trim() + '\n';
+        pre.insertAdjacentElement('afterend', outputDiv);
+
+        btn.disabled = true;
+        btn.textContent = 'Running…';
+
+        vscode.postMessage({ type: 'runInTerminal', command: command.trim(), executionId: executionId });
+      });
+
+      pre.style.position = 'relative';
+      pre.appendChild(btn);
+    });
   }
 
   // Delegated copy handler for code blocks.

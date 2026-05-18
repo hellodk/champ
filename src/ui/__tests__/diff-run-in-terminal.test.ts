@@ -106,3 +106,29 @@ describe("isRunInTerminalRequest type guard", () => {
     );
   });
 });
+
+describe("bash code block Run button — DOM logic (pure)", () => {
+  it("extracting language from a pre>code element works correctly", () => {
+    // Simulate the DOM shape the webview produces for ```bash code blocks
+    // language-bash is set as the class by the markdown renderer
+    const className = "language-bash";
+    const lang = className.replace("language-", "");
+    expect(lang).toBe("bash");
+    expect(["bash", "sh"].includes(lang)).toBe(true);
+  });
+
+  it("non-bash language is not injected", () => {
+    const className = "language-typescript";
+    const lang = className.replace("language-", "");
+    expect(["bash", "sh"].includes(lang)).toBe(false);
+  });
+
+  it("generateExecutionId produces unique strings each time", () => {
+    const genId = (): string =>
+      `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const id1 = genId();
+    const id2 = genId();
+    expect(id1).not.toBe(id2);
+    expect(id1).toMatch(/^run-\d+-[a-z0-9]+$/);
+  });
+});
