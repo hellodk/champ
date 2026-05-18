@@ -205,6 +205,11 @@
         "command": "champ.clearDiffOverlay",
         "title": "Champ: Clear Diff Overlay",
         "category": "Champ"
+      },
+      {
+        "command": "champ.openMemoryBank",
+        "title": "Champ: Open Memory Bank",
+        "category": "Champ"
       }
     ],
     "configuration": {
