@@ -1,6 +1,7 @@
 // src/ui/__tests__/team-builder-panel.test.ts
 import { describe, it, expect } from "vitest";
 import { buildTeamYaml, parseAgentPositions } from "../team-builder-panel";
+import { buildRuleMarkdown } from "../rules-editor-panel";
 import type { TeamBuilderSaveRequest } from "../messages";
 
 describe("buildTeamYaml", () => {
@@ -155,5 +156,30 @@ describe("parseAgentPositions", () => {
     const posB = result.get("b")!;
     // b should be below a (higher y) because it depends on a
     expect(posB.y).toBeGreaterThan(posA.y);
+  });
+});
+
+describe("buildRuleMarkdown", () => {
+  it("writes always rule without glob", () => {
+    const md = buildRuleMarkdown({
+      name: "no-console",
+      content: "Never use console.log in production code.",
+      type: "always",
+    });
+    expect(md).toContain("name: no-console");
+    expect(md).toContain("type: always");
+    expect(md).not.toContain("glob:");
+    expect(md).toContain("Never use console.log in production code.");
+  });
+
+  it("writes auto-attached rule with glob", () => {
+    const md = buildRuleMarkdown({
+      name: "ts-style",
+      content: "Prefer const over let.",
+      type: "auto-attached",
+      glob: "**/*.ts",
+    });
+    expect(md).toContain('glob: "**/*.ts"');
+    expect(md).toContain("type: auto-attached");
   });
 });
