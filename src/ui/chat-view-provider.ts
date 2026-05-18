@@ -69,6 +69,7 @@ import {
   isMemoryPinRequest,
   isMemoryAddRequest,
   createSessionList,
+  createSessionTokenUsage,
   type ExtensionToWebviewMessage,
   type WebviewToExtensionMessage,
   type AvailableProviderModel,
@@ -346,6 +347,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
    */
   broadcastFirstRunWelcome(templates: FirstRunTemplate[]): void {
     this.postMessage(createFirstRunWelcome(templates));
+  }
+
+  /**
+   * Broadcast per-session cumulative token usage and an estimated cost
+   * to the webview footer counter. Call this after every streamEnd.
+   */
+  broadcastSessionTokenUsage(
+    sessionInputTokens: number,
+    sessionOutputTokens: number,
+    estimatedCostUsd = 0,
+  ): void {
+    this.postMessage(
+      createSessionTokenUsage(sessionInputTokens, sessionOutputTokens, estimatedCostUsd),
+    );
   }
 
   /**

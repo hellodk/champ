@@ -4,6 +4,10 @@ import {
   createSessionTokenUsage,
   isSessionTokenUsageMessage,
 } from "../messages";
+import { ChatViewProvider } from "../chat-view-provider";
+import type { AgentController } from "../../agent/agent-controller";
+import type { ExtensionToWebviewMessage } from "../messages";
+import * as vscode from "vscode";
 
 describe("SessionTokenUsageMessage", () => {
   it("createSessionTokenUsage builds the correct shape", () => {
@@ -27,5 +31,58 @@ describe("SessionTokenUsageMessage", () => {
   it("isSessionTokenUsageMessage returns false for other types", () => {
     const other = { type: "streamEnd", usage: undefined };
     expect(isSessionTokenUsageMessage(other as never)).toBe(false);
+  });
+});
+
+// Minimal fake webview that captures postMessage calls.
+function makeTestProvider() {
+  const posted: ExtensionToWebviewMessage[] = [];
+  const fakeUri = { fsPath: "/fake", with: () => fakeUri, toString: () => "/fake" } as unknown as vscode.Uri;
+  const fakeAgent = {
+    getHistory: () => [],
+    reset: () => {},
+    setProjectRules: () => {},
+    setMemoryBank: () => {},
+    on: () => ({ dispose: () => {} }),
+  } as unknown as AgentController;
+  const provider = new ChatViewProvider(fakeUri, fakeAgent, "1.6.111");
+  // Inject a fake view so postMessage works.
+  (provider as unknown as { view: unknown }).view = {
+    webview: {
+      postMessage: (msg: ExtensionToWebviewMessage) => { posted.push(msg); return Promise.resolve(true); },
+      options: {},
+      html: "",
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      cspSource: "",
+      asWebviewUri: (u: vscode.Uri) => u,
+    },
+    onDidDispose: () => ({ dispose: () => {} }),
+    onDidChangeVisibility: () => ({ dispose: () => {} }),
+    visible: true,
+    badge: undefined,
+    description: undefined,
+    title: undefined,
+    show: () => {},
+  };
+  return { provider, posted };
+}
+
+describe("ChatViewProvider.broadcastSessionTokenUsage", () => {
+  it("posts a sessionTokenUsage message to the webview", () => {
+    const { provider, posted } = makeTestProvider();
+    provider.broadcastSessionTokenUsage(500, 120, 0.0015);
+    expect(posted).toHaveLength(1);
+    expect(posted[0].type).toBe("sessionTokenUsage");
+    const msg = posted[0] as import("../messages").SessionTokenUsageMessage;
+    expect(msg.sessionInputTokens).toBe(500);
+    expect(msg.sessionOutputTokens).toBe(120);
+    expect(msg.estimatedCostUsd).toBeCloseTo(0.0015);
+  });
+
+  it("defaults estimatedCostUsd to 0 when not passed", () => {
+    const { provider, posted } = makeTestProvider();
+    provider.broadcastSessionTokenUsage(100, 50);
+    const msg = posted[0] as import("../messages").SessionTokenUsageMessage;
+    expect(msg.estimatedCostUsd).toBe(0);
   });
 });
