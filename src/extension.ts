@@ -196,6 +196,22 @@ export async function activate(
   const workspaceRoot =
     vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
 
+  function estimateTeamCost(
+    team: import("./agent/team-definition").TeamDefinition,
+  ): {
+    agentCount: number;
+    estimatedTokens: number;
+    estimatedCostUsd: string;
+  } {
+    const AVG_TOKENS_PER_AGENT = 3000;
+    const agentCount = team.agents.length;
+    const estimatedTokens = agentCount * AVG_TOKENS_PER_AGENT;
+    const costUsd = (estimatedTokens / 1000) * 0.003;
+    const estimatedCostUsd =
+      costUsd < 0.01 ? "< $0.01" : `~$${costUsd.toFixed(2)}`;
+    return { agentCount, estimatedTokens, estimatedCostUsd };
+  }
+
   const rulesEngine = new RulesEngine(workspaceRoot ?? "");
 
   const memoryBank = workspaceRoot ? new MemoryBank(workspaceRoot) : null;
@@ -2288,6 +2304,101 @@ export async function activate(
       },
     ),
     vscode.commands.registerCommand(
+      "champ.rerunTeam",
+      async (runId?: string) => {
+        if (!teamRunStore || !teamLoader || !workspaceRoot) {
+          void vscode.window.showErrorMessage("Champ: open a workspace first.");
+          return;
+        }
+        const provider = inlineProviderRef.current;
+        if (provider.name === "not-configured") {
+          void vscode.window.showErrorMessage(
+            "Champ: configure a provider first.",
+          );
+          return;
+        }
+        let targetRunId = runId;
+        if (!targetRunId) {
+          const records = await teamRunStore.loadAll();
+          if (records.length === 0) {
+            void vscode.window.showInformationMessage(
+              "Champ: no team run history.",
+            );
+            return;
+          }
+          const pick = await vscode.window.showQuickPick(
+            records.map((r) => ({
+              label: `${r.state.teamName} — ${r.state.userRequest.slice(0, 50)}`,
+              description: `${r.state.status} · ${new Date(r.state.startTime).toLocaleString()}`,
+              runId: r.state.runId,
+            })),
+            { placeHolder: "Select a run to re-run", title: "Re-run Team" },
+          );
+          if (!pick) return;
+          targetRunId = pick.runId;
+        }
+        const record = await teamRunStore.load(targetRunId);
+        if (!record) {
+          void vscode.window.showErrorMessage(
+            `Champ: run ${targetRunId} not found.`,
+          );
+          return;
+        }
+        const teams = await teamLoader.loadAll();
+        const team = teams.find((t) => t.name === record.state.teamName);
+        if (!team) {
+          void vscode.window.showErrorMessage(
+            `Champ: team "${record.state.teamName}" not found.`,
+          );
+          return;
+        }
+        const rerunEstimate = estimateTeamCost(team);
+        const rerunConfirmLabel = `Re-run (${rerunEstimate.estimatedCostUsd} est.)`;
+        const ok = await vscode.window.showInformationMessage(
+          `Re-run "${team.name}" with: "${record.state.userRequest.slice(0, 80)}"\nEst: ${rerunEstimate.estimatedCostUsd}`,
+          { modal: false },
+          rerunConfirmLabel,
+          "Cancel",
+        );
+        if (ok !== rerunConfirmLabel) return;
+
+        const rerunPanel = new TeamPanel(context.extensionUri, team.name);
+        rerunPanel.showCostEstimate({ ...rerunEstimate, teamName: team.name });
+        const rerunRunner = new TeamRunner();
+        const rerunAbortController = new AbortController();
+        rerunPanel.onMessage(
+          (msg: import("./ui/team-panel").TeamPanelMessage) => {
+            if (msg.type === "teamStop") rerunAbortController.abort();
+          },
+        );
+        void rerunRunner.run(
+          team,
+          record.state.userRequest,
+          provider,
+          toolRegistry,
+          {
+            workspaceRoot,
+            abortSignal: rerunAbortController.signal,
+            teamRunStore,
+            onEvent: (event) => {
+              if (event.type === "state_update" || event.type === "complete") {
+                rerunPanel.update(event.state);
+                if (event.type === "complete")
+                  rerunPanel.setRunId(event.state.runId);
+              } else if (event.type === "agent_stream") {
+                rerunPanel.streamChunk(event.agentId, event.chunk);
+              } else if (event.type === "error") {
+                void vscode.window.showErrorMessage(
+                  `Re-run failed: ${event.message}`,
+                );
+                rerunPanel.update(event.state);
+              }
+            },
+          },
+        );
+      },
+    ),
+    vscode.commands.registerCommand(
       "champ.createTeamFromTemplate",
       async () => {
         if (!workspaceRoot) {
@@ -3014,6 +3125,15 @@ export async function activate(
     });
   }
 
+  /** Broadcast memory count badge to the chat webview. */
+  function broadcastMemoryBadge(): void {
+    if (!memoryBank || !chatViewProvider) return;
+    chatViewProvider.postMessage({
+      type: "memoryBadge",
+      count: memoryBank.getAll().length,
+    } as never);
+  }
+
   /** Save a session to disk. */
   async function saveSession(id: string): Promise<void> {
     if (!agentManager || !sessionStore) return;
@@ -3046,7 +3166,10 @@ export async function activate(
   // "loading..." while the provider and sessions come online.
   void (async () => {
     // 0. Await memory bank load so cross-session facts are available immediately.
-    if (memoryBank) await memoryBank.load();
+    if (memoryBank) {
+      await memoryBank.load();
+      broadcastMemoryBadge();
+    }
 
     // 1. Load provider (reads YAML, creates provider, auto-detects models).
     await loadProvider();
@@ -3193,6 +3316,21 @@ export async function activate(
       }));
     context.subscriptions.push(yamlWatcher);
   }
+
+  // ---- Memory Bank command -------------------------------------------
+  context.subscriptions.push(
+    vscode.commands.registerCommand("champ.openMemoryBank", () => {
+      if (!workspaceRoot || !memoryBank) {
+        void vscode.window.showInformationMessage(
+          "Champ Memory Bank: no workspace open.",
+        );
+        return;
+      }
+      const { MemoryPanel } =
+        require("./ui/memory-panel") as typeof import("./ui/memory-panel");
+      MemoryPanel.createOrShow(context.extensionUri, memoryBank);
+    }),
+  );
 
   console.log("Champ extension activated");
 }
