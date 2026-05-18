@@ -63,6 +63,10 @@
     yoloMode: false,
     /** Whether inline autocomplete is enabled. */
     autocompleteEnabled: true,
+    /** Running token count for the current chat session. */
+    sessionInputTokens: 0,
+    sessionOutputTokens: 0,
+    estimatedCostUsd: 0,
   };
 
   // Tour / onboarding hints (sessionStorage-backed, one-time per session)
@@ -974,7 +978,26 @@
   function showAtHint() { atHintEl.removeAttribute('hidden'); }
   function hideAtHint() { atHintEl.setAttribute('hidden', 'true'); }
 
-  inputArea.append(skillDropdown, atHintEl, chatBox, modePickerPopup, modelPickerPopup, metricsFooter);
+  // Session token counter — shows per-chat token usage + estimated cost.
+  const sessionTokenCounter = el('div', { class: 'session-token-counter' });
+  sessionTokenCounter.setAttribute('hidden', 'true');
+
+  function renderSessionTokenCounter() {
+    const { sessionInputTokens, sessionOutputTokens, estimatedCostUsd } = state;
+    if (sessionInputTokens === 0 && sessionOutputTokens === 0) {
+      sessionTokenCounter.setAttribute('hidden', 'true');
+      return;
+    }
+    sessionTokenCounter.removeAttribute('hidden');
+    const total = sessionInputTokens + sessionOutputTokens;
+    const totalStr = total.toLocaleString();
+    const costStr = estimatedCostUsd > 0
+      ? ` | ~$${estimatedCostUsd.toFixed(4)}`
+      : '';
+    sessionTokenCounter.textContent = `${totalStr} tokens${costStr}`;
+  }
+
+  inputArea.append(skillDropdown, atHintEl, chatBox, modePickerPopup, modelPickerPopup, metricsFooter, sessionTokenCounter);
 
   // Wrap messages + scroll pill in a positioned container.
   const messagesWrapper = el('div', { class: 'messages-wrapper' });
@@ -1883,6 +1906,10 @@
         sessionAutoApprove = false;
         // Clear activity log on new chat / session switch.
         activityLog.length = 0;
+        state.sessionInputTokens = 0;
+        state.sessionOutputTokens = 0;
+        state.estimatedCostUsd = 0;
+        renderSessionTokenCounter();
         if (msg.messages && msg.messages.length > 0) {
           messagesContainer.innerHTML = '';
           for (const m of msg.messages) {
@@ -1936,6 +1963,12 @@
         break;
       case 'metricsUpdate':
         renderMetrics(msg);
+        break;
+      case 'sessionTokenUsage':
+        state.sessionInputTokens = msg.sessionInputTokens || 0;
+        state.sessionOutputTokens = msg.sessionOutputTokens || 0;
+        state.estimatedCostUsd = msg.estimatedCostUsd || 0;
+        renderSessionTokenCounter();
         break;
       case 'mcpStatus':
         renderMcpPanel(msg.servers || []);

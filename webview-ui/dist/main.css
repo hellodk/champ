@@ -1358,6 +1358,24 @@ html, body {
 }
 
 /* -------------------------------------------------------------------
+ * Session token counter — per-chat cumulative usage in the input footer
+ * ---------------------------------------------------------------- */
+
+.session-token-counter {
+  font-size: calc(var(--vscode-font-size) - 2px);
+  color: var(--vscode-descriptionForeground);
+  text-align: right;
+  padding: 1px 4px 0;
+  min-height: 14px;
+  opacity: 0.65;
+  letter-spacing: 0.01em;
+}
+
+.session-token-counter[hidden] {
+  display: none;
+}
+
+/* -------------------------------------------------------------------
  * Onboarding panel (first-run config picker)
  * ---------------------------------------------------------------- */
 
