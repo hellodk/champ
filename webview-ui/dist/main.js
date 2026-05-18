@@ -1361,6 +1361,7 @@
       if (role === 'assistant') {
         bodyEl.dataset.rawText = text;
         bodyEl.innerHTML = renderMarkdown(text);
+        bodyEl.querySelectorAll('code[data-lang]').forEach(applyHighlightToBlock);
       } else {
         bodyEl.textContent = text;
       }
@@ -1438,6 +1439,7 @@
       const raw = (body.dataset.rawText || '') + text;
       body.dataset.rawText = raw;
       body.innerHTML = renderMarkdown(raw);
+      body.querySelectorAll('code[data-lang]').forEach(applyHighlightToBlock);
       if (userScrolledUp) {
         scrollPill.removeAttribute('hidden');
       } else {
@@ -1541,13 +1543,36 @@
     text = text.replace(/\x00CODE(\d+)\x00/g, (_, idx) => {
       const { lang, code } = codeBlocks[parseInt(idx, 10)];
       const langLabel = lang ? `<span class="code-lang-label">${esc(lang)}</span>` : '';
+      // data-lang and data-raw-code let applyHighlightToBlock work without
+      // re-parsing the escaped HTML.
+      const dataLang = lang ? ` data-lang="${esc(lang)}"` : '';
+      const dataRaw = ` data-raw-code="${esc(code).replace(/"/g, '&quot;')}"`;
       return `<div class="code-block-wrapper">`
         + `<div class="code-block-header">${langLabel}<button class="code-copy-btn">Copy</button></div>`
-        + `<pre class="code-block"><code class="lang-${esc(lang || 'text')}">${esc(code)}</code></pre>`
+        + `<pre class="code-block"><code class="lang-${esc(lang || 'text')}"${dataLang}${dataRaw}>${esc(code)}</code></pre>`
         + `</div>`;
     });
 
     return text;
+  }
+
+  /**
+   * Apply highlight.js syntax colouring to a single <code> element.
+   * Safe to call when hljs is not yet loaded (CDN async) — in that case
+   * it's a no-op and the block stays plain-text.
+   *
+   * @param {HTMLElement} codeEl  The <code> element to highlight.
+   */
+  function applyHighlightToBlock(codeEl) {
+    const hljs = window.hljs;
+    if (!hljs) return;
+    if (codeEl.dataset.highlighted === 'true') return;
+    const lang = codeEl.dataset.lang || '';
+    if (!lang || !hljs.getLanguage(lang)) return;
+    const raw = codeEl.dataset.rawCode || codeEl.textContent || '';
+    const result = hljs.highlight(raw, { language: lang });
+    codeEl.innerHTML = result.value;
+    codeEl.dataset.highlighted = 'true';
   }
 
   function appendToolCallCard(toolName, args) {

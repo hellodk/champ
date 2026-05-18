@@ -359,7 +359,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     estimatedCostUsd = 0,
   ): void {
     this.postMessage(
-      createSessionTokenUsage(sessionInputTokens, sessionOutputTokens, estimatedCostUsd),
+      createSessionTokenUsage(
+        sessionInputTokens,
+        sessionOutputTokens,
+        estimatedCostUsd,
+      ),
     );
   }
 
@@ -1223,14 +1227,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none';
                  connect-src ${cspSource} https:;
-                 style-src ${cspSource};
+                 style-src ${cspSource} https://cdnjs.cloudflare.com;
                  script-src 'nonce-${nonce}';
                  img-src ${cspSource} data:;
                  font-src ${cspSource};" />
   ${codiconUri ? `<link href="${codiconUri}" rel="stylesheet" />` : ""}
   <link href="${styleUri}" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css" />
   <title>Champ Chat</title>
   <script nonce="${nonce}">window.__CHAMP_VERSION__="${this.extensionVersion}";</script>
+  <script nonce="${nonce}">
+    // Load highlight.js asynchronously; main.js guards on window.hljs before calling.
+    (function() {
+      var s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js';
+      s.nonce = '${nonce}';
+      document.head.appendChild(s);
+    })();
+  </script>
 </head>
 <body>
   <div id="app"></div>
