@@ -167,8 +167,16 @@ export class McpRegistry {
       this.registeredTools.set(serverName, [...names]);
     }
 
+    // Populate resource/prompt counts (uses capability-gated calls — returns [] if not supported)
+    const [resources, prompts] = await Promise.all([
+      this.manager.listResources(serverName).catch(() => []),
+      this.manager.listPrompts(serverName).catch(() => []),
+    ]);
+    this.resourceCounts.set(serverName, resources.length);
+    this.promptCounts.set(serverName, prompts.length);
+
     console.log(
-      `Champ MCP: registered ${names.length} tool(s) from "${serverName}": ${names.join(", ")}`,
+      `Champ MCP: registered ${names.length} tool(s), ${resources.length} resource(s), ${prompts.length} prompt(s) from "${serverName}"`,
     );
     this.onStatusChange?.();
   }
@@ -179,6 +187,8 @@ export class McpRegistry {
       this.toolRegistry.unregister(name);
     }
     this.registeredTools.delete(serverName);
+    this.resourceCounts.delete(serverName);
+    this.promptCounts.delete(serverName);
     this.onStatusChange?.();
   }
 
