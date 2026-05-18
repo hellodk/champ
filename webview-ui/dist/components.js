@@ -1189,6 +1189,8 @@ var ChampPanels = (() => {
   // webview-ui/src/components/AgentGraphPanel.tsx
   var teamStateSignal = y3(null);
   var isVisibleSignal2 = g2(() => teamStateSignal.value !== null);
+  var activeTabSignal = y3("graph");
+  var expandedAgentIdSignal = y3(null);
   window.addEventListener("champ:teamUpdate", (e4) => {
     const msg = e4.detail;
     if (msg.state) {
@@ -1359,6 +1361,53 @@ var ChampPanels = (() => {
       }
     );
   }
+  function TimelineRow({
+    agent
+  }) {
+    const durationMs = agent.startTime && agent.endTime ? agent.endTime - agent.startTime : null;
+    const durationStr = durationMs !== null ? `${(durationMs / 1e3).toFixed(1)}s` : "\u2014";
+    const tokenStr = agent.tokenCount ? agent.tokenCount.toLocaleString() + " tk" : "\u2014";
+    const statusColor = {
+      done: "var(--vscode-terminal-ansiGreen)",
+      failed: "var(--vscode-inputValidation-errorBorder)",
+      running: "var(--vscode-progressBar-background)",
+      skipped: "var(--vscode-disabledForeground)",
+      blocked: "var(--vscode-inputValidation-warningBorder)",
+      pending: "var(--vscode-descriptionForeground)"
+    };
+    const color = statusColor[agent.status] ?? "var(--vscode-foreground)";
+    const isExpanded = expandedAgentIdSignal.value === agent.id;
+    const isExpandable = ["done", "failed", "blocked"].includes(agent.status);
+    return /* @__PURE__ */ React.createElement("div", { "data-agentid": agent.id }, /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        onClick: isExpandable ? () => {
+          expandedAgentIdSignal.value = isExpanded ? null : agent.id;
+        } : void 0,
+        style: `display:flex;align-items:center;padding:4px 8px;
+                border-bottom:1px solid var(--vscode-panel-border);font-size:11px;gap:8px;
+                cursor:${isExpandable ? "pointer" : "default"};
+                background:${isExpanded ? "var(--vscode-list-hoverBackground)" : "transparent"};`
+      },
+      /* @__PURE__ */ React.createElement(
+        "span",
+        {
+          style: `width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;`
+        }
+      ),
+      /* @__PURE__ */ React.createElement("span", { style: "flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" }, agent.name),
+      isExpandable && /* @__PURE__ */ React.createElement("span", { style: "color:var(--vscode-descriptionForeground);font-size:10px;" }, isExpanded ? "\u25B2" : "\u25BC"),
+      /* @__PURE__ */ React.createElement("span", { style: "color:var(--vscode-descriptionForeground);width:48px;text-align:right;flex-shrink:0;" }, durationStr),
+      /* @__PURE__ */ React.createElement("span", { style: "color:var(--vscode-descriptionForeground);width:52px;text-align:right;flex-shrink:0;" }, tokenStr)
+    ), isExpanded && agent.output && /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        style: "padding:6px 10px;font-size:11px;font-family:var(--vscode-editor-font-family,monospace);\n                    white-space:pre-wrap;word-break:break-word;max-height:160px;overflow-y:auto;\n                    background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);"
+      },
+      agent.output.slice(0, 2e3),
+      agent.output.length > 2e3 && /* @__PURE__ */ React.createElement("span", { style: "opacity:0.5;display:block;margin-top:4px;" }, "\u2026", (agent.output.length - 2e3).toLocaleString(), " chars truncated")
+    ));
+  }
   function AgentGraphPanel() {
     if (!isVisibleSignal2.value) return null;
     const state = teamStateSignal.value;
@@ -1401,7 +1450,28 @@ var ChampPanels = (() => {
           "x"
         )
       ),
-      /* @__PURE__ */ React.createElement("div", { style: "overflow:auto; max-height:300px;" }, /* @__PURE__ */ React.createElement(
+      /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          style: "display:flex;border-bottom:1px solid var(--vscode-panel-border);background:var(--vscode-sideBarSectionHeader-background);"
+        },
+        ["graph", "timeline"].map((tab) => /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            key: tab,
+            onClick: () => {
+              activeTabSignal.value = tab;
+            },
+            style: `flex:1;padding:5px 0;border:none;cursor:pointer;font-size:11px;font-weight:600;
+              text-transform:capitalize;
+              background:${activeTabSignal.value === tab ? "var(--vscode-list-activeSelectionBackground)" : "transparent"};
+              color:${activeTabSignal.value === tab ? "var(--vscode-list-activeSelectionForeground)" : "var(--vscode-foreground)"};
+              border-bottom:${activeTabSignal.value === tab ? "2px solid var(--vscode-focusBorder)" : "2px solid transparent"};`
+          },
+          tab === "graph" ? "Graph" : "Timeline"
+        ))
+      ),
+      activeTabSignal.value === "graph" && /* @__PURE__ */ React.createElement("div", { style: "overflow:auto; max-height:300px;" }, /* @__PURE__ */ React.createElement(
         "svg",
         {
           width: svgWidth,
@@ -1426,9 +1496,27 @@ var ChampPanels = (() => {
         state.agents.map((agent) => {
           const pos = positions.get(agent.id);
           if (!pos) return null;
-          return /* @__PURE__ */ React.createElement(AgentNode, { key: agent.id, agent, x: pos.x, y: pos.y });
+          return /* @__PURE__ */ React.createElement(
+            AgentNode,
+            {
+              key: agent.id,
+              agent,
+              x: pos.x,
+              y: pos.y
+            }
+          );
         })
       )),
+      activeTabSignal.value === "timeline" && /* @__PURE__ */ React.createElement("div", { style: "overflow-y:auto;max-height:300px;" }, /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          style: "display:flex;padding:4px 8px;font-size:10px;opacity:0.6;border-bottom:1px solid var(--vscode-panel-border);gap:8px;"
+        },
+        /* @__PURE__ */ React.createElement("span", { style: "width:8px;flex-shrink:0;" }),
+        /* @__PURE__ */ React.createElement("span", { style: "flex:1;" }, "Agent"),
+        /* @__PURE__ */ React.createElement("span", { style: "width:48px;text-align:right;flex-shrink:0;" }, "Duration"),
+        /* @__PURE__ */ React.createElement("span", { style: "width:52px;text-align:right;flex-shrink:0;" }, "Tokens")
+      ), state.agents.map((agent) => /* @__PURE__ */ React.createElement(TimelineRow, { key: agent.id, agent }))),
       /* @__PURE__ */ React.createElement(
         "div",
         {

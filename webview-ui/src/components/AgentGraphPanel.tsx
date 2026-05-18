@@ -9,6 +9,10 @@ import type {
 export const teamStateSignal = signal<TeamRunState | null>(null);
 const isVisibleSignal = computed(() => teamStateSignal.value !== null);
 
+type AgentGraphTab = "graph" | "timeline";
+const activeTabSignal = signal<AgentGraphTab>("graph");
+const expandedAgentIdSignal = signal<string | null>(null);
+
 window.addEventListener("champ:teamUpdate", (e: Event) => {
   const msg = (e as CustomEvent<{ state: TeamRunState }>).detail;
   if (msg.state) {
@@ -208,6 +212,77 @@ function EdgeLine({
   );
 }
 
+function TimelineRow({ agent }: { agent: TeamAgentRunState }): JSX.Element {
+  const durationMs =
+    agent.startTime && agent.endTime ? agent.endTime - agent.startTime : null;
+  const durationStr =
+    durationMs !== null ? `${(durationMs / 1000).toFixed(1)}s` : "—";
+  const tokenStr = agent.tokenCount
+    ? agent.tokenCount.toLocaleString() + " tk"
+    : "—";
+  const statusColor: Record<string, string> = {
+    done: "var(--vscode-terminal-ansiGreen)",
+    failed: "var(--vscode-inputValidation-errorBorder)",
+    running: "var(--vscode-progressBar-background)",
+    skipped: "var(--vscode-disabledForeground)",
+    blocked: "var(--vscode-inputValidation-warningBorder)",
+    pending: "var(--vscode-descriptionForeground)",
+  };
+  const color = statusColor[agent.status] ?? "var(--vscode-foreground)";
+  const isExpanded = expandedAgentIdSignal.value === agent.id;
+  const isExpandable = ["done", "failed", "blocked"].includes(agent.status);
+
+  return (
+    <div data-agentid={agent.id}>
+      <div
+        onClick={
+          isExpandable
+            ? () => {
+                expandedAgentIdSignal.value = isExpanded ? null : agent.id;
+              }
+            : undefined
+        }
+        style={`display:flex;align-items:center;padding:4px 8px;
+                border-bottom:1px solid var(--vscode-panel-border);font-size:11px;gap:8px;
+                cursor:${isExpandable ? "pointer" : "default"};
+                background:${isExpanded ? "var(--vscode-list-hoverBackground)" : "transparent"};`}
+      >
+        <span
+          style={`width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;`}
+        />
+        <span style="flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+          {agent.name}
+        </span>
+        {isExpandable && (
+          <span style="color:var(--vscode-descriptionForeground);font-size:10px;">
+            {isExpanded ? "▲" : "▼"}
+          </span>
+        )}
+        <span style="color:var(--vscode-descriptionForeground);width:48px;text-align:right;flex-shrink:0;">
+          {durationStr}
+        </span>
+        <span style="color:var(--vscode-descriptionForeground);width:52px;text-align:right;flex-shrink:0;">
+          {tokenStr}
+        </span>
+      </div>
+      {isExpanded && agent.output && (
+        <div
+          style="padding:6px 10px;font-size:11px;font-family:var(--vscode-editor-font-family,monospace);
+                    white-space:pre-wrap;word-break:break-word;max-height:160px;overflow-y:auto;
+                    background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);"
+        >
+          {agent.output.slice(0, 2000)}
+          {agent.output.length > 2000 && (
+            <span style="opacity:0.5;display:block;margin-top:4px;">
+              …{(agent.output.length - 2000).toLocaleString()} chars truncated
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AgentGraphPanel(): JSX.Element | null {
   if (!isVisibleSignal.value) return null;
 
@@ -243,6 +318,7 @@ export function AgentGraphPanel(): JSX.Element | null {
              border-radius:6px; z-index:60; box-shadow:0 4px 16px rgba(0,0,0,0.3);
              overflow:hidden;"
     >
+      {/* Title bar */}
       <div
         style="display:flex; justify-content:space-between; align-items:center;
                padding:6px 10px; background:var(--vscode-titleBar-activeBackground);"
@@ -258,35 +334,74 @@ export function AgentGraphPanel(): JSX.Element | null {
           x
         </button>
       </div>
-      <div style="overflow:auto; max-height:300px;">
-        <svg
-          width={svgWidth}
-          height={svgHeight}
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          {state.agents.map((agent) =>
-            (dependsOnMap.get(agent.id) ?? []).map((depId) => {
-              const fromPos = positions.get(depId);
-              const toPos = positions.get(agent.id);
-              if (!fromPos || !toPos) return null;
-              return (
-                <EdgeLine
-                  key={`${depId}->${agent.id}`}
-                  fromPos={fromPos}
-                  toPos={toPos}
-                />
-              );
-            }),
-          )}
-          {state.agents.map((agent) => {
-            const pos = positions.get(agent.id);
-            if (!pos) return null;
-            return (
-              <AgentNode key={agent.id} agent={agent} x={pos.x} y={pos.y} />
-            );
-          })}
-        </svg>
+      {/* Tab bar */}
+      <div style="display:flex;border-bottom:1px solid var(--vscode-panel-border);background:var(--vscode-sideBarSectionHeader-background);">
+        {(["graph", "timeline"] as AgentGraphTab[]).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => {
+              activeTabSignal.value = tab;
+            }}
+            style={`flex:1;padding:5px 0;border:none;cursor:pointer;font-size:11px;font-weight:600;
+              text-transform:capitalize;
+              background:${activeTabSignal.value === tab ? "var(--vscode-list-activeSelectionBackground)" : "transparent"};
+              color:${activeTabSignal.value === tab ? "var(--vscode-list-activeSelectionForeground)" : "var(--vscode-foreground)"};
+              border-bottom:${activeTabSignal.value === tab ? "2px solid var(--vscode-focusBorder)" : "2px solid transparent"};`}
+          >
+            {tab === "graph" ? "Graph" : "Timeline"}
+          </button>
+        ))}
       </div>
+      {/* Graph tab */}
+      {activeTabSignal.value === "graph" && (
+        <div style="overflow:auto; max-height:300px;">
+          <svg
+            width={svgWidth}
+            height={svgHeight}
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            {state.agents.map((agent) =>
+              (dependsOnMap.get(agent.id) ?? []).map((depId) => {
+                const fromPos = positions.get(depId);
+                const toPos = positions.get(agent.id);
+                if (!fromPos || !toPos) return null;
+                return (
+                  <EdgeLine
+                    key={`${depId}->${agent.id}`}
+                    fromPos={fromPos}
+                    toPos={toPos}
+                  />
+                );
+              }),
+            )}
+            {state.agents.map((agent) => {
+              const pos = positions.get(agent.id);
+              if (!pos) return null;
+              return (
+                <AgentNode key={agent.id} agent={agent} x={pos.x} y={pos.y} />
+              );
+            })}
+          </svg>
+        </div>
+      )}
+      {/* Timeline tab */}
+      {activeTabSignal.value === "timeline" && (
+        <div style="overflow-y:auto;max-height:300px;">
+          <div style="display:flex;padding:4px 8px;font-size:10px;opacity:0.6;border-bottom:1px solid var(--vscode-panel-border);gap:8px;">
+            <span style="width:8px;flex-shrink:0;" />
+            <span style="flex:1;">Agent</span>
+            <span style="width:48px;text-align:right;flex-shrink:0;">
+              Duration
+            </span>
+            <span style="width:52px;text-align:right;flex-shrink:0;">
+              Tokens
+            </span>
+          </div>
+          {state.agents.map((agent) => (
+            <TimelineRow key={agent.id} agent={agent} />
+          ))}
+        </div>
+      )}
       <div
         style="padding:4px 10px; font-size:10px; color:var(--vscode-descriptionForeground);
                border-top:1px solid var(--vscode-panel-border);"

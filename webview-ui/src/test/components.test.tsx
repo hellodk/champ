@@ -153,6 +153,43 @@ describe("AgentGraphPanel", () => {
   });
 });
 
+describe("AgentGraphPanel Timeline tab", () => {
+  it("renders Graph and Timeline tab buttons when state is set", () => {
+    teamStateSignal.value = {
+      runId: "r1",
+      teamName: "T",
+      userRequest: "task",
+      status: "completed",
+      agents: [
+        {
+          id: "a1",
+          name: "Alpha",
+          status: "done",
+          output: "Alpha finished",
+          startTime: 1000,
+          endTime: 4500,
+          tokenCount: 1200,
+          validationWarnings: [],
+          retryCount: 0,
+        },
+      ],
+      sharedMemorySnapshot: {},
+      startTime: 1000,
+      endTime: 4500,
+      totalTokens: 1200,
+      filesChanged: [],
+      mode: "auto",
+    };
+    const { container } = render(<AgentGraphPanel />);
+    const buttons = Array.from(container.querySelectorAll("button")).map(
+      (b) => b.textContent ?? "",
+    );
+    expect(buttons).toContain("Graph");
+    expect(buttons).toContain("Timeline");
+    teamStateSignal.value = null;
+  });
+});
+
 import {
   McpMarketplacePanel,
   isOpenSignal,
