@@ -6,10 +6,14 @@ import type { EditSummaryMessage, EditSummary } from "../types";
 export const editsSignal = signal<EditSummary[]>([]);
 const isVisibleSignal = computed(() => editsSignal.value.length > 0);
 
+/** Index of the file currently shown in the main content area. */
+const selectedFileIndexSignal = signal<number>(0);
+
 window.addEventListener("champ:editSummary", (e: Event) => {
   const msg = (e as CustomEvent<EditSummaryMessage>).detail;
   if (Array.isArray(msg.edits)) {
     editsSignal.value = msg.edits;
+    selectedFileIndexSignal.value = 0; // reset to first file on new batch
   }
 });
 
@@ -28,6 +32,18 @@ function getVsCode(): { postMessage: (msg: unknown) => void } {
       acquireVsCodeApi: () => { postMessage: (msg: unknown) => void };
     }
   ).acquireVsCodeApi();
+}
+
+/** Extract the filename (basename) from an absolute or relative path. */
+function basename(p: string): string {
+  return p.split(/[\\/]/).pop() ?? p;
+}
+
+/** Extract the directory portion for display in the navigator tooltip. */
+function dirname(p: string): string {
+  const parts = p.split(/[\\/]/);
+  parts.pop();
+  return parts.join("/") || ".";
 }
 
 function HunkRow({
@@ -154,10 +170,76 @@ function FileSection({ edit }: { edit: EditSummary }): JSX.Element {
   );
 }
 
+/**
+ * Vertical file list shown on the left side of the panel.
+ * Clicking a file name scrolls the right pane to that file's diff.
+ */
+function FileNavigator({ edits }: { edits: EditSummary[] }): JSX.Element {
+  const selectedIdx = selectedFileIndexSignal.value;
+
+  return (
+    <div
+      style="width:180px; min-width:140px; max-width:220px; overflow-y:auto;
+             border-right:1px solid var(--vscode-panel-border);
+             background:var(--vscode-sideBar-background); flex-shrink:0;"
+    >
+      <div
+        style="padding:4px 8px; font-size:11px; font-weight:600;
+               color:var(--vscode-descriptionForeground);
+               border-bottom:1px solid var(--vscode-panel-border);
+               text-transform:uppercase; letter-spacing:0.05em;"
+      >
+        Files changed ({edits.length})
+      </div>
+      {edits.map((edit, idx) => {
+        const isSelected = idx === selectedIdx;
+        const name = basename(edit.path);
+        const dir = dirname(edit.path);
+        const hunkCount = splitHunks(edit.oldContent, edit.newContent).length;
+        return (
+          <div
+            key={edit.path}
+            title={edit.path}
+            onClick={() => {
+              selectedFileIndexSignal.value = idx;
+            }}
+            style={[
+              "padding:5px 8px",
+              "cursor:pointer",
+              "border-left:3px solid " +
+                (isSelected ? "var(--vscode-focusBorder)" : "transparent"),
+              "background:" +
+                (isSelected
+                  ? "var(--vscode-list-activeSelectionBackground)"
+                  : "transparent"),
+              "color:" +
+                (isSelected
+                  ? "var(--vscode-list-activeSelectionForeground)"
+                  : "var(--vscode-foreground)"),
+            ].join(";")}
+          >
+            <div style="font-size:12px; font-family:monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+              {name}
+            </div>
+            <div style="font-size:10px; opacity:0.6; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+              {dir}
+            </div>
+            <div style="font-size:10px; margin-top:2px; color:var(--vscode-gitDecoration-modifiedResourceForeground);">
+              {hunkCount} hunk{hunkCount !== 1 ? "s" : ""}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function DiffOverlayPanel(): JSX.Element | null {
   if (!isVisibleSignal.value) return null;
 
   const edits = editsSignal.value;
+  const selectedIdx = selectedFileIndexSignal.value;
+  const selectedEdit = edits[selectedIdx] ?? edits[0];
 
   function handleAcceptAll(): void {
     getVsCode().postMessage({ type: "acceptAllEdits" });
@@ -177,14 +259,17 @@ export function DiffOverlayPanel(): JSX.Element | null {
 
   return (
     <div
-      style="position:fixed; bottom:0; left:0; right:0; max-height:50vh; overflow-y:auto;
+      style="position:fixed; bottom:0; left:0; right:0; max-height:50vh;
              background:var(--vscode-sideBar-background);
              border-top:1px solid var(--vscode-panel-border);
-             z-index:50; box-shadow:0 -4px 12px rgba(0,0,0,0.3);"
+             z-index:50; box-shadow:0 -4px 12px rgba(0,0,0,0.3);
+             display:flex; flex-direction:column;"
     >
+      {/* Header bar */}
       <div
         style="display:flex; justify-content:space-between; align-items:center;
-               padding:6px 12px; background:var(--vscode-titleBar-activeBackground);"
+               padding:6px 12px; background:var(--vscode-titleBar-activeBackground);
+               flex-shrink:0;"
       >
         <span style="font-weight:600; font-size:13px;">
           Champ Edits ({edits.length} file{edits.length !== 1 ? "s" : ""})
@@ -204,10 +289,15 @@ export function DiffOverlayPanel(): JSX.Element | null {
           </button>
         </div>
       </div>
-      <div style="padding:8px 12px;">
-        {edits.map((edit) => (
-          <FileSection key={edit.path} edit={edit} />
-        ))}
+
+      {/* Body: navigator + diff content side by side */}
+      <div style="display:flex; flex:1; min-height:0; overflow:hidden;">
+        <FileNavigator edits={edits} />
+        <div style="flex:1; overflow-y:auto; padding:8px 12px;">
+          {selectedEdit && (
+            <FileSection key={selectedEdit.path} edit={selectedEdit} />
+          )}
+        </div>
       </div>
     </div>
   );

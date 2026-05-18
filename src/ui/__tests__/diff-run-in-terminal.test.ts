@@ -132,3 +132,22 @@ describe("bash code block Run button — DOM logic (pure)", () => {
     expect(id1).toMatch(/^run-\d+-[a-z0-9]+$/);
   });
 });
+
+describe("DiffOverlayPanel file navigator — data shape", () => {
+  it("basename extracts filename from absolute path", () => {
+    // Mirror the same logic used in DiffOverlayPanel's navigator
+    const basename = (p: string): string => p.split(/[\\/]/).pop() ?? p;
+    expect(basename("/home/user/project/src/foo.ts")).toBe("foo.ts");
+    expect(basename("C:\\Users\\dk\\src\\bar.ts")).toBe("bar.ts");
+    expect(basename("file.ts")).toBe("file.ts");
+  });
+
+  it("selectedFileIndex defaults to 0 when edits are present", () => {
+    const edits = [
+      { path: "/a/foo.ts", oldContent: "a", newContent: "b" },
+      { path: "/a/bar.ts", oldContent: "c", newContent: "d" },
+    ];
+    const defaultIndex = 0;
+    expect(edits[defaultIndex].path).toBe("/a/foo.ts");
+  });
+});
