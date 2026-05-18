@@ -21,6 +21,18 @@ export interface MemoryItem {
 
 const MAX_MEMORIES = 50;
 
+function isValidMemoryItem(item: unknown): item is MemoryItem {
+  return (
+    typeof item === "object" &&
+    item !== null &&
+    typeof (item as Record<string, unknown>).id === "string" &&
+    (item as Record<string, unknown>).id !== "" &&
+    typeof (item as Record<string, unknown>).timestamp === "number" &&
+    typeof (item as Record<string, unknown>).assistantSummary === "string" &&
+    typeof (item as Record<string, unknown>).sessionId === "string"
+  );
+}
+
 export class MemoryBank {
   private items: MemoryItem[] = [];
   private readonly filePath: string;
@@ -37,9 +49,15 @@ export class MemoryBank {
   async load(): Promise<void> {
     try {
       const raw = await fs.readFile(this.filePath, "utf-8");
-      const parsed = JSON.parse(raw as string) as MemoryItem[];
+      const parsed = JSON.parse(raw as string) as unknown[];
       if (Array.isArray(parsed)) {
-        this.items = parsed;
+        this.items = parsed.filter(isValidMemoryItem);
+        const dropped = parsed.length - this.items.length;
+        if (dropped > 0) {
+          console.warn(
+            `Champ MemoryBank: dropped ${dropped} invalid item(s) from memory.json`,
+          );
+        }
       }
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {

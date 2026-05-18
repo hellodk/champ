@@ -101,32 +101,37 @@ describe("session token accumulator helpers", () => {
   // and exported for testability.
 
   /**
-   * estimateCost(providerName, inputTokens, outputTokens) → USD
-   * Uses a hardcoded rate table. Returns 0 for unknown/local providers.
+   * estimateCost(providerName, modelName, inputTokens, outputTokens) → USD
+   * Uses a per-model-tier rate table. Returns 0 for unknown/local providers.
    */
   it("estimateCost returns 0 for ollama", () => {
-    expect(estimateCost("ollama", 1000, 500)).toBe(0);
+    expect(estimateCost("ollama", "", 1000, 500)).toBe(0);
   });
 
   it("estimateCost returns 0 for llamacpp", () => {
-    expect(estimateCost("llamacpp", 1000, 500)).toBe(0);
+    expect(estimateCost("llamacpp", "", 1000, 500)).toBe(0);
   });
 
   it("estimateCost calculates claude-3-5-sonnet rate", () => {
-    // claude: $3/M input, $15/M output
-    const cost = estimateCost("claude", 1_000_000, 1_000_000);
+    // claude sonnet default: $3/M input, $15/M output
+    const cost = estimateCost(
+      "claude",
+      "claude-3-5-sonnet",
+      1_000_000,
+      1_000_000,
+    );
     expect(cost).toBeCloseTo(18, 1);
   });
 
   it("estimateCost calculates openai gpt-4o rate", () => {
-    // openai: $5/M input, $15/M output
-    const cost = estimateCost("openai", 1_000_000, 1_000_000);
+    // openai gpt-4o: $5/M input, $15/M output
+    const cost = estimateCost("openai", "gpt-4o", 1_000_000, 1_000_000);
     expect(cost).toBeCloseTo(20, 1);
   });
 
   it("estimateCost calculates gemini rate", () => {
-    // gemini: $1.25/M input, $5/M output
-    const cost = estimateCost("gemini", 1_000_000, 1_000_000);
+    // gemini pro: $1.25/M input, $5/M output
+    const cost = estimateCost("gemini", "gemini-pro", 1_000_000, 1_000_000);
     expect(cost).toBeCloseTo(6.25, 1);
   });
 });

@@ -369,6 +369,7 @@ function computeInitialPositions(agents: AgentNode[]): Map<string, NodePos> {
 }
 
 function hasCycle(agents: AgentNode[]): boolean {
+  const ids = new Set(agents.map((a) => a.id));
   const inDeg = new Map<string, number>();
   const adj = new Map<string, string[]>();
   for (const a of agents) {
@@ -377,22 +378,25 @@ function hasCycle(agents: AgentNode[]): boolean {
   }
   for (const a of agents) {
     for (const dep of a.dependsOn) {
-      adj.get(dep)?.push(a.id);
+      if (!ids.has(dep)) continue; // Skip unknown deps
       inDeg.set(a.id, (inDeg.get(a.id) ?? 0) + 1);
+      adj.get(dep)!.push(a.id);
     }
   }
-  const q = [...inDeg.entries()].filter(([, d]) => d === 0).map(([id]) => id);
+  const queue = [
+    ...agents.filter((a) => (inDeg.get(a.id) ?? 0) === 0).map((a) => a.id),
+  ];
   let processed = 0;
-  while (q.length > 0) {
-    const n = q.shift()!;
+  while (queue.length > 0) {
+    const node = queue.shift()!;
     processed++;
-    for (const nb of adj.get(n) ?? []) {
-      const nd = (inDeg.get(nb) ?? 0) - 1;
-      inDeg.set(nb, nd);
-      if (nd === 0) q.push(nb);
+    for (const neighbor of adj.get(node) ?? []) {
+      const deg = (inDeg.get(neighbor) ?? 0) - 1;
+      inDeg.set(neighbor, deg);
+      if (deg === 0) queue.push(neighbor);
     }
   }
-  return processed !== agents.length;
+  return processed < agents.length;
 }
 
 // ---------------------------------------------------------------------------

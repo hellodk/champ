@@ -238,34 +238,39 @@ export class McpRegistry {
   async listAllResources(): Promise<
     Map<string, import("./mcp-client").McpResource[]>
   > {
-    const result = new Map<string, import("./mcp-client").McpResource[]>();
-    for (const serverName of this.manager.getConnectedServers()) {
-      const resources = await this.manager
-        .listResources(serverName)
-        .catch(() => []);
-      if (resources.length > 0) {
-        result.set(serverName, resources);
-      }
+    const servers = this.manager.getConnectedServers();
+    const results = await Promise.all(
+      servers.map(async (name) => ({
+        name,
+        resources: await this.manager
+          .listResources(name)
+          .catch(() => [] as import("./mcp-client").McpResource[]),
+      })),
+    );
+    const map = new Map<string, import("./mcp-client").McpResource[]>();
+    for (const { name, resources } of results) {
+      if (resources.length > 0) map.set(name, resources);
     }
-    return result;
+    return map;
   }
 
   /** Returns all prompt templates across all connected servers. */
   async listAllPrompts(): Promise<
     Map<string, import("./mcp-client").McpPromptTemplate[]>
   > {
-    const result = new Map<
-      string,
-      import("./mcp-client").McpPromptTemplate[]
-    >();
-    for (const serverName of this.manager.getConnectedServers()) {
-      const prompts = await this.manager
-        .listPrompts(serverName)
-        .catch(() => []);
-      if (prompts.length > 0) {
-        result.set(serverName, prompts);
-      }
+    const servers = this.manager.getConnectedServers();
+    const results = await Promise.all(
+      servers.map(async (name) => ({
+        name,
+        prompts: await this.manager
+          .listPrompts(name)
+          .catch(() => [] as import("./mcp-client").McpPromptTemplate[]),
+      })),
+    );
+    const map = new Map<string, import("./mcp-client").McpPromptTemplate[]>();
+    for (const { name, prompts } of results) {
+      if (prompts.length > 0) map.set(name, prompts);
     }
-    return result;
+    return map;
   }
 }
