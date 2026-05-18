@@ -950,7 +950,9 @@ export class AgentController {
     const withRules = this.projectRules
       ? `${withMap}\n\n## Project Rules\n\n${this.projectRules}`
       : withMap;
-    const memCtx = this.memoryBank?.getRecentContext(5);
+    const recentCtx = this.memoryBank?.getRecentContext(5);
+    const pinnedCtx = this.memoryBank?.getPinnedContext();
+    const memCtx = [pinnedCtx, recentCtx].filter(Boolean).join("\n\n");
     const withMemory = memCtx ? `${withRules}\n\n${memCtx}` : withRules;
 
     const fullPrompt =
@@ -979,7 +981,9 @@ export class AgentController {
     const withRules = this.projectRules
       ? `${withMap}\n\n## Project Rules\n\n${this.projectRules}`
       : withMap;
-    const memCtx = this.memoryBank?.getRecentContext(5);
+    const recentCtx = this.memoryBank?.getRecentContext(5);
+    const pinnedCtx = this.memoryBank?.getPinnedContext();
+    const memCtx = [pinnedCtx, recentCtx].filter(Boolean).join("\n\n");
     const content = memCtx ? `${withRules}\n\n${memCtx}` : withRules;
     const systemMsg: LLMMessage = { role: "system", content };
     return this.prependOrMergeSystem(history, systemMsg);
