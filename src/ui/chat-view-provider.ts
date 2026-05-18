@@ -72,6 +72,7 @@ import {
   isMemoryAddRequest,
   isEditUserMessage,
   isRegenerateResponseRequest,
+  isSaveSettingsRequest,
   createSessionList,
   createSessionTokenUsage,
   type ExtensionToWebviewMessage,
@@ -444,6 +445,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           this.agent.truncateHistory(lastUserIdx);
           await this.handleUserMessage(lastUserText);
         }
+      } else if (isSaveSettingsRequest(msg)) {
+        // Update provider and model in VS Code global settings, then reload.
+        const config = vscode.workspace.getConfiguration("champ");
+        await config.update(
+          "provider",
+          msg.provider,
+          vscode.ConfigurationTarget.Global,
+        );
+        await config.update(
+          `${msg.provider}.model`,
+          msg.model,
+          vscode.ConfigurationTarget.Global,
+        );
+        await vscode.commands.executeCommand("champ.reloadProvider");
       } else if (isNewChat(msg)) {
         this.handleNewChat();
       } else if (isCancelRequest(msg)) {
@@ -1373,6 +1388,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     let styleUri = "";
     let codiconUri = "";
     let componentsUri = "";
+    let hljsUri = "";
+    let hljsCssUri = "";
     try {
       const scriptPath = vscode.Uri.joinPath(
         this.extensionUri,
@@ -1399,10 +1416,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         "codicons",
         "codicon.css",
       );
+      const hljsPath = vscode.Uri.joinPath(
+        this.extensionUri,
+        "webview-ui",
+        "dist",
+        "highlight.min.js",
+      );
+      const hljsCssPath = vscode.Uri.joinPath(
+        this.extensionUri,
+        "webview-ui",
+        "dist",
+        "highlight-dark.min.css",
+      );
       scriptUri = webview.asWebviewUri(scriptPath).toString();
       componentsUri = webview.asWebviewUri(componentsPath).toString();
       styleUri = webview.asWebviewUri(stylePath).toString();
       codiconUri = webview.asWebviewUri(codiconPath).toString();
+      hljsUri = webview.asWebviewUri(hljsPath).toString();
+      hljsCssUri = webview.asWebviewUri(hljsCssPath).toString();
     } catch {
       // Test environment — leave URIs empty.
     }
@@ -1416,25 +1447,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none';
-                 connect-src ${cspSource} https://cdnjs.cloudflare.com;
-                 style-src ${cspSource} https://cdnjs.cloudflare.com;
+                 connect-src ${cspSource};
+                 style-src ${cspSource};
                  script-src 'nonce-${nonce}';
                  img-src ${cspSource} data:;
                  font-src ${cspSource};" />
   ${codiconUri ? `<link href="${codiconUri}" rel="stylesheet" />` : ""}
   <link href="${styleUri}" rel="stylesheet" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css" />
+  ${hljsCssUri ? `<link href="${hljsCssUri}" rel="stylesheet" />` : ""}
   <title>Champ Chat</title>
   <script nonce="${nonce}">window.__CHAMP_VERSION__="${this.extensionVersion}";</script>
-  <script nonce="${nonce}">
-    // Load highlight.js asynchronously; main.js guards on window.hljs before calling.
-    (function() {
-      var s = document.createElement('script');
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js';
-      s.nonce = '${nonce}';
-      document.head.appendChild(s);
-    })();
-  </script>
+  ${hljsUri ? `<script nonce="${nonce}" src="${hljsUri}"></script>` : ""}
 </head>
 <body>
   <div id="app"></div>

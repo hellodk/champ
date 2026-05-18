@@ -1111,13 +1111,26 @@ export async function activate(
               abort.signal,
             );
 
-            return completions.map(
-              (c) =>
-                new vscode.InlineCompletionItem(
-                  c.text,
-                  new vscode.Range(position, position),
-                ),
-            );
+            return completions.map((c) => {
+              const item = new vscode.InlineCompletionItem(
+                c.text,
+                new vscode.Range(position, position),
+              );
+              // Telemetry: when the user accepts this completion, record it
+              // so SmartRouter can use acceptance rate as a quality signal.
+              item.command = {
+                command: "champ.recordCompletionAccepted",
+                title: "Record completion acceptance",
+                arguments: [
+                  {
+                    model:
+                      inlineProviderRef.current?.modelInfo?.().id ?? "unknown",
+                    length: c.text.length,
+                  },
+                ],
+              };
+              return item;
+            });
           } finally {
             setStatusReady(inlineProviderRef.current);
           }
@@ -1127,6 +1140,18 @@ export async function activate(
   );
 
   // ---- Commands -------------------------------------------------------
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "champ.recordCompletionAccepted",
+      (data: { model: string; length: number }) => {
+        metrics?.recordCompletionAccepted(data.model, data.length);
+      },
+    ),
+    vscode.commands.registerCommand("champ.reloadProvider", async () => {
+      await loadProvider();
+    }),
+  );
+
   context.subscriptions.push(
     vscode.commands.registerCommand("champ.newChat", () => {
       if (agentManager) {

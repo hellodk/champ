@@ -531,6 +531,8 @@ export class TeamRunner {
                       (agentUsage.outputTokens ?? 0);
                     agentState.tokenCount = agentTokens;
                     totalTokens += agentTokens;
+                    // Simple rate: ~$0.003 per 1K tokens (mid-tier average)
+                    agentState.costUsd = (agentTokens / 1000) * 0.003;
                   }
 
                   if (team.execution.checkpoints) {

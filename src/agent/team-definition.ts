@@ -134,6 +134,8 @@ export interface TeamAgentRunState {
   startTime?: number;
   endTime?: number;
   tokenCount: number;
+  /** Estimated cost in USD for this agent's token usage. */
+  costUsd?: number;
   blockedReason?: string;
   validationWarnings: string[];
   retryCount: number;

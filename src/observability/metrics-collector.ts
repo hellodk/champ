@@ -31,6 +31,12 @@ export interface ToolCallLog {
   error?: string;
 }
 
+export interface CompletionAcceptedLog {
+  model: string;
+  length: number;
+  timestamp: number;
+}
+
 export interface Metrics {
   totalRequests: number;
   totalTokensIn: number;
@@ -42,6 +48,8 @@ export interface Metrics {
   failures: string[];
   totalFailures: number;
   sessionStartTime: number;
+  /** Inline completion acceptances — used as quality signal for SmartRouter. */
+  completionAcceptances: CompletionAcceptedLog[];
 }
 
 export class MetricsCollector {
@@ -49,6 +57,7 @@ export class MetricsCollector {
   private agentSteps: AgentStepLog[] = [];
   private toolCalls: ToolCallLog[] = [];
   private failures: string[] = [];
+  private completionAcceptances: CompletionAcceptedLog[] = [];
   private sessionStartTime = Date.now();
 
   recordRequest(record: RequestRecord): void {
@@ -65,6 +74,14 @@ export class MetricsCollector {
 
   recordFailure(message: string): void {
     this.failures.push(message);
+  }
+
+  /**
+   * Record that the user accepted an inline completion.
+   * Feeds back into SmartRouter's model quality signal over time.
+   */
+  recordCompletionAccepted(model: string, length: number): void {
+    this.completionAcceptances.push({ model, length, timestamp: Date.now() });
   }
 
   getMetrics(): Metrics {
@@ -89,6 +106,7 @@ export class MetricsCollector {
       failures: [...this.failures],
       totalFailures: this.failures.length,
       sessionStartTime: this.sessionStartTime,
+      completionAcceptances: [...this.completionAcceptances],
     };
   }
 
@@ -97,6 +115,7 @@ export class MetricsCollector {
     this.agentSteps = [];
     this.toolCalls = [];
     this.failures = [];
+    this.completionAcceptances = [];
     this.sessionStartTime = Date.now();
   }
 

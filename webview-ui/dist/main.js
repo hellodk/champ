@@ -122,18 +122,50 @@
   const settingsPanel = el('div', { class: 'settings-panel' });
   settingsPanel.setAttribute('hidden', 'true');
 
+  // Known provider names for the in-webview provider picker.
+  const KNOWN_PROVIDERS = ['claude', 'openai', 'gemini', 'ollama', 'llamacpp', 'vllm', 'openai-compatible'];
+
   function renderSettingsPanel() {
     settingsPanel.innerHTML = '';
     const ps = state.providerStatus;
-    const providerRow = el('div', { class: 'settings-row' });
-    const providerLabel = el('span', { class: 'settings-label' }, ['Provider']);
-    const providerVal = el('span', { class: 'settings-value' }, [
-      ps ? `${ps.providerName || 'none'} — ${ps.modelName || ''}` : 'Not configured'
-    ]);
-    const switchBtn = el('button', { class: 'settings-action-btn' }, ['Switch…']);
-    switchBtn.addEventListener('click', () => vscode.postMessage({ type: 'openSettingsRequest' }));
-    providerRow.append(providerLabel, providerVal, switchBtn);
 
+    // ---- Provider + Model quick-switch ----
+    const pmSection = el('div', { class: 'settings-section' });
+    const pmTitle = el('div', { class: 'settings-section-title' }, ['Provider & Model']);
+
+    const providerRow = el('div', { class: 'settings-row' });
+    const providerLabel = el('label', { class: 'settings-label', for: 'sp-provider' }, ['Provider']);
+    const providerSelect = el('select', { id: 'sp-provider', class: 'settings-input' });
+    for (const p of KNOWN_PROVIDERS) {
+      const opt = el('option', { value: p }, [p]);
+      if (ps && ps.providerName === p) opt.selected = true;
+      providerSelect.append(opt);
+    }
+    providerRow.append(providerLabel, providerSelect);
+
+    const modelRow = el('div', { class: 'settings-row' });
+    const modelLabel = el('label', { class: 'settings-label', for: 'sp-model' }, ['Model']);
+    const modelInput = el('input', { id: 'sp-model', class: 'settings-input', type: 'text', placeholder: 'e.g. claude-sonnet-4-20250514' });
+    if (ps && ps.modelName) modelInput.value = ps.modelName;
+    modelRow.append(modelLabel, modelInput);
+
+    const saveRow = el('div', { class: 'settings-row settings-actions' });
+    const saveBtn = el('button', { class: 'settings-action-btn settings-save-btn' }, ['Save & Reload']);
+    saveBtn.addEventListener('click', () => {
+      const provider = providerSelect.value;
+      const model = modelInput.value.trim();
+      if (model) {
+        vscode.postMessage({ type: 'saveSettings', provider, model });
+        settingsPanel.setAttribute('hidden', 'true');
+      }
+    });
+    const openVSCodeBtn = el('button', { class: 'settings-action-btn' }, ['Advanced…']);
+    openVSCodeBtn.addEventListener('click', () => vscode.postMessage({ type: 'openSettingsRequest' }));
+    saveRow.append(saveBtn, openVSCodeBtn);
+
+    pmSection.append(pmTitle, providerRow, modelRow, saveRow);
+
+    // ---- YOLO mode ----
     const yoloRow = el('div', { class: 'settings-row' });
     const yoloLabel = el('span', { class: 'settings-label' }, ['YOLO mode']);
     const yoloDesc = el('span', { class: 'settings-desc' }, ['Skip approval prompts']);
@@ -145,6 +177,7 @@
     });
     yoloRow.append(yoloLabel, yoloDesc, yoloToggle);
 
+    // ---- Autocomplete ----
     const acRow = el('div', { class: 'settings-row' });
     const acLabel = el('span', { class: 'settings-label' }, ['Autocomplete']);
     const acDesc = el('span', { class: 'settings-desc' }, ['Inline code suggestions']);
@@ -156,7 +189,7 @@
     });
     acRow.append(acLabel, acDesc, acToggle);
 
-    settingsPanel.append(providerRow, yoloRow, acRow);
+    settingsPanel.append(pmSection, yoloRow, acRow);
   }
 
   const settingsBtn = iconButton('codicon-settings-gear', 'Settings', () => {

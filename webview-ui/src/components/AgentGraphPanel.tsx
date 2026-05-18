@@ -291,6 +291,13 @@ function TimelineRow({ agent }: { agent: TeamAgentRunState }): JSX.Element {
         <span style="color:var(--vscode-descriptionForeground);width:52px;text-align:right;flex-shrink:0;">
           {tokenStr}
         </span>
+        <span style="color:var(--vscode-descriptionForeground);width:52px;text-align:right;flex-shrink:0;">
+          {agent.costUsd !== undefined
+            ? agent.costUsd < 0.001
+              ? "< $0.001"
+              : `$${agent.costUsd.toFixed(3)}`
+            : "—"}
+        </span>
       </div>
       {isExpanded && agent.output && (
         <div
@@ -565,6 +572,7 @@ export function AgentGraphPanel(): JSX.Element | null {
             <span style="width:52px;text-align:right;flex-shrink:0;">
               Tokens
             </span>
+            <span style="width:52px;text-align:right;flex-shrink:0;">Cost</span>
           </div>
           {state.agents.map((agent) => (
             <TimelineRow key={agent.id} agent={agent} />

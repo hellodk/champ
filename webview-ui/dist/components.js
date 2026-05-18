@@ -1476,7 +1476,8 @@ var ChampPanels = (() => {
       /* @__PURE__ */ React.createElement("span", { style: "flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" }, agent.name),
       isExpandable && /* @__PURE__ */ React.createElement("span", { style: "color:var(--vscode-descriptionForeground);font-size:10px;" }, isExpanded ? "\u25B2" : "\u25BC"),
       /* @__PURE__ */ React.createElement("span", { style: "color:var(--vscode-descriptionForeground);width:48px;text-align:right;flex-shrink:0;" }, durationStr),
-      /* @__PURE__ */ React.createElement("span", { style: "color:var(--vscode-descriptionForeground);width:52px;text-align:right;flex-shrink:0;" }, tokenStr)
+      /* @__PURE__ */ React.createElement("span", { style: "color:var(--vscode-descriptionForeground);width:52px;text-align:right;flex-shrink:0;" }, tokenStr),
+      /* @__PURE__ */ React.createElement("span", { style: "color:var(--vscode-descriptionForeground);width:52px;text-align:right;flex-shrink:0;" }, agent.costUsd !== void 0 ? agent.costUsd < 1e-3 ? "< $0.001" : `$${agent.costUsd.toFixed(3)}` : "\u2014")
     ), isExpanded && agent.output && /* @__PURE__ */ React.createElement(
       "div",
       {
@@ -1689,7 +1690,7 @@ var ChampPanels = (() => {
           return /* @__PURE__ */ React.createElement(AgentNode, { key: agent.id, agent, x: pos.x, y: pos.y });
         })
       )),
-      activeTabSignal.value === "timeline" && /* @__PURE__ */ React.createElement("div", { style: "overflow-y:auto;max-height:300px;" }, /* @__PURE__ */ React.createElement("div", { style: "display:flex;padding:4px 8px;font-size:10px;opacity:0.6;border-bottom:1px solid var(--vscode-panel-border);gap:8px;" }, /* @__PURE__ */ React.createElement("span", { style: "width:8px;flex-shrink:0;" }), /* @__PURE__ */ React.createElement("span", { style: "flex:1;" }, "Agent"), /* @__PURE__ */ React.createElement("span", { style: "width:48px;text-align:right;flex-shrink:0;" }, "Duration"), /* @__PURE__ */ React.createElement("span", { style: "width:52px;text-align:right;flex-shrink:0;" }, "Tokens")), state.agents.map((agent) => /* @__PURE__ */ React.createElement(TimelineRow, { key: agent.id, agent }))),
+      activeTabSignal.value === "timeline" && /* @__PURE__ */ React.createElement("div", { style: "overflow-y:auto;max-height:300px;" }, /* @__PURE__ */ React.createElement("div", { style: "display:flex;padding:4px 8px;font-size:10px;opacity:0.6;border-bottom:1px solid var(--vscode-panel-border);gap:8px;" }, /* @__PURE__ */ React.createElement("span", { style: "width:8px;flex-shrink:0;" }), /* @__PURE__ */ React.createElement("span", { style: "flex:1;" }, "Agent"), /* @__PURE__ */ React.createElement("span", { style: "width:48px;text-align:right;flex-shrink:0;" }, "Duration"), /* @__PURE__ */ React.createElement("span", { style: "width:52px;text-align:right;flex-shrink:0;" }, "Tokens"), /* @__PURE__ */ React.createElement("span", { style: "width:52px;text-align:right;flex-shrink:0;" }, "Cost")), state.agents.map((agent) => /* @__PURE__ */ React.createElement(TimelineRow, { key: agent.id, agent }))),
       /* @__PURE__ */ React.createElement(
         "div",
         {
@@ -2397,7 +2398,9 @@ var ChampPanels = (() => {
         adj.get(dep).push(a4.id);
       }
     }
-    const queue = [...agents.filter((a4) => (inDeg.get(a4.id) ?? 0) === 0).map((a4) => a4.id)];
+    const queue = [
+      ...agents.filter((a4) => (inDeg.get(a4.id) ?? 0) === 0).map((a4) => a4.id)
+    ];
     let processed = 0;
     while (queue.length > 0) {
       const node = queue.shift();

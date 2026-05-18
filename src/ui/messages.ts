@@ -817,7 +817,8 @@ export type WebviewToExtensionMessage =
   | RerunTeamRequest
   | EditUserMessageRequest
   | RunInTerminalRequest
-  | RegenerateResponseRequest;
+  | RegenerateResponseRequest
+  | SaveSettingsRequest;
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)
@@ -1251,4 +1252,21 @@ export function isRegenerateResponseRequest(
   msg: WebviewToExtensionMessage,
 ): msg is RegenerateResponseRequest {
   return msg.type === "regenerateResponse";
+}
+
+/**
+ * The user clicked "Save & Reload" in the in-webview settings overlay.
+ * The host updates champ.provider and champ.<provider>.model in global
+ * VS Code settings then reloads the active provider.
+ */
+export interface SaveSettingsRequest {
+  type: "saveSettings";
+  provider: string;
+  model: string;
+}
+
+export function isSaveSettingsRequest(
+  msg: WebviewToExtensionMessage,
+): msg is SaveSettingsRequest {
+  return msg.type === "saveSettings";
 }
