@@ -1399,7 +1399,33 @@
       copyBtn.addEventListener('click', () => {
         navigator.clipboard.writeText(bodyEl.textContent || '').catch(() => {});
       });
-      actions.append(retryBtn, copyBtn);
+      // Edit button — opens inline textarea for the user to update the message.
+      const editBtn = el('button', { class: 'msg-action', title: 'Edit' });
+      editBtn.append(codicon('edit'));
+      editBtn.addEventListener('click', () => {
+        const originalText = state.messages[msgIdx]?.text || text;
+        activateMessageEdit(
+          messageEl,
+          bodyEl,
+          originalText,
+          (newText) => {
+            // Restore body display (in case user edits again later).
+            bodyEl.textContent = newText;
+            state.messages[msgIdx].text = newText;
+            // Tell the host to truncate history + resubmit.
+            vscode.postMessage({
+              type: 'editUserMessage',
+              originalText,
+              newText,
+            });
+          },
+          () => {
+            // Cancel: restore original text.
+            bodyEl.textContent = state.messages[msgIdx]?.text || originalText;
+          },
+        );
+      });
+      actions.append(retryBtn, editBtn, copyBtn);
     }
 
     if (role === 'assistant') {
@@ -1578,6 +1604,49 @@
     const result = hljs.highlight(raw, { language: lang });
     codeEl.innerHTML = result.value;
     codeEl.dataset.highlighted = 'true';
+  }
+
+  /**
+   * Replace a user message body with an edit textarea.
+   * Calls onConfirm(newText) or onCancel() when the user finishes.
+   */
+  function activateMessageEdit(messageEl, bodyEl, originalText, onConfirm, onCancel) {
+    const input = el('textarea', { class: 'msg-edit-input' });
+    input.value = originalText;
+    bodyEl.innerHTML = '';
+    bodyEl.append(input);
+
+    const confirmBtn = el('button', { class: 'msg-edit-confirm' }, ['Update']);
+    const cancelBtn = el('button', { class: 'msg-edit-cancel' }, ['Cancel']);
+    const btnRow = el('div', { class: 'msg-edit-btns' });
+    btnRow.append(confirmBtn, cancelBtn);
+    bodyEl.append(btnRow);
+
+    confirmBtn.addEventListener('click', () => {
+      const newText = input.value.trim();
+      if (!newText) return;
+      onConfirm(newText);
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      onCancel();
+    });
+
+    // Ctrl+Enter confirms, Escape cancels.
+    input.addEventListener('keydown', (ev) => {
+      if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') {
+        ev.preventDefault();
+        const newText = input.value.trim();
+        if (newText) onConfirm(newText);
+      }
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        onCancel();
+      }
+    });
+
+    input.focus();
+    input.selectionStart = input.selectionEnd = input.value.length;
   }
 
   /**
