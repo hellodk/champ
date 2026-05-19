@@ -91,13 +91,16 @@
   const modelChip = el('button', { class: 'model-chip', title: 'Switch model' }, ['…']);
   modelChip.addEventListener('click', (ev) => {
     ev.stopPropagation();
-    // Toggle the existing model picker popup (already in the DOM via inputArea).
+    // Delegate to the bottom-bar model picker button so the popup opens
+    // in its natural position (above the input bar, always visible).
     modePickerPopup.setAttribute('hidden', 'true');
     if (modelPickerPopup.hidden) {
       modelPickerPopup.removeAttribute('hidden');
       modelSearchInput.value = '';
       renderModelList('');
       modelSearchInput.focus();
+      // Scroll the popup into view in case the inputArea is below the fold.
+      modelPickerPopup.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } else {
       modelPickerPopup.setAttribute('hidden', 'true');
     }
@@ -1256,7 +1259,11 @@
     if (ps.state === 'loading') {
       headerSubtitle.textContent = 'loading…';
       headerSubtitle.classList.remove('error');
-      modelChip.textContent = '…';
+      // Keep the chip showing the last known model name during reload
+      // (not '…') so it stays clickable and doesn't look broken.
+      if (modelChip.textContent === '…' || !modelChip.textContent) {
+        modelChip.textContent = '…';
+      }
       modelChip.style.display = '';
     } else if (ps.state === 'error') {
       headerSubtitle.textContent = `error: ${ps.errorMessage || 'provider not ready'}`;

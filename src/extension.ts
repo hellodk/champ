@@ -519,7 +519,6 @@ export async function activate(
     // Build the available list via buildModelList() which marks cloud models
     // as unavailable when their API key is missing.
     const available: AvailableProviderModel[] = buildModelList(discovered);
-
     // Append config-defined but unreachable providers.
     // Cloud providers (no baseUrl) show normally — they just need an API key.
     // Local providers that are down show as [offline].
@@ -537,6 +536,8 @@ export async function activate(
       }
     }
 
+    // Broadcast updated model list immediately after discovery so re-scan
+    // results appear in the picker without waiting for a full loadProvider().
     const activeProvider = inlineProviderRef?.current;
     chatViewProvider.broadcastProviderStatus({
       state: "ready",
@@ -2991,14 +2992,13 @@ export async function activate(
     // Preserve the last known model list during reload — don't wipe available[]
     // to empty, which causes the picker to appear blank for up to 5 seconds
     // (discovery duration) while the user tries to select another model.
+    // Include config-fallback models so the picker is never empty during reload.
+    // Previously this excluded config-fallback, causing blank picker for users
+    // whose models only came from config (not live discovery).
     const lastAvailable =
       smartRouter
         ?.getModels()
-        .filter(
-          (m) =>
-            !m.capabilities.includes("embedding") &&
-            m.source !== "config-fallback",
-        )
+        .filter((m) => !m.capabilities.includes("embedding"))
         .map((m) => ({
           providerName: m.providerName,
           modelName: m.id,
