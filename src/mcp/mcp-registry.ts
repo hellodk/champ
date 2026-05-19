@@ -254,6 +254,11 @@ export class McpRegistry {
     return map;
   }
 
+  /** Returns aggregated analytics for all MCP tool calls, or null if analytics are not wired. */
+  getAnalytics() {
+    return this.manager.analytics?.getStats() ?? null;
+  }
+
   /** Returns all prompt templates across all connected servers. */
   async listAllPrompts(): Promise<
     Map<string, import("./mcp-client").McpPromptTemplate[]>

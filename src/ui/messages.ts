@@ -220,6 +220,17 @@ export interface McpStatusMessage {
   servers: McpServerStatus[];
 }
 
+export interface McpAnalyticsMessage {
+  type: "mcpAnalytics";
+  totalCalls: number;
+  successRate: number;
+  avgLatencyMs: number;
+  byTool: Record<
+    string,
+    { calls: number; successRate: number; avgLatencyMs: number }
+  >;
+}
+
 export interface WorkflowHistoryRun {
   id: string;
   name: string;
@@ -488,6 +499,7 @@ export type ExtensionToWebviewMessage =
   | MetricsUpdateMessage
   | SessionTokenUsageMessage
   | McpStatusMessage
+  | McpAnalyticsMessage
   | WorkflowHistoryUpdateMessage
   | FileEditDiffMessage
   | EditSummaryMessage
