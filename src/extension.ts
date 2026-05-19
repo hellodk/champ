@@ -97,6 +97,7 @@ import { CircuitBreaker } from "./providers/circuit-breaker";
 import { FallbackProvider } from "./providers/fallback-provider";
 import { RateLimitedProvider } from "./providers/rate-limited-provider";
 import { AuditLog } from "./observability/audit-log";
+import { ChampServer } from "./server/champ-server";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -3762,6 +3763,12 @@ export async function activate(
         void vscode.window.showInformationMessage("Champ: No audit log found.");
         return;
       }
+      if (result.tooLarge) {
+        void vscode.window.showWarningMessage(
+          "Audit log exceeds 50MB — cannot verify in memory. Use external tooling.",
+        );
+        return;
+      }
       if (result.valid) {
         void vscode.window.showInformationMessage(
           `Champ Audit Log: ${result.totalEntries} entries — chain intact.`,
@@ -3771,6 +3778,63 @@ export async function activate(
           `Champ Audit Log TAMPERED: chain broken at entry ${result.firstBrokenAt ?? "?"} of ${result.totalEntries}.`,
         );
       }
+    }),
+  );
+
+  // ---- CI/CD local HTTP API server -------------------------------------
+  const champServer = new ChampServer({
+    version: context.extension.packageJSON.version as string,
+    onRunTeam: async (teamName, task) => {
+      const teams = (await teamLoader?.loadAll()) ?? [];
+      const team = teams.find((t) => t.name === teamName);
+      if (!team) throw new Error(`Team "${teamName}" not found`);
+      const provider = inlineProviderRef.current;
+      if (!provider || provider.name === "not-configured")
+        throw new Error("No provider configured");
+      const runId = `api-${Date.now()}`;
+      const runner = new TeamRunner();
+      void runner.run(team, task, provider, toolRegistry, {
+        workspaceRoot: workspaceRoot ?? "",
+        teamRunStore,
+      });
+      return { runId };
+    },
+    onGetRun: async (runId) => {
+      return teamRunStore?.load(runId) ?? null;
+    },
+    onListRuns: async () => {
+      const records = (await teamRunStore?.loadAll()) ?? [];
+      return records.slice(0, 20).map((r) => r.state);
+    },
+    onChat: async (message) => {
+      const provider = inlineProviderRef.current;
+      if (!provider || provider.name === "not-configured")
+        return "[No provider configured]";
+      let result = "";
+      for await (const delta of provider.chat(
+        [{ role: "user", content: message }],
+        {},
+      )) {
+        if (delta.type === "text") result += delta.text;
+      }
+      return result;
+    },
+  });
+  await champServer.start().catch((err) => {
+    console.warn(
+      "Champ: could not start local server:",
+      (err as Error).message,
+    );
+  });
+  context.subscriptions.push({ dispose: () => champServer.stop() });
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("champ.showServerInfo", () => {
+      void vscode.window.showInformationMessage(
+        `Champ API server: http://localhost:${champServer.getPort()}\n` +
+          `Token stored at: ~/.champ/server-token.txt\n\n` +
+          `Example: curl -H "Authorization: Bearer $(cat ~/.champ/server-token.txt)" http://localhost:3148/health`,
+      );
     }),
   );
 
@@ -3797,7 +3861,11 @@ export function deactivate(): void {
   metrics = undefined;
   statusBarItem?.dispose();
   statusBarItem = undefined;
-  auditLog?.close();
+  auditLog?.record(
+    "session_end",
+    `Extension deactivated at ${new Date().toISOString()}`,
+  );
+  auditLog?.closeSync();
   auditLog = undefined;
 }
 

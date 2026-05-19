@@ -2,7 +2,7 @@
   "name": "champ",
   "displayName": "Champ - AI Coding Agent",
   "description": "AI coding agent with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "1.6.134",
+  "version": "1.6.135",
   "publisher": "champ-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -236,6 +236,11 @@
       {
         "command": "champ.verifyAuditLog",
         "title": "Champ: Verify Audit Log",
+        "category": "Champ"
+      },
+      {
+        "command": "champ.showServerInfo",
+        "title": "Champ: Show API Server Info",
         "category": "Champ"
       }
     ],
