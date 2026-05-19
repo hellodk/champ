@@ -709,10 +709,6 @@ export async function activate(
           }
         },
       },
-      workspaceState: {
-        get: <T>(key: string): T | undefined =>
-          context.workspaceState.get<T>(key),
-      },
     },
     mcpRegistry,
   );
@@ -766,7 +762,6 @@ export async function activate(
     context.extension.packageJSON.version as string,
   );
   chatViewProvider.setContextResolver(contextResolver);
-  chatViewProvider.setWorkspaceState(context.workspaceState);
   chatViewProvider.setSkillRegistry(skillRegistry);
   chatViewProvider.setSkillContext(
     {

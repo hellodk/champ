@@ -12,6 +12,8 @@
  */
 
 import { resolveInWorkspace } from "../utils/workspace-path";
+import { spawnSync } from "child_process";
+import * as nodePath from "path";
 
 /** Types of @-references recognized in chat messages. */
 export type ReferenceType =
@@ -193,14 +195,6 @@ export interface ContextResolverDeps {
    */
   docsReader?: {
     readPackageDocs(packageName: string): Promise<string | null>;
-  };
-  /**
-   * VS Code workspace state Memento used to read back terminal output
-   * captured by the run_terminal tool. Optional — degrades gracefully
-   * when absent (e.g. in tests).
-   */
-  workspaceState?: {
-    get<T>(key: string): T | undefined;
   };
 }
 
@@ -731,13 +725,12 @@ export class ContextResolver {
         }
         case "terminal": {
           // ref.value is either empty (bare @Terminal) or a digit string from @Terminal(50)
-          const lines = parseInt(ref.value || "30", 10) || 30;
-          const stored =
-            this.deps.workspaceState?.get<string>("champ.lastTerminalOutput") ??
-            "";
-          const content = stored
-            ? stored.split("\n").slice(-lines).join("\n")
-            : "[No recent terminal output captured. Run a command first.]";
+          const lines = Math.min(parseInt(ref.value || "30", 10) || 30, 500);
+          const { terminalOutputBuffer } =
+            await import("../agent/terminal-output-buffer.js");
+          const content =
+            terminalOutputBuffer.read(lines) ||
+            "[No recent terminal output. Run a command first.]";
           resolved.push({
             type: "terminal",
             label: "Recent terminal output",
@@ -748,61 +741,81 @@ export class ContextResolver {
         case "gitBlame": {
           // ref.value is "src/foo.ts:42"
           const colonIdx = ref.value.lastIndexOf(":");
-          const filePath =
+          const rawFilePath =
             colonIdx !== -1 ? ref.value.slice(0, colonIdx) : ref.value;
           const line =
             colonIdx !== -1
               ? parseInt(ref.value.slice(colonIdx + 1), 10) || 1
               : 1;
-          try {
-            const { execSync } = await import("child_process");
-            const blameOutput = execSync(
-              `git blame -L ${line},${line} "${filePath}" --porcelain`,
-              {
-                cwd: this.deps.workspaceRoot,
-                encoding: "utf-8",
-                timeout: 5000,
-              },
-            );
+          // Sanitize: strip path traversal and leading slash
+          const sanitizedPath = rawFilePath
+            .replace(/\.\./g, "")
+            .replace(/^\//, "");
+          if (!sanitizedPath || sanitizedPath.includes("\0")) {
             resolved.push({
               type: "gitBlame",
-              label: `Git blame: ${filePath}:${line}`,
-              content: blameOutput.slice(0, 4000),
+              label: `Git blame: ${ref.value}`,
+              content: "[Invalid file path]",
             });
-          } catch {
-            resolved.push({
-              type: "gitBlame",
-              label: `Git blame: ${filePath}:${line}`,
-              content: `[Git blame failed for ${filePath}:${line}]`,
-            });
+            break;
           }
+          const blameResult = spawnSync(
+            "git",
+            ["blame", "-L", `${line},${line}`, sanitizedPath, "--porcelain"],
+            { cwd: this.deps.workspaceRoot, encoding: "utf-8", timeout: 5000 },
+          );
+          if (blameResult.error || blameResult.status !== 0) {
+            resolved.push({
+              type: "gitBlame",
+              label: `Git blame: ${ref.value}`,
+              content: `[Git blame failed: ${blameResult.stderr?.slice(0, 200) || blameResult.error?.message || "unknown"}]`,
+            });
+            break;
+          }
+          resolved.push({
+            type: "gitBlame",
+            label: `Git blame: ${sanitizedPath}:${line}`,
+            content: (blameResult.stdout || "").slice(0, 4000),
+          });
           break;
         }
         case "testFor": {
           const symbolName = ref.value.trim();
-          const { execSync } = await import("child_process");
+          // Validate symbolName — only allow valid JS identifier characters
+          if (!/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(symbolName)) {
+            resolved.push({
+              type: "testFor",
+              label: `Test context: ${ref.value}`,
+              content:
+                "[Invalid symbol name — must be a valid JavaScript identifier]",
+            });
+            break;
+          }
           let defContent = "";
           let testContent = "";
           try {
-            const grepResult = execSync(
-              `grep -rn "function ${symbolName}\\|const ${symbolName}\\|${symbolName}(" src/ --include="*.ts" -l`,
+            // Use spawnSync with args array — no shell interpolation
+            const grepResult = spawnSync(
+              "grep",
+              ["-rn", "--include=*.ts", "-l", symbolName, "src/"],
               {
                 cwd: this.deps.workspaceRoot,
                 encoding: "utf-8",
                 timeout: 3000,
               },
             );
-            const files = grepResult
+            const files = (grepResult.stdout || "")
               .trim()
               .split("\n")
-              .filter(Boolean)
+              .filter(
+                (f) => f && !f.includes(".test.") && !f.includes(".spec."),
+              )
               .slice(0, 3);
             for (const f of files) {
-              if (f.includes(".test.") || f.includes(".spec.")) continue;
               const content = await import("fs/promises")
                 .then((fs) =>
                   fs.readFile(
-                    require("path").join(this.deps.workspaceRoot, f.trim()),
+                    nodePath.join(this.deps.workspaceRoot, f.trim()),
                     "utf-8",
                   ),
                 )
@@ -810,23 +823,33 @@ export class ContextResolver {
               defContent += `// ${f}\n${content.slice(0, 3000)}\n\n`;
             }
             // Find existing tests
-            const testGrep = execSync(
-              `grep -rn "${symbolName}" src/ test/ --include="*.test.ts" --include="*.spec.ts" -l`,
+            const testGrepResult = spawnSync(
+              "grep",
+              [
+                "-rn",
+                "--include=*.test.ts",
+                "--include=*.spec.ts",
+                "-l",
+                symbolName,
+                "src/",
+                "test/",
+              ],
               {
                 cwd: this.deps.workspaceRoot,
                 encoding: "utf-8",
                 timeout: 3000,
               },
-            )
+            );
+            const testFiles = (testGrepResult.stdout || "")
               .trim()
               .split("\n")
               .filter(Boolean)
               .slice(0, 2);
-            for (const tf of testGrep) {
+            for (const tf of testFiles) {
               const content = await import("fs/promises")
                 .then((fs) =>
                   fs.readFile(
-                    require("path").join(this.deps.workspaceRoot, tf.trim()),
+                    nodePath.join(this.deps.workspaceRoot, tf.trim()),
                     "utf-8",
                   ),
                 )

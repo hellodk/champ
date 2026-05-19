@@ -680,9 +680,14 @@ export class AgentController {
       // Only cache on the first iteration (no tool calls yet) and when there
       // are no tool calls in-flight. Tool-using responses are never cached
       // because they depend on live workspace state.
+      // Include tool names in cache key so different tool sets produce different keys.
+      const toolNames = allTools
+        .map((t) => t.name)
+        .sort()
+        .join(",");
       const cacheMessagesJson =
         this.responseCache && iteration === 0
-          ? JSON.stringify(messagesToSend)
+          ? `${JSON.stringify(messagesToSend)}::tools:${toolNames}`
           : null;
       const cachedResponse =
         cacheMessagesJson && this.responseCache

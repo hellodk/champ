@@ -1,5 +1,35 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ContextResolver } from "../context-resolver";
+import { terminalOutputBuffer } from "../terminal-output-buffer";
+
+// Hoisted mock factory so spawnSync can be controlled per-test via mockSpawnSyncResult.
+const mockSpawnSyncResult = vi.hoisted(() => ({
+  value: null as null | {
+    stdout: string;
+    stderr: string;
+    status: number | null;
+    error: Error | undefined;
+    pid: number;
+    signal: null;
+    output: never[];
+  },
+}));
+
+vi.mock("child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("child_process")>();
+  return {
+    ...actual,
+    spawnSync: (..._args: unknown[]) => {
+      if (mockSpawnSyncResult.value !== null) {
+        return mockSpawnSyncResult.value;
+      }
+      // Fall through to actual if no mock result set
+      return actual.spawnSync(
+        ...(_args as Parameters<typeof actual.spawnSync>),
+      );
+    },
+  };
+});
 
 // Minimal deps factory for tests that don't need full wiring
 const makeBaseDeps = (overrides: Record<string, unknown> = {}) => ({
@@ -15,6 +45,10 @@ const makeBaseDeps = (overrides: Record<string, unknown> = {}) => ({
 // @Terminal
 // ---------------------------------------------------------------------------
 describe("ContextResolver @Terminal reference", () => {
+  beforeEach(() => {
+    terminalOutputBuffer.clear();
+  });
+
   it("parses bare @Terminal reference", () => {
     const resolver = new ContextResolver(makeBaseDeps() as never);
     const refs = resolver.parseReferences("Here is the output @Terminal");
@@ -31,11 +65,8 @@ describe("ContextResolver @Terminal reference", () => {
   });
 
   it("resolves @Terminal with no stored output", async () => {
-    const resolver = new ContextResolver(
-      makeBaseDeps({
-        workspaceState: { get: vi.fn().mockReturnValue(undefined) },
-      }) as never,
-    );
+    // buffer is cleared in beforeEach
+    const resolver = new ContextResolver(makeBaseDeps() as never);
     const refs = [{ type: "terminal", value: "", start: 0, end: 9 }];
     const result = await resolver.resolve(refs as never);
     expect(result[0].type).toBe("terminal");
@@ -46,11 +77,8 @@ describe("ContextResolver @Terminal reference", () => {
     const stored = Array.from({ length: 100 }, (_, i) => `line ${i}`).join(
       "\n",
     );
-    const resolver = new ContextResolver(
-      makeBaseDeps({
-        workspaceState: { get: vi.fn().mockReturnValue(stored) },
-      }) as never,
-    );
+    terminalOutputBuffer.write(stored);
+    const resolver = new ContextResolver(makeBaseDeps() as never);
     const refs = [{ type: "terminal", value: "5", start: 0, end: 13 }];
     const result = await resolver.resolve(refs as never);
     const lines = result[0].content.split("\n");
@@ -60,11 +88,8 @@ describe("ContextResolver @Terminal reference", () => {
 
   it("defaults to 30 lines when value is empty", async () => {
     const stored = Array.from({ length: 50 }, (_, i) => `row ${i}`).join("\n");
-    const resolver = new ContextResolver(
-      makeBaseDeps({
-        workspaceState: { get: vi.fn().mockReturnValue(stored) },
-      }) as never,
-    );
+    terminalOutputBuffer.write(stored);
+    const resolver = new ContextResolver(makeBaseDeps() as never);
     const refs = [{ type: "terminal", value: "", start: 0, end: 9 }];
     const result = await resolver.resolve(refs as never);
     const lines = result[0].content.split("\n");
@@ -72,6 +97,7 @@ describe("ContextResolver @Terminal reference", () => {
   });
 
   it("resolves @Terminal without workspaceState dep gracefully", async () => {
+    // buffer is cleared in beforeEach, so should return empty message
     const resolver = new ContextResolver(makeBaseDeps() as never);
     const refs = [{ type: "terminal", value: "", start: 0, end: 9 }];
     const result = await resolver.resolve(refs as never);
@@ -102,11 +128,15 @@ describe("ContextResolver @GitBlame reference", () => {
   });
 
   it("resolves @GitBlame and returns blame output", async () => {
-    // Mock child_process.execSync via module mock
-    vi.mock("child_process", () => ({
-      execSync: vi.fn().mockReturnValue("abc123 author.name 42 blame line"),
-    }));
-    const { execSync } = await import("child_process");
+    mockSpawnSyncResult.value = {
+      stdout: "abc123 author.name 42 blame line",
+      stderr: "",
+      status: 0,
+      pid: 0,
+      signal: null,
+      error: undefined,
+      output: [],
+    };
     const resolver = new ContextResolver(makeBaseDeps() as never);
     const refs = [
       { type: "gitBlame", value: "src/foo.ts:42", start: 0, end: 10 },
@@ -114,26 +144,27 @@ describe("ContextResolver @GitBlame reference", () => {
     const result = await resolver.resolve(refs as never);
     expect(result[0].type).toBe("gitBlame");
     expect(result[0].label).toBe("Git blame: src/foo.ts:42");
-    // execSync mock or error path — content should be a string
     expect(typeof result[0].content).toBe("string");
-    vi.restoreAllMocks();
-
-    execSync; // suppress unused warning
+    mockSpawnSyncResult.value = null;
   });
 
   it("resolves @GitBlame with fallback when git fails", async () => {
-    vi.mock("child_process", () => ({
-      execSync: vi.fn().mockImplementation(() => {
-        throw new Error("not a git repo");
-      }),
-    }));
+    mockSpawnSyncResult.value = {
+      stdout: "",
+      stderr: "not a git repo",
+      status: 1,
+      pid: 0,
+      signal: null,
+      error: undefined,
+      output: [],
+    };
     const resolver = new ContextResolver(makeBaseDeps() as never);
     const refs = [
       { type: "gitBlame", value: "nonexistent.ts:1", start: 0, end: 10 },
     ];
     const result = await resolver.resolve(refs as never);
     expect(result[0].content).toContain("Git blame failed");
-    vi.restoreAllMocks();
+    mockSpawnSyncResult.value = null;
   });
 
   it("parses @GitBlame with file that has no line number", () => {

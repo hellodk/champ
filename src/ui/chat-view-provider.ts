@@ -15,6 +15,7 @@ import {
   type AgentController,
   PromptInjectionError,
 } from "../agent/agent-controller";
+import { terminalOutputBuffer } from "../agent/terminal-output-buffer";
 import {
   createStreamDelta,
   createStreamEnd,
@@ -199,21 +200,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     | import("./diff-overlay-controller").DiffOverlayController
     | null = null;
   private memoryBank?: import("../memory/memory-bank").MemoryBank;
-  private _workspaceState?: vscode.Memento;
-
   constructor(
     private readonly extensionUri: vscode.Uri,
     private agent: AgentController,
     private readonly extensionVersion: string = "",
   ) {}
-
-  /**
-   * Attach the VS Code workspace state Memento so terminal output
-   * captured by handleRunInTerminal can be stored for @Terminal references.
-   */
-  setWorkspaceState(state: vscode.Memento): void {
-    this._workspaceState = state;
-  }
 
   /**
    * Hot-swap the agent controller reference. Called by extension.ts
@@ -908,11 +899,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           ),
         );
       }
-      // Store the full output for @Terminal context reference.
-      // Cap at 50KB to avoid bloating workspace state.
-      const MAX_TERMINAL_STORE = 50_000;
-      const stored = fullOutput.slice(-MAX_TERMINAL_STORE);
-      void this._workspaceState?.update("champ.lastTerminalOutput", stored);
+      // Write to shared in-memory buffer so @Terminal context reference can read it.
+      terminalOutputBuffer.write(fullOutput);
     });
   }
 

@@ -34,7 +34,7 @@ export class ResponseCache {
       .createHash("sha256")
       .update(`${provider}:${model}:${messagesJson}`)
       .digest("hex")
-      .slice(0, 16);
+      .slice(0, 32);
   }
 
   /**
@@ -71,12 +71,11 @@ export class ResponseCache {
       timestamp: Date.now(),
       ttlMs: this.defaultTtlMs,
     });
-    // Evict the oldest entry when the cap is reached
+    // Evict the oldest entry when the cap is reached.
+    // Map preserves insertion order — first key is oldest (O(1)).
     if (this.cache.size > 100) {
-      const oldest = [...this.cache.entries()].sort(
-        (a, b) => a[1].timestamp - b[1].timestamp,
-      )[0];
-      this.cache.delete(oldest[0]);
+      const oldest = this.cache.keys().next().value;
+      if (oldest) this.cache.delete(oldest);
     }
   }
 

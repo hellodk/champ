@@ -9,6 +9,7 @@ import { spawn } from "child_process";
 import * as fs from "fs";
 import type { Tool, ToolResult, ToolExecutionContext } from "./types";
 import { CommandSandbox } from "../safety/command-sandbox";
+import { terminalOutputBuffer } from "../agent/terminal-output-buffer";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_BYTES = 15_000;
@@ -146,6 +147,10 @@ export const runTerminalTool: Tool = {
         sections.push(
           `Exit code: ${code ?? (signal ? `signal ${signal}` : "unknown")}`,
         );
+
+        // Write combined output to shared buffer so @Terminal context can read it.
+        const fullOutput = [stdout, stderr].filter(Boolean).join("\n");
+        terminalOutputBuffer.write(fullOutput);
 
         resolve({
           success: code === 0 && !timedOut,
