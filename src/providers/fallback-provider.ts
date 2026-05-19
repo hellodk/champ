@@ -37,24 +37,52 @@ export class FallbackProvider implements LLMProvider {
     let lastError: Error | undefined;
     for (const provider of this.providers) {
       for (let attempt = 0; attempt < Math.max(1, this.maxRetries); attempt++) {
+        // Lazy-probe: get the first token only. If the first token is an error
+        // delta, skip remaining retries and move to the next provider. If the
+        // iterator throws, retry (up to maxRetries) before moving on.
+        let firstDelta: StreamDelta | undefined;
+        let iterator: AsyncIterator<StreamDelta> | undefined;
+        let probeError: Error | undefined;
+        let errorDelta = false;
+
         try {
-          let hasError = false;
-          const gen = provider.chat(messages, options);
-          const buffer: StreamDelta[] = [];
-          for await (const delta of gen) {
-            if (delta.type === "error") {
-              hasError = true;
-              lastError = new Error(delta.error ?? "provider error");
-              break;
-            }
-            buffer.push(delta);
+          const iterable = provider.chat(messages, options);
+          iterator = iterable[Symbol.asyncIterator]();
+          const { value, done } = await iterator.next();
+          if (done) return; // empty stream = success
+          firstDelta = value;
+        } catch (err) {
+          probeError = err instanceof Error ? err : new Error(String(err));
+        }
+
+        if (probeError) {
+          iterator?.return?.();
+          lastError = probeError;
+          // thrown error → use up a retry, then try next provider
+          continue;
+        }
+
+        if (firstDelta!.type === "error") {
+          iterator?.return?.();
+          lastError = new Error(firstDelta!.error ?? "provider error");
+          errorDelta = true;
+        }
+
+        if (errorDelta) {
+          break; // error delta → no point retrying this provider, move on
+        }
+
+        // Commit: first token is good — yield it and stream the rest directly
+        try {
+          yield firstDelta!;
+          let next: IteratorResult<StreamDelta>;
+          while (!(next = await iterator!.next()).done) {
+            yield next.value;
           }
-          if (!hasError) {
-            yield* buffer;
-            return;
-          }
+          return; // success
         } catch (err) {
           lastError = err instanceof Error ? err : new Error(String(err));
+          // mid-stream error counts as a retry
         }
       }
     }
@@ -68,24 +96,52 @@ export class FallbackProvider implements LLMProvider {
     let lastError: Error | undefined;
     for (const provider of this.providers) {
       for (let attempt = 0; attempt < Math.max(1, this.maxRetries); attempt++) {
+        // Lazy-probe: get the first token only. If the first token is an error
+        // delta, skip remaining retries and move to the next provider. If the
+        // iterator throws, retry (up to maxRetries) before moving on.
+        let firstDelta: StreamDelta | undefined;
+        let iterator: AsyncIterator<StreamDelta> | undefined;
+        let probeError: Error | undefined;
+        let errorDelta = false;
+
         try {
-          let hasError = false;
-          const gen = provider.complete(prompt, options);
-          const buffer: StreamDelta[] = [];
-          for await (const delta of gen) {
-            if (delta.type === "error") {
-              hasError = true;
-              lastError = new Error(delta.error ?? "provider error");
-              break;
-            }
-            buffer.push(delta);
+          const iterable = provider.complete(prompt, options);
+          iterator = iterable[Symbol.asyncIterator]();
+          const { value, done } = await iterator.next();
+          if (done) return; // empty stream = success
+          firstDelta = value;
+        } catch (err) {
+          probeError = err instanceof Error ? err : new Error(String(err));
+        }
+
+        if (probeError) {
+          iterator?.return?.();
+          lastError = probeError;
+          // thrown error → use up a retry, then try next provider
+          continue;
+        }
+
+        if (firstDelta!.type === "error") {
+          iterator?.return?.();
+          lastError = new Error(firstDelta!.error ?? "provider error");
+          errorDelta = true;
+        }
+
+        if (errorDelta) {
+          break; // error delta → no point retrying this provider, move on
+        }
+
+        // Commit: first token is good — yield it and stream the rest directly
+        try {
+          yield firstDelta!;
+          let next: IteratorResult<StreamDelta>;
+          while (!(next = await iterator!.next()).done) {
+            yield next.value;
           }
-          if (!hasError) {
-            yield* buffer;
-            return;
-          }
+          return; // success
         } catch (err) {
           lastError = err instanceof Error ? err : new Error(String(err));
+          // mid-stream error counts as a retry
         }
       }
     }

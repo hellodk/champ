@@ -55,24 +55,48 @@ export class CircuitBreaker implements LLMProvider {
         );
       }
     }
+
+    let iterator: AsyncIterator<StreamDelta> | undefined;
     try {
-      const gen = this.inner.chat(messages, options);
-      const buffer: StreamDelta[] = [];
-      for await (const delta of gen) {
-        if (delta.type === "error")
-          throw new Error(delta.error ?? "stream error");
-        buffer.push(delta);
+      // Lazy-probe: get the first token. If it throws or is an error delta,
+      // count as a failure — avoids buffering the full stream before deciding.
+      const iterable = this.inner.chat(messages, options);
+      iterator = iterable[Symbol.asyncIterator]();
+      const { value: firstDelta, done } = await iterator.next();
+
+      if (done) {
+        this.onSuccess();
+        return;
       }
-      // Success — reset
-      this.failures = 0;
-      this.state = "closed";
-      yield* buffer;
+
+      if (firstDelta.type === "error") {
+        iterator?.return?.();
+        throw new Error(firstDelta.error ?? "stream error delta");
+      }
+
+      // First token is good — commit and stream the rest directly
+      this.onSuccess();
+      yield firstDelta;
+      let next: IteratorResult<StreamDelta>;
+      while (!(next = await iterator.next()).done) {
+        yield next.value;
+      }
     } catch (err) {
-      this.failures++;
-      this.lastFailureTime = Date.now();
-      if (this.failures >= this.failureThreshold) this.state = "open";
+      iterator?.return?.();
+      this.onFailure();
       throw err;
     }
+  }
+
+  private onSuccess(): void {
+    this.failures = 0;
+    this.state = "closed";
+  }
+
+  private onFailure(): void {
+    this.failures++;
+    this.lastFailureTime = Date.now();
+    if (this.failures >= this.failureThreshold) this.state = "open";
   }
 
   async *complete(
@@ -88,22 +112,35 @@ export class CircuitBreaker implements LLMProvider {
         );
       }
     }
+
+    let iterator: AsyncIterator<StreamDelta> | undefined;
     try {
-      const gen = this.inner.complete(prompt, options);
-      const buffer: StreamDelta[] = [];
-      for await (const delta of gen) {
-        if (delta.type === "error")
-          throw new Error(delta.error ?? "stream error");
-        buffer.push(delta);
+      // Lazy-probe: get the first token. If it throws or is an error delta,
+      // count as a failure — avoids buffering the full stream before deciding.
+      const iterable = this.inner.complete(prompt, options);
+      iterator = iterable[Symbol.asyncIterator]();
+      const { value: firstDelta, done } = await iterator.next();
+
+      if (done) {
+        this.onSuccess();
+        return;
       }
-      // Success — reset
-      this.failures = 0;
-      this.state = "closed";
-      yield* buffer;
+
+      if (firstDelta.type === "error") {
+        iterator?.return?.();
+        throw new Error(firstDelta.error ?? "stream error delta");
+      }
+
+      // First token is good — commit and stream the rest directly
+      this.onSuccess();
+      yield firstDelta;
+      let next: IteratorResult<StreamDelta>;
+      while (!(next = await iterator.next()).done) {
+        yield next.value;
+      }
     } catch (err) {
-      this.failures++;
-      this.lastFailureTime = Date.now();
-      if (this.failures >= this.failureThreshold) this.state = "open";
+      iterator?.return?.();
+      this.onFailure();
       throw err;
     }
   }
