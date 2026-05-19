@@ -1,0 +1,954 @@
+name: Demo — Champ Mobile Companion + CI/CD Pipeline
+description: >
+  The Platform Engineering team builds the "Champ Mobile Companion" — a Flutter app
+  that shows team run status and lets you trigger Champ agent teams from your phone.
+  This demo produces real, working artifacts: Flutter source files, a Jenkinsfile,
+  Fastfile, widget tests, UX wireframes, and a deployment runbook.
+  Avinash leads and compiles the final demo report.
+
+defaults:
+  model: ""
+  maxTokens: 4000
+  selfCritique: false
+
+execution:
+  mode: auto
+  maxParallel: 2
+  timeoutSeconds: 300
+  totalTokenBudget: 200000
+  retries: 1
+  checkpoints: true
+  maxDynamicAgents: 5
+
+agents:
+  - id: architect
+    name: Avinash
+    role: Platform Lead — Architecture Design
+    systemPrompt: |
+      You are Avinash, Platform Lead and infrastructure architect. You are designing
+      the "Champ Mobile Companion" — a Flutter mobile app that connects to the Champ
+      VS Code extension's local HTTP server (localhost:3148) and lets users:
+      1. View a list of recent team runs
+      2. Drill into a run to see agent-level detail and status
+      3. Trigger a new team run by selecting a team and entering a task
+
+      The user's task context:
+      {{userRequest}}
+
+      Produce a complete architecture design document covering:
+
+      ## 1. System Architecture Overview
+      Describe the three-tier architecture:
+      - Flutter mobile app (Android + iOS)
+      - ChampServer HTTP API (localhost:3148, Bearer token auth)
+      - Champ VS Code extension (the backend, already exists)
+
+      Include an ASCII system diagram showing: Mobile App → ChampServer → Extension Engine.
+
+      ## 2. Flutter App Architecture
+      - State management: Provider pattern (ChangeNotifier)
+      - Navigation: Named routes (/, /run/:id, /trigger)
+      - Layer structure:
+        * models/         — data classes (TeamRun, AgentResult, RunStatus)
+        * services/       — ChampApiService (HTTP client)
+        * providers/      — RunListProvider, RunDetailProvider
+        * screens/        — HomeScreen, RunDetailsScreen, TriggerScreen
+        * widgets/        — RunCard, AgentTimeline, StatusBadge
+
+      ## 3. API Contract Summary
+      Document the 5 ChampServer endpoints the app will consume:
+      - GET  /health            → HealthResponse
+      - GET  /runs              → {runs: Run[]}
+      - GET  /run/:runId        → RunDetailResponse
+      - POST /run-team          → {runId: string}
+      - POST /chat              → {response: string}
+
+      Auth header: Authorization: Bearer <token>
+      Connection strategy: Android uses `adb reverse tcp:3148 tcp:3148` for USB dev;
+      production uses same-WiFi IP. Token is manually entered once and saved to
+      Flutter SharedPreferences.
+
+      ## 4. Jenkins Pipeline Architecture
+      Describe the 10-stage pipeline (Checkout → Publish) for CI/CD:
+      Stage 1: Checkout & Environment Setup
+      Stage 2: Flutter SDK Setup (flutter 3.x via flutter-tool)
+      Stage 3: Dependency Install (flutter pub get)
+      Stage 4: Code Analysis (flutter analyze)
+      Stage 5: Unit & Widget Tests (flutter test --coverage)
+      Stage 6: Build Android APK (flutter build apk --release)
+      Stage 7: Build iOS IPA (flutter build ipa via Fastlane gym on macOS agent)
+      Stage 8: Code Sign (Android keystore, iOS match certificates via Fastlane)
+      Stage 9: Upload to Firebase App Distribution (Fastlane firebase_app_distribution)
+      Stage 10: Publish Release Notes (post to Slack channel)
+
+      ## 5. Branching Strategy
+      - main: production releases
+      - develop: integration branch
+      - feature/*: feature branches, merge via PR
+      - hotfix/*: emergency patches
+      - Tags: vMAJOR.MINOR.PATCH trigger production pipeline
+
+      ## 6. Risk Register
+      List 5 risks with mitigation:
+      - iOS build requires macOS Jenkins agent
+      - localhost-only API needs USB/WiFi routing for dev
+      - Token security on device
+      - Flutter version pinning
+      - Firebase App Distribution quota
+
+      Output this as a clean, well-structured markdown document.
+      This is the foundation for the entire team's work.
+    outputKey: architecture
+    outputFormat: text
+    tools: []
+    dependsOn: []
+
+  - id: mobile-scaffold
+    name: Preksha
+    role: Mobile Lead — Flutter App Scaffold
+    systemPrompt: |
+      You are Preksha, Mobile Lead. Create the complete scaffold for the
+      "Champ Mobile Companion" Flutter app based on the architecture design.
+
+      Architecture design:
+      {{architecture.output}}
+
+      User task context:
+      {{userRequest}}
+
+      Create ALL of the following files with COMPLETE, working content.
+      For each file, output it in this exact format:
+
+      === FILE: <relative-path-from-project-root> ===
+      <full file content>
+      === END FILE ===
+
+      Files to create:
+
+      1. pubspec.yaml
+         Flutter 3.x project. Dependencies:
+         - http: ^1.2.0
+         - provider: ^6.1.0
+         - intl: ^0.19.0
+         - shared_preferences: ^2.2.0
+         Dev dependencies: flutter_test, flutter_lints
+         Assets: assets/images/ (empty dir declared)
+         App name: "Champ Mobile"
+
+      2. lib/main.dart
+         MaterialApp with:
+         - useMaterial3: true
+         - colorSchemeSeed: Colors.deepPurple
+         - MultiProvider wrapping app with RunListProvider and RunDetailProvider
+         - Named routes: '/' → HomeScreen, '/run' → RunDetailsScreen, '/trigger' → TriggerScreen
+         - Initial route check: if no token saved → show TokenSetupScreen first
+
+      3. lib/models/team_run.dart
+         TeamRun class:
+         - Fields: id (String), teamName (String), status (RunStatus enum), startTime (DateTime),
+           endTime (DateTime?), totalTokens (int), agentCount (int), task (String)
+         - RunStatus enum: pending, running, completed, failed, cancelled
+         - fromJson(Map<String, dynamic>) factory constructor
+         - toJson() method
+         - statusLabel getter returning human-readable string
+         - statusColor getter returning Color based on status
+
+      4. lib/models/agent_result.dart
+         AgentResult class:
+         - Fields: id (String), name (String), role (String), status (String),
+           outputKey (String), tokensUsed (int), durationMs (int), output (String?)
+         - fromJson factory, toJson method
+
+      5. lib/services/champ_api_service.dart
+         ChampApiService class:
+         - Constructor: ChampApiService({required String baseUrl, required String token})
+         - Private http.Client _client
+         - _headers getter: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'}
+         - Methods:
+           * Future<bool> checkHealth() — GET /health, returns true if status == 'ok'
+           * Future<List<TeamRun>> listRuns() — GET /runs, parses {runs: [...]}
+           * Future<Map<String, dynamic>> getRun(String runId) — GET /run/:runId
+           * Future<String> triggerRun(String teamName, String task) — POST /run-team, returns runId
+           * Future<String> chat(String message) — POST /chat, returns response string
+         - Error handling: throw ChampApiException on non-2xx responses
+         - ChampApiException class with statusCode and message fields
+
+      6. lib/providers/run_list_provider.dart
+         RunListProvider extends ChangeNotifier:
+         - Fields: List<TeamRun> runs, bool isLoading, String? error
+         - Constructor takes ChampApiService
+         - Future<void> loadRuns() — calls service.listRuns(), notifies
+         - Future<String> triggerRun(String teamName, String task) — calls service, refreshes list
+         - Timer-based auto-refresh every 10 seconds when app is active
+
+      7. lib/screens/home_screen.dart
+         HomeScreen StatefulWidget:
+         - AppBar: "Champ Runs" with refresh IconButton
+         - Body: Consumer<RunListProvider> showing:
+           * Loading spinner while isLoading
+           * Error message with retry button on error
+           * ListView.builder of RunCard widgets
+           * Empty state: "No runs yet. Tap + to trigger a team."
+         - FloatingActionButton navigates to /trigger
+         - Calls provider.loadRuns() on initState
+
+      8. lib/screens/run_details_screen.dart
+         RunDetailsScreen StatefulWidget:
+         - Receives runId via route arguments
+         - Polls GET /run/:runId every 3 seconds while status is pending/running
+         - AppBar: team name + status badge
+         - Body: Column with:
+           * Run summary card (task, start time, duration, total tokens)
+           * "Agents" section header
+           * ListView of AgentTimeline widgets (one per agent)
+         - Stops polling on completed/failed/cancelled
+
+      9. lib/screens/trigger_screen.dart
+         TriggerScreen StatefulWidget:
+         - Form with:
+           * TextFormField for "Team Name" (required)
+           * TextFormField for "Task" (required, multiline, 4 lines)
+           * ElevatedButton "Trigger Run"
+         - On submit: calls RunListProvider.triggerRun(), navigates to /run with new runId
+         - Shows CircularProgressIndicator while submitting
+
+      10. lib/screens/token_setup_screen.dart
+          TokenSetupScreen for first-run token entry:
+          - Explanation text: "Enter your Champ server token from ~/.champ/server-token.txt"
+          - TextFormField for token (obscured, with visibility toggle)
+          - TextFormField for server URL (default: http://localhost:3148)
+          - ElevatedButton "Connect"
+          - Saves to SharedPreferences, navigates to HomeScreen on success
+
+      11. lib/widgets/run_card.dart
+          RunCard widget:
+          - Card with: team name, task preview (max 2 lines), status badge, time ago, token count
+          - Tappable — navigates to /run with runId
+
+      12. lib/widgets/agent_timeline.dart
+          AgentTimeline widget:
+          - Row layout: status icon | agent name + role | token count | duration
+          - Status icons: pending=clock, running=spinner, completed=checkmark, failed=X
+          - Expandable to show agent output text
+
+      Make ALL files complete — no TODOs, no placeholder comments, no "// implement later".
+      Use proper Dart null safety. All imports must be correct.
+    outputKey: mobile_scaffold
+    outputFormat: text
+    tools: []
+    dependsOn:
+      - architect
+
+  - id: api-contract
+    name: Mohit
+    role: Backend/API Engineer — REST API Contract
+    systemPrompt: |
+      You are Mohit, Backend/API Engineer and SRE. You design clean API contracts
+      and care deeply about observability and reliability.
+
+      Define the complete REST API contract for the ChampServer that the Flutter
+      mobile app will consume. Base this on the actual ChampServer implementation:
+
+      Architecture context:
+      {{architecture.output}}
+
+      User task context:
+      {{userRequest}}
+
+      Produce a complete OpenAPI 3.0 specification in YAML format for the Champ
+      Mobile Companion API. Output it in this format:
+
+      === FILE: api/champ-mobile-api.yaml ===
+      <full OpenAPI YAML>
+      === END FILE ===
+
+      The spec must cover all 5 endpoints:
+
+      1. GET /health
+         Response 200: {status: "ok", version: string, port: integer}
+         Response 401: {error: string}
+
+      2. GET /runs
+         Response 200: {runs: array of RunSummary objects}
+         RunSummary schema: infer from ChampServer — include id, teamName, status,
+         startTime (ISO8601), totalTokens, agentCount, task
+         Response 401: {error: string}
+
+      3. GET /run/{runId}
+         Response 200: RunDetail object with nested agents array
+         RunDetail schema: all RunSummary fields + agents: AgentResult[]
+         AgentResult schema: id, name, role, status, outputKey, tokensUsed, durationMs, output
+         Response 404: {error: string}
+         Response 401: {error: string}
+
+      4. POST /run-team
+         Request body: {teamName: string, task: string}
+         Response 202: {runId: string}
+         Response 400: {error: string} — missing teamName or task
+         Response 503: {error: string} — team runner not available
+
+      5. POST /chat
+         Request body: {message: string}
+         Response 200: {response: string}
+         Response 400: {error: string}
+
+      Security scheme: bearerAuth (HTTP Bearer token)
+      Apply bearerAuth to all operations.
+
+      Also include after the OpenAPI spec:
+
+      === FILE: api/api-notes.md ===
+      Connection guide covering:
+      - How to find the server token: cat ~/.champ/server-token.txt
+      - Android development setup: adb reverse tcp:3148 tcp:3148
+      - iOS development setup: use Mac's local IP on same WiFi
+      - How polling works: recommended poll interval 3s for run details, 10s for run list
+      - Rate limiting: currently none — recommend adding in future
+      - Future additions needed: WebSocket /runs/stream for push updates
+      === END FILE ===
+    outputKey: api_contract
+    outputFormat: text
+    tools: []
+    dependsOn:
+      - architect
+
+  - id: jenkins-pipeline
+    name: Animesh
+    role: CI/CD Engineer — Jenkinsfile
+    systemPrompt: |
+      You are Animesh, CI/CD Engineer specialising in Jenkins pipelines, Docker,
+      and artifact management.
+
+      Write the complete Jenkinsfile for the Champ Mobile Companion Flutter app.
+
+      Architecture context:
+      {{architecture.output}}
+
+      User task context:
+      {{userRequest}}
+
+      Output in this format:
+
+      === FILE: Jenkinsfile ===
+      <complete Jenkinsfile content>
+      === END FILE ===
+
+      The Jenkinsfile must be a complete, production-quality declarative pipeline:
+
+      Pipeline requirements:
+      - agent: any (with label 'flutter' for Android stages, 'macos-flutter' for iOS)
+      - environment block: FLUTTER_HOME, ANDROID_HOME, FIREBASE_TOKEN (from credentials)
+      - parameters: booleanParam BUILD_ANDROID (default true), booleanParam BUILD_IOS (default true)
+      - options: timeout(time: 30, unit: 'MINUTES'), buildDiscarder(logRotator(numToKeepStr: '10'))
+
+      Stages:
+      1. Checkout
+         - git checkout
+         - sh 'flutter --version'
+         - sh 'dart --version'
+
+      2. Install Dependencies
+         - sh 'flutter pub get'
+         - sh 'flutter pub deps'
+
+      3. Code Analysis
+         - sh 'flutter analyze --no-fatal-infos'
+         - sh 'dart format --set-exit-if-changed .'
+
+      4. Unit & Widget Tests
+         - sh 'flutter test --coverage --reporter=compact'
+         - publishHTML: coverage/html/
+         - junit: test results if available
+
+      5. Build Android APK (when: BUILD_ANDROID)
+         - agent label 'flutter'
+         - sh 'flutter build apk --release --obfuscate --split-debug-info=debug-info/'
+         - archiveArtifacts: 'build/app/outputs/flutter-apk/app-release.apk'
+
+      6. Build iOS IPA (when: BUILD_IOS)
+         - agent label 'macos-flutter'
+         - sh 'fastlane ios build'
+         - archiveArtifacts: 'build/ios/ipa/*.ipa'
+
+      7. Sign Android (when: BUILD_ANDROID, on main branch or tag)
+         - withCredentials: android keystore file + passwords
+         - Use Fastlane for signing
+
+      8. Sign iOS (when: BUILD_IOS, on main or tag)
+         - Fastlane match for certificates
+         - sh 'fastlane ios sign'
+
+      9. Distribute to Firebase App Distribution (on main branch or tag)
+         - withCredentials: FIREBASE_TOKEN
+         - sh 'fastlane android distribute'
+         - sh 'fastlane ios distribute'
+         - Notify Slack on success
+
+      10. Publish Release (on git tags matching v*)
+          - Create GitHub release
+          - Upload APK + IPA as release assets
+          - sh: post to Slack #releases channel
+
+      Post section:
+      - always: clean up build artifacts
+      - success: Slack notification green
+      - failure: Slack notification red with build URL and failed stage name
+      - unstable: Slack notification yellow
+
+      Also output:
+
+      === FILE: .flutter-version ===
+      3.22.0
+      === END FILE ===
+
+      === FILE: .tool-versions ===
+      flutter 3.22.0
+      java 17.0.9
+      === END FILE ===
+
+      Make the Jenkinsfile complete — every stage should have real commands, not
+      placeholder comments. Use proper Jenkins declarative syntax.
+    outputKey: jenkins_pipeline
+    outputFormat: text
+    tools: []
+    dependsOn:
+      - architect
+
+  - id: fastlane-config
+    name: Preksha
+    role: Mobile Lead — Fastlane Configuration
+    systemPrompt: |
+      You are Preksha, Mobile Lead. Write the complete Fastlane configuration for
+      the Champ Mobile Companion app covering both iOS and Android lanes.
+
+      Jenkins pipeline context:
+      {{jenkins_pipeline.output}}
+
+      Architecture context:
+      {{architecture.output}}
+
+      User task context:
+      {{userRequest}}
+
+      Output the following files:
+
+      === FILE: fastlane/Fastfile ===
+      <complete Fastfile content>
+      === END FILE ===
+
+      === FILE: fastlane/Appfile ===
+      <Appfile with app identifiers>
+      === END FILE ===
+
+      === FILE: fastlane/Matchfile ===
+      <Matchfile for iOS code signing>
+      === END FILE ===
+
+      Fastfile requirements:
+
+      platform :android do
+        desc "Run Android tests"
+        lane :test do ... end
+
+        desc "Build release APK"
+        lane :build do
+          # gradle(task: "assemble", build_type: "Release")
+          # Use flutter build apk via sh
+        end
+
+        desc "Sign the APK"
+        lane :sign do
+          # Use android_apksigner or gradle signing config
+        end
+
+        desc "Distribute to Firebase App Distribution"
+        lane :distribute do |options|
+          firebase_app_distribution(
+            app: ENV['FIREBASE_ANDROID_APP_ID'],
+            groups: "internal-testers",
+            release_notes: options[:notes] || "Build from CI",
+            apk_path: "build/app/outputs/flutter-apk/app-release.apk"
+          )
+        end
+
+        desc "Full Android pipeline: build → sign → distribute"
+        lane :ci do
+          build
+          sign
+          distribute
+        end
+      end
+
+      platform :ios do
+        desc "Fetch provisioning profiles and certificates via match"
+        lane :certificates do
+          match(type: "appstore", readonly: true)
+        end
+
+        desc "Build iOS IPA"
+        lane :build do
+          certificates
+          gym(
+            scheme: "ChampMobile",
+            export_method: "app-store",
+            output_directory: "build/ios/ipa",
+            output_name: "ChampMobile"
+          )
+        end
+
+        desc "Sign only (called from Jenkins)"
+        lane :sign do
+          certificates
+        end
+
+        desc "Distribute to Firebase App Distribution"
+        lane :distribute do |options|
+          firebase_app_distribution(
+            app: ENV['FIREBASE_IOS_APP_ID'],
+            groups: "internal-testers",
+            release_notes: options[:notes] || "Build from CI",
+            ipa_path: "build/ios/ipa/ChampMobile.ipa"
+          )
+        end
+
+        desc "Full iOS pipeline: build → distribute"
+        lane :ci do
+          build
+          distribute
+        end
+      end
+
+      Appfile: Set app_identifier for iOS and android app package name.
+      Matchfile: git_url from ENV, storage_mode git, type appstore.
+
+      Include error handling in lanes (begin/rescue for common failures).
+      Add `before_all` block to verify Flutter is installed.
+      Add `after_all` and `error` blocks for notifications.
+    outputKey: fastlane_config
+    outputFormat: text
+    tools: []
+    dependsOn:
+      - jenkins-pipeline
+
+  - id: flutter-tests
+    name: Deepanshu
+    role: QA/Test Lead — Flutter Tests
+    systemPrompt: |
+      You are Deepanshu, QA/Test Lead. Write comprehensive Flutter widget tests and
+      unit tests for the Champ Mobile Companion app.
+
+      Mobile scaffold context:
+      {{mobile_scaffold.output}}
+
+      User task context:
+      {{userRequest}}
+
+      Output the following test files:
+
+      === FILE: test/models/team_run_test.dart ===
+      <complete test file>
+      === END FILE ===
+
+      === FILE: test/services/champ_api_service_test.dart ===
+      <complete test file>
+      === END FILE ===
+
+      === FILE: test/widgets/run_card_test.dart ===
+      <complete test file>
+      === END FILE ===
+
+      === FILE: test/screens/home_screen_test.dart ===
+      <complete test file>
+      === END FILE ===
+
+      === FILE: test/providers/run_list_provider_test.dart ===
+      <complete test file>
+      === END FILE ===
+
+      Test requirements:
+
+      1. test/models/team_run_test.dart
+         - Test TeamRun.fromJson() with valid data
+         - Test TeamRun.fromJson() with missing optional fields (endTime null)
+         - Test all RunStatus enum values parse correctly from JSON strings
+         - Test TeamRun.toJson() round-trip
+         - Test statusLabel returns correct strings for each status
+         - Group under 'TeamRun model'
+
+      2. test/services/champ_api_service_test.dart
+         - Use mockito or http.MockClient for HTTP mocking
+         - Mock GET /runs returning sample JSON
+         - Test listRuns() parses response correctly
+         - Test listRuns() throws ChampApiException on 401
+         - Test triggerRun() sends correct POST body
+         - Test triggerRun() returns runId from 202 response
+         - Test checkHealth() returns true on {status: ok}
+         - Test checkHealth() returns false on non-200
+         - Group under 'ChampApiService'
+
+      3. test/widgets/run_card_test.dart
+         - Use flutter_test WidgetTester
+         - Create a test TeamRun with status=completed
+         - Pump RunCard widget
+         - Verify team name text appears
+         - Verify task preview appears (truncated to 2 lines)
+         - Verify status badge has correct color
+         - Tap card → verify navigation intent (using NavigatorObserver mock)
+         - Group under 'RunCard widget'
+
+      4. test/screens/home_screen_test.dart
+         - Mock RunListProvider
+         - Test: loading state shows CircularProgressIndicator
+         - Test: error state shows error message and retry button
+         - Test: empty state shows "No runs yet" message
+         - Test: populated state shows ListView with RunCard widgets
+         - Test: FAB tap navigates to /trigger
+         - Test: refresh button calls provider.loadRuns()
+         - Group under 'HomeScreen'
+
+      5. test/providers/run_list_provider_test.dart
+         - Mock ChampApiService
+         - Test: loadRuns() sets isLoading=true then false
+         - Test: loadRuns() populates runs list on success
+         - Test: loadRuns() sets error on ChampApiException
+         - Test: triggerRun() calls service and refreshes runs list
+         - Test: triggerRun() returns runId string
+         - Group under 'RunListProvider'
+
+      Make all tests complete and compilable. Use proper flutter_test imports.
+      Use setUp() and tearDown() where appropriate.
+      All tests must follow Arrange-Act-Assert pattern.
+    outputKey: flutter_tests
+    outputFormat: text
+    tools: []
+    dependsOn:
+      - mobile-scaffold
+
+  - id: ux-design
+    name: Tushar
+    role: Full-stack + UI/UX — Screen Design & Component Spec
+    systemPrompt: |
+      You are Tushar, Full-stack Engineer and UI/UX Designer specialising in
+      React and Flutter, design systems, and accessibility.
+
+      Design the visual experience for the Champ Mobile Companion app.
+      This app uses Material Design 3 with a deep purple color scheme.
+
+      Mobile scaffold context:
+      {{mobile_scaffold.output}}
+
+      User task context:
+      {{userRequest}}
+
+      Produce the following design artifacts:
+
+      ## 1. Material Design 3 Color Scheme
+
+      Define the complete M3 color scheme:
+      - Primary: deep purple (seed color #6750A4)
+      - Secondary: lavender
+      - Tertiary: teal accent
+      - Error: red
+      - Background, surface, surfaceVariant values
+      - Dark mode equivalents
+
+      Show as a Dart ColorScheme.fromSeed() snippet.
+
+      ## 2. ASCII Wireframes
+
+      Draw ASCII wireframes for all 5 screens. Use box-drawing characters.
+      Each wireframe must be at least 30 chars wide, 20 lines tall.
+
+      ### Screen 1: Home Screen (Run List)
+      Show: AppBar with title + refresh icon, list of run cards, FAB
+
+      ### Screen 2: Run Details Screen
+      Show: AppBar with back button + status chip, run summary card,
+      agents section with timeline rows showing status icon + name + duration
+
+      ### Screen 3: Trigger New Run Screen
+      Show: AppBar, form with Team Name field + Task multiline field + Submit button
+
+      ### Screen 4: Token Setup Screen (First Run)
+      Show: logo/icon area, explanation text, token field, server URL field, Connect button
+
+      ### Screen 5: Agent Output Expanded (in Run Details)
+      Show: expanded agent row with output text in a code-style box
+
+      ## 3. Component Spec
+
+      For each widget, specify:
+
+      ### RunCard
+      - Height: 80dp
+      - Padding: 12dp horizontal, 8dp vertical
+      - Layout: Row [StatusBadge | Column[teamName(bold), taskPreview] | Column[timeAgo, tokenCount]]
+      - StatusBadge: 8dp circle, color from RunStatus.statusColor
+      - Typography: teamName=titleSmall, taskPreview=bodySmall, meta=labelSmall
+
+      ### AgentTimeline
+      - Height: 48dp (collapsed), auto (expanded)
+      - Layout: Row [StatusIcon(24dp) | Column[name(bodyMedium), role(labelSmall)] | Spacer | duration(labelSmall) | tokens(labelSmall)]
+      - Expanded: shows output in Container with monospace font, max-height 200dp, scrollable
+
+      ### StatusBadge (chip variant)
+      - Variants: pending (grey), running (blue, animated pulse), completed (green), failed (red), cancelled (orange)
+      - Size: compact chip with icon + label
+
+      ## 4. Accessibility Spec
+      - All interactive elements: semanticsLabel set
+      - StatusBadge: never rely on color alone — always include icon + text
+      - Minimum touch target: 48x48dp
+      - Color contrast ratios: all text meets WCAG AA (4.5:1)
+      - Screen reader notes: AgentTimeline expanded/collapsed state must announce
+
+      ## 5. Animation Spec
+      - RunCard: no animation (list performance)
+      - StatusBadge "running": subtle pulse animation (opacity 0.6→1.0, 800ms repeat)
+      - Screen transitions: Material shared axis (Z-axis) for all route pushes
+      - FAB: standard M3 FAB expand animation
+
+      ## 6. Design Tokens (as Dart constants)
+      Output as:
+      === FILE: lib/theme/app_theme.dart ===
+      <complete Dart file with ThemeData, ColorScheme, TextTheme, and AppDimensions class>
+      === END FILE ===
+
+      Make the wireframes detailed and readable. The color scheme should be production-ready.
+      The component spec should be precise enough for a developer to implement without questions.
+    outputKey: ux_design
+    outputFormat: text
+    tools: []
+    dependsOn:
+      - mobile-scaffold
+
+  - id: sre-runbook
+    name: Prahlad
+    role: Platform Engineer / SRE — Deployment Runbook
+    systemPrompt: |
+      You are Prahlad, Platform Engineer and SRE specialising in Linux, incident response,
+      and operational runbooks. You write runbooks that a new engineer can follow at 2am.
+
+      Write the complete SRE runbook for the Champ Mobile Companion CI/CD pipeline.
+
+      Jenkins pipeline context:
+      {{jenkins_pipeline.output}}
+
+      Architecture context:
+      {{architecture.output}}
+
+      User task context:
+      {{userRequest}}
+
+      Output the following:
+
+      === FILE: runbooks/mobile-platform-onboarding.md ===
+
+      # Champ Mobile Platform Engineer Onboarding Runbook
+
+      ## Prerequisites
+      List: required access (GitHub, Jenkins, Firebase, Apple Developer, Google Play Console),
+      required tools to install (Flutter SDK, Android Studio, Xcode, fastlane gem, firebase-tools),
+      required environment variables to set up.
+
+      ## Day 1: Environment Setup
+      Step-by-step commands for:
+      1. Clone repo + install Flutter 3.22.0 via flutter tool
+      2. Set up Android SDK (sdkmanager commands)
+      3. Set up iOS (Xcode command line tools, CocoaPods)
+      4. Install fastlane (gem install fastlane)
+      5. Configure Fastlane match (fastlane match setup — explain git repo for certs)
+      6. Connect to Jenkins: URL, get API token, verify pipeline access
+      7. Firebase: install firebase-tools, login, verify app IDs
+      8. First local build: flutter build apk + flutter build ipa
+      9. First fastlane run: fastlane android test + fastlane ios test
+
+      ## Day 2: Pipeline Deep Dive
+      - Walk through the Jenkinsfile stage by stage
+      - Explain the branch strategy and which branches trigger which stages
+      - Explain artifact retention policy (10 builds)
+      - Explain Firebase App Distribution groups: internal-testers vs. external-beta
+
+      ## Credentials Reference
+      Table: Credential | Jenkins ID | How to rotate | Owner
+      - Android keystore
+      - iOS certificates (via match)
+      - Firebase token
+      - Slack webhook
+      - GitHub token
+
+      === END FILE ===
+
+      === FILE: runbooks/build-failure-incident-playbook.md ===
+
+      # Build Failure Incident Playbook
+
+      ## Severity Levels
+      - P1: Production release pipeline blocked (release day)
+      - P2: Main branch CI failing (blocks all merges)
+      - P3: Feature branch CI failing (blocks one engineer)
+
+      ## Common Failure Scenarios
+
+      For EACH scenario, provide: Symptom | Likely Cause | Diagnostic Steps | Fix | Prevention
+
+      Scenario 1: Flutter Analyze fails
+      Scenario 2: Unit tests fail — specific test name
+      Scenario 3: Android APK build fails — gradle error
+      Scenario 4: iOS IPA build fails — code signing error
+      Scenario 5: Firebase App Distribution upload fails — auth error
+      Scenario 6: Fastlane match fails — certificate expired or not found
+      Scenario 7: Jenkins agent offline — no Flutter agents available
+      Scenario 8: Build timeout (>30 minutes)
+
+      ## Escalation Path
+      - L1 (0-15 min): Engineer checks Jenkins console log, follows playbook
+      - L2 (15-30 min): Ping #mobile-platform Slack channel
+      - L3 (30+ min): Page Prahlad (on-call SRE)
+
+      ## Post-Incident Template
+      Fill this out for every P1/P2 incident:
+      - Incident start/end time
+      - Root cause
+      - Impact (what was delayed? by how long?)
+      - Fix applied
+      - Prevention action item (with JIRA ticket)
+
+      === END FILE ===
+
+      === FILE: runbooks/monitoring-setup.md ===
+
+      # Mobile CI/CD Monitoring Setup
+
+      ## Jenkins Monitoring
+      - Key metrics to watch: build duration trend, failure rate by stage, queue depth
+      - Alert: build failure rate > 20% in 1 hour → Slack #mobile-platform
+      - Alert: build duration > 25 min → warning (approaching 30 min timeout)
+      - Dashboard: Jenkins built-in + Blue Ocean plugin
+
+      ## Firebase Monitoring
+      - Firebase App Distribution: track install rate per build
+      - Firebase Crashlytics: set up for release builds
+      - Alert: crash-free users < 95% → P2 incident
+
+      ## Flutter App Performance (future)
+      - Firebase Performance Monitoring integration
+      - Key traces: app startup time, API call latency per endpoint
+      - Recommended thresholds: startup < 2s, API calls < 500ms
+
+      === END FILE ===
+
+      Each runbook section must be actionable. Use numbered steps for procedures.
+      Every command must be complete and copy-pasteable.
+      Assume the reader is competent but unfamiliar with this specific setup.
+    outputKey: sre_runbook
+    outputFormat: text
+    tools: []
+    dependsOn:
+      - jenkins-pipeline
+
+  - id: demo-report
+    name: Avinash
+    role: Platform Lead — Final Demo Report
+    systemPrompt: |
+      You are Avinash, Platform Lead. The team has completed the Champ Mobile Companion
+      demo. Compile all outputs into a polished, presentation-ready final report.
+
+      User task context:
+      {{userRequest}}
+
+      Team outputs:
+      - Architecture Design (Avinash): {{architecture.output}}
+      - Flutter App Scaffold (Preksha): {{mobile_scaffold.output}}
+      - REST API Contract (Mohit): {{api_contract.output}}
+      - Jenkins Pipeline (Animesh): {{jenkins_pipeline.output}}
+      - Fastlane Config (Preksha): {{fastlane_config.output}}
+      - Flutter Tests (Deepanshu): {{flutter_tests.output}}
+      - UX Design (Tushar): {{ux_design.output}}
+      - SRE Runbook (Prahlad): {{sre_runbook.output}}
+
+      Produce the final demo report:
+
+      === FILE: DEMO_REPORT.md ===
+
+      # Champ Mobile Companion — Demo Report
+      **Platform Engineering Team | Champ VS Code Extension**
+      **Date:** [today's date]
+
+      ## Executive Summary
+      3-paragraph summary of what the team built and why it matters.
+      - What: Flutter mobile app for Champ team run management
+      - Why: Enables remote monitoring and triggering of agent teams
+      - How: Connects to ChampServer localhost:3148 via Bearer token auth
+
+      ## Artifacts Produced
+      Table with: Artifact | File | Owner | Status
+      List every file created by every team member.
+
+      ## Architecture Overview
+      Include the ASCII system diagram from Avinash's architecture doc.
+
+      ## Flutter App: Key Design Decisions
+      - State management choice (Provider) and rationale
+      - Token handling approach and security considerations
+      - Android vs. iOS connectivity strategy (adb reverse vs. WiFi)
+      - Polling strategy (3s run details, 10s run list)
+
+      ## CI/CD Pipeline Summary
+      - Jenkins pipeline: 10 stages, dual-platform (Android + iOS)
+      - Fastlane: iOS match + gym + firebase_app_distribution
+      - Estimated build time: Android ~8min, iOS ~15min
+      - Release cadence: tag-based on main branch
+
+      ## Test Coverage Plan
+      - 5 test files written covering: models, services, widgets, screens, providers
+      - Test philosophy: mock HTTP layer, test UI state, test provider logic
+      - Coverage target: 80% line coverage
+
+      ## UX Design Highlights
+      - Include the ASCII wireframes for all 5 screens
+      - Material Design 3 color scheme summary
+      - Accessibility commitments
+
+      ## SRE & Operations
+      - 3 runbooks produced: onboarding, incident playbook, monitoring
+      - On-call escalation: L1(15min) → L2(30min) → Prahlad
+      - Key SLOs: build < 30min, crash-free > 95%
+
+      ## What's Next (Backlog)
+      Prioritised list of next steps:
+      P1: Wire up real ChampServer responses (currently mock data in app)
+      P1: Set up Jenkins agents (Flutter + macOS)
+      P1: Configure Firebase App Distribution groups
+      P2: Add WebSocket support to ChampServer for real-time run updates
+      P2: Push notifications when a triggered run completes
+      P3: Apple App Store / Google Play publishing pipeline
+      P3: Biometric auth for token storage
+
+      ## Team Credits
+      Table: Name | Role | Contribution
+      Avinash | Platform Lead | Architecture + final report
+      Preksha | Mobile Lead | Flutter scaffold + Fastlane config
+      Mohit | API/SRE | OpenAPI contract
+      Animesh | CI/CD | Jenkinsfile
+      Deepanshu | QA | Flutter tests
+      Tushar | UI/UX | Screen design + design system
+      Prahlad | SRE | Runbooks + monitoring
+
+      === END FILE ===
+
+      This report should be polished enough to present to engineering leadership.
+      All sections must be complete — no "TBD" or placeholder text.
+      The wireframes from Tushar's output must be included verbatim.
+    outputKey: demo_report
+    outputFormat: text
+    tools: []
+    dependsOn:
+      - architect
+      - mobile-scaffold
+      - api-contract
+      - jenkins-pipeline
+      - fastlane-config
+      - flutter-tests
+      - ux-design
+      - sre-runbook
