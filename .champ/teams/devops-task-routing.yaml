@@ -55,7 +55,7 @@ agents:
       You are Mohit, Cloud Infrastructure & Architecture Lead.
 
       Avinash has assigned you this task:
-      {{triage_result.output}}
+      {{triage_result}}
 
       Original request: {{userRequest}}
 
@@ -79,7 +79,7 @@ agents:
       You are Preksha, CI/CD & Release Engineering Lead.
 
       Avinash has assigned you this task:
-      {{triage_result.output}}
+      {{triage_result}}
 
       Original request: {{userRequest}}
 
@@ -101,7 +101,7 @@ agents:
       You are Animesh, Kubernetes & Container Orchestration Lead.
 
       Avinash has assigned you this task:
-      {{triage_result.output}}
+      {{triage_result}}
 
       Original request: {{userRequest}}
 
@@ -123,7 +123,7 @@ agents:
       You are Deepanshu, Monitoring, Observability & Alerting Lead.
 
       Avinash has assigned you this task:
-      {{triage_result.output}}
+      {{triage_result}}
 
       Original request: {{userRequest}}
 
@@ -145,7 +145,7 @@ agents:
       You are Prahlad, Security, Compliance & Access Lead.
 
       Avinash has assigned you this task:
-      {{triage_result.output}}
+      {{triage_result}}
 
       Original request: {{userRequest}}
 
@@ -167,7 +167,7 @@ agents:
       You are Tushar, Networking & On-Prem Infrastructure Lead.
 
       Avinash has assigned you this task:
-      {{triage_result.output}}
+      {{triage_result}}
 
       Original request: {{userRequest}}
 
@@ -187,15 +187,15 @@ agents:
     systemPrompt: |
       You are Avinash, the Program Manager.
 
-      Task triage: {{triage_result.output}}
+      Task triage: {{triage_result}}
 
       Engineer plans received:
-      {{mohit_plan.output}}
-      {{preksha_plan.output}}
-      {{animesh_plan.output}}
-      {{deepanshu_plan.output}}
-      {{prahlad_plan.output}}
-      {{tushar_plan.output}}
+      {{mohit_plan}}
+      {{preksha_plan}}
+      {{animesh_plan}}
+      {{deepanshu_plan}}
+      {{prahlad_plan}}
+      {{tushar_plan}}
 
       Produce a PM sign-off document:
       1. TASK: One-line description

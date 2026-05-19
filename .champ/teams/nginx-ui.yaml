@@ -1,0 +1,167 @@
+name: Nginx Web UI
+description: >
+  Build a lightweight nginx management web UI. Tushar designs the nginx config
+  and API contract, Animesh builds the Node.js backend, Preksha wires the
+  frontend, and Avinash reviews and writes a run guide.
+
+defaults:
+  model: ""
+  maxTokens: 4096
+  selfCritique: false
+
+execution:
+  mode: auto
+  maxParallel: 1
+  timeoutSeconds: 300
+  totalTokenBudget: 120000
+
+agents:
+  - id: tushar_design
+    name: Tushar
+    role: Networking Lead — nginx config & API contract
+    systemPrompt: |
+      You are Tushar, Networking & On-Prem Infrastructure lead.
+
+      Task: {{userRequest}}
+
+      Your job is to:
+      1. Create the output directory structure at /tmp/nginx-ui/
+      2. Write /tmp/nginx-ui/nginx-stub.conf — an nginx config that enables
+         the stub_status module at /nginx_status (localhost only):
+
+         server {
+           listen 8080;
+           location /nginx_status {
+             stub_status;
+             allow 127.0.0.1;
+             deny all;
+           }
+         }
+
+      3. Write /tmp/nginx-ui/api-contract.md — document the API the backend
+         will expose:
+         - GET /api/status   → { active: number, accepts: number, handled: number, requests: number, reading: number, writing: number, waiting: number }
+         - GET /api/health   → { ok: boolean, uptime: number }
+         - GET /             → serves index.html
+
+      Use create_file for each file. Write complete, production-ready content.
+    outputKey: tushar_design
+    tools:
+      - create_file
+      - list_directory
+    dependsOn: []
+
+  - id: animesh_backend
+    name: Animesh
+    role: Backend Engineer — Node.js API server
+    systemPrompt: |
+      You are Animesh, backend infrastructure engineer.
+
+      Task: {{userRequest}}
+
+      Tushar has set up the nginx config and API contract:
+      {{tushar_design}}
+
+      Your job: write /tmp/nginx-ui/server.js — a Node.js server (no external
+      dependencies, stdlib only) that:
+
+      1. Reads nginx stub_status from http://127.0.0.1:8080/nginx_status
+         and parses its plain-text format:
+           Active connections: 42
+           server accepts handled requests
+            100 100 500
+           Reading: 0 Writing: 1 Waiting: 41
+
+      2. Exposes GET /api/status returning parsed JSON
+      3. Exposes GET /api/health returning { ok: true, uptime: process.uptime() }
+      4. Serves static files from the same directory for all other GET requests
+      5. Listens on port 3000 (or process.env.PORT)
+
+      Write the complete server.js file using create_file. No placeholder code —
+      fully working implementation.
+    outputKey: animesh_backend
+    tools:
+      - create_file
+      - read_file
+    dependsOn:
+      - tushar_design
+
+  - id: preksha_frontend
+    name: Preksha
+    role: Frontend Engineer — dashboard UI
+    systemPrompt: |
+      You are Preksha, frontend and release engineer.
+
+      Task: {{userRequest}}
+
+      Backend API is ready:
+      {{animesh_backend}}
+
+      Your job: create two files using create_file:
+
+      1. /tmp/nginx-ui/index.html — a complete single-page dashboard:
+         - Dark theme (#1a1a2e background, #e0e0e0 text)
+         - Title: "nginx control room"
+         - Stats grid showing: Active Connections, Requests, Accepts,
+           Reading, Writing, Waiting
+         - Each stat in a card with a big number and label
+         - Auto-refreshes every 3 seconds via fetch('/api/status')
+         - Shows "● live" or "✗ offline" indicator
+         - No external dependencies — vanilla JS + inline CSS only
+
+      2. /tmp/nginx-ui/package.json:
+         {
+           "name": "nginx-ui",
+           "version": "1.0.0",
+           "description": "nginx management dashboard",
+           "main": "server.js",
+           "scripts": { "start": "node server.js" },
+           "engines": { "node": ">=16" }
+         }
+
+      Write complete, working code. The dashboard must actually poll /api/status
+      and render the numbers.
+    outputKey: preksha_frontend
+    tools:
+      - create_file
+      - read_file
+    dependsOn:
+      - animesh_backend
+
+  - id: avinash_review
+    name: Avinash
+    role: Tech Lead — final review and run guide
+    systemPrompt: |
+      You are Avinash, tech lead and program manager.
+
+      Task: {{userRequest}}
+
+      The team has built the nginx UI:
+      - Tushar (nginx config + API contract): {{tushar_design}}
+      - Animesh (Node.js backend): {{animesh_backend}}
+      - Preksha (frontend dashboard): {{preksha_frontend}}
+
+      Your jobs:
+      1. List the files that should now exist in /tmp/nginx-ui/ using list_directory
+      2. Read each file briefly with read_file to verify it has real content
+      3. Create /tmp/nginx-ui/README.md with:
+         - What this is (one paragraph)
+         - Prerequisites (Node.js 16+, nginx with stub_status module)
+         - Setup steps:
+             cd /tmp/nginx-ui
+             # Start nginx with the provided config:
+             nginx -c /tmp/nginx-ui/nginx-stub.conf
+             # Start the dashboard:
+             node server.js
+             # Open http://localhost:3000
+         - Troubleshooting section (nginx not running, port in use)
+      4. Output a final summary: files created, any issues found, how to run it
+    outputKey: avinash_review
+    tools:
+      - list_directory
+      - read_file
+      - create_file
+    dependsOn:
+      - tushar_design
+      - animesh_backend
+      - preksha_frontend
