@@ -34,6 +34,12 @@ export class AuditLog {
   readonly logPath: string;
   private readonly maxEntrySizeBytes = 500;
   private stream?: fs.WriteStream;
+  private pendingQueue: Array<{
+    action: AuditActionType;
+    details: string;
+    sessionId?: string;
+  }> = [];
+  private initialized = false;
 
   constructor(workspaceRoot: string) {
     this.logPath = path.join(workspaceRoot, ".champ", "audit.log");
@@ -57,11 +63,30 @@ export class AuditLog {
       flags: "a",
       encoding: "utf-8",
     });
+    this.initialized = true;
+
+    // Drain any records that arrived before initialization
+    for (const pending of this.pendingQueue) {
+      this._writeEntry(pending.action, pending.details, pending.sessionId);
+    }
+    this.pendingQueue = [];
   }
 
   record(action: AuditActionType, details: string, sessionId?: string): void {
+    if (!this.initialized) {
+      // Queue until stream is ready
+      this.pendingQueue.push({ action, details, sessionId });
+      return;
+    }
     if (!this.stream?.writable) return;
+    this._writeEntry(action, details, sessionId);
+  }
 
+  private _writeEntry(
+    action: AuditActionType,
+    details: string,
+    sessionId?: string,
+  ): void {
     const truncated = details.slice(0, this.maxEntrySizeBytes);
     const timestamp = new Date().toISOString();
     const entryWithoutHash = {
@@ -78,15 +103,21 @@ export class AuditLog {
     const entry: AuditEntry = { ...entryWithoutHash, hash };
     this.prevHash = hash;
 
-    this.stream.write(JSON.stringify(entry) + "\n");
+    this.stream!.write(JSON.stringify(entry) + "\n");
   }
 
   async verify(): Promise<{
     valid: boolean;
     totalEntries: number;
     firstBrokenAt?: number;
+    tooLarge?: boolean;
   }> {
     try {
+      const stat = await fs.promises.stat(this.logPath);
+      if (stat.size > 50 * 1024 * 1024) {
+        // 50MB limit — reading into memory would risk OOM
+        return { valid: false, totalEntries: -1, tooLarge: true };
+      }
       const content = await fs.promises.readFile(this.logPath, "utf-8");
       const lines = content.trim().split("\n").filter(Boolean);
       if (lines.length === 0) {
@@ -113,6 +144,18 @@ export class AuditLog {
     } catch {
       return { valid: false, totalEntries: 0 };
     }
+  }
+
+  /** Synchronous close: ends the stream non-blocking (OS flushes on process exit). */
+  closeSync(): void {
+    if (this.stream) {
+      const s = this.stream;
+      this.stream = undefined;
+      // Suppress any post-end errors (e.g. ENOENT if the underlying fd closed early)
+      s.on("error", () => undefined);
+      s.end();
+    }
+    // Pending entries at close time are discarded — acceptable for shutdown path.
   }
 
   close(): Promise<void> {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -104,6 +104,41 @@ describe("AuditLog", () => {
     expect(() => {
       auditLog.record("tool_call", "should not throw");
     }).not.toThrow();
+  });
+
+  it("record() before initialize() queues entries and flushes them after initialize()", async () => {
+    // Call record() BEFORE initialize() — should be queued, not dropped
+    auditLog.record("session_start", "early-1");
+    auditLog.record("tool_call", "early-2");
+
+    await auditLog.initialize();
+    // After init, queue is drained; add one more synchronously
+    auditLog.record("session_end", "after-init");
+    await auditLog.close();
+
+    const raw = fs.readFileSync(auditLog.logPath, "utf-8");
+    const lines = raw.trim().split("\n").filter(Boolean);
+    expect(lines).toHaveLength(3);
+
+    const entries = lines.map((l) => JSON.parse(l) as AuditEntry);
+    expect(entries[0].action).toBe("session_start");
+    expect(entries[0].details).toBe("early-1");
+    expect(entries[1].action).toBe("tool_call");
+    expect(entries[1].details).toBe("early-2");
+    expect(entries[2].action).toBe("session_end");
+    expect(entries[2].details).toBe("after-init");
+  });
+
+  it("queued entries produce a valid hash chain", async () => {
+    auditLog.record("session_start", "pre-init");
+    auditLog.record("tool_call", "also-pre-init");
+    await auditLog.initialize();
+    auditLog.record("session_end", "post-init");
+    await auditLog.close();
+
+    const result = await auditLog.verify();
+    expect(result.valid).toBe(true);
+    expect(result.totalEntries).toBe(3);
   });
 
   // ── hash chain integrity ─────────────────────────────────────────────────
@@ -220,5 +255,31 @@ describe("AuditLog", () => {
     const result = await auditLog.verify();
     expect(result.valid).toBe(true);
     expect(result.totalEntries).toBe(1);
+  });
+
+  it("verify() returns tooLarge=true and totalEntries=-1 when file exceeds 50MB", async () => {
+    // Stub stat to report a huge file size without creating a real 50MB file
+    const statSpy = vi.spyOn(fs.promises, "stat").mockResolvedValueOnce({
+      size: 51 * 1024 * 1024,
+    } as fs.Stats);
+
+    const result = await auditLog.verify();
+    expect(result.valid).toBe(false);
+    expect(result.totalEntries).toBe(-1);
+    expect(result.tooLarge).toBe(true);
+
+    statSpy.mockRestore();
+  });
+
+  // ── closeSync ─────────────────────────────────────────────────────────────
+
+  it("closeSync() ends the stream without throwing", async () => {
+    await auditLog.initialize();
+    auditLog.record("tool_call", "before-close");
+    expect(() => auditLog.closeSync()).not.toThrow();
+  });
+
+  it("closeSync() before initialize() does not throw", () => {
+    expect(() => auditLog.closeSync()).not.toThrow();
   });
 });

@@ -1061,7 +1061,9 @@ export class AgentController {
     ]
       .filter(Boolean)
       .join("\n\n");
-    const globalPinned = this.globalMemoryBank?.getPinnedContext();
+    // Cap global memory injection at 2000 chars to prevent oversized prompts
+    const rawGlobalCtx = this.globalMemoryBank?.getPinnedContext() ?? "";
+    const globalPinned = rawGlobalCtx.slice(0, 2000);
     const memCtx = [
       globalPinned ? `## Global preferences\n${globalPinned}` : "",
       workspaceMemory,
@@ -1102,7 +1104,9 @@ export class AgentController {
     ]
       .filter(Boolean)
       .join("\n\n");
-    const globalPinned = this.globalMemoryBank?.getPinnedContext();
+    // Cap global memory injection at 2000 chars to prevent oversized prompts
+    const rawGlobalCtx = this.globalMemoryBank?.getPinnedContext() ?? "";
+    const globalPinned = rawGlobalCtx.slice(0, 2000);
     const memCtx = [
       globalPinned ? `## Global preferences\n${globalPinned}` : "",
       workspaceMemory,

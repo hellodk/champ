@@ -72,11 +72,15 @@ export class MemoryBank {
    * this.items, evicts oldest non-pinned entry when > MAX_MEMORIES, then persists.
    */
   async store(entry: Omit<MemoryItem, "id" | "timestamp">): Promise<void> {
+    const cappedEntry = {
+      ...entry,
+      assistantSummary: entry.assistantSummary.slice(0, 1000), // 1KB cap per entry
+    };
     const id = `mem-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const item: MemoryItem = {
       id,
       timestamp: Date.now(),
-      ...entry,
+      ...cappedEntry,
     };
     this.items.push(item);
     // Evict oldest non-pinned entries beyond the cap; fall back to oldest if all pinned.
@@ -89,9 +93,10 @@ export class MemoryBank {
 
   /** Add a manually entered fact (not tied to a specific session interaction). */
   async addManual(text: string): Promise<void> {
+    const capped = text.slice(0, 1000); // cap individual memory entries at 1KB
     await this.store({
       userQuery: "manual",
-      assistantSummary: text,
+      assistantSummary: capped,
       sessionId: "manual",
     });
   }
@@ -164,18 +169,16 @@ export class MemoryBank {
   }
 
   /**
-   * Write the current items array to disk. Creates the directory if
-   * needed. Silently warns on errors — a write failure must not
-   * break the agent loop.
+   * Write the current items array to disk atomically (write to .tmp, then
+   * rename). Creates the directory if needed. Silently warns on errors —
+   * a write failure must not break the agent loop.
    */
   private async persist(): Promise<void> {
     try {
       await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-      await fs.writeFile(
-        this.filePath,
-        JSON.stringify(this.items, null, 2),
-        "utf-8",
-      );
+      const tmpPath = `${this.filePath}.tmp`;
+      await fs.writeFile(tmpPath, JSON.stringify(this.items, null, 2), "utf-8");
+      await fs.rename(tmpPath, this.filePath); // atomic on POSIX, near-atomic on Windows
     } catch (err) {
       console.warn("Champ MemoryBank: failed to persist memory.json:", err);
     }

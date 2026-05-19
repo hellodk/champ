@@ -100,3 +100,75 @@ describe("MemoryBank.getPinnedContext", () => {
     expect(bank.getPinnedContext()).toBe("");
   });
 });
+
+describe("MemoryBank entry size cap", () => {
+  it("store() caps assistantSummary at 1000 characters", async () => {
+    const bank = await makeTempBank();
+    await bank.load();
+    const longText = "a".repeat(2000);
+    await bank.store({
+      userQuery: "q",
+      assistantSummary: longText,
+      sessionId: "s1",
+    });
+    const all = bank.getAll();
+    expect(all[0].assistantSummary).toHaveLength(1000);
+  });
+
+  it("addManual() caps text at 1000 characters", async () => {
+    const bank = await makeTempBank();
+    await bank.load();
+    const longText = "b".repeat(1500);
+    await bank.addManual(longText);
+    const all = bank.getAll();
+    expect(all[0].assistantSummary).toHaveLength(1000);
+  });
+
+  it("short entries are stored without truncation", async () => {
+    const bank = await makeTempBank();
+    await bank.load();
+    await bank.addManual("short text");
+    const all = bank.getAll();
+    expect(all[0].assistantSummary).toBe("short text");
+  });
+});
+
+describe("MemoryBank atomic persist", () => {
+  it("persists to disk and can be reloaded after store()", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "champ-atomic-"));
+    const bank1 = new MemoryBank(dir);
+    await bank1.load();
+    await bank1.store({
+      userQuery: "q",
+      assistantSummary: "atomic write check",
+      sessionId: "s1",
+    });
+
+    // Load a fresh instance from the same directory
+    const bank2 = new MemoryBank(dir);
+    await bank2.load();
+    const all = bank2.getAll();
+    expect(all).toHaveLength(1);
+    expect(all[0].assistantSummary).toBe("atomic write check");
+
+    // Cleanup
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("leaves no .tmp file after successful persist", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "champ-tmp-"));
+    const bank = new MemoryBank(dir);
+    await bank.load();
+    await bank.store({
+      userQuery: "q",
+      assistantSummary: "no tmp leftover",
+      sessionId: "s1",
+    });
+
+    const files = await fs.readdir(path.join(dir, ".champ"));
+    const tmpFiles = files.filter((f) => f.endsWith(".tmp"));
+    expect(tmpFiles).toHaveLength(0);
+
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+});
