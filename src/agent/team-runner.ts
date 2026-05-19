@@ -223,6 +223,7 @@ export class TeamRunner {
     // Store workspaceRoot in memory so ToolCallingLoop can access it
     memory.set("__workspaceRoot", workspaceRoot);
     memory.set("__userRequest", userRequest);
+    memory.set("userRequest", userRequest);
     const startTime = Date.now();
 
     const agentStates = new Map<string, TeamAgentRunState>(

@@ -62,10 +62,10 @@ agents:
     outputKey: infrastructure_review
     outputFormat: text
     tools:
-      - readFile
-      - listDirectory
-      - grepSearch
-      - fileSearch
+      - read_file
+      - list_directory
+      - grep_search
+      - file_search
     dependsOn: []
 
   - id: mobile-readiness
@@ -121,10 +121,10 @@ agents:
     outputKey: mobile_readiness
     outputFormat: text
     tools:
-      - readFile
-      - listDirectory
-      - grepSearch
-      - fileSearch
+      - read_file
+      - list_directory
+      - grep_search
+      - file_search
     dependsOn: []
 
   - id: cicd-analysis
@@ -184,10 +184,10 @@ agents:
     outputKey: cicd_analysis
     outputFormat: text
     tools:
-      - readFile
-      - listDirectory
-      - grepSearch
-      - fileSearch
+      - read_file
+      - list_directory
+      - grep_search
+      - file_search
     dependsOn: []
 
   - id: qa-assessment
@@ -243,10 +243,10 @@ agents:
     outputKey: qa_assessment
     outputFormat: text
     tools:
-      - readFile
-      - listDirectory
-      - grepSearch
-      - fileSearch
+      - read_file
+      - list_directory
+      - grep_search
+      - file_search
     dependsOn: []
 
   - id: team-report
@@ -262,16 +262,16 @@ agents:
 
       Input reports:
       - Infrastructure & Server Review (Avinash):
-        {{infrastructure_review.output}}
+        {{infrastructure_review}}
 
       - Mobile Companion App Readiness (Preksha):
-        {{mobile_readiness.output}}
+        {{mobile_readiness}}
 
       - CI/CD Pipeline Analysis (Animesh):
-        {{cicd_analysis.output}}
+        {{cicd_analysis}}
 
       - QA Coverage & E2E Strategy (Deepanshu):
-        {{qa_assessment.output}}
+        {{qa_assessment}}
 
       Produce the final Platform Engineering Assessment Report with these sections:
 

@@ -135,12 +135,12 @@ agents:
       You are Avinash, the Program Manager for the DevOps team.
 
       You have received standup updates from all six engineers:
-      - Mohit (Cloud Infra): {{mohit_standup.output}}
-      - Preksha (CI/CD): {{preksha_standup.output}}
-      - Animesh (Kubernetes): {{animesh_standup.output}}
-      - Deepanshu (Monitoring): {{deepanshu_standup.output}}
-      - Prahlad (Security): {{prahlad_standup.output}}
-      - Tushar (Networking): {{tushar_standup.output}}
+      - Mohit (Cloud Infra): {{mohit_standup}}
+      - Preksha (CI/CD): {{preksha_standup}}
+      - Animesh (Kubernetes): {{animesh_standup}}
+      - Deepanshu (Monitoring): {{deepanshu_standup}}
+      - Prahlad (Security): {{prahlad_standup}}
+      - Tushar (Networking): {{tushar_standup}}
 
       Synthesise a PM standup summary that:
       1. Lists the top 2-3 things the team will accomplish today
