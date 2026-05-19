@@ -24,7 +24,12 @@ export type ReferenceType =
   | "git"
   | "docs"
   | "mcp"
-  | "mcpPrompt";
+  | "mcpPrompt"
+  | "pr"
+  | "issue"
+  | "terminal"
+  | "gitBlame"
+  | "testFor";
 
 /** A parsed @-reference before resolution. */
 export interface ContextReference {
@@ -101,6 +106,37 @@ const AT_SYMBOL_CATALOGUE: AtSymbolSuggestion[] = [
     description: "Reference local package documentation (from node_modules)",
     parameterized: true,
   },
+  {
+    label: "@PR",
+    type: "pr",
+    description: "Reference a GitHub Pull Request by number",
+    parameterized: true,
+  },
+  {
+    label: "@Issue",
+    type: "issue",
+    description: "Reference a GitHub Issue by number",
+    parameterized: true,
+  },
+  {
+    label: "@Terminal",
+    type: "terminal",
+    description: "Inject recent integrated terminal output into context",
+    parameterized: false,
+  },
+  {
+    label: "@GitBlame",
+    type: "gitBlame",
+    description:
+      "Show git blame for a specific file line (e.g. @GitBlame(src/foo.ts:42))",
+    parameterized: true,
+  },
+  {
+    label: "@TestFor",
+    type: "testFor",
+    description: "Find function definition and existing tests for a symbol",
+    parameterized: true,
+  },
 ];
 
 /**
@@ -158,6 +194,14 @@ export interface ContextResolverDeps {
   docsReader?: {
     readPackageDocs(packageName: string): Promise<string | null>;
   };
+  /**
+   * VS Code workspace state Memento used to read back terminal output
+   * captured by the run_terminal tool. Optional — degrades gracefully
+   * when absent (e.g. in tests).
+   */
+  workspaceState?: {
+    get<T>(key: string): T | undefined;
+  };
 }
 
 export class ContextResolver {
@@ -191,14 +235,21 @@ export class ContextResolver {
         { regex: /@Folders\(([^)]+)\)/g, type: "folder" },
         { regex: /@Symbols\(([^)]+)\)/g, type: "symbol" },
         { regex: /@Docs\(([^)]+)\)/g, type: "docs" },
+        { regex: /@PR\((\d+)\)/g, type: "pr" },
+        { regex: /@Issue\((\d+)\)/g, type: "issue" },
+        { regex: /@GitBlame\(([^)]+)\)/g, type: "gitBlame" },
+        { regex: /@TestFor\(([^)]+)\)/g, type: "testFor" },
+        { regex: /@Terminal\((\d+)\)/g, type: "terminal" },
       ];
 
-    // Bare references: @Codebase, @Web, @Git, @Code
+    // Bare references: @Codebase, @Web, @Git, @Code, @Terminal (without parens)
     const bareReferences: Array<{ keyword: string; type: ReferenceType }> = [
       { keyword: "@Codebase", type: "codebase" },
       { keyword: "@Web", type: "web" },
+      // @GitBlame must come before @Git so the bare @Git match doesn't consume @GitBlame
       { keyword: "@Git", type: "git" },
       { keyword: "@Code", type: "code" },
+      { keyword: "@Terminal", type: "terminal" },
     ];
 
     for (const { regex, type } of parameterizedPatterns) {
@@ -221,9 +272,12 @@ export class ContextResolver {
         if (idx === -1) break;
         // Ensure the keyword isn't a prefix of another (e.g. @Code vs @Codebase)
         // by checking the next character is a word-boundary.
+        // Also skip if the keyword is immediately followed by '(' — that means
+        // it has arguments and should have been matched by a parameterized pattern.
         const nextChar = message[idx + keyword.length];
         const isWordEnd =
-          nextChar === undefined || !/[A-Za-z0-9_]/.test(nextChar);
+          nextChar === undefined ||
+          (!/[A-Za-z0-9_]/.test(nextChar) && nextChar !== "(");
         if (isWordEnd) {
           // Extract the value as the rest of the line after the keyword.
           const rest = message.slice(idx + keyword.length).trim();
@@ -558,6 +612,242 @@ export class ContextResolver {
             content:
               promptContent ??
               `[Prompt not found: ${promptName} on server ${mcpServer}]`,
+          });
+          break;
+        }
+        case "pr": {
+          const prNumber = parseInt(ref.value, 10);
+          if (isNaN(prNumber)) {
+            resolved.push({
+              type: "pr",
+              label: `PR #${ref.value}`,
+              content: "[Invalid PR number]",
+            });
+            break;
+          }
+          try {
+            const { execSync } = await import("child_process");
+            const prJson = execSync(
+              `gh pr view ${prNumber} --json title,body,author,state,files,reviews,comments --repo $(git remote get-url origin)`,
+              {
+                cwd: this.deps.workspaceRoot,
+                encoding: "utf-8",
+                timeout: 10000,
+              },
+            );
+            const pr = JSON.parse(prJson);
+            const files = (pr.files || [])
+              .slice(0, 20)
+              .map(
+                (f: { path: string; additions: number; deletions: number }) =>
+                  `  ${f.path} (+${f.additions} -${f.deletions})`,
+              )
+              .join("\n");
+            const comments = (pr.comments || [])
+              .slice(0, 5)
+              .map(
+                (c: { author: { login: string }; body: string }) =>
+                  `${c.author?.login}: ${c.body?.slice(0, 200)}`,
+              )
+              .join("\n---\n");
+            const content = [
+              `# PR #${prNumber}: ${pr.title}`,
+              `Author: ${pr.author?.login} | State: ${pr.state}`,
+              `\n## Description\n${pr.body?.slice(0, 1000) || "(no description)"}`,
+              files
+                ? `\n## Changed files (${pr.files?.length || 0})\n${files}`
+                : "",
+              comments ? `\n## Recent comments\n${comments}` : "",
+            ]
+              .filter(Boolean)
+              .join("\n");
+            resolved.push({
+              type: "pr",
+              label: `PR #${prNumber}: ${pr.title}`,
+              content: content.slice(0, 8000),
+            });
+          } catch (err) {
+            resolved.push({
+              type: "pr",
+              label: `PR #${prNumber}`,
+              content: `[Failed to fetch PR #${prNumber}: ${err instanceof Error ? err.message.split("\n")[0] : "unknown error"}. Is gh CLI installed and authenticated?]`,
+            });
+          }
+          break;
+        }
+        case "issue": {
+          const issueNumber = parseInt(ref.value, 10);
+          if (isNaN(issueNumber)) {
+            resolved.push({
+              type: "issue",
+              label: `Issue #${ref.value}`,
+              content: "[Invalid issue number]",
+            });
+            break;
+          }
+          try {
+            const { execSync } = await import("child_process");
+            const issueJson = execSync(
+              `gh issue view ${issueNumber} --json title,body,author,state,labels,comments`,
+              {
+                cwd: this.deps.workspaceRoot,
+                encoding: "utf-8",
+                timeout: 10000,
+              },
+            );
+            const issue = JSON.parse(issueJson);
+            const labels = (issue.labels || [])
+              .map((l: { name: string }) => l.name)
+              .join(", ");
+            const comments = (issue.comments || [])
+              .slice(0, 5)
+              .map(
+                (c: { author: { login: string }; body: string }) =>
+                  `${c.author?.login}: ${c.body?.slice(0, 300)}`,
+              )
+              .join("\n---\n");
+            const content = [
+              `# Issue #${issueNumber}: ${issue.title}`,
+              `Author: ${issue.author?.login} | State: ${issue.state}`,
+              labels ? `Labels: ${labels}` : "",
+              `\n## Description\n${issue.body?.slice(0, 2000) || "(no description)"}`,
+              comments ? `\n## Comments\n${comments}` : "",
+            ]
+              .filter(Boolean)
+              .join("\n");
+            resolved.push({
+              type: "issue",
+              label: `Issue #${issueNumber}: ${issue.title}`,
+              content: content.slice(0, 8000),
+            });
+          } catch (err) {
+            resolved.push({
+              type: "issue",
+              label: `Issue #${issueNumber}`,
+              content: `[Failed to fetch Issue #${issueNumber}: ${err instanceof Error ? err.message.split("\n")[0] : "unknown error"}]`,
+            });
+          }
+          break;
+        }
+        case "terminal": {
+          // ref.value is either empty (bare @Terminal) or a digit string from @Terminal(50)
+          const lines = parseInt(ref.value || "30", 10) || 30;
+          const stored =
+            this.deps.workspaceState?.get<string>("champ.lastTerminalOutput") ??
+            "";
+          const content = stored
+            ? stored.split("\n").slice(-lines).join("\n")
+            : "[No recent terminal output captured. Run a command first.]";
+          resolved.push({
+            type: "terminal",
+            label: "Recent terminal output",
+            content,
+          });
+          break;
+        }
+        case "gitBlame": {
+          // ref.value is "src/foo.ts:42"
+          const colonIdx = ref.value.lastIndexOf(":");
+          const filePath =
+            colonIdx !== -1 ? ref.value.slice(0, colonIdx) : ref.value;
+          const line =
+            colonIdx !== -1
+              ? parseInt(ref.value.slice(colonIdx + 1), 10) || 1
+              : 1;
+          try {
+            const { execSync } = await import("child_process");
+            const blameOutput = execSync(
+              `git blame -L ${line},${line} "${filePath}" --porcelain`,
+              {
+                cwd: this.deps.workspaceRoot,
+                encoding: "utf-8",
+                timeout: 5000,
+              },
+            );
+            resolved.push({
+              type: "gitBlame",
+              label: `Git blame: ${filePath}:${line}`,
+              content: blameOutput.slice(0, 4000),
+            });
+          } catch {
+            resolved.push({
+              type: "gitBlame",
+              label: `Git blame: ${filePath}:${line}`,
+              content: `[Git blame failed for ${filePath}:${line}]`,
+            });
+          }
+          break;
+        }
+        case "testFor": {
+          const symbolName = ref.value.trim();
+          const { execSync } = await import("child_process");
+          let defContent = "";
+          let testContent = "";
+          try {
+            const grepResult = execSync(
+              `grep -rn "function ${symbolName}\\|const ${symbolName}\\|${symbolName}(" src/ --include="*.ts" -l`,
+              {
+                cwd: this.deps.workspaceRoot,
+                encoding: "utf-8",
+                timeout: 3000,
+              },
+            );
+            const files = grepResult
+              .trim()
+              .split("\n")
+              .filter(Boolean)
+              .slice(0, 3);
+            for (const f of files) {
+              if (f.includes(".test.") || f.includes(".spec.")) continue;
+              const content = await import("fs/promises")
+                .then((fs) =>
+                  fs.readFile(
+                    require("path").join(this.deps.workspaceRoot, f.trim()),
+                    "utf-8",
+                  ),
+                )
+                .catch(() => "");
+              defContent += `// ${f}\n${content.slice(0, 3000)}\n\n`;
+            }
+            // Find existing tests
+            const testGrep = execSync(
+              `grep -rn "${symbolName}" src/ test/ --include="*.test.ts" --include="*.spec.ts" -l`,
+              {
+                cwd: this.deps.workspaceRoot,
+                encoding: "utf-8",
+                timeout: 3000,
+              },
+            )
+              .trim()
+              .split("\n")
+              .filter(Boolean)
+              .slice(0, 2);
+            for (const tf of testGrep) {
+              const content = await import("fs/promises")
+                .then((fs) =>
+                  fs.readFile(
+                    require("path").join(this.deps.workspaceRoot, tf.trim()),
+                    "utf-8",
+                  ),
+                )
+                .catch(() => "");
+              testContent += `// ${tf} (existing tests)\n${content.slice(0, 2000)}\n\n`;
+            }
+          } catch {
+            /* ignore grep failures — symbol or directory may not exist */
+          }
+          const combined = [
+            defContent ? `## Function definition\n${defContent}` : "",
+            testContent
+              ? `## Existing tests\n${testContent}`
+              : "(no existing tests found)",
+          ]
+            .filter(Boolean)
+            .join("\n");
+          resolved.push({
+            type: "testFor",
+            label: `Test context: ${symbolName}`,
+            content: combined || `[Symbol ${symbolName} not found]`,
           });
           break;
         }

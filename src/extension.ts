@@ -53,6 +53,7 @@ import {
 import { AgentManager } from "./agent-manager/agent-manager";
 import { SessionStore } from "./agent-manager/session-store";
 import { SmartRouter } from "./providers/smart-router";
+import { ResponseCache } from "./providers/response-cache";
 import { generateDiagramTool } from "./tools/generate-diagram";
 import { generateDocTool } from "./tools/generate-doc";
 import { createCodebaseSearchTool } from "./tools/codebase-search";
@@ -239,6 +240,11 @@ export async function activate(
     toolRegistry,
     workspaceRoot,
   );
+
+  // ---- Response cache (TTL-based, opt-in per config) ------------------
+  // 5-minute TTL; shared across the session. Cleared on new conversation.
+  const responseCache = new ResponseCache(5);
+  agentController.setResponseCache(responseCache);
 
   // ---- Agent Manager (multi-session orchestrator) --------------------
   agentManager = new AgentManager(
@@ -689,6 +695,10 @@ export async function activate(
           }
         },
       },
+      workspaceState: {
+        get: <T>(key: string): T | undefined =>
+          context.workspaceState.get<T>(key),
+      },
     },
     mcpRegistry,
   );
@@ -742,6 +752,7 @@ export async function activate(
     context.extension.packageJSON.version as string,
   );
   chatViewProvider.setContextResolver(contextResolver);
+  chatViewProvider.setWorkspaceState(context.workspaceState);
   chatViewProvider.setSkillRegistry(skillRegistry);
   chatViewProvider.setSkillContext(
     {
@@ -3014,7 +3025,7 @@ export async function activate(
         }
         // Apply routing config from YAML before first discovery.
         if (yamlConfig?.routing) {
-          const { mode, coding, chat, completion, embedding } =
+          const { mode, coding, chat, completion, embedding, rules } =
             yamlConfig.routing;
           if (mode) smartRouter.setMode(mode);
           if (coding !== undefined)
@@ -3025,6 +3036,7 @@ export async function activate(
             smartRouter.setTaskModel("completion", completion ?? null);
           if (embedding !== undefined)
             smartRouter.setTaskModel("embedding", embedding ?? null);
+          smartRouter.setRoutingRules(rules ?? []);
         }
         void smartRouter.discover();
       }

@@ -199,12 +199,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     | import("./diff-overlay-controller").DiffOverlayController
     | null = null;
   private memoryBank?: import("../memory/memory-bank").MemoryBank;
+  private _workspaceState?: vscode.Memento;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private agent: AgentController,
     private readonly extensionVersion: string = "",
   ) {}
+
+  /**
+   * Attach the VS Code workspace state Memento so terminal output
+   * captured by handleRunInTerminal can be stored for @Terminal references.
+   */
+  setWorkspaceState(state: vscode.Memento): void {
+    this._workspaceState = state;
+  }
 
   /**
    * Hot-swap the agent controller reference. Called by extension.ts
@@ -851,11 +860,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const OUTPUT_CAP = 50 * 1024;
     let totalBytes = 0;
     let truncated = false;
+    let fullOutput = "";
 
     const handleChunk = (chunk: Buffer, isFinal: boolean): void => {
       if (truncated) return;
       const text = chunk.toString();
       totalBytes += Buffer.byteLength(text, "utf8");
+      fullOutput += text;
       if (totalBytes > OUTPUT_CAP) {
         truncated = true;
         this.postMessage(
@@ -897,6 +908,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           ),
         );
       }
+      // Store the full output for @Terminal context reference.
+      // Cap at 50KB to avoid bloating workspace state.
+      const MAX_TERMINAL_STORE = 50_000;
+      const stored = fullOutput.slice(-MAX_TERMINAL_STORE);
+      void this._workspaceState?.update("champ.lastTerminalOutput", stored);
     });
   }
 

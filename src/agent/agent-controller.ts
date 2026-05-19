@@ -42,6 +42,7 @@ import type { ToolExecutionContext, ToolResult } from "../tools/types";
 import { ContextWindowManager } from "../providers/context-manager";
 import type { MemoryBank } from "../memory/memory-bank";
 import { StagedEdits } from "./staged-edits";
+import type { ResponseCache } from "../providers/response-cache";
 
 export { PromptInjectionError };
 
@@ -249,6 +250,7 @@ export class AgentController {
   private projectRules = "";
   private memoryBank: MemoryBank | undefined;
   private editReviewTracker?: import("./edit-review-tracker").EditReviewTracker;
+  private responseCache: ResponseCache | null = null;
 
   constructor(
     provider: LLMProvider,
@@ -263,6 +265,16 @@ export class AgentController {
     tracker: import("./edit-review-tracker").EditReviewTracker,
   ): void {
     this.editReviewTracker = tracker;
+  }
+
+  /**
+   * Attach a TTL-based response cache. When set, single-turn responses
+   * (no tool calls) are looked up in the cache before calling the provider
+   * and stored in the cache after receiving a complete response. Pass null
+   * to disable caching.
+   */
+  setResponseCache(cache: ResponseCache | null): void {
+    this.responseCache = cache;
   }
 
   /**
@@ -639,6 +651,34 @@ export class AgentController {
         );
       }
 
+      // ── Response cache lookup ─────────────────────────────────────────────
+      // Only cache on the first iteration (no tool calls yet) and when there
+      // are no tool calls in-flight. Tool-using responses are never cached
+      // because they depend on live workspace state.
+      const cacheMessagesJson =
+        this.responseCache && iteration === 0
+          ? JSON.stringify(messagesToSend)
+          : null;
+      const cachedResponse =
+        cacheMessagesJson && this.responseCache
+          ? this.responseCache.get(
+              activeProvider.modelInfo().name,
+              activeProvider.modelInfo().id ?? "",
+              cacheMessagesJson,
+            )
+          : null;
+
+      if (cachedResponse !== null) {
+        // Cache hit — emit the stored response as if it came from the provider.
+        console.log("Champ ResponseCache: hit");
+        this.emit({ type: "text", text: cachedResponse });
+        collectedText.push(cachedResponse);
+        assistantText = cachedResponse;
+        this.history.push({ role: "assistant", content: cachedResponse });
+        // No tool calls — break immediately.
+        break;
+      }
+
       const stream = activeProvider.chat(messagesToSend, {
         // Native tool defs only when the provider says it supports them.
         tools: usePromptBased ? undefined : allTools,
@@ -748,6 +788,17 @@ export class AgentController {
 
       // If the model produced no tool calls, we're done.
       if (pendingToolCalls.length === 0) {
+        // ── Response cache store ──────────────────────────────────────────
+        // Only cache clean, tool-free responses. Store the raw assistant text
+        // (before prompt-based cleaning) so the same content is returned on hit.
+        if (this.responseCache && cacheMessagesJson && assistantText) {
+          this.responseCache.set(
+            activeProvider.modelInfo().name,
+            activeProvider.modelInfo().id ?? "",
+            cacheMessagesJson,
+            assistantText,
+          );
+        }
         break;
       }
 
