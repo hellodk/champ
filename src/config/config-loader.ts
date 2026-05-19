@@ -146,6 +146,13 @@ export interface TelemetryConfig {
   timeoutMs?: number;
 }
 
+export interface FallbackConfig {
+  /** If primary provider fails with an error, try these in order */
+  providers?: string[];
+  /** Max retries per provider before trying the next fallback. Default: 1 */
+  maxRetries?: number;
+}
+
 export interface ChampConfig {
   provider?: ProviderName;
   providers?: Partial<Record<ProviderName, ProviderConfig>>;
@@ -157,6 +164,7 @@ export interface ChampConfig {
   triggers?: TriggerDefinition[];
   routing?: RoutingConfig;
   telemetry?: TelemetryConfig;
+  fallback?: FallbackConfig;
 }
 
 const VALID_PROVIDERS: ProviderName[] = [
@@ -707,6 +715,34 @@ export class ConfigLoader {
       }
     }
 
+    // fallback
+    if (raw.fallback !== undefined && raw.fallback !== null) {
+      if (typeof raw.fallback !== "object" || Array.isArray(raw.fallback)) {
+        errors.push("`fallback` must be an object");
+      } else {
+        const fb = raw.fallback as Record<string, unknown>;
+        const out: FallbackConfig = {};
+        if ("providers" in fb) {
+          if (
+            !Array.isArray(fb.providers) ||
+            fb.providers.some((p) => typeof p !== "string")
+          ) {
+            errors.push("fallback.providers must be an array of strings");
+          } else {
+            out.providers = fb.providers as string[];
+          }
+        }
+        if ("maxRetries" in fb) {
+          if (typeof fb.maxRetries !== "number" || fb.maxRetries < 1) {
+            errors.push("fallback.maxRetries must be a number >= 1");
+          } else {
+            out.maxRetries = fb.maxRetries;
+          }
+        }
+        result.fallback = out;
+      }
+    }
+
     return { errors, config: result };
   }
 
@@ -769,6 +805,10 @@ export class ConfigLoader {
 
     if (override.telemetry) {
       result.telemetry = { ...result.telemetry, ...override.telemetry };
+    }
+
+    if (override.fallback) {
+      result.fallback = { ...result.fallback, ...override.fallback };
     }
 
     return result;
