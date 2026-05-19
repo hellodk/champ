@@ -93,6 +93,7 @@ import {
 import { DiffOverlayController } from "./ui/diff-overlay-controller";
 import { CircuitBreaker } from "./providers/circuit-breaker";
 import { FallbackProvider } from "./providers/fallback-provider";
+import { RateLimitedProvider } from "./providers/rate-limited-provider";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -123,6 +124,9 @@ let activeWorkflowSession: WorkflowSession | undefined;
 let workflowStore: WorkflowStore | undefined;
 let teamRunStore: TeamRunStore | undefined;
 let teamLoader: TeamLoader | undefined;
+
+// Track active run counts per team name for concurrent run titling.
+const activeRunCounts = new Map<string, number>();
 
 /**
  * Eagerly trigger the semantic index on extension activation so search is
@@ -1191,6 +1195,10 @@ export async function activate(
       } else {
         agentController.reset();
       }
+      // Reset session token accumulators for the new chat.
+      sessionInputTokens = 0;
+      sessionOutputTokens = 0;
+      chatViewProvider?.broadcastSessionTokenUsage(0, 0, 0);
       chatViewProvider?.postMessage({
         type: "conversationHistory",
         messages: [],
@@ -1554,6 +1562,7 @@ export async function activate(
           agentManager.setActive(sessionId);
           sessionInputTokens = 0;
           sessionOutputTokens = 0;
+          chatViewProvider?.broadcastSessionTokenUsage(0, 0, 0);
           const session = agentManager.getActive();
           if (session) {
             // Swap the chat view's agent to the new session's controller.
@@ -2127,7 +2136,13 @@ export async function activate(
         });
         if (!userRequest) return;
 
-        const panel = new TeamPanel(context.extensionUri, selectedTeam.name);
+        const runCount = (activeRunCounts.get(selectedTeam.name) ?? 0) + 1;
+        activeRunCounts.set(selectedTeam.name, runCount);
+        const panelTitle =
+          runCount > 1
+            ? `${selectedTeam.name} [${runCount}]`
+            : selectedTeam.name;
+        const panel = new TeamPanel(context.extensionUri, panelTitle);
         const runner = new TeamRunner();
         const abortController = new AbortController();
 
@@ -2212,6 +2227,14 @@ export async function activate(
                 `Team run failed: ${event.message}`,
               );
               panel.update(event.state);
+            }
+            if (event.type === "complete" || event.type === "error") {
+              const currentCount = activeRunCounts.get(selectedTeam!.name) ?? 1;
+              if (currentCount <= 1) {
+                activeRunCounts.delete(selectedTeam!.name);
+              } else {
+                activeRunCounts.set(selectedTeam!.name, currentCount - 1);
+              }
             }
           },
         });
@@ -2317,6 +2340,31 @@ export async function activate(
         pick.record.state.teamName,
       );
       panel.update(pick.record.state);
+    }),
+    vscode.commands.registerCommand("champ.quickOpenTeamRun", async () => {
+      if (!teamRunStore) {
+        void vscode.window.showErrorMessage("Champ: open a workspace first.");
+        return;
+      }
+      const records = await teamRunStore.loadAll();
+      if (records.length === 0) {
+        void vscode.window.showInformationMessage("No team run history.");
+        return;
+      }
+      const items = records.slice(0, 10).map((r) => ({
+        label: r.state.teamName,
+        description: `${r.state.status} · ${new Date(r.state.startTime).toLocaleString()}`,
+        detail: `${r.state.agents.length} agents · ${(r.state.totalTokens ?? 0).toLocaleString()} tokens`,
+        runId: r.state.runId,
+        state: r.state,
+      }));
+      const picked = await vscode.window.showQuickPick(items, {
+        title: "Recent Team Runs",
+        placeHolder: "Select a run to open",
+      });
+      if (!picked) return;
+      const viewPanel = new TeamPanel(context.extensionUri, picked.label);
+      viewPanel.update(picked.state);
     }),
     vscode.commands.registerCommand(
       "champ.resumeTeamRun",
@@ -2927,6 +2975,19 @@ export async function activate(
             : wrappedPrimary;
       } else {
         newProvider = wrappedPrimary;
+      }
+      // Wrap in RateLimitedProvider if a requestsPerMinute limit is configured.
+      if (yamlConfig?.rateLimit?.requestsPerMinute) {
+        const rateLimited = new RateLimitedProvider(
+          newProvider,
+          yamlConfig.rateLimit,
+        );
+        rateLimited.setWarningCallback((used, limit) => {
+          void vscode.window.showWarningMessage(
+            `Champ: ${used}/${limit} API requests used in the last 60 seconds. Approaching rate limit.`,
+          );
+        });
+        newProvider = rateLimited;
       }
       // Apply mode and userRules from YAML if present.
       if (yamlConfig?.agent?.defaultMode) {

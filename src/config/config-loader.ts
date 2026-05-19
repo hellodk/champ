@@ -153,6 +153,13 @@ export interface FallbackConfig {
   maxRetries?: number;
 }
 
+export interface RateLimitConfig {
+  /** Maximum number of LLM requests allowed per 60-second window. Default: unlimited. */
+  requestsPerMinute?: number;
+  /** Fraction of the limit (0–1) at which a warning is surfaced. Default: 0.8. */
+  warningAt?: number;
+}
+
 export interface ChampConfig {
   provider?: ProviderName;
   providers?: Partial<Record<ProviderName, ProviderConfig>>;
@@ -165,6 +172,7 @@ export interface ChampConfig {
   routing?: RoutingConfig;
   telemetry?: TelemetryConfig;
   fallback?: FallbackConfig;
+  rateLimit?: RateLimitConfig;
 }
 
 const VALID_PROVIDERS: ProviderName[] = [
@@ -743,6 +751,40 @@ export class ConfigLoader {
       }
     }
 
+    // rateLimit
+    if (raw.rateLimit !== undefined && raw.rateLimit !== null) {
+      if (typeof raw.rateLimit !== "object" || Array.isArray(raw.rateLimit)) {
+        errors.push("`rateLimit` must be an object");
+      } else {
+        const rl = raw.rateLimit as Record<string, unknown>;
+        const out: RateLimitConfig = {};
+        if ("requestsPerMinute" in rl) {
+          if (
+            typeof rl.requestsPerMinute !== "number" ||
+            rl.requestsPerMinute < 1
+          ) {
+            errors.push("rateLimit.requestsPerMinute must be a number >= 1");
+          } else {
+            out.requestsPerMinute = rl.requestsPerMinute;
+          }
+        }
+        if ("warningAt" in rl) {
+          if (
+            typeof rl.warningAt !== "number" ||
+            rl.warningAt < 0 ||
+            rl.warningAt > 1
+          ) {
+            errors.push("rateLimit.warningAt must be a number between 0 and 1");
+          } else {
+            out.warningAt = rl.warningAt;
+          }
+        }
+        if (errors.length === 0) {
+          result.rateLimit = out;
+        }
+      }
+    }
+
     return { errors, config: result };
   }
 
@@ -809,6 +851,10 @@ export class ConfigLoader {
 
     if (override.fallback) {
       result.fallback = { ...result.fallback, ...override.fallback };
+    }
+
+    if (override.rateLimit) {
+      result.rateLimit = { ...result.rateLimit, ...override.rateLimit };
     }
 
     return result;

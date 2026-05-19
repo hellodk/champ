@@ -165,6 +165,10 @@
         "title": "Champ: List Team Run History"
       },
       {
+        "command": "champ.quickOpenTeamRun",
+        "title": "Champ: Quick Open Team Run"
+      },
+      {
         "command": "champ.resumeTeamRun",
         "title": "Champ: Resume Team Run"
       },
