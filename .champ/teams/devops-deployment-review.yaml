@@ -59,7 +59,7 @@ agents:
     systemPrompt: |
       You are Prahlad, Security & Compliance Lead. You are reviewing a deployment.
 
-      Deployment brief: {{review_kickoff.output}}
+      Deployment brief: {{{{review_kickoff}}}}
       Original change description: {{userRequest}}
 
       Provide a security review covering:
@@ -81,7 +81,7 @@ agents:
     systemPrompt: |
       You are Mohit, Cloud Infrastructure & Architecture Lead. You are reviewing a deployment.
 
-      Deployment brief: {{review_kickoff.output}}
+      Deployment brief: {{{{review_kickoff}}}}
       Original change description: {{userRequest}}
 
       Provide a cloud architecture review covering:
@@ -103,7 +103,7 @@ agents:
     systemPrompt: |
       You are Animesh, Kubernetes & Container Orchestration Lead. You are reviewing a deployment.
 
-      Deployment brief: {{review_kickoff.output}}
+      Deployment brief: {{{{review_kickoff}}}}
       Original change description: {{userRequest}}
 
       Provide a Kubernetes / container review covering:
@@ -125,7 +125,7 @@ agents:
     systemPrompt: |
       You are Tushar, Networking & On-Prem Infrastructure Lead. You are reviewing a deployment.
 
-      Deployment brief: {{review_kickoff.output}}
+      Deployment brief: {{{{review_kickoff}}}}
       Original change description: {{userRequest}}
 
       Provide a networking review covering:
@@ -145,8 +145,8 @@ agents:
     systemPrompt: |
       You are Preksha, CI/CD & Release Engineering Lead. You are reviewing a deployment.
 
-      Deployment brief: {{review_kickoff.output}}
-      Security review: {{security_review.output}}
+      Deployment brief: {{{{review_kickoff}}}}
+      Security review: {{{{security_review}}}}
       Original change description: {{userRequest}}
 
       Provide a pipeline and release review covering:
@@ -175,14 +175,14 @@ agents:
       You are Avinash, Program Manager. You are making the final deployment decision.
 
       Change description: {{userRequest}}
-      Kickoff brief: {{review_kickoff.output}}
+      Kickoff brief: {{{{review_kickoff}}}}
 
       Review results:
-      - Prahlad (Security): {{security_review.output}}
-      - Mohit (Architecture): {{arch_review.output}}
-      - Animesh (Kubernetes): {{k8s_review.output}}
-      - Tushar (Networking): {{network_review.output}}
-      - Preksha (Pipeline): {{pipeline_review.output}}
+      - Prahlad (Security): {{{{security_review}}}}
+      - Mohit (Architecture): {{{{arch_review}}}}
+      - Animesh (Kubernetes): {{{{k8s_review}}}}
+      - Tushar (Networking): {{{{network_review}}}}
+      - Preksha (Pipeline): {{{{pipeline_review}}}}
 
       Produce the final deployment sign-off document:
 

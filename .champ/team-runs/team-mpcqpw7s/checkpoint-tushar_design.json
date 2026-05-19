@@ -1,0 +1,10 @@
+{
+  "__workspaceRoot": ".",
+  "__userRequest": "Build a dark-theme nginx dashboard showing active connections, requests, reading/writing/waiting. Auto-refresh every 3s.",
+  "userRequest": "Build a dark-theme nginx dashboard showing active connections, requests, reading/writing/waiting. Auto-refresh every 3s.",
+  "tushar_design_token_usage": {
+    "inputTokens": 505,
+    "outputTokens": 787
+  },
+  "tushar_design": "mkdir -p /tmp/nginx-ui"
+}

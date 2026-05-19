@@ -1,0 +1,20 @@
+{
+  "__workspaceRoot": ".",
+  "__userRequest": "Monday standup. Sprint 23. Release 1.6.146 shipped last Friday. Focus on pipeline stability and mobile readiness review this week.",
+  "userRequest": "Monday standup. Sprint 23. Release 1.6.146 shipped last Friday. Focus on pipeline stability and mobile readiness review this week.",
+  "deepanshu_token_usage": {
+    "inputTokens": 419,
+    "outputTokens": 530
+  },
+  "deepanshu_standup": "1. YESTERDAY: Resolved alert fatigue for CPU thresholds post-1.6.146 release; updated dashboards to include mobile API latency metrics.  \n2. TODAY: Validating pipeline stability with new error tracking integration; refining mobile readiness SLOs for 30% latency reduction.  \n3. BLOCKERS: Missing metrics for mobile SDK crashes; SLO risk for API response times in high-traffic scenarios.  \n4. INCIDENTS: Post-mortem in progress for pipeline outage during Friday's rollout; prioritizing root cause analysis for retry failures.",
+  "tushar_token_usage": {
+    "inputTokens": 421,
+    "outputTokens": 743
+  },
+  "tushar_standup": "1. YESTERDAY: Resolved intermittent connectivity issues between on-prem DCs and cloud gateways, validated BGP peering stability post-1.6.146 release.  \n2. TODAY: Focus on optimizing mobile service routing paths and validating pipeline stability under load; scheduling firewall rule updates for new mobile endpoints.  \n3. BLOCKERS: Pending firewall approvals for mobile service traffic shaping; hardware upgrade for core router nearing end-of-life.  \n4. WATCH: Monitoring latency spikes in east-west traffic; capacity concerns for mobile service during peak hours.",
+  "prahlad_token_usage": {
+    "inputTokens": 418,
+    "outputTokens": 467
+  },
+  "prahlad_standup": "1. YESTERDAY: Completed security review of post-1.6.146 pipeline access logs; no anomalies detected. Updated compliance documentation for mobile feature rollout.  \n2. TODAY: Validating mobile app encryption protocols against GDPR compliance; addressing access control gaps in CI/CD pipeline integrations.  \n3. BLOCKERS: Pending access approval for mobile QA team to production environment; unresolved audit finding on third-party SDK data handling.  \n4. WATCH: CVE-2023-1234 (high-severity) affects pipeline dependencies; mobile app access patterns show 15% deviation from baseline policy."
+}

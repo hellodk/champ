@@ -52,6 +52,9 @@ export interface TeamRunOptions {
   /** Called before each agent (supervised) or group (safe) to request user approval. Return false to skip/stop. */
   onApprovalRequired?: (agentName: string) => Promise<boolean>;
   teamRunStore?: TeamRunStore;
+  /** Optional caller-supplied runId (e.g. from ChampServer). When provided
+   *  the runner uses it so the caller can look up the run by the same ID. */
+  runId?: string;
   /**
    * Called when an agent emits BLOCKED. Resolve with { action: "skip" } to
    * skip and continue, or { action: "retry", context?: string } to re-run
@@ -218,7 +221,7 @@ export class TeamRunner {
     memory: SharedMemory,
     options: TeamRunOptions = {},
   ): Promise<TeamRunState> {
-    const runId = `team-${Date.now().toString(36)}`;
+    const runId = options.runId ?? `team-${Date.now().toString(36)}`;
     const workspaceRoot = options.workspaceRoot ?? process.cwd();
     // Store workspaceRoot in memory so ToolCallingLoop can access it
     memory.set("__workspaceRoot", workspaceRoot);

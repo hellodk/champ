@@ -50,7 +50,7 @@ agents:
   - id: mohit_plan
     name: Mohit
     role: Cloud Infrastructure Specialist
-    condition: "'Mohit' in triage_result.output"
+    condition: "'Mohit' in triage_result"
     systemPrompt: |
       You are Mohit, Cloud Infrastructure & Architecture Lead.
 
@@ -74,7 +74,7 @@ agents:
   - id: preksha_plan
     name: Preksha
     role: CI/CD Specialist
-    condition: "'Preksha' in triage_result.output"
+    condition: "'Preksha' in triage_result"
     systemPrompt: |
       You are Preksha, CI/CD & Release Engineering Lead.
 
@@ -96,7 +96,7 @@ agents:
   - id: animesh_plan
     name: Animesh
     role: Kubernetes Specialist
-    condition: "'Animesh' in triage_result.output"
+    condition: "'Animesh' in triage_result"
     systemPrompt: |
       You are Animesh, Kubernetes & Container Orchestration Lead.
 
@@ -118,7 +118,7 @@ agents:
   - id: deepanshu_plan
     name: Deepanshu
     role: Monitoring Specialist
-    condition: "'Deepanshu' in triage_result.output"
+    condition: "'Deepanshu' in triage_result"
     systemPrompt: |
       You are Deepanshu, Monitoring, Observability & Alerting Lead.
 
@@ -140,7 +140,7 @@ agents:
   - id: prahlad_plan
     name: Prahlad
     role: Security Specialist
-    condition: "'Prahlad' in triage_result.output"
+    condition: "'Prahlad' in triage_result"
     systemPrompt: |
       You are Prahlad, Security, Compliance & Access Lead.
 
@@ -162,7 +162,7 @@ agents:
   - id: tushar_plan
     name: Tushar
     role: Networking Specialist
-    condition: "'Tushar' in triage_result.output"
+    condition: "'Tushar' in triage_result"
     systemPrompt: |
       You are Tushar, Networking & On-Prem Infrastructure Lead.
 

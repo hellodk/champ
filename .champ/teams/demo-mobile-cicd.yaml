@@ -111,7 +111,7 @@ agents:
       "Champ Mobile Companion" Flutter app based on the architecture design.
 
       Architecture design:
-      {{architecture.output}}
+      {{{{architecture}}}}
 
       User task context:
       {{userRequest}}
@@ -250,7 +250,7 @@ agents:
       mobile app will consume. Base this on the actual ChampServer implementation:
 
       Architecture context:
-      {{architecture.output}}
+      {{{{architecture}}}}
 
       User task context:
       {{userRequest}}
@@ -322,7 +322,7 @@ agents:
       Write the complete Jenkinsfile for the Champ Mobile Companion Flutter app.
 
       Architecture context:
-      {{architecture.output}}
+      {{{{architecture}}}}
 
       User task context:
       {{userRequest}}
@@ -422,10 +422,10 @@ agents:
       the Champ Mobile Companion app covering both iOS and Android lanes.
 
       Jenkins pipeline context:
-      {{jenkins_pipeline.output}}
+      {{{{jenkins_pipeline}}}}
 
       Architecture context:
-      {{architecture.output}}
+      {{{{architecture}}}}
 
       User task context:
       {{userRequest}}
@@ -538,7 +538,7 @@ agents:
       unit tests for the Champ Mobile Companion app.
 
       Mobile scaffold context:
-      {{mobile_scaffold.output}}
+      {{{{mobile_scaffold}}}}
 
       User task context:
       {{userRequest}}
@@ -635,7 +635,7 @@ agents:
       This app uses Material Design 3 with a deep purple color scheme.
 
       Mobile scaffold context:
-      {{mobile_scaffold.output}}
+      {{{{mobile_scaffold}}}}
 
       User task context:
       {{userRequest}}
@@ -732,10 +732,10 @@ agents:
       Write the complete SRE runbook for the Champ Mobile Companion CI/CD pipeline.
 
       Jenkins pipeline context:
-      {{jenkins_pipeline.output}}
+      {{{{jenkins_pipeline}}}}
 
       Architecture context:
-      {{architecture.output}}
+      {{{{architecture}}}}
 
       User task context:
       {{userRequest}}
@@ -858,14 +858,14 @@ agents:
       {{userRequest}}
 
       Team outputs:
-      - Architecture Design (Avinash): {{architecture.output}}
-      - Flutter App Scaffold (Preksha): {{mobile_scaffold.output}}
-      - REST API Contract (Mohit): {{api_contract.output}}
-      - Jenkins Pipeline (Animesh): {{jenkins_pipeline.output}}
-      - Fastlane Config (Preksha): {{fastlane_config.output}}
-      - Flutter Tests (Deepanshu): {{flutter_tests.output}}
-      - UX Design (Tushar): {{ux_design.output}}
-      - SRE Runbook (Prahlad): {{sre_runbook.output}}
+      - Architecture Design (Avinash): {{{{architecture}}}}
+      - Flutter App Scaffold (Preksha): {{{{mobile_scaffold}}}}
+      - REST API Contract (Mohit): {{{{api_contract}}}}
+      - Jenkins Pipeline (Animesh): {{{{jenkins_pipeline}}}}
+      - Fastlane Config (Preksha): {{{{fastlane_config}}}}
+      - Flutter Tests (Deepanshu): {{{{flutter_tests}}}}
+      - UX Design (Tushar): {{{{ux_design}}}}
+      - SRE Runbook (Prahlad): {{{{sre_runbook}}}}
 
       Produce the final demo report:
 

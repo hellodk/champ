@@ -1,0 +1,15 @@
+{
+  "__workspaceRoot": ".",
+  "__userRequest": "Monday standup. Sprint 23. Release 1.6.146 shipped last Friday. Focus on pipeline stability and mobile readiness review this week.",
+  "userRequest": "Monday standup. Sprint 23. Release 1.6.146 shipped last Friday. Focus on pipeline stability and mobile readiness review this week.",
+  "mohit_token_usage": {
+    "inputTokens": 454,
+    "outputTokens": 1
+  },
+  "mohit_standup": "",
+  "animesh_token_usage": {
+    "inputTokens": 410,
+    "outputTokens": 1
+  },
+  "animesh_standup": ""
+}

@@ -51,7 +51,7 @@ agents:
       You are Deepanshu, Monitoring & Observability Lead.
 
       Incident brief from Avinash:
-      {{incident_brief.output}}
+      {{{{incident_brief}}}}
 
       Original report: {{userRequest}}
 
@@ -76,8 +76,8 @@ agents:
     systemPrompt: |
       You are Mohit, Cloud Infrastructure Lead.
 
-      Incident: {{incident_brief.output}}
-      Monitoring triage: {{deepanshu_triage.output}}
+      Incident: {{{{incident_brief}}}}
+      Monitoring triage: {{{{deepanshu_triage}}}}
 
       Investigate the cloud infrastructure layer:
       1. CLOUD CHECKS: What would you verify in AWS/GCP/Azure console right now?
@@ -98,8 +98,8 @@ agents:
     systemPrompt: |
       You are Animesh, Kubernetes & Container Orchestration Lead.
 
-      Incident: {{incident_brief.output}}
-      Monitoring triage: {{deepanshu_triage.output}}
+      Incident: {{{{incident_brief}}}}
+      Monitoring triage: {{{{deepanshu_triage}}}}
 
       Investigate the Kubernetes layer:
       1. K8S CHECKS: What kubectl commands and cluster state would you verify first?
@@ -121,8 +121,8 @@ agents:
     systemPrompt: |
       You are Prahlad, Security & Compliance Lead.
 
-      Incident: {{incident_brief.output}}
-      Monitoring triage: {{deepanshu_triage.output}}
+      Incident: {{{{incident_brief}}}}
+      Monitoring triage: {{{{deepanshu_triage}}}}
 
       Assess the security angle:
       1. SECURITY SIGNALS: Any signs of breach, credential leak, or unauthorised access?
@@ -142,8 +142,8 @@ agents:
     systemPrompt: |
       You are Tushar, Networking & On-Prem Infrastructure Lead.
 
-      Incident: {{incident_brief.output}}
-      Monitoring triage: {{deepanshu_triage.output}}
+      Incident: {{{{incident_brief}}}}
+      Monitoring triage: {{{{deepanshu_triage}}}}
 
       Investigate the network layer:
       1. NETWORK CHECKS: Ping tests, traceroutes, BGP peer status, firewall logs —
@@ -164,12 +164,12 @@ agents:
     systemPrompt: |
       You are Avinash, Incident Commander.
 
-      Incident brief: {{incident_brief.output}}
-      Deepanshu (monitoring): {{deepanshu_triage.output}}
-      Mohit (infra): {{mohit_ir.output}}
-      Animesh (k8s): {{animesh_ir.output}}
-      Prahlad (security): {{prahlad_ir.output}}
-      Tushar (network): {{tushar_ir.output}}
+      Incident brief: {{{{incident_brief}}}}
+      Deepanshu (monitoring): {{{{deepanshu_triage}}}}
+      Mohit (infra): {{{{mohit_ir}}}}
+      Animesh (k8s): {{{{animesh_ir}}}}
+      Prahlad (security): {{{{prahlad_ir}}}}
+      Tushar (network): {{{{tushar_ir}}}}
 
       Produce two documents:
 

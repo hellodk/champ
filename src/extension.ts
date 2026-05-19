@@ -1832,99 +1832,114 @@ export async function activate(
         // Hot-reload picks up the change via file watcher automatically
       },
     ),
-    vscode.commands.registerCommand("champ.browseMcpServers", async () => {
-      const client = new McpMarketplaceClient();
-      void vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Notification,
-          title: "Champ: fetching MCP server catalogue…",
-          cancellable: false,
-        },
-        async () => {
-          const entries = await client.fetchManifest();
-          if (entries.length === 0) {
-            void vscode.window.showWarningMessage(
-              "Champ MCP Marketplace: no servers found (check network).",
+    vscode.commands.registerCommand(
+      "champ.browseMcpServers",
+      async (
+        preSelectedEntry?: import("./marketplace/mcp-marketplace-client").McpMarketplaceEntry,
+      ) => {
+        const client = new McpMarketplaceClient();
+        void vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: "Champ: fetching MCP server catalogue…",
+            cancellable: false,
+          },
+          async () => {
+            // When called from the webview marketplace UI with a pre-selected
+            // entry, skip the QuickPick and go straight to install.
+            let entry: import("./marketplace/mcp-marketplace-client").McpMarketplaceEntry;
+            if (preSelectedEntry) {
+              entry = preSelectedEntry;
+            } else {
+              const entries = await client.fetchManifest();
+              if (entries.length === 0) {
+                void vscode.window.showWarningMessage(
+                  "Champ MCP Marketplace: no servers found (check network).",
+                );
+                return;
+              }
+
+              const picks = entries.map((e) => ({
+                label: e.name,
+                description: e.tags.join(", "),
+                detail: e.description,
+                entry: e,
+              }));
+
+              const selected = await vscode.window.showQuickPick(picks, {
+                placeHolder: "Select an MCP server to install",
+                matchOnDescription: true,
+                matchOnDetail: true,
+              });
+              if (!selected) return;
+              entry = selected.entry;
+            }
+
+            // Collect env values from the user if the entry defines env vars.
+            const resolvedEnv: Record<string, string> = {};
+            for (const [key, hint] of Object.entries(entry.env ?? {})) {
+              const value = await vscode.window.showInputBox({
+                prompt: `${key}: ${hint}`,
+                placeHolder: key,
+                ignoreFocusOut: true,
+              });
+              if (value === undefined) return; // user cancelled
+              resolvedEnv[key] = value;
+            }
+
+            const newServer = buildMcpServerConfig(entry, resolvedEnv);
+
+            if (!workspaceRoot) {
+              void vscode.window.showErrorMessage(
+                "Champ: open a workspace to install MCP servers.",
+              );
+              return;
+            }
+
+            const configPath = path.join(
+              workspaceRoot,
+              ".champ",
+              "config.yaml",
             );
-            return;
-          }
+            let rawConfig = "";
+            try {
+              rawConfig = new TextDecoder().decode(
+                await vscode.workspace.fs.readFile(vscode.Uri.file(configPath)),
+              );
+            } catch {
+              rawConfig = "provider: ollama\n";
+            }
 
-          const picks = entries.map((e) => ({
-            label: e.name,
-            description: e.tags.join(", "),
-            detail: e.description,
-            entry: e,
-          }));
+            const yaml = require("js-yaml") as typeof import("js-yaml");
+            const doc = (yaml.load(rawConfig) as Record<string, unknown>) ?? {};
+            if (!doc.mcp) doc.mcp = { servers: [] };
+            const mcp = doc.mcp as { servers: unknown[] };
+            if (!Array.isArray(mcp.servers)) mcp.servers = [];
 
-          const selected = await vscode.window.showQuickPick(picks, {
-            placeHolder: "Select an MCP server to install",
-            matchOnDescription: true,
-            matchOnDetail: true,
-          });
-          if (!selected) return;
-
-          const entry = selected.entry;
-
-          // Collect env values from the user if the entry defines env vars.
-          const resolvedEnv: Record<string, string> = {};
-          for (const [key, hint] of Object.entries(entry.env ?? {})) {
-            const value = await vscode.window.showInputBox({
-              prompt: `${key}: ${hint}`,
-              placeHolder: key,
-              ignoreFocusOut: true,
-            });
-            if (value === undefined) return; // user cancelled
-            resolvedEnv[key] = value;
-          }
-
-          const newServer = buildMcpServerConfig(entry, resolvedEnv);
-
-          if (!workspaceRoot) {
-            void vscode.window.showErrorMessage(
-              "Champ: open a workspace to install MCP servers.",
+            const { wasUpdate } = upsertMcpServer(
+              mcp.servers as import("./mcp/mcp-client").MCPServerConfig[],
+              newServer,
             );
-            return;
-          }
+            mcp.servers = (
+              mcp.servers as import("./mcp/mcp-client").MCPServerConfig[]
+            ).map((s) => s);
 
-          const configPath = path.join(workspaceRoot, ".champ", "config.yaml");
-          let rawConfig = "";
-          try {
-            rawConfig = new TextDecoder().decode(
-              await vscode.workspace.fs.readFile(vscode.Uri.file(configPath)),
+            await vscode.workspace.fs.writeFile(
+              vscode.Uri.file(configPath),
+              new TextEncoder().encode(yaml.dump(doc)),
             );
-          } catch {
-            rawConfig = "provider: ollama\n";
-          }
 
-          const yaml = require("js-yaml") as typeof import("js-yaml");
-          const doc = (yaml.load(rawConfig) as Record<string, unknown>) ?? {};
-          if (!doc.mcp) doc.mcp = { servers: [] };
-          const mcp = doc.mcp as { servers: unknown[] };
-          if (!Array.isArray(mcp.servers)) mcp.servers = [];
-
-          const { wasUpdate } = upsertMcpServer(
-            mcp.servers as import("./mcp/mcp-client").MCPServerConfig[],
-            newServer,
-          );
-          mcp.servers = (
-            mcp.servers as import("./mcp/mcp-client").MCPServerConfig[]
-          ).map((s) => s);
-
-          await vscode.workspace.fs.writeFile(
-            vscode.Uri.file(configPath),
-            new TextEncoder().encode(yaml.dump(doc)),
-          );
-
-          void vscode.window.showInformationMessage(
-            `Champ MCP: server "${entry.name}" ${wasUpdate ? "updated" : "added"}. Reloading…`,
-          );
-          void vscode.commands.executeCommand(
-            "champ.reloadMcpServer",
-            entry.name,
-          );
-        },
-      );
-    }),
+            void vscode.window.showInformationMessage(
+              `Champ MCP: server "${entry.name}" ${wasUpdate ? "updated" : "added"}. Reloading…`,
+            );
+            void vscode.commands.executeCommand(
+              "champ.reloadMcpServer",
+              entry.name,
+            );
+          },
+        );
+      },
+    ), // end champ.browseMcpServers
     vscode.commands.registerCommand(
       "champ.runMultiAgent",
       async (prefilledRequest?: string) => {
@@ -3705,20 +3720,9 @@ export async function activate(
           const all = await teamLoader.loadAll();
           teamToEdit = all.find((t) => t.name === teamName);
         }
-        const builderPanel = new TeamBuilderPanel(
-          context.extensionUri,
-          workspaceRoot,
-          teamToEdit,
-        );
-        builderPanel.onTeamLoaded((team) => {
-          if (chatViewProvider && team) {
-            chatViewProvider.postMessage({
-              type: "teamBuilderLoad",
-              team,
-              existingNames: [],
-            } as import("./ui/messages").TeamBuilderLoadMessage);
-          }
-        });
+        // TeamBuilderPanel manages its own webview and posts teamBuilderLoad
+        // to itself directly — no need to forward to the sidebar chat webview.
+        new TeamBuilderPanel(context.extensionUri, workspaceRoot, teamToEdit);
       },
     ),
     vscode.commands.registerCommand("champ.openRulesEditor", () => {
@@ -3875,11 +3879,12 @@ export async function activate(
       const provider = inlineProviderRef.current;
       if (!provider || provider.name === "not-configured")
         throw new Error("No provider configured");
-      const runId = `api-${Date.now()}`;
+      const runId = `api-${Date.now().toString(36)}`;
       const runner = new TeamRunner();
       void runner.run(team, task, provider, toolRegistry, {
         workspaceRoot: workspaceRoot ?? "",
         teamRunStore,
+        runId,
       });
       return { runId };
     },

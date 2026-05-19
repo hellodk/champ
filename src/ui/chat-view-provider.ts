@@ -727,7 +727,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           }
         })();
       } else if (isMcpMarketplaceInstallRequest(msg)) {
-        void vscode.commands.executeCommand("champ.browseMcpServers");
+        void vscode.commands.executeCommand(
+          "champ.browseMcpServers",
+          msg.entry,
+        );
       } else if (isAcceptHunkAtLineRequest(msg)) {
         this.diffOverlayController?.acceptHunkAtLine(msg.filePath, msg.line);
       } else if (isRejectHunkAtLineRequest(msg)) {

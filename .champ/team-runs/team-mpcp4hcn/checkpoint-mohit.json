@@ -1,0 +1,30 @@
+{
+  "__workspaceRoot": ".",
+  "__userRequest": "Monday standup. Sprint 23. Release 1.6.147 shipped.",
+  "userRequest": "Monday standup. Sprint 23. Release 1.6.147 shipped.",
+  "animesh_token_usage": {
+    "inputTokens": 386,
+    "outputTokens": 456
+  },
+  "animesh_standup": "YESTERDAY: Completed cluster upgrades for 1.6.147, resolved persistent pod restarts in the analytics namespace via resource quota adjustments.  \nTODAY: Optimizing statefulset liveness/readiness probes for the DB cluster; deploying canary rollout for the new API gateway.  \nBLOCKERS: No active cluster instability; monitoring for potential memory pressure in the batch processing pods.  \nWATCH: The legacy logging service shows 12% latency spikes; investigating if it's a temporary network issue or config drift.",
+  "prahlad_token_usage": {
+    "inputTokens": 392,
+    "outputTokens": 457
+  },
+  "prahlad_standup": "1. YESTERDAY: Completed security review for release 1.6.147, validated access controls for new APIs, and resolved one high-risk compliance finding related to data encryption.  \n2. TODAY: Conducting ongoing audit of third-party vendor access permissions and finalizing policy updates for SOC 2 compliance.  \n3. BLOCKERS: Pending access approval for DevOps team to production environment (request #4567) and unresolved audit finding regarding legacy system logging.  \n4. WATCH: CVE-2023-1234 (high severity) detected in dependency chain; mitigating via patch rollout tomorrow.",
+  "tushar_token_usage": {
+    "inputTokens": 395,
+    "outputTokens": 483
+  },
+  "tushar_standup": "**YESTERDAY**: Resolved BGP peer instability in the EU region and completed on-prem firewall rule updates for the new application deployment.  \n**TODAY**: Planning to deploy QoS policies on the core switches and validate VLAN configurations for the upcoming multi-tier application rollout.  \n**BLOCKERS**: Pending firewall approval for a new subnet in the DMZ to support the API gateway expansion.  \n**WATCH**: Observed 15% latency spikes in the east region; investigating potential routing anomalies post-1.6.147 release.",
+  "deepanshu_token_usage": {
+    "inputTokens": 393,
+    "outputTokens": 449
+  },
+  "deepanshu_standup": "1. YESTERDAY: Finalized alert rule optimizations for CPU thresholds and updated the production dashboard with new service metrics, closing 2 critical incidents from Sprint 22.  \n2. TODAY: Implementing synthetic transaction monitoring for the new API gateway and refining alert suppression rules to reduce noise in the dev environment.  \n3. BLOCKERS: Alert fatigue persists in the staging environment due to false positives; missing metrics for the microservice mesh could impact SLOs for the next sprint.  \n4. INCIDENTS: Open incident #12345 (4-hour DB latency spike) under investigation; post-mortem for incident #12346 (cache eviction error) in draft.",
+  "mohit_token_usage": {
+    "inputTokens": 430,
+    "outputTokens": 696
+  },
+  "mohit_standup": "1. YESTERDAY: Completed deployment of the 1.6.147 release across AWS and Azure, resolving ticket #INFRA-4522.  \n2. TODAY: Finalizing multi-cloud cost optimization strategy for Q4, focusing on Kubernetes cluster resizing in GCP.  \n3. BLOCKERS: Waiting on approval for VPC peering between AWS and Azure for the new analytics service (ticket #NET-3011).  \n4. HEALTH: Unusual 15% spike in Azure spot instance costs; investigating potential overprovisioning in the EU-West-1 region."
+}

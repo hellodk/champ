@@ -1,0 +1,15 @@
+{
+  "__workspaceRoot": ".",
+  "__userRequest": "Monday standup. Sprint 23. Release 1.6.147 shipped.",
+  "userRequest": "Monday standup. Sprint 23. Release 1.6.147 shipped.",
+  "animesh_token_usage": {
+    "inputTokens": 386,
+    "outputTokens": 456
+  },
+  "animesh_standup": "YESTERDAY: Completed cluster upgrades for 1.6.147, resolved persistent pod restarts in the analytics namespace via resource quota adjustments.  \nTODAY: Optimizing statefulset liveness/readiness probes for the DB cluster; deploying canary rollout for the new API gateway.  \nBLOCKERS: No active cluster instability; monitoring for potential memory pressure in the batch processing pods.  \nWATCH: The legacy logging service shows 12% latency spikes; investigating if it's a temporary network issue or config drift.",
+  "prahlad_token_usage": {
+    "inputTokens": 392,
+    "outputTokens": 457
+  },
+  "prahlad_standup": "1. YESTERDAY: Completed security review for release 1.6.147, validated access controls for new APIs, and resolved one high-risk compliance finding related to data encryption.  \n2. TODAY: Conducting ongoing audit of third-party vendor access permissions and finalizing policy updates for SOC 2 compliance.  \n3. BLOCKERS: Pending access approval for DevOps team to production environment (request #4567) and unresolved audit finding regarding legacy system logging.  \n4. WATCH: CVE-2023-1234 (high severity) detected in dependency chain; mitigating via patch rollout tomorrow."
+}
