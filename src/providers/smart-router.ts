@@ -50,6 +50,12 @@ export class SmartRouter {
   private discovering = false; // Fix 4: race guard
   private pendingRediscover = false; // missed-wake guard
   private routeCache = new Map<string, RouteResult | null>(); // Fix 6: cache
+  /** User-defined routing rules loaded from config. */
+  private routingRules: Array<{
+    match: string;
+    provider: string;
+    model: string;
+  }> = [];
 
   /**
    * Register a provider that can be scanned for models.
@@ -143,19 +149,57 @@ export class SmartRouter {
   /**
    * Select the best model for a given task. In manual mode, returns the
    * locked selection. In smart mode, scores all models and picks the best.
+   * Pass `currentFile` to allow user routing rules to match by file extension.
    */
-  select(taskType: TaskType): RouteResult | null {
-    // Fix 6: cache lookup
-    const cacheKey = `${taskType}:${this.mode}:${this.manualModelId ?? ""}`;
+  select(taskType: TaskType, currentFile?: string): RouteResult | null {
+    // Fix 6: cache lookup — include currentFile in key when rules exist
+    const cacheKey = `${taskType}:${this.mode}:${this.manualModelId ?? ""}:${this.routingRules.length > 0 ? (currentFile ?? "") : ""}`;
     if (this.routeCache.has(cacheKey))
       return this.routeCache.get(cacheKey) ?? null;
 
-    const result = this._selectUncached(taskType);
+    const result = this._selectUncached(taskType, currentFile);
     this.routeCache.set(cacheKey, result);
     return result;
   }
 
-  private _selectUncached(taskType: TaskType): RouteResult | null {
+  private _selectUncached(
+    taskType: TaskType,
+    currentFile?: string,
+  ): RouteResult | null {
+    // User-defined routing rules take highest priority (before task overrides
+    // and automatic routing). This allows per-file-type or per-task overrides
+    // that map directly to a named provider + model.
+    const userRule = this.checkUserRules(taskType, currentFile);
+    if (userRule) {
+      const entry = this.providerMap.get(userRule.provider);
+      if (entry) {
+        // Build a synthetic DiscoveredModel for the rule-selected model.
+        const ruleModel: DiscoveredModel = {
+          id: userRule.model,
+          providerName: userRule.provider,
+          providerType: entry.type,
+          capabilities: ["general"],
+          speed: "medium",
+          contextWindow: 8192,
+          sizeHint: "unknown",
+          quantizationLevel: "",
+        };
+        // If the model is already discovered, prefer the richer metadata.
+        const discovered = this.models.find(
+          (m) =>
+            m.id === userRule.model && m.providerName === userRule.provider,
+        );
+        return {
+          model: discovered ?? ruleModel,
+          provider: entry.provider,
+          reason: `user rule: ${userRule.provider}/${userRule.model}`,
+        };
+      }
+      console.warn(
+        `Champ SmartRouter: user routing rule references unknown provider "${userRule.provider}" — falling back to auto-routing.`,
+      );
+    }
+
     // Per-task model override from routing config (routing.coding, etc.)
     if (this.taskOverrides.has(taskType)) {
       const override = this.taskOverrides.get(taskType);
@@ -279,6 +323,47 @@ export class SmartRouter {
     // Task override changes affect routing — must invalidate the route cache
     // so the next select() re-evaluates with the new override in effect.
     this.routeCache.clear();
+  }
+
+  /**
+   * Set user-defined routing rules from config. Rules are evaluated before
+   * automatic routing. Pass an empty array to clear all rules.
+   */
+  setRoutingRules(
+    rules: Array<{ match: string; provider: string; model: string }>,
+  ): void {
+    this.routingRules = rules ?? [];
+    this.routeCache.clear();
+  }
+
+  /**
+   * Check user-defined routing rules before auto-routing.
+   * Returns null if no rule matches.
+   */
+  private checkUserRules(
+    taskType: string,
+    currentFile?: string,
+  ): { provider: string; model: string } | null {
+    for (const rule of this.routingRules) {
+      // Match by task type
+      if (rule.match === taskType)
+        return { provider: rule.provider, model: rule.model };
+      // Match by file extension glob
+      if (currentFile && this.matchGlob(rule.match, currentFile)) {
+        return { provider: rule.provider, model: rule.model };
+      }
+    }
+    return null;
+  }
+
+  private matchGlob(pattern: string, filePath: string): boolean {
+    // Simple glob: *.ext matches any file with that extension
+    if (pattern.startsWith("*.")) {
+      const ext = pattern.slice(1); // ".ts"
+      return filePath.endsWith(ext);
+    }
+    // Exact match
+    return pattern === filePath;
   }
 
   onChange(listener: () => void): () => void {

@@ -109,6 +109,18 @@ export interface TriggerDefinition {
   debounceMs?: number;
 }
 
+export interface RoutingRuleConfig {
+  /**
+   * Glob pattern for a file extension (e.g. "*.py", "*.ts") or a task type
+   * name ("coding", "chat", "completion"). Matched in order; first match wins.
+   */
+  match: string;
+  /** Named provider to use when this rule matches. */
+  provider: string;
+  /** Model ID to use when this rule matches. */
+  model: string;
+}
+
 export interface RoutingConfig {
   mode?: "smart" | "manual";
   /** Force a specific model ID for coding tasks. null = auto. */
@@ -116,6 +128,11 @@ export interface RoutingConfig {
   chat?: string | null;
   completion?: string | null;
   embedding?: string | null;
+  /**
+   * User-defined routing rules. Evaluated before automatic routing.
+   * Rules are matched in order; the first matching rule wins.
+   */
+  rules?: RoutingRuleConfig[];
 }
 
 export interface TelemetryConfig {
@@ -604,6 +621,49 @@ export class ConfigLoader {
             } else {
               out[key] = r[key] as string | null;
             }
+          }
+        }
+        if ("rules" in r) {
+          if (!Array.isArray(r.rules)) {
+            pushError("routing.rules must be an array");
+          } else {
+            const rules: RoutingRuleConfig[] = [];
+            for (let idx = 0; idx < (r.rules as unknown[]).length; idx++) {
+              const rule = (r.rules as unknown[])[idx];
+              if (
+                typeof rule !== "object" ||
+                rule === null ||
+                Array.isArray(rule)
+              ) {
+                pushError(`routing.rules[${idx}] must be an object`);
+                continue;
+              }
+              const ru = rule as Record<string, unknown>;
+              if (typeof ru.match !== "string" || !ru.match.trim()) {
+                pushError(
+                  `routing.rules[${idx}].match must be a non-empty string`,
+                );
+                continue;
+              }
+              if (typeof ru.provider !== "string" || !ru.provider.trim()) {
+                pushError(
+                  `routing.rules[${idx}].provider must be a non-empty string`,
+                );
+                continue;
+              }
+              if (typeof ru.model !== "string" || !ru.model.trim()) {
+                pushError(
+                  `routing.rules[${idx}].model must be a non-empty string`,
+                );
+                continue;
+              }
+              rules.push({
+                match: ru.match,
+                provider: ru.provider,
+                model: ru.model,
+              });
+            }
+            out.rules = rules;
           }
         }
         result.routing = out;
