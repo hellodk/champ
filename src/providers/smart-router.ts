@@ -50,6 +50,13 @@ export class SmartRouter {
   private discovering = false; // Fix 4: race guard
   private pendingRediscover = false; // missed-wake guard
   private routeCache = new Map<string, RouteResult | null>(); // Fix 6: cache
+  /**
+   * When set, smart routing is restricted to models from this provider.
+   * Cross-provider routing only happens when null (full smart mode) or when
+   * the user has explicitly configured routing.mode in their YAML.
+   * Set to the YAML `provider:` value so `provider: llamacpp` keeps llamacpp.
+   */
+  private activeProviderName: string | null = null;
   /** User-defined routing rules loaded from config. */
   private routingRules: Array<{
     match: string;
@@ -256,11 +263,24 @@ export class SmartRouter {
 
     if (this.models.length === 0) return null;
 
+    // When the user set an explicit `provider:` in their YAML, restrict routing
+    // to that provider's models. This prevents SmartRouter from silently
+    // switching to a different provider (e.g. ollama) just because it has
+    // higher-scoring models. Cross-provider routing requires explicit config:
+    //   routing:
+    //     mode: smart   # (default locks to active provider — set this to unlock)
+    const candidateModels = this.activeProviderName
+      ? this.models.filter((m) => m.providerName === this.activeProviderName)
+      : this.models;
+    // Fall back to all models if the active provider has none (e.g. offline).
+    const modelPool =
+      candidateModels.length > 0 ? candidateModels : this.models;
+
     let best: DiscoveredModel | null = null;
     let bestScore = -Infinity;
     let bestReason = "";
 
-    for (const model of this.models) {
+    for (const model of modelPool) {
       // Hard-exclude embedding models from non-embedding tasks.
       // The -999 score penalty is a soft signal; this is the hard gate.
       if (
@@ -307,6 +327,21 @@ export class SmartRouter {
 
   getMode(): "smart" | "manual" {
     return this.mode;
+  }
+
+  /**
+   * Restrict smart routing to models from this provider only.
+   * Call with the YAML `provider:` value so the user's explicit choice
+   * is honoured — SmartRouter won't silently switch to a different provider.
+   * Pass null to allow full cross-provider routing.
+   */
+  setActiveProvider(providerName: string | null): void {
+    this.activeProviderName = providerName;
+    this.routeCache.clear();
+  }
+
+  getActiveProvider(): string | null {
+    return this.activeProviderName;
   }
 
   setManualModel(modelId: string): void {

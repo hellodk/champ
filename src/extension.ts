@@ -3200,7 +3200,13 @@ export async function activate(
           }
         }
         // Apply routing config from YAML before first discovery.
+        // Lock SmartRouter to the active YAML provider so it never silently
+        // swaps to a different provider. Set routing.mode: smart to unlock.
+        smartRouter.setActiveProvider(yamlConfig?.provider ?? null);
         if (yamlConfig?.routing) {
+          // routing.mode: smart unlocks full cross-provider routing.
+          if (yamlConfig.routing.mode === "smart")
+            smartRouter.setActiveProvider(null);
           const { mode, coding, chat, completion, embedding, rules } =
             yamlConfig.routing;
           if (mode) smartRouter.setMode(mode);
