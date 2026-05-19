@@ -424,8 +424,9 @@
     "test": "vitest run",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:e2e": "vscode-test",
-    "test:report": "node scripts/run-tests-and-report.js",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:report": "bash scripts/run-e2e.sh",
+    "test:report-legacy": "node scripts/run-tests-and-report.js",
     "lint": "eslint src/ test/ --ext .ts,.tsx",
     "format": "prettier --write 'src/**/*.ts' 'test/**/*.ts' 'webview-ui/src/**/*.tsx'",
     "prepare": "husky"
