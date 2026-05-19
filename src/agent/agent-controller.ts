@@ -167,6 +167,10 @@ export interface ProcessMessageResult {
 }
 
 export type StreamDeltaListener = (delta: StreamDelta) => void;
+export type IterationStartListener = (
+  iteration: number,
+  totalTokens: number,
+) => void;
 
 /**
  * Optional grounding source. If supplied, AgentController calls
@@ -214,6 +218,7 @@ const MODE_INSTRUCTIONS: Record<AgentMode, string> = {
 export class AgentController {
   private history: LLMMessage[] = [];
   private streamListeners = new Set<StreamDeltaListener>();
+  private iterationStartListeners = new Set<IterationStartListener>();
   private workspaceRoot: string;
   private provider: LLMProvider;
   private repoMapProvider: RepoMapProvider | undefined;
@@ -379,6 +384,16 @@ export class AgentController {
   onStreamDelta(listener: StreamDeltaListener): () => void {
     this.streamListeners.add(listener);
     return () => this.streamListeners.delete(listener);
+  }
+
+  /**
+   * Register a listener called at the start of each agent iteration with
+   * the current iteration index (0-based) and the cumulative token count
+   * so far. Used by the UI to show a live progress indicator during long runs.
+   */
+  onIterationStart(listener: IterationStartListener): () => void {
+    this.iterationStartListeners.add(listener);
+    return () => this.iterationStartListeners.delete(listener);
   }
 
   /**
@@ -588,6 +603,16 @@ export class AgentController {
     for (let iteration = 0; iteration < maxIterations; iteration++) {
       if (options.abortSignal?.aborted) break;
       iterationRan = true;
+
+      // Emit iteration start event so the UI can display live progress.
+      this.emitIterationStart(iteration, totalInputTokens + totalOutputTokens);
+
+      // Yield to the event loop between iterations. This keeps the VS Code
+      // extension host responsive and allows cancellation signals (abort,
+      // UI interactions) to be processed between agent steps.
+      if (iteration > 0) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
 
       const pendingToolCalls: ToolCall[] = [];
       let assistantText = "";
@@ -1096,6 +1121,16 @@ ${result.output}
       } catch {
         // Swallow listener errors to prevent one bad consumer from
         // breaking the stream.
+      }
+    }
+  }
+
+  private emitIterationStart(iteration: number, totalTokens: number): void {
+    for (const listener of this.iterationStartListeners) {
+      try {
+        listener(iteration, totalTokens);
+      } catch {
+        // Swallow listener errors — analytics/UI consumers must not break the loop.
       }
     }
   }

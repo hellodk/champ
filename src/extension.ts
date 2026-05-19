@@ -91,6 +91,8 @@ import {
   upsertMcpServer,
 } from "./marketplace/mcp-marketplace-client";
 import { DiffOverlayController } from "./ui/diff-overlay-controller";
+import { CircuitBreaker } from "./providers/circuit-breaker";
+import { FallbackProvider } from "./providers/fallback-provider";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -245,6 +247,18 @@ export async function activate(
   // 5-minute TTL; shared across the session. Cleared on new conversation.
   const responseCache = new ResponseCache(5);
   agentController.setResponseCache(responseCache);
+
+  // ---- Iteration progress reporting -----------------------------------
+  // Update the status bar with live step count during long agent runs.
+  // The listener is registered once and fires every time a new iteration
+  // begins, allowing the user to see that the agent is still active.
+  agentController.onIterationStart((iteration, totalTokens) => {
+    // Update status bar with iteration info during long runs
+    if (statusBarItem) {
+      statusBarItem.text = `$(sync~spin) Champ: thinking (step ${iteration + 1})`;
+    }
+    void totalTokens; // available for future telemetry / cost display
+  });
 
   // ---- Agent Manager (multi-session orchestrator) --------------------
   agentManager = new AgentManager(
@@ -2877,12 +2891,48 @@ export async function activate(
           if (memoryBank) sess.controller.setMemoryBank(memoryBank);
         }
       });
-      const newProvider = yamlConfig
+      const rawProvider = yamlConfig
         ? await factory.createFromChampConfig(yamlConfig, context.secrets)
         : await factory.createFromConfig(
             vscode.workspace.getConfiguration("champ"),
             context.secrets,
           );
+      // Wrap primary provider in a CircuitBreaker so repeated failures stop
+      // hammering a known-bad endpoint.
+      const wrappedPrimary = new CircuitBreaker(rawProvider);
+      // If fallback providers are configured, build a FallbackProvider chain
+      // where each provider is individually wrapped in its own CircuitBreaker.
+      let newProvider: LLMProvider;
+      if (yamlConfig?.fallback?.providers?.length) {
+        const fallbackProviders: LLMProvider[] = [wrappedPrimary];
+        for (const fallbackName of yamlConfig.fallback.providers) {
+          try {
+            const fallbackBase = await factory.createFromChampConfig(
+              {
+                ...yamlConfig,
+                provider:
+                  fallbackName as import("./config/config-loader").ProviderName,
+              },
+              context.secrets,
+            );
+            fallbackProviders.push(new CircuitBreaker(fallbackBase));
+          } catch (err) {
+            console.warn(
+              `Champ: failed to create fallback provider "${fallbackName}":`,
+              err,
+            );
+          }
+        }
+        newProvider =
+          fallbackProviders.length > 1
+            ? new FallbackProvider(
+                fallbackProviders,
+                yamlConfig.fallback.maxRetries ?? 1,
+              )
+            : wrappedPrimary;
+      } else {
+        newProvider = wrappedPrimary;
+      }
       // Apply mode and userRules from YAML if present.
       if (yamlConfig?.agent?.defaultMode) {
         agentController.setMode(yamlConfig.agent.defaultMode);
