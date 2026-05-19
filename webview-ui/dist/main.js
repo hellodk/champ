@@ -262,9 +262,20 @@
     // Only show entries from last 10 minutes.
     const now = Date.now();
     const recent = recentlyDeleted.filter(e => now - e.deletedAt < 10 * 60 * 1000);
-    if (recent.length === 0) return;
+    if (recent.length === 0) {
+      trashStrip.hidden = true;
+      return;
+    }
+    trashStrip.hidden = false;
+    const labelRow = el('div', { class: 'trash-label-row' });
     const label = el('div', { class: 'trash-label' }, ['Recently deleted']);
-    trashStrip.append(label);
+    const dismissBtn = el('button', { class: 'trash-dismiss', title: 'Dismiss' }, ['×']);
+    dismissBtn.addEventListener('click', () => {
+      recentlyDeleted.length = 0;
+      renderTrashStrip();
+    });
+    labelRow.append(label, dismissBtn);
+    trashStrip.append(labelRow);
     for (const entry of recent) {
       const row = el('div', { class: 'trash-row' });
       const name = el('span', { class: 'trash-name' }, [(entry.label || 'New chat').slice(0, 28)]);
@@ -543,7 +554,10 @@
     renderActivityLog();
   });
 
-  actionBar.append(mcpBtn, multiAgentBtn, activityBtn, compactBtn, deleteChatBtn, copyChatBtn, actionSpacer);
+  const teamsActionBtn = actionBtn('codicon-organization', 'Run agent team', () => {
+    vscode.postMessage({ type: 'runTeam' });
+  });
+  actionBar.append(mcpBtn, multiAgentBtn, activityBtn, teamsActionBtn, compactBtn, deleteChatBtn, copyChatBtn, actionSpacer);
 
   // -------------------------------------------------------------------
   // Mode-aware empty state content (must be defined before renderEmptyState() is
