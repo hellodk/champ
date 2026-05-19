@@ -220,6 +220,18 @@ export class ConfigLoader {
       parsed = yaml.load(text);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("duplicated mapping key")) {
+        // Extract the duplicate key name from the error message for a helpful hint.
+        const keyMatch = msg.match(
+          /duplicated mapping key.*?(?:\n.*?\n.*?\n\s*(\w[\w.-]*):|$)/s,
+        );
+        const dupKey = keyMatch?.[1] ?? "a provider";
+        throw new Error(
+          `Invalid YAML: duplicate key "${dupKey}" in providers section. ` +
+            `Open .champ/config.yaml and remove the duplicate block, keeping only one "${dupKey}:" entry. ` +
+            `Original error: ${msg}`,
+        );
+      }
       throw new Error(`Invalid YAML: ${msg}`);
     }
 

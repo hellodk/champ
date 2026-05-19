@@ -59,7 +59,7 @@ export class CircuitBreaker implements LLMProvider {
         this.state = "half-open";
       } else {
         throw new Error(
-          `Circuit open for provider "${this.inner.name}" — cooling down after ${this.failures} failures`,
+          `Circuit open for provider "${this.inner.name}" after ${this.failures} failures. Run "Champ: Reload Provider" (Ctrl+Shift+P) to reset, or wait ${Math.ceil(this.recoveryTimeMs / 1000)}s for automatic retry.`,
         );
       }
     }
@@ -116,7 +116,7 @@ export class CircuitBreaker implements LLMProvider {
         this.state = "half-open";
       } else {
         throw new Error(
-          `Circuit open for provider "${this.inner.name}" — cooling down after ${this.failures} failures`,
+          `Circuit open for provider "${this.inner.name}" after ${this.failures} failures. Run "Champ: Reload Provider" (Ctrl+Shift+P) to reset, or wait ${Math.ceil(this.recoveryTimeMs / 1000)}s for automatic retry.`,
         );
       }
     }
