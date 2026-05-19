@@ -12,6 +12,11 @@ export type TaskType = "coding" | "chat" | "completion" | "embedding";
 export type ModelCapability = "coding" | "general" | "embedding" | "instruct";
 export type ModelSpeed = "fast" | "medium" | "slow";
 
+export type ModelSource =
+  | "discovered" // confirmed by querying the server — safe to route
+  | "static-cloud" // cloud provider catalog (Claude, OpenAI, Gemini) — valid when API key set
+  | "config-fallback"; // guessed from YAML config when server offline — DO NOT route
+
 export interface DiscoveredModel {
   id: string;
   providerName: string;
@@ -20,7 +25,9 @@ export interface DiscoveredModel {
   speed: ModelSpeed;
   contextWindow: number;
   sizeHint: string;
-  quantizationLevel: string; // Fix 7: e.g. "Q4_0", "Q4_K_M", "F16", ""
+  quantizationLevel: string; // e.g. "Q4_0", "Q4_K_M", "F16", ""
+  /** How this model entered the registry. Only "discovered" and "static-cloud" are routed. */
+  source?: ModelSource;
 }
 
 export interface RouteResult {
@@ -191,13 +198,25 @@ export class SmartRouter {
           sizeHint: "unknown",
           quantizationLevel: "",
         };
-        // If the model is already discovered, prefer the richer metadata.
+        // Prefer the richer discovered metadata if the model was confirmed.
         const discovered = this.models.find(
           (m) =>
-            m.id === userRule.model && m.providerName === userRule.provider,
+            m.id === userRule.model &&
+            m.providerName === userRule.provider &&
+            m.source !== "config-fallback",
         );
+        if (!discovered) {
+          console.warn(
+            `Champ SmartRouter: user routing rule model "${userRule.model}" was not found on provider "${userRule.provider}" — routing anyway per user config.`,
+          );
+        }
+        // User explicitly requested this model — honour it even if unverified.
+        // Use source "static-cloud" so the routing guard doesn't block it.
         return {
-          model: discovered ?? ruleModel,
+          model: discovered ?? {
+            ...ruleModel,
+            source: "static-cloud" as const,
+          },
           provider: entry.provider,
           reason: `user rule: ${userRule.provider}/${userRule.model}`,
         };
@@ -272,15 +291,28 @@ export class SmartRouter {
     const candidateModels = this.activeProviderName
       ? this.models.filter((m) => m.providerName === this.activeProviderName)
       : this.models;
-    // Fall back to all models if the active provider has none (e.g. offline).
+    // Exclude config-fallback models from routing at the pool level too.
+    // They are placeholders only — the server never confirmed they exist.
+    const routableCandidates = candidateModels.filter(
+      (m) => m.source !== "config-fallback",
+    );
+    const routableAll = this.models.filter(
+      (m) => m.source !== "config-fallback",
+    );
+    // Fall back to all routable models if the active provider has none reachable.
     const modelPool =
-      candidateModels.length > 0 ? candidateModels : this.models;
+      routableCandidates.length > 0 ? routableCandidates : routableAll;
 
     let best: DiscoveredModel | null = null;
     let bestScore = -Infinity;
     let bestReason = "";
 
     for (const model of modelPool) {
+      // Never route to a config-fallback model — it exists only for the UI
+      // picker and was never confirmed by the server. Routing to it would
+      // produce a "model not found" error (exactly the original qwen bug).
+      if (model.source === "config-fallback") continue;
+
       // Hard-exclude embedding models from non-embedding tasks.
       // The -999 score penalty is a soft signal; this is the hard gate.
       if (
@@ -475,6 +507,7 @@ export class SmartRouter {
             providerType: entry.type,
             ...classified,
             contextWindow: 8192,
+            source: "discovered" as const,
           });
         }
         if (results.length > 0) return results;
@@ -512,6 +545,7 @@ export class SmartRouter {
             sizeHint,
             quantizationLevel: quantLevel,
             contextWindow: contextLength,
+            source: "discovered" as const,
           });
         }
         if (results.length > 0) return results;
@@ -536,6 +570,7 @@ export class SmartRouter {
             providerType: entry.type,
             ...classified,
             contextWindow: 4096,
+            source: "discovered" as const,
           });
         }
       }
@@ -565,6 +600,7 @@ export class SmartRouter {
             providerType: entry.type,
             ...classified,
             contextWindow: nCtx,
+            source: "discovered" as const,
           });
         }
       } catch {

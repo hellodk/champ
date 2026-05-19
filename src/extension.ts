@@ -384,6 +384,7 @@ export async function activate(
       contextWindow: 200000,
       sizeHint: "unknown",
       quantizationLevel: "",
+      source: "static-cloud" as const,
     },
     {
       id: "claude-sonnet-4-6",
@@ -394,6 +395,7 @@ export async function activate(
       contextWindow: 200000,
       sizeHint: "unknown",
       quantizationLevel: "",
+      source: "static-cloud" as const,
     },
     {
       id: "claude-haiku-4-5",
@@ -404,6 +406,7 @@ export async function activate(
       contextWindow: 200000,
       sizeHint: "unknown",
       quantizationLevel: "",
+      source: "static-cloud" as const,
     },
     {
       id: "claude-sonnet-4-20250514",
@@ -414,6 +417,7 @@ export async function activate(
       contextWindow: 200000,
       sizeHint: "unknown",
       quantizationLevel: "",
+      source: "static-cloud" as const,
     },
     // OpenAI
     {
@@ -425,6 +429,7 @@ export async function activate(
       contextWindow: 128000,
       sizeHint: "unknown",
       quantizationLevel: "",
+      source: "static-cloud" as const,
     },
     {
       id: "gpt-4o-mini",
@@ -435,6 +440,7 @@ export async function activate(
       contextWindow: 128000,
       sizeHint: "unknown",
       quantizationLevel: "",
+      source: "static-cloud" as const,
     },
     {
       id: "o3-mini",
@@ -445,6 +451,7 @@ export async function activate(
       contextWindow: 128000,
       sizeHint: "unknown",
       quantizationLevel: "",
+      source: "static-cloud" as const,
     },
     {
       id: "o1",
@@ -455,6 +462,7 @@ export async function activate(
       contextWindow: 200000,
       sizeHint: "unknown",
       quantizationLevel: "",
+      source: "static-cloud" as const,
     },
     // Gemini (Google)
     {
@@ -466,6 +474,7 @@ export async function activate(
       contextWindow: 1000000,
       sizeHint: "unknown",
       quantizationLevel: "",
+      source: "static-cloud" as const,
     },
     {
       id: "gemini-2.0-flash",
@@ -476,6 +485,7 @@ export async function activate(
       contextWindow: 1000000,
       sizeHint: "unknown",
       quantizationLevel: "",
+      source: "static-cloud" as const,
     },
   ]);
   // Wire SmartRouter into AgentController and AgentManager for per-message
@@ -3241,6 +3251,7 @@ export async function activate(
                   contextWindow: 4096,
                   sizeHint: "unknown",
                   quantizationLevel: "",
+                  source: "config-fallback" as const,
                 },
               ]);
             }
