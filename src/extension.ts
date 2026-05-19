@@ -75,6 +75,7 @@ import { McpRegistry } from "./mcp/mcp-registry";
 import { McpAnalytics } from "./mcp/mcp-analytics";
 import { TriggerManager } from "./agent/trigger-manager";
 import { MemoryBank } from "./memory/memory-bank";
+import { GlobalMemoryBank } from "./memory/global-memory-bank";
 import { WorkflowStore, type WorkflowRun } from "./ui/workflow-store";
 import { TeamRunStore } from "./ui/team-run-store";
 import { WorkflowSession } from "./ui/workflow-session";
@@ -95,6 +96,7 @@ import { DiffOverlayController } from "./ui/diff-overlay-controller";
 import { CircuitBreaker } from "./providers/circuit-breaker";
 import { FallbackProvider } from "./providers/fallback-provider";
 import { RateLimitedProvider } from "./providers/rate-limited-provider";
+import { AuditLog } from "./observability/audit-log";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
@@ -106,6 +108,7 @@ let metrics: MetricsCollector | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
 let agentManager: AgentManager | undefined;
 let sessionStore: SessionStore | undefined;
+let auditLog: AuditLog | undefined;
 let smartRouter: SmartRouter | undefined;
 let cachedYamlConfig: import("./config/config-loader").ChampConfig | null =
   null;
@@ -191,6 +194,20 @@ export async function activate(
     createCodebaseSearchTool(() => indexingService ?? null),
   );
 
+  // ---- Audit log middleware: intercept every tool call ----------------
+  // Wrap toolRegistry.execute() so every tool invocation is logged to the
+  // append-only hash-chain audit log before the real tool runs.
+  const _originalRegistryExecute = toolRegistry.execute.bind(toolRegistry);
+  toolRegistry.execute = async (name, args, context) => {
+    const details = `tool=${name} args=${JSON.stringify(args).slice(0, 200)}`;
+    auditLog?.record(
+      "tool_call",
+      details,
+      (context as { sessionId?: string }).sessionId,
+    );
+    return _originalRegistryExecute(name, args, context);
+  };
+
   // ---- Status bar item -----------------------------------------------
   statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
@@ -212,6 +229,12 @@ export async function activate(
   const workspaceRoot =
     vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
 
+  // ---- Audit log (tamper-evident append-only log of all agent actions) ----
+  auditLog = new AuditLog(workspaceRoot);
+  void auditLog.initialize().catch((err) => {
+    console.warn("[Champ] AuditLog initialization failed:", err);
+  });
+
   function estimateTeamCost(
     team: import("./agent/team-definition").TeamDefinition,
   ): {
@@ -231,6 +254,8 @@ export async function activate(
   const rulesEngine = new RulesEngine(workspaceRoot ?? "");
 
   const memoryBank = workspaceRoot ? new MemoryBank(workspaceRoot) : null;
+
+  const globalMemoryBank = new GlobalMemoryBank();
 
   const checkpointManager = workspaceRoot
     ? new CheckpointManager(workspaceRoot)
@@ -1036,6 +1061,7 @@ export async function activate(
               cachedYamlConfig?.agent?.promptGuard?.enabled !== false;
             activeSession.controller.setPromptGuardEnabled(guardEnabled);
             if (memoryBank) activeSession.controller.setMemoryBank(memoryBank);
+            activeSession.controller.setGlobalMemoryBank(globalMemoryBank);
           }
           if (!activeSession) {
             stream.markdown("Champ: session unavailable.");
@@ -1211,6 +1237,7 @@ export async function activate(
           .join("\n\n");
         if (rulesContent) session.controller.setProjectRules(rulesContent);
         if (memoryBank) session.controller.setMemoryBank(memoryBank);
+        session.controller.setGlobalMemoryBank(globalMemoryBank);
         chatViewProvider?.setAgent(session.controller);
         void saveSession(session.metadata.id);
         broadcastSessionList();
@@ -1615,6 +1642,7 @@ export async function activate(
         .join("\n\n");
       if (rulesContent) session.controller.setProjectRules(rulesContent);
       if (memoryBank) session.controller.setMemoryBank(memoryBank);
+      session.controller.setGlobalMemoryBank(globalMemoryBank);
       // Swap the chat view to the new session's controller.
       chatViewProvider?.setAgent(session.controller);
       void saveSession(session.metadata.id);
@@ -1653,6 +1681,7 @@ export async function activate(
             .join("\n\n");
           if (rulesContent) fresh.controller.setProjectRules(rulesContent);
           if (memoryBank) fresh.controller.setMemoryBank(memoryBank);
+          fresh.controller.setGlobalMemoryBank(globalMemoryBank);
           chatViewProvider?.setAgent(fresh.controller);
           chatViewProvider?.postMessage({
             type: "conversationHistory",
@@ -2949,11 +2978,13 @@ export async function activate(
       const rulesContent = activeRules.map((r) => r.content).join("\n\n");
       agentController.setProjectRules(rulesContent);
       if (memoryBank) agentController.setMemoryBank(memoryBank);
+      agentController.setGlobalMemoryBank(globalMemoryBank);
       agentManager?.listSessions(true).forEach((meta) => {
         const sess = agentManager!.getSession(meta.id);
         if (sess) {
           sess.controller.setProjectRules(rulesContent);
           if (memoryBank) sess.controller.setMemoryBank(memoryBank);
+          sess.controller.setGlobalMemoryBank(globalMemoryBank);
         }
       });
       const rawProvider = yamlConfig
@@ -3425,6 +3456,7 @@ export async function activate(
       await memoryBank.load();
       broadcastMemoryBadge();
     }
+    await globalMemoryBank.load();
 
     // 1. Load provider (reads YAML, creates provider, auto-detects models).
     await loadProvider();
@@ -3465,6 +3497,7 @@ export async function activate(
           .join("\n\n");
         if (rulesContent) initSession.controller.setProjectRules(rulesContent);
         if (memoryBank) initSession.controller.setMemoryBank(memoryBank);
+        initSession.controller.setGlobalMemoryBank(globalMemoryBank);
       }
 
       const activeSession = agentManager.getActive();
@@ -3498,6 +3531,9 @@ export async function activate(
       }
 
       agentManager.onChange((event) => {
+        if (event.type === "sessionCreated") {
+          auditLog?.record("session_start", `session=${event.id}`, event.id);
+        }
         broadcastSessionList();
         if (
           event.type === "sessionCreated" ||
@@ -3628,6 +3664,116 @@ export async function activate(
     }),
   );
 
+  // ---- Global Memory Bank command -------------------------------------------
+  context.subscriptions.push(
+    vscode.commands.registerCommand("champ.openGlobalMemoryBank", () => {
+      const { MemoryPanel } =
+        require("./ui/memory-panel") as typeof import("./ui/memory-panel");
+      MemoryPanel.createOrShow(context.extensionUri, globalMemoryBank);
+    }),
+  );
+
+  // ---- Export Conversation command ------------------------------------------
+  context.subscriptions.push(
+    vscode.commands.registerCommand("champ.exportConversation", async () => {
+      const activeSession = agentManager?.getActive();
+      if (!activeSession) {
+        void vscode.window.showInformationMessage(
+          "No active conversation to export.",
+        );
+        return;
+      }
+
+      const format = await vscode.window.showQuickPick(["Markdown", "JSON"], {
+        placeHolder: "Export format",
+        title: "Export Conversation",
+      });
+      if (!format) return;
+
+      const history = activeSession.controller.getHistory();
+      const sessionName = activeSession.metadata.label || "conversation";
+      const timestamp = new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")
+        .slice(0, 19);
+
+      let content: string;
+      let ext: string;
+
+      if (format === "Markdown") {
+        ext = "md";
+        const lines = [
+          `# ${sessionName}`,
+          `*Exported: ${new Date().toLocaleString()}*`,
+          "",
+        ];
+        for (const msg of history) {
+          if (msg.role === "system") continue;
+          const role = msg.role === "user" ? "**You**" : "**Champ**";
+          const text =
+            typeof msg.content === "string"
+              ? msg.content
+              : JSON.stringify(msg.content);
+          lines.push(`## ${role}`, "", text, "");
+        }
+        content = lines.join("\n");
+      } else {
+        ext = "json";
+        content = JSON.stringify(
+          {
+            session: sessionName,
+            exported: new Date().toISOString(),
+            messages: history,
+          },
+          null,
+          2,
+        );
+      }
+
+      const defaultUri = vscode.Uri.file(
+        path.join(
+          workspaceRoot || os.homedir(),
+          `${sessionName}-${timestamp}.${ext}`,
+        ),
+      );
+      const saveUri = await vscode.window.showSaveDialog({
+        defaultUri,
+        filters:
+          format === "Markdown" ? { Markdown: ["md"] } : { JSON: ["json"] },
+        title: "Export Conversation",
+      });
+      if (!saveUri) return;
+
+      await vscode.workspace.fs.writeFile(
+        saveUri,
+        Buffer.from(content, "utf-8"),
+      );
+      void vscode.window.showInformationMessage(
+        `Conversation exported to ${path.basename(saveUri.fsPath)}`,
+      );
+    }),
+  );
+
+  // ---- Audit log verification command ----------------------------------
+  context.subscriptions.push(
+    vscode.commands.registerCommand("champ.verifyAuditLog", async () => {
+      const result = await auditLog?.verify();
+      if (!result) {
+        void vscode.window.showInformationMessage("Champ: No audit log found.");
+        return;
+      }
+      if (result.valid) {
+        void vscode.window.showInformationMessage(
+          `Champ Audit Log: ${result.totalEntries} entries — chain intact.`,
+        );
+      } else {
+        void vscode.window.showErrorMessage(
+          `Champ Audit Log TAMPERED: chain broken at entry ${result.firstBrokenAt ?? "?"} of ${result.totalEntries}.`,
+        );
+      }
+    }),
+  );
+
   console.log("Champ extension activated");
 }
 
@@ -3651,6 +3797,8 @@ export function deactivate(): void {
   metrics = undefined;
   statusBarItem?.dispose();
   statusBarItem = undefined;
+  auditLog?.close();
+  auditLog = undefined;
 }
 
 /**

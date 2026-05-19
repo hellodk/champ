@@ -2,7 +2,7 @@
   "name": "champ",
   "displayName": "Champ - AI Coding Agent",
   "description": "AI coding agent with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "1.6.132",
+  "version": "1.6.133",
   "publisher": "champ-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -221,6 +221,21 @@
       {
         "command": "champ.openMemoryBank",
         "title": "Champ: Open Memory Bank",
+        "category": "Champ"
+      },
+      {
+        "command": "champ.openGlobalMemoryBank",
+        "title": "Champ: Open Global Memory Bank",
+        "category": "Champ"
+      },
+      {
+        "command": "champ.exportConversation",
+        "title": "Champ: Export Conversation",
+        "category": "Champ"
+      },
+      {
+        "command": "champ.verifyAuditLog",
+        "title": "Champ: Verify Audit Log",
         "category": "Champ"
       }
     ],

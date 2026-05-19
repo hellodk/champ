@@ -254,6 +254,7 @@ export class AgentController {
    */
   private projectRules = "";
   private memoryBank: MemoryBank | undefined;
+  private globalMemoryBank: MemoryBank | undefined;
   private editReviewTracker?: import("./edit-review-tracker").EditReviewTracker;
   private responseCache: ResponseCache | null = null;
 
@@ -333,6 +334,11 @@ export class AgentController {
   /** Attach a MemoryBank so cross-session facts are injected into prompts. */
   setMemoryBank(bank: MemoryBank): void {
     this.memoryBank = bank;
+  }
+
+  /** Attach a global (user-level, cross-workspace) MemoryBank. */
+  setGlobalMemoryBank(bank: MemoryBank): void {
+    this.globalMemoryBank = bank;
   }
 
   /** Map agent mode to a SmartRouter task type for model selection. */
@@ -1049,9 +1055,19 @@ export class AgentController {
     const withRules = this.projectRules
       ? `${withMap}\n\n## Project Rules\n\n${this.projectRules}`
       : withMap;
-    const recentCtx = this.memoryBank?.getRecentContext(5);
-    const pinnedCtx = this.memoryBank?.getPinnedContext();
-    const memCtx = [pinnedCtx, recentCtx].filter(Boolean).join("\n\n");
+    const workspaceMemory = [
+      this.memoryBank?.getPinnedContext(),
+      this.memoryBank?.getRecentContext(5),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    const globalPinned = this.globalMemoryBank?.getPinnedContext();
+    const memCtx = [
+      globalPinned ? `## Global preferences\n${globalPinned}` : "",
+      workspaceMemory,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
     const withMemory = memCtx ? `${withRules}\n\n${memCtx}` : withRules;
 
     const fullPrompt =
@@ -1080,9 +1096,19 @@ export class AgentController {
     const withRules = this.projectRules
       ? `${withMap}\n\n## Project Rules\n\n${this.projectRules}`
       : withMap;
-    const recentCtx = this.memoryBank?.getRecentContext(5);
-    const pinnedCtx = this.memoryBank?.getPinnedContext();
-    const memCtx = [pinnedCtx, recentCtx].filter(Boolean).join("\n\n");
+    const workspaceMemory = [
+      this.memoryBank?.getPinnedContext(),
+      this.memoryBank?.getRecentContext(5),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    const globalPinned = this.globalMemoryBank?.getPinnedContext();
+    const memCtx = [
+      globalPinned ? `## Global preferences\n${globalPinned}` : "",
+      workspaceMemory,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
     const content = memCtx ? `${withRules}\n\n${memCtx}` : withRules;
     const systemMsg: LLMMessage = { role: "system", content };
     return this.prependOrMergeSystem(history, systemMsg);
