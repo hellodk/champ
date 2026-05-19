@@ -141,8 +141,18 @@ export class SmartRouter {
             // Emit a partial result immediately so the UI updates as each
             // provider responds — no need to wait for the slowest one.
             const allRaw = Array.from(rawByProvider.values()).flat();
+            // discovered beats config-fallback in partial list too
+            const partialCandidates = [
+              ...allRaw,
+              ...this.staticModels.filter(
+                (m) => m.source !== "config-fallback",
+              ),
+              ...this.staticModels.filter(
+                (m) => m.source === "config-fallback",
+              ),
+            ];
             const seen = new Set<string>();
-            const partial = [...this.staticModels, ...allRaw].filter((m) => {
+            const partial = partialCandidates.filter((m) => {
               const key = `${m.providerName}:${m.id}`;
               if (seen.has(key)) return false;
               seen.add(key);
@@ -163,11 +173,17 @@ export class SmartRouter {
       );
       await Promise.allSettled(promises);
 
-      // Final dedup pass with complete raw results (handles any late arrivals
-      // that lost the race against a previous partial emit).
+      // Final dedup pass — discovered beats config-fallback when the same
+      // model appears in both (e.g. fallback registered before Ollama responded).
+      // Priority: discovered > static-cloud > config-fallback
       const allRaw = Array.from(rawByProvider.values()).flat();
+      const allCandidates = [
+        ...allRaw,
+        ...this.staticModels.filter((m) => m.source !== "config-fallback"),
+        ...this.staticModels.filter((m) => m.source === "config-fallback"),
+      ];
       const seen = new Set<string>();
-      const allModels = [...this.staticModels, ...allRaw].filter((m) => {
+      const allModels = allCandidates.filter((m) => {
         const key = `${m.providerName}:${m.id}`;
         if (seen.has(key)) return false;
         seen.add(key);
@@ -186,6 +202,7 @@ export class SmartRouter {
       // emit when the model list actually changed (prevents UI chatter).
       if (!wasDiscovered || sig !== this.lastModelsSig) {
         this.lastModelsSig = sig;
+        this.routeCache.clear(); // new models = stale routes
         this.emit();
       }
 

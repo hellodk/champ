@@ -2979,9 +2979,25 @@ export async function activate(
    */
   const loadProvider = async (): Promise<void> => {
     setStatusLoading();
+    // Preserve the last known model list during reload — don't wipe available[]
+    // to empty, which causes the picker to appear blank for up to 5 seconds
+    // (discovery duration) while the user tries to select another model.
+    const lastAvailable =
+      smartRouter
+        ?.getModels()
+        .filter(
+          (m) =>
+            !m.capabilities.includes("embedding") &&
+            m.source !== "config-fallback",
+        )
+        .map((m) => ({
+          providerName: m.providerName,
+          modelName: m.id,
+          label: `${m.id} (${m.providerName})`,
+        })) ?? [];
     chatViewProvider?.broadcastProviderStatus({
       state: "loading",
-      available: [],
+      available: lastAvailable,
     });
     let yamlConfig: ChampConfig | null = null;
     // Cache for onWebviewReady re-broadcast.
@@ -3901,6 +3917,19 @@ export async function activate(
       );
     }),
   );
+
+  // Periodic model rediscovery — re-scan all providers every 5 minutes so
+  // newly installed Ollama models (or newly started local servers) appear
+  // in the picker without requiring a manual rescan or window reload.
+  const rediscoveryTimer = setInterval(
+    () => {
+      if (smartRouter) void smartRouter.discover();
+    },
+    5 * 60 * 1000,
+  );
+  context.subscriptions.push({
+    dispose: () => clearInterval(rediscoveryTimer),
+  });
 
   console.log("Champ extension activated");
 }
