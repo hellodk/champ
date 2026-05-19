@@ -26,12 +26,20 @@ export class CircuitBreaker implements LLMProvider {
 
   constructor(
     private readonly inner: LLMProvider,
-    private readonly failureThreshold = 3, // consecutive failures to open
-    private readonly recoveryTimeMs = 30_000, // ms before trying half-open
+    private readonly failureThreshold = 5, // consecutive failures to open (was 3 — too aggressive for LAN)
+    private readonly recoveryTimeMs = 15_000, // ms before trying half-open (was 30s)
   ) {}
 
   get name(): string {
-    return `circuit(${this.inner.name})`;
+    // Return the inner provider's name so the UI shows "ollama" not "circuit(ollama)".
+    return this.inner.name;
+  }
+
+  /** Manually reset the circuit to closed state (e.g. after a server restart). */
+  reset(): void {
+    this.state = "closed";
+    this.failures = 0;
+    this.lastFailureTime = 0;
   }
 
   get config(): LLMProviderConfig {

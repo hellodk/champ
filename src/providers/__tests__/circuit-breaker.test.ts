@@ -202,10 +202,10 @@ describe("CircuitBreaker", () => {
     expect(cb.getState()).toBe("closed");
   });
 
-  it("name wraps inner provider name", () => {
+  it("name returns inner provider name (no circuit() wrapper in UI)", () => {
     const p = makeProvider("my-provider", []);
     const cb = new CircuitBreaker(p);
-    expect(cb.name).toBe("circuit(my-provider)");
+    expect(cb.name).toBe("my-provider");
   });
 
   it("config delegates to inner provider", () => {

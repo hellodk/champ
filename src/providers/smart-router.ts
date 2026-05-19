@@ -35,7 +35,7 @@ interface ProviderEntry {
   baseUrl?: string;
 }
 
-const DISCOVERY_TIMEOUT_MS = 2000;
+const DISCOVERY_TIMEOUT_MS = 5_000; // 5s — allows remote LAN servers (was 2s, too short)
 
 export class SmartRouter {
   private models: DiscoveredModel[] = [];
@@ -287,6 +287,11 @@ export class SmartRouter {
 
   getModels(): DiscoveredModel[] {
     return [...this.models];
+  }
+
+  /** Returns the number of discovered models for a specific provider. */
+  getModelCount(providerName: string): number {
+    return this.models.filter((m) => m.providerName === providerName).length;
   }
 
   isDiscovered(): boolean {

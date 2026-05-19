@@ -1710,6 +1710,16 @@ export async function activate(
     }),
     vscode.commands.registerCommand("champ.rescanModels", () => {
       if (smartRouter) {
+        // Reset any open circuit breakers before rescanning so a previously
+        // unreachable server gets a fresh chance.
+        const current = inlineProviderRef.current;
+        if (
+          current &&
+          "reset" in current &&
+          typeof (current as { reset?: unknown }).reset === "function"
+        ) {
+          (current as { reset: () => void }).reset();
+        }
         void smartRouter.discover();
         void vscode.window.showInformationMessage(
           "Champ: re-scanning all providers for models...",
@@ -3198,6 +3208,32 @@ export async function activate(
             smartRouter.setTaskModel("embedding", embedding ?? null);
           smartRouter.setRoutingRules(rules ?? []);
         }
+        // After discovery completes, register configured model as static fallback
+        // for any provider that returned 0 models (server offline/slow at startup).
+        const unsubFallback = smartRouter.onChange(() => {
+          unsubFallback();
+          if (!yamlConfig?.providers) return;
+          for (const [pName, pConf] of Object.entries(yamlConfig.providers)) {
+            if (!pConf?.model || pConf.model === "default") continue;
+            if (smartRouter!.getModelCount(pName) === 0) {
+              console.log(
+                `Champ SmartRouter: ${pName} returned 0 models after discovery — registering "${pConf.model}" as static fallback`,
+              );
+              smartRouter!.registerStaticModels([
+                {
+                  id: pConf.model,
+                  providerName: pName,
+                  providerType: pName,
+                  capabilities: ["coding", "general"],
+                  speed: "medium",
+                  contextWindow: 4096,
+                  sizeHint: "unknown",
+                  quantizationLevel: "",
+                },
+              ]);
+            }
+          }
+        });
         void smartRouter.discover();
       }
       // Rebuild telemetry exporter whenever config reloads.
