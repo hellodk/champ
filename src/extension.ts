@@ -3241,19 +3241,17 @@ export async function activate(
               console.log(
                 `Champ SmartRouter: ${pName} returned 0 models after discovery — registering "${pConf.model}" as static fallback`,
               );
-              smartRouter!.registerStaticModels([
-                {
-                  id: pConf.model,
-                  providerName: pName,
-                  providerType: pName,
-                  capabilities: ["coding", "general"],
-                  speed: "medium",
-                  contextWindow: 4096,
-                  sizeHint: "unknown",
-                  quantizationLevel: "",
-                  source: "config-fallback" as const,
-                },
-              ]);
+              smartRouter!.appendFallbackModel({
+                id: pConf.model,
+                providerName: pName,
+                providerType: pName,
+                capabilities: ["coding", "general"],
+                speed: "medium",
+                contextWindow: 4096,
+                sizeHint: "unknown",
+                quantizationLevel: "",
+                source: "config-fallback" as const,
+              });
             }
           }
         });
@@ -4002,7 +4000,7 @@ provider: ollama
 providers:
   ollama:
     baseUrl: http://localhost:11434
-    model: qwen2.5-coder:7b-instruct
+    model: ""    # Leave blank — Champ will discover installed models automatically
     # apiKey: your-key-here   # Set if your Ollama endpoint requires auth
                                # Sent as: Authorization: Bearer <apiKey>
 

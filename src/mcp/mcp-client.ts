@@ -375,7 +375,9 @@ export class MCPClientManager {
       console.log(
         `Champ MCP: server "${config.name}" exited with code ${code}`,
       );
-      // Reject and clean up all pending requests.
+      // Reject and clean up all pending requests so that in-flight sendRequest()
+      // promises (including the initialize handshake) resolve immediately with an
+      // error rather than hanging forever when the process exits unexpectedly.
       for (const [, pending] of connection.pendingRequests) {
         clearTimeout(pending.timer);
         pending.reject(new Error(`MCP server exited with code ${code}`));

@@ -33,6 +33,9 @@ export class AuditLog {
   private prevHash = "0".repeat(64); // genesis hash
   readonly logPath: string;
   private readonly maxEntrySizeBytes = 500;
+  /** Hard cap on the pre-init pending queue. Prevents unbounded growth if
+   *  initialize() never completes (e.g. disk full or workspace root missing). */
+  private readonly MAX_PENDING = 100;
   private stream?: fs.WriteStream;
   private pendingQueue: Array<{
     action: AuditActionType;
@@ -74,7 +77,9 @@ export class AuditLog {
 
   record(action: AuditActionType, details: string, sessionId?: string): void {
     if (!this.initialized) {
-      // Queue until stream is ready
+      // Queue until stream is ready; drop silently once the cap is hit to
+      // prevent OOM if initialize() never completes (disk full, missing dir, etc.)
+      if (this.pendingQueue.length >= this.MAX_PENDING) return;
       this.pendingQueue.push({ action, details, sessionId });
       return;
     }

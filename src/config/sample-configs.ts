@@ -37,7 +37,7 @@ provider: ollama
 providers:
   ollama:
     baseUrl: http://localhost:11434
-    model: qwen2.5-coder:7b-instruct
+    model: ""    # Champ discovers installed models automatically
 
 agent:
   defaultMode: agent
@@ -145,13 +145,13 @@ providers:
     model: claude-sonnet-4-20250514
   ollama:
     baseUrl: http://localhost:11434
-    model: qwen2.5-coder:1.5b
+    model: ""    # Champ discovers installed models automatically
 
 autocomplete:
   enabled: true
   debounceMs: 300
   provider: ollama
-  model: qwen2.5-coder:1.5b
+  model: ""    # Champ will use the fastest discovered Ollama model
 
 agent:
   defaultMode: agent

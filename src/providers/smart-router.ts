@@ -95,8 +95,31 @@ export class SmartRouter {
   }
 
   /**
+   * Append a single config-fallback placeholder without wiping the cloud
+   * catalog registered by registerStaticModels(). Called after discovery
+   * when a provider returned 0 models (server offline at startup) — allows
+   * the model picker to show the configured model name as a hint.
+   * Never routes to config-fallback models (see select()).
+   */
+  appendFallbackModel(model: DiscoveredModel): void {
+    // Don't add if already exists (by provider + id) to avoid duplicates
+    // when the config-reload path fires repeatedly.
+    const exists = this.staticModels.some(
+      (m) => m.id === model.id && m.providerName === model.providerName,
+    );
+    if (!exists) {
+      this.staticModels = [...this.staticModels, model];
+      this.routeCache.clear();
+    }
+  }
+
+  /**
    * Discover models from all registered providers in parallel.
    * Non-blocking — call with `void`, don't await during activation.
+   *
+   * Emits incremental onChange events as each provider responds so the
+   * UI can show discovered models immediately without waiting for the
+   * slowest provider to time out.
    */
   async discover(): Promise<void> {
     // Fix 4: debounce concurrent calls; track if a re-discover was requested
@@ -106,24 +129,45 @@ export class SmartRouter {
       return;
     }
     this.discovering = true;
+    // Accumulate raw discovered models per-provider as they resolve.
+    const rawByProvider = new Map<string, DiscoveredModel[]>();
     try {
       const entries = Array.from(this.providerMap.entries());
-      const results = await Promise.allSettled(
-        entries.map(([name, entry]) => this.discoverFromProvider(name, entry)),
+      const promises = entries.map(([name, entry]) =>
+        this.discoverFromProvider(name, entry)
+          .then((models) => {
+            if (models.length === 0) return;
+            rawByProvider.set(name, models);
+            // Emit a partial result immediately so the UI updates as each
+            // provider responds — no need to wait for the slowest one.
+            const allRaw = Array.from(rawByProvider.values()).flat();
+            const seen = new Set<string>();
+            const partial = [...this.staticModels, ...allRaw].filter((m) => {
+              const key = `${m.providerName}:${m.id}`;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
+            this.models = partial;
+            this.discovered = true;
+            const sig = partial
+              .map((m) => `${m.providerName}:${m.id}`)
+              .sort()
+              .join("|");
+            if (sig !== this.lastModelsSig) {
+              this.lastModelsSig = sig;
+              this.emit();
+            }
+          })
+          .catch(() => undefined),
       );
+      await Promise.allSettled(promises);
 
-      const raw: DiscoveredModel[] = [];
-      for (const result of results) {
-        if (result.status === "fulfilled") {
-          raw.push(...result.value);
-        }
-      }
-
-      // Merge static models (cloud providers) with discovered (local providers).
-      // Static models are prepended so discovered ones win on dedup if there
-      // is ever an overlap (e.g. user running Claude-compatible local server).
+      // Final dedup pass with complete raw results (handles any late arrivals
+      // that lost the race against a previous partial emit).
+      const allRaw = Array.from(rawByProvider.values()).flat();
       const seen = new Set<string>();
-      const allModels = [...this.staticModels, ...raw].filter((m) => {
+      const allModels = [...this.staticModels, ...allRaw].filter((m) => {
         const key = `${m.providerName}:${m.id}`;
         if (seen.has(key)) return false;
         seen.add(key);
@@ -139,7 +183,7 @@ export class SmartRouter {
         .sort()
         .join("|");
       // Always emit on first discovery (signals readiness); after that only
-      // emit when the model list actually changes (prevents UI chatter).
+      // emit when the model list actually changed (prevents UI chatter).
       if (!wasDiscovered || sig !== this.lastModelsSig) {
         this.lastModelsSig = sig;
         this.emit();

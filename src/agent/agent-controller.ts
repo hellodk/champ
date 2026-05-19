@@ -257,6 +257,15 @@ export class AgentController {
   private globalMemoryBank: MemoryBank | undefined;
   private editReviewTracker?: import("./edit-review-tracker").EditReviewTracker;
   private responseCache: ResponseCache | null = null;
+  /**
+   * True while a processMessage() call is actively streaming from the LLM.
+   * Used to safely queue provider swaps that arrive mid-flight rather than
+   * swapping the provider under an active stream (which would corrupt history
+   * and potentially cause tool-format mismatches).
+   */
+  private _isStreaming = false;
+  /** Provider swap queued while _isStreaming was true. Applied when the stream ends. */
+  private _pendingProvider: LLMProvider | null = null;
 
   constructor(
     provider: LLMProvider,
@@ -371,8 +380,17 @@ export class AgentController {
    * Hot-swap the active LLM provider. Used when the user changes the
    * provider setting at runtime — the agent picks up the new provider
    * on the next call to processMessage() without needing a re-init.
+   *
+   * If a stream is currently in flight, the swap is queued and applied
+   * atomically after the stream ends to prevent mid-stream provider
+   * corruption (tool-format mismatches, history inconsistency).
    */
   setProvider(provider: LLMProvider): void {
+    if (this._isStreaming) {
+      // Queue the swap — applied after the active stream finishes.
+      this._pendingProvider = provider;
+      return;
+    }
     this.provider = provider;
   }
 
@@ -722,6 +740,7 @@ export class AgentController {
       });
 
       let errorOccurred = false;
+      this._isStreaming = true;
       for await (const delta of stream) {
         if (delta.type === "text" && delta.text) {
           assistantText += delta.text;
@@ -762,6 +781,12 @@ export class AgentController {
         } else {
           this.emit(delta);
         }
+      }
+      // Stream ended — clear the streaming flag and apply any queued provider swap.
+      this._isStreaming = false;
+      if (this._pendingProvider) {
+        this.provider = this._pendingProvider;
+        this._pendingProvider = null;
       }
 
       if (errorOccurred) {
