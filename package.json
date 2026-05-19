@@ -2,7 +2,7 @@
   "name": "champ",
   "displayName": "Champ - AI Coding Agent",
   "description": "AI coding agent with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "1.6.138",
+  "version": "1.6.139",
   "publisher": "champ-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -264,17 +264,17 @@
         "champ.claude.model": {
           "type": "string",
           "default": "claude-sonnet-4-20250514",
-          "markdownDescription": "Claude model ID. API key is stored securely \u2014 run **Champ: Set API Key** to configure it."
+          "markdownDescription": "Claude model ID. API key is stored securely — run **Champ: Set API Key** to configure it."
         },
         "champ.openai.model": {
           "type": "string",
           "default": "gpt-4o",
-          "markdownDescription": "OpenAI model ID. API key is stored securely \u2014 run **Champ: Set API Key** to configure it."
+          "markdownDescription": "OpenAI model ID. API key is stored securely — run **Champ: Set API Key** to configure it."
         },
         "champ.gemini.model": {
           "type": "string",
           "default": "gemini-2.0-flash",
-          "markdownDescription": "Gemini model ID. API key is stored securely \u2014 run **Champ: Set API Key** to configure it."
+          "markdownDescription": "Gemini model ID. API key is stored securely — run **Champ: Set API Key** to configure it."
         },
         "champ.ollama.baseUrl": {
           "type": "string",
@@ -284,7 +284,7 @@
         "champ.ollama.model": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Ollama model tag. Must match an installed model \u2014 run `ollama pull <model>` to install."
+          "markdownDescription": "Ollama model tag. Must match an installed model — run `ollama pull <model>` to install."
         },
         "champ.llamacpp.baseUrl": {
           "type": "string",
