@@ -82,7 +82,7 @@ export class FallbackProvider implements LLMProvider {
           return; // success
         } catch (err) {
           lastError = err instanceof Error ? err : new Error(String(err));
-          // mid-stream error counts as a retry
+          break; // mid-stream: partial content already yielded, skip to next provider
         }
       }
     }
@@ -141,7 +141,7 @@ export class FallbackProvider implements LLMProvider {
           return; // success
         } catch (err) {
           lastError = err instanceof Error ? err : new Error(String(err));
-          // mid-stream error counts as a retry
+          break; // mid-stream: partial content already yielded, skip to next provider
         }
       }
     }

@@ -81,6 +81,7 @@ export class SmartRouter {
     baseUrl?: string,
   ): void {
     this.providerMap.set(name, { provider, type, baseUrl });
+    this.routeCache.clear();
   }
 
   /**

@@ -74,6 +74,7 @@ import {
   isEditUserMessage,
   isRegenerateResponseRequest,
   isSaveSettingsRequest,
+  isCopyToClipboardRequest,
   createSessionList,
   createSessionTokenUsage,
   type ExtensionToWebviewMessage,
@@ -459,6 +460,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           vscode.ConfigurationTarget.Global,
         );
         await vscode.commands.executeCommand("champ.reloadProvider");
+      } else if (isCopyToClipboardRequest(msg)) {
+        // navigator.clipboard is blocked in VS Code webviews — route through extension host
+        void vscode.env.clipboard.writeText(msg.text);
       } else if (isNewChat(msg)) {
         this.handleNewChat();
       } else if (isCancelRequest(msg)) {

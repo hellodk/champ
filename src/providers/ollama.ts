@@ -80,11 +80,9 @@ export class OllamaProvider implements LLMProvider {
   }
 
   supportsToolUse(): boolean {
-    const baseModel = this.config.model.split(":")[0];
-    return (
-      TOOL_CALLING_MODELS.has(this.config.model) ||
-      TOOL_CALLING_MODELS.has(baseModel)
-    );
+    const model = this.config.model.toLowerCase();
+    const baseModel = model.split(":")[0];
+    return TOOL_CALLING_MODELS.has(model) || TOOL_CALLING_MODELS.has(baseModel);
   }
 
   supportsStreaming(): boolean {

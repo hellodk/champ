@@ -44,10 +44,11 @@ export class RateLimiter {
 
     if (used >= this.limit) {
       const oldestInWindow = this.requestTimestamps[0];
-      const waitMs = oldestInWindow + this.windowMs - now;
+      const waitMs = Math.max(0, oldestInWindow + this.windowMs - now);
+      const waitSec = waitMs > 0 ? `${Math.ceil(waitMs / 1000)}s` : "shortly";
       throw new RateLimitError(
         `Rate limit reached: ${used}/${this.limit} requests in the last 60s. ` +
-          `Resets in ${Math.ceil(waitMs / 1000)}s.`,
+          `Resets in ${waitSec}.`,
         waitMs,
       );
     }

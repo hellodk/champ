@@ -636,6 +636,7 @@ export class AgentController {
       // UI interactions) to be processed between agent steps.
       if (iteration > 0) {
         await new Promise<void>((resolve) => setImmediate(resolve));
+        if (options.abortSignal?.aborted) break;
       }
 
       const pendingToolCalls: ToolCall[] = [];

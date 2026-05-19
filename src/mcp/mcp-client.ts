@@ -731,7 +731,7 @@ export class MCPClientManager {
         }
 
         // Handle server-initiated requests (e.g. sampling/createMessage).
-        if (msg.method && msg.id !== undefined) {
+        else if (msg.method && msg.id !== undefined) {
           void this.handleServerRequest(
             connection,
             msg.id,
@@ -741,7 +741,7 @@ export class MCPClientManager {
         }
 
         // Handle server notifications (no id).
-        if (msg.method && msg.id === undefined) {
+        else if (msg.method && msg.id === undefined) {
           this.handleServerNotification(connection, msg.method, msg.params);
         }
       } catch {

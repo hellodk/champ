@@ -157,6 +157,9 @@
       if (model) {
         vscode.postMessage({ type: 'saveSettings', provider, model });
         settingsPanel.setAttribute('hidden', 'true');
+        // Show reload indicator immediately — actual update arrives via providerStatus
+        headerSubtitle.textContent = 'reloading…';
+        modelChip.textContent = '…';
       }
     });
     const openVSCodeBtn = el('button', { class: 'settings-action-btn' }, ['Advanced…']);
@@ -300,8 +303,8 @@
       const closeBtn = el('button', { class: 'tab-close', title: 'Close' }, ['×']);
       closeBtn.addEventListener('click', (ev) => {
         ev.stopPropagation();
-        if (!confirm(`Delete "${(s.label || 'New chat').slice(0, 40)}"? This cannot be undone.`)) return;
-        // Capture label before deleting for soft-delete recovery.
+        // window.confirm() is blocked in VS Code webviews — always returns false.
+        // Deletion is immediate; the trash strip below provides undo.
         const sessionLabel = s.label || 'New chat';
         recentlyDeleted.unshift({ id: s.id, label: sessionLabel, deletedAt: Date.now() });
         if (recentlyDeleted.length > 5) recentlyDeleted.pop();
@@ -364,7 +367,7 @@
   const deleteChatBtn = actionBtn('codicon-trash', 'Delete chat', () => {
     const id = lastSessionData.activeSessionId;
     if (!id) return;
-    if (!confirm('Delete this chat? All messages will be lost and cannot be recovered.')) return;
+    // window.confirm() blocked in VS Code webviews — delete immediately, undo via trash strip.
     // Find the session label for the soft-delete strip.
     const activeSession = (lastSessionData.sessions || []).find(s => s.id === id);
     const sessionLabel = activeSession ? (activeSession.label || 'New chat') : 'New chat';
@@ -377,7 +380,7 @@
     const text = state.messages
       .map(m => `${m.role}: ${m.text}`)
       .join('\n\n');
-    navigator.clipboard.writeText(text).catch(() => {});
+    vscode.postMessage({ type: 'copyToClipboard', text });
   });
   const actionSpacer = el('div', { class: 'action-spacer' });
 
@@ -1535,7 +1538,7 @@
       const copyBtn = el('button', { class: 'msg-action', title: 'Copy' });
       copyBtn.append(codicon('copy'));
       copyBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(bodyEl.textContent || '').catch(() => {});
+        vscode.postMessage({ type: 'copyToClipboard', text: bodyEl.textContent || '' });
       });
       // Edit button — opens inline textarea for the user to update the message.
       const editBtn = el('button', { class: 'msg-action', title: 'Edit' });
@@ -1570,7 +1573,7 @@
       const copyBtn = el('button', { class: 'msg-action', title: 'Copy' });
       copyBtn.append(codicon('copy'));
       copyBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(bodyEl.textContent || '').catch(() => {});
+        vscode.postMessage({ type: 'copyToClipboard', text: bodyEl.textContent || '' });
       });
       const delBtn = el('button', { class: 'msg-action', title: 'Delete' });
       delBtn.append(codicon('trash'));
@@ -1826,7 +1829,7 @@
     copyToolBtn.append(codicon('copy'));
     copyToolBtn.addEventListener('click', (ev) => {
       ev.stopPropagation();
-      navigator.clipboard.writeText(JSON.stringify(args, null, 2)).catch(() => {});
+      vscode.postMessage({ type: 'copyToClipboard', text: JSON.stringify(args, null, 2) });
     });
     header.append(chevron, toolIcon, summary, copyToolBtn);
 
@@ -2182,7 +2185,7 @@
           if (!card.dataset.completed) {
             card.dataset.completed = 'true';
             const resultEl = card.querySelector('.tool-result');
-            if (resultEl && resultEl.textContent === 'Running...') {
+            if (resultEl && resultEl.textContent === 'Running…') {
               resultEl.textContent = 'Done';
             }
           }
@@ -2233,7 +2236,7 @@
         break;
       case 'modeChanged':
         state.mode = msg.mode;
-        modeSelect.value = msg.mode;
+        // modeSelect removed — mode is reflected in the mode-picker popup only.
         // If no conversation yet, refresh empty state with mode-specific prompts.
         if (state.messages.length === 0) renderEmptyState();
         break;
@@ -2276,6 +2279,8 @@
           }
           // Not streaming — clear the cursor.
           state.currentAssistantMessage = null;
+          // Re-inject Run/Copy buttons on restored code blocks.
+          injectRunButtons();
           // Show tour hint for users with prior history.
           showTourHintIfNeeded();
         } else {
@@ -2542,10 +2547,9 @@
     btn.addEventListener('click', () => {
       const code = pre.querySelector('code');
       const text = code ? (code.dataset.rawCode || code.textContent) : pre.textContent;
-      navigator.clipboard.writeText(text || '').then(() => {
-        btn.textContent = '✓';
-        setTimeout(() => { btn.textContent = '⎘'; }, 1500);
-      });
+      vscode.postMessage({ type: 'copyToClipboard', text: text || '' });
+      btn.textContent = '✓';
+      setTimeout(() => { btn.textContent = '⎘'; }, 1500);
     });
     pre.style.position = 'relative';
     pre.appendChild(btn);
@@ -2567,6 +2571,7 @@
     btn.title = 'Re-run the last prompt with a fresh response';
     btn.addEventListener('click', () => {
       btn.remove();
+      document.getElementById('champ-followups')?.remove();
       vscode.postMessage({ type: 'regenerateResponse' });
     });
     msgEl.parentNode.insertBefore(btn, msgEl.nextSibling);
@@ -2724,7 +2729,7 @@
     if (!btn) return;
     const code = btn.closest('.code-block-wrapper')?.querySelector('code');
     if (!code) return;
-    navigator.clipboard.writeText(code.textContent || '').catch(() => {});
+    vscode.postMessage({ type: 'copyToClipboard', text: code.textContent || '' });
     btn.textContent = '✓ Copied';
     setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
   });

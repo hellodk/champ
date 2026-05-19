@@ -105,10 +105,14 @@ export class ChampServer {
 
       if (method === "POST" && url.pathname === "/run-team") {
         const body = await this.readBody(req);
-        const { teamName, task } = JSON.parse(body) as {
-          teamName?: string;
-          task?: string;
-        };
+        let parsed: { teamName?: string; task?: string };
+        try {
+          parsed = JSON.parse(body) as { teamName?: string; task?: string };
+        } catch {
+          this.respond(res, 400, { error: "Invalid JSON in request body" });
+          return;
+        }
+        const { teamName, task } = parsed;
         if (!teamName || !task) {
           this.respond(res, 400, {
             error: "Request body must include teamName and task",
@@ -144,7 +148,14 @@ export class ChampServer {
 
       if (method === "POST" && url.pathname === "/chat") {
         const body = await this.readBody(req);
-        const { message } = JSON.parse(body) as { message?: string };
+        let parsedChat: { message?: string };
+        try {
+          parsedChat = JSON.parse(body) as { message?: string };
+        } catch {
+          this.respond(res, 400, { error: "Invalid JSON in request body" });
+          return;
+        }
+        const { message } = parsedChat;
         if (!message) {
           this.respond(res, 400, {
             error: "Request body must include message",
@@ -182,10 +193,15 @@ export class ChampServer {
   }
 
   private readBody(req: http.IncomingMessage): Promise<string> {
+    const MAX_BODY = 1_048_576; // 1 MB — prevent OOM from large CI payloads
     return new Promise((resolve, reject) => {
       let body = "";
       req.on("data", (chunk: Buffer) => {
         body += chunk.toString("utf-8");
+        if (body.length > MAX_BODY) {
+          req.destroy();
+          reject(new Error("Request body too large (limit: 1 MB)"));
+        }
       });
       req.on("end", () => resolve(body));
       req.on("error", reject);
@@ -198,7 +214,12 @@ export class ChampServer {
         recursive: true,
       });
       try {
-        return (await fs.promises.readFile(this.tokenPath, "utf-8")).trim();
+        const token = (
+          await fs.promises.readFile(this.tokenPath, "utf-8")
+        ).trim();
+        // Ensure correct permissions even if file was created by an older version
+        await fs.promises.chmod(this.tokenPath, 0o600).catch(() => {});
+        return token;
       } catch {
         const token = crypto.randomBytes(32).toString("hex");
         await fs.promises.writeFile(this.tokenPath, token, { mode: 0o600 });

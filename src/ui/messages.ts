@@ -830,7 +830,18 @@ export type WebviewToExtensionMessage =
   | EditUserMessageRequest
   | RunInTerminalRequest
   | RegenerateResponseRequest
-  | SaveSettingsRequest;
+  | SaveSettingsRequest
+  | CopyToClipboardRequest;
+
+export interface CopyToClipboardRequest {
+  type: "copyToClipboard";
+  text: string;
+}
+export function isCopyToClipboardRequest(
+  msg: WebviewToExtensionMessage,
+): msg is CopyToClipboardRequest {
+  return msg.type === "copyToClipboard";
+}
 
 // ---------------------------------------------------------------------------
 // Factory helpers (Extension -> Webview)

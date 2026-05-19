@@ -170,10 +170,17 @@ export class MemoryBank {
 
   /**
    * Write the current items array to disk atomically (write to .tmp, then
-   * rename). Creates the directory if needed. Silently warns on errors —
-   * a write failure must not break the agent loop.
+   * rename). Chains persist calls to prevent concurrent writes corrupting
+   * the .tmp file. Creates the directory if needed.
    */
-  private async persist(): Promise<void> {
+  private _persistQueue: Promise<void> = Promise.resolve();
+
+  private persist(): Promise<void> {
+    this._persistQueue = this._persistQueue.then(() => this._doPersist());
+    return this._persistQueue;
+  }
+
+  private async _doPersist(): Promise<void> {
     try {
       await fs.mkdir(path.dirname(this.filePath), { recursive: true });
       const tmpPath = `${this.filePath}.tmp`;

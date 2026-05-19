@@ -2238,6 +2238,15 @@ export async function activate(
           waitForResume() {
             return new Promise<void>((resolve) => {
               _resumeResolve = resolve;
+              // Unblock immediately if the run is aborted while paused
+              abortController.signal.addEventListener(
+                "abort",
+                () => {
+                  _resumeResolve = null;
+                  resolve();
+                },
+                { once: true },
+              );
             });
           },
           requestPause() {
