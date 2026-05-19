@@ -16,6 +16,7 @@
  * Each message is a JSON-RPC 2.0 object terminated by a newline.
  */
 import { spawn, type ChildProcess } from "child_process";
+import type { McpAnalytics } from "./mcp-analytics";
 
 export type MCPServerAuth =
   | { type: "bearer"; token: string }
@@ -296,6 +297,16 @@ export class MCPClientManager {
   /** Called when a server process exits unexpectedly. Wired by McpRegistry. */
   onServerExit?: (serverName: string, code: number | null) => void;
 
+  /** Optional analytics collector. Set by the extension on activation. */
+  analytics?: McpAnalytics;
+
+  /** Called when an MCP server requests a sampling/createMessage. */
+  onSamplingRequest?: (
+    serverName: string,
+    messages: Array<{ role: "user" | "assistant"; content: string }>,
+    maxTokens: number,
+  ) => Promise<string>;
+
   /**
    * Connect to an MCP server via stdio. Spawns the server process,
    * performs the JSON-RPC initialize handshake, and fetches the tool list.
@@ -382,7 +393,9 @@ export class MCPClientManager {
     try {
       const initResult = (await this.sendRequest(config.name, "initialize", {
         protocolVersion: "2024-11-05",
-        capabilities: {},
+        capabilities: {
+          sampling: {}, // Declare we support sampling
+        },
         clientInfo: { name: "champ-vscode", version: "0.3.0" },
       })) as { capabilities?: MCPServerCapabilities };
       connection.capabilities = initResult?.capabilities ?? {};
@@ -421,6 +434,24 @@ export class MCPClientManager {
   }
 
   async invokeTool(
+    serverName: string,
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<MCPToolResult> {
+    const startTime = Date.now();
+    const result = await this._invokeToolInternal(serverName, toolName, args);
+    const latencyMs = Date.now() - startTime;
+    this.analytics?.record({
+      serverName,
+      toolName,
+      latencyMs,
+      success: !result.isError,
+      timestamp: Date.now(),
+    });
+    return result;
+  }
+
+  private async _invokeToolInternal(
     serverName: string,
     toolName: string,
     args: Record<string, unknown>,
@@ -674,16 +705,19 @@ export class MCPClientManager {
       if (!trimmed) continue;
       try {
         const msg = JSON.parse(trimmed) as {
-          id?: number;
+          id?: number | string;
+          method?: string;
           result?: unknown;
           error?: { code: number; message: string };
+          params?: unknown;
         };
 
-        if (msg.id !== undefined) {
-          const pending = connection.pendingRequests.get(msg.id);
+        // Handle responses to our own outgoing requests.
+        if (msg.id !== undefined && !msg.method) {
+          const pending = connection.pendingRequests.get(msg.id as number);
           if (pending) {
             clearTimeout(pending.timer);
-            connection.pendingRequests.delete(msg.id);
+            connection.pendingRequests.delete(msg.id as number);
             if (msg.error) {
               pending.reject(
                 new Error(`MCP error ${msg.error.code}: ${msg.error.message}`),
@@ -693,10 +727,102 @@ export class MCPClientManager {
             }
           }
         }
-        // Notifications from the server are ignored for now.
+
+        // Handle server-initiated requests (e.g. sampling/createMessage).
+        if (msg.method && msg.id !== undefined) {
+          void this.handleServerRequest(
+            connection,
+            msg.id,
+            msg.method,
+            msg.params,
+          );
+        }
+
+        // Handle server notifications (no id).
+        if (msg.method && msg.id === undefined) {
+          this.handleServerNotification(connection, msg.method, msg.params);
+        }
       } catch {
         // Malformed JSON — skip.
       }
     }
+  }
+
+  private async handleServerRequest(
+    connection: MCPConnection,
+    id: number | string,
+    method: string,
+    params: unknown,
+  ): Promise<void> {
+    if (method !== "sampling/createMessage") {
+      // Respond with method-not-found for unknown methods.
+      this.sendJsonRpcResponse(connection, id, null, {
+        code: -32601,
+        message: "Method not found",
+      });
+      return;
+    }
+
+    const req = params as {
+      messages?: Array<{
+        role: string;
+        content: { type: string; text?: string };
+      }>;
+      maxTokens?: number;
+    };
+
+    const messages = (req.messages ?? []).map((m) => ({
+      role: (m.role === "assistant" ? "assistant" : "user") as
+        | "user"
+        | "assistant",
+      content: m.content?.text ?? "",
+    }));
+
+    try {
+      const text = await this.onSamplingRequest?.(
+        connection.config.name,
+        messages,
+        req.maxTokens ?? 1000,
+      );
+      if (text === undefined) {
+        this.sendJsonRpcResponse(connection, id, null, {
+          code: -32603,
+          message: "Sampling not configured",
+        });
+        return;
+      }
+      this.sendJsonRpcResponse(connection, id, {
+        role: "assistant",
+        content: { type: "text", text },
+        stopReason: "endTurn",
+        model: "champ",
+      });
+    } catch (err) {
+      this.sendJsonRpcResponse(connection, id, null, {
+        code: -32603,
+        message: err instanceof Error ? err.message : "Sampling failed",
+      });
+    }
+  }
+
+  private sendJsonRpcResponse(
+    connection: MCPConnection,
+    id: number | string,
+    result: unknown,
+    error?: { code: number; message: string },
+  ): void {
+    const msg = error
+      ? { jsonrpc: "2.0", id, error }
+      : { jsonrpc: "2.0", id, result };
+    connection.process?.stdin?.write(JSON.stringify(msg) + "\n");
+  }
+
+  private handleServerNotification(
+    _connection: MCPConnection,
+    method: string,
+    _params: unknown,
+  ): void {
+    // Log server notifications for debugging; extend as needed.
+    console.log(`Champ MCP: server notification: ${method}`);
   }
 }

@@ -72,6 +72,7 @@ import {
 } from "./telemetry/analytics-exporter";
 import { MCPClientManager } from "./mcp/mcp-client";
 import { McpRegistry } from "./mcp/mcp-registry";
+import { McpAnalytics } from "./mcp/mcp-analytics";
 import { TriggerManager } from "./agent/trigger-manager";
 import { MemoryBank } from "./memory/memory-bank";
 import { WorkflowStore, type WorkflowRun } from "./ui/workflow-store";
@@ -276,12 +277,33 @@ export async function activate(
 
   // ---- MCP (Model Context Protocol) server connections ----------------
   mcpClientManager = new MCPClientManager();
+  mcpClientManager.analytics = new McpAnalytics();
   mcpRegistry = new McpRegistry(
     mcpClientManager,
     toolRegistry,
     context.secrets,
   );
   mcpRegistry.onStatusChange = () => broadcastMcpStatus();
+
+  // Wire sampling support: MCP servers can request LLM completions from Champ.
+  mcpClientManager.onSamplingRequest = async (
+    serverName,
+    messages,
+    maxTokens,
+  ) => {
+    const provider = inlineProviderRef.current;
+    if (!provider) throw new Error("No provider configured");
+    const llmMessages = messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+    let result = "";
+    for await (const delta of provider.chat(llmMessages, { maxTokens })) {
+      if (delta.type === "text") result += delta.text;
+    }
+    void serverName; // used for future routing/logging
+    return result;
+  };
 
   // Tracks which cloud providers have an API key set. Updated by loadProvider()
   // so the model picker can show greyed-out entries for keyless providers.
@@ -3610,6 +3632,7 @@ export async function activate(
 }
 
 export function deactivate(): void {
+  activeRunCounts.clear(); // Clear stale concurrent run counts
   triggerManager?.disposeAll();
   triggerManager = undefined;
   void mcpRegistry?.disposeAll();
