@@ -240,10 +240,10 @@ describe("AuditLog", () => {
     expect(result.firstBrokenAt).toBeUndefined();
   });
 
-  it("verify() on non-existent log returns valid: false, totalEntries: 0", async () => {
+  it("verify() on non-existent log returns valid: true, totalEntries: 0 (no tamper — file just absent)", async () => {
     // Don't call initialize — log file doesn't exist
     const result = await auditLog.verify();
-    expect(result.valid).toBe(false);
+    expect(result.valid).toBe(true); // ENOENT = new log, not tampered
     expect(result.totalEntries).toBe(0);
   });
 

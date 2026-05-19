@@ -141,7 +141,11 @@ export class AuditLog {
         prevHash = hash;
       }
       return { valid: true, totalEntries: lines.length };
-    } catch {
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        // File doesn't exist — not tampered, just empty/new log
+        return { valid: true, totalEntries: 0 };
+      }
       return { valid: false, totalEntries: 0 };
     }
   }

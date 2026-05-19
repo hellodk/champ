@@ -254,7 +254,13 @@ export async function activate(
 
   const rulesEngine = new RulesEngine(workspaceRoot ?? "");
 
-  const memoryBank = workspaceRoot ? new MemoryBank(workspaceRoot) : null;
+  // Skip workspace-local memory bank if the workspace IS the home directory
+  // — both banks would write to the same file and silently overwrite each other.
+  const _homeDir = require("os").homedir() as string;
+  const memoryBank =
+    workspaceRoot && workspaceRoot !== _homeDir
+      ? new MemoryBank(workspaceRoot)
+      : null;
 
   const globalMemoryBank = new GlobalMemoryBank();
 
@@ -3806,9 +3812,11 @@ export async function activate(
         return;
       }
       if (result.valid) {
-        void vscode.window.showInformationMessage(
-          `Champ Audit Log: ${result.totalEntries} entries — chain intact.`,
-        );
+        const msg =
+          result.totalEntries === 0
+            ? "Champ Audit Log: no entries yet (log is new or empty)."
+            : `Champ Audit Log: ${result.totalEntries} entries — chain intact.`;
+        void vscode.window.showInformationMessage(msg);
       } else {
         void vscode.window.showErrorMessage(
           `Champ Audit Log TAMPERED: chain broken at entry ${result.firstBrokenAt ?? "?"} of ${result.totalEntries}.`,
@@ -3866,10 +3874,15 @@ export async function activate(
 
   context.subscriptions.push(
     vscode.commands.registerCommand("champ.showServerInfo", () => {
+      if (!champServer.isStarted()) {
+        void vscode.window.showErrorMessage(
+          `Champ API server failed to start — port ${champServer.getPort()} may be in use. Set CHAMP_SERVER_PORT env var and reload.`,
+        );
+        return;
+      }
+      const port = champServer.getPort();
       void vscode.window.showInformationMessage(
-        `Champ API server: http://localhost:${champServer.getPort()}\n` +
-          `Token stored at: ~/.champ/server-token.txt\n\n` +
-          `Example: curl -H "Authorization: Bearer $(cat ~/.champ/server-token.txt)" http://localhost:3148/health`,
+        `Champ API: http://localhost:${port}  Token: ~/.champ/server-token.txt`,
       );
     }),
   );

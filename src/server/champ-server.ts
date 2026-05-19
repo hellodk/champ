@@ -33,6 +33,7 @@ export class ChampServer {
   private token: string = "";
   private readonly tokenPath: string;
   private readonly port: number;
+  private started = false; // true only after listen() succeeds
 
   constructor(private readonly options: ChampServerOptions) {
     this.port =
@@ -52,12 +53,18 @@ export class ChampServer {
       this.server!.once("error", reject);
     });
 
+    this.started = true;
     console.log(`Champ server listening on localhost:${this.port}`);
   }
 
   stop(): void {
     this.server?.close();
     this.server = undefined;
+    this.started = false;
+  }
+
+  isStarted(): boolean {
+    return this.started;
   }
 
   getPort(): number {
