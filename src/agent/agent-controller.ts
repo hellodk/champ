@@ -266,6 +266,8 @@ export class AgentController {
   private _isStreaming = false;
   /** Provider swap queued while _isStreaming was true. Applied when the stream ends. */
   private _pendingProvider: LLMProvider | null = null;
+  /** Cached system prompt content — built once per processMessage() call, reset to null on entry. */
+  private _cachedSystemContent: string | null = null;
 
   constructor(
     provider: LLMProvider,
@@ -308,6 +310,7 @@ export class AgentController {
    */
   setMode(mode: AgentMode): void {
     this.mode = mode;
+    this._cachedSystemContent = null;
   }
 
   getMode(): AgentMode {
@@ -338,6 +341,7 @@ export class AgentController {
    */
   setProjectRules(content: string): void {
     this.projectRules = content;
+    this._cachedSystemContent = null;
   }
 
   /** Attach a MemoryBank so cross-session facts are injected into prompts. */
@@ -590,6 +594,9 @@ export class AgentController {
     }
 
     this.history.push({ role: "user", content: userText });
+
+    // Reset the system prompt cache at the start of each message so it's rebuilt fresh
+    this._cachedSystemContent = null;
 
     const collectedText: string[] = [];
     const collectedToolCalls: Array<{ call: ToolCall; result: ToolResult }> =
@@ -1067,58 +1074,14 @@ export class AgentController {
   }
 
   /**
-   * Build a copy of the conversation history with a system message
-   * containing tool-injection instructions, the repo map (if any),
-   * and the active mode's instruction block.
+   * Build the system prompt content once per processMessage() call.
+   * Includes base instructions, mode-specific instructions, repo map,
+   * project rules, and memory context. Result is cached so multiple calls
+   * within the same message iteration reuse the same string.
    */
-  private withInjectedToolPrompt(
-    history: LLMMessage[],
-    tools: ToolDefinition[],
-    repoMap: string,
-  ): LLMMessage[] {
-    const base = PROMPT_BASED_BASE_INSTRUCTIONS + MODE_INSTRUCTIONS[this.mode];
-    const withMap = repoMap ? `${base}\n\n${repoMap}` : base;
-    const withRules = this.projectRules
-      ? `${withMap}\n\n## Project Rules\n\n${this.projectRules}`
-      : withMap;
-    const workspaceMemory = [
-      this.memoryBank?.getPinnedContext(),
-      this.memoryBank?.getRecentContext(5),
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-    // Cap global memory injection at 2000 chars to prevent oversized prompts
-    const rawGlobalCtx = this.globalMemoryBank?.getPinnedContext() ?? "";
-    const globalPinned = rawGlobalCtx.slice(0, 2000);
-    const memCtx = [
-      globalPinned ? `## Global preferences\n${globalPinned}` : "",
-      workspaceMemory,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-    const withMemory = memCtx ? `${withRules}\n\n${memCtx}` : withRules;
+  private buildSystemContent(repoMap: string): string {
+    if (this._cachedSystemContent !== null) return this._cachedSystemContent;
 
-    const fullPrompt =
-      tools.length === 0
-        ? withMemory
-        : injectToolsIntoPrompt(withMemory, tools);
-
-    const systemMsg: LLMMessage = {
-      role: "system",
-      content: fullPrompt,
-    };
-    return this.prependOrMergeSystem(history, systemMsg);
-  }
-
-  /**
-   * For native-tool-calling providers (Claude/OpenAI/Gemini), the tool
-   * definitions go in the chat options, not the system prompt — but we
-   * still want to inject the base directives + repo map for grounding.
-   */
-  private withGroundingSystemPrompt(
-    history: LLMMessage[],
-    repoMap: string,
-  ): LLMMessage[] {
     const base = PROMPT_BASED_BASE_INSTRUCTIONS + MODE_INSTRUCTIONS[this.mode];
     const withMap = repoMap ? `${base}\n\n${repoMap}` : base;
     const withRules = this.projectRules
@@ -1140,6 +1103,37 @@ export class AgentController {
       .filter(Boolean)
       .join("\n\n");
     const content = memCtx ? `${withRules}\n\n${memCtx}` : withRules;
+    this._cachedSystemContent = content;
+    return content;
+  }
+
+  /**
+   * Build a copy of the conversation history with a system message
+   * containing tool-injection instructions, the repo map (if any),
+   * and the active mode's instruction block.
+   */
+  private withInjectedToolPrompt(
+    history: LLMMessage[],
+    tools: ToolDefinition[],
+    repoMap: string,
+  ): LLMMessage[] {
+    const content = this.buildSystemContent(repoMap);
+    const fullPrompt =
+      tools.length === 0 ? content : injectToolsIntoPrompt(content, tools);
+    const systemMsg: LLMMessage = { role: "system", content: fullPrompt };
+    return this.prependOrMergeSystem(history, systemMsg);
+  }
+
+  /**
+   * For native-tool-calling providers (Claude/OpenAI/Gemini), the tool
+   * definitions go in the chat options, not the system prompt — but we
+   * still want to inject the base directives + repo map for grounding.
+   */
+  private withGroundingSystemPrompt(
+    history: LLMMessage[],
+    repoMap: string,
+  ): LLMMessage[] {
+    const content = this.buildSystemContent(repoMap);
     const systemMsg: LLMMessage = { role: "system", content };
     return this.prependOrMergeSystem(history, systemMsg);
   }
