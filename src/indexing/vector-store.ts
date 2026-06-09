@@ -12,6 +12,7 @@
  * real bottleneck at scale.
  */
 import * as fs from "fs/promises";
+import * as path from "path";
 
 export interface VectorStoreEntry {
   filePath: string;
@@ -31,6 +32,8 @@ export interface VectorSearchResult {
   symbolName?: string;
   chunkType: string;
   distance: number;
+  /** Normalised similarity score in [0, 1]. Computed as 1 / (1 + distance). */
+  similarity: number;
 }
 
 /**
@@ -55,9 +58,16 @@ export class VectorStore {
    * @param _path - Storage path. `:memory:` or any string are accepted;
    *   this implementation is always in-memory but the argument exists
    *   for interface compatibility with a future persistent backend.
+   * @param embeddingModelId - The embedding model used to build this index.
+   *   When set, save() includes it in the cache header and load() rejects
+   *   caches built with a different model ID, preventing silent wrong-distance
+   *   lookups when the embedding model changes.
    */
-  constructor(_path: string = ":memory:") {
-    // Intentionally unused — included for API parity with a
+  constructor(
+    _path: string = ":memory:",
+    private readonly embeddingModelId?: string,
+  ) {
+    // _path intentionally unused — included for API parity with a
     // sqlite-vec-backed implementation.
   }
 
@@ -109,6 +119,7 @@ export class VectorStore {
         symbolName: entry.symbolName,
         chunkType: entry.chunkType,
         distance,
+        similarity: 1 / (1 + distance),
       });
     }
 
@@ -131,13 +142,14 @@ export class VectorStore {
   async save(filePath: string): Promise<void> {
     if (this.disposed || this.entries.size === 0) return;
     try {
-      await fs.mkdir(require("path").dirname(filePath), { recursive: true });
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
       const entries = [...this.entries.values()];
       const dim = entries[0]?.embedding.length ?? 0;
       const meta = {
         version: 1,
         count: entries.length,
         dim,
+        embeddingModelId: this.embeddingModelId,
         chunks: entries.map((e) => ({
           k: chunkKey(e),
           filePath: e.filePath,
@@ -183,6 +195,7 @@ export class VectorStore {
         version: number;
         count: number;
         dim: number;
+        embeddingModelId?: string;
         chunks: Array<{
           k: string;
           filePath: string;
@@ -194,16 +207,26 @@ export class VectorStore {
         }>;
       };
       if (meta.version !== 1 || meta.count !== meta.chunks.length) return 0;
+      // Reject cache when both sides have a model ID and they differ.
+      if (
+        this.embeddingModelId &&
+        meta.embeddingModelId &&
+        meta.embeddingModelId !== this.embeddingModelId
+      ) {
+        return 0;
+      }
       const embStart = nlIdx + 1;
       const { dim, chunks } = meta;
       this.entries.clear();
       chunks.forEach((c, i) => {
         const offset = embStart + i * dim * 4;
-        const embedding = new Float32Array(
-          raw.buffer,
-          raw.byteOffset + offset,
-          dim,
-        ).slice();
+        // Copy the bytes into a fresh ArrayBuffer to guarantee Float32Array
+        // 4-byte alignment. Buffer.slice() / subarray() returns a view into the
+        // same backing buffer, which may have a non-4-aligned byteOffset.
+        // Buffer.from(subarray) copies the bytes into a new allocation whose
+        // byteOffset is always 0.
+        const copied = Buffer.from(raw.subarray(offset, offset + dim * 4));
+        const embedding = new Float32Array(copied.buffer, 0, dim);
         this.entries.set(c.k, { ...c, embedding });
       });
       return this.entries.size;

@@ -27,6 +27,9 @@ export class IndexingService {
     private readonly smartRouter: SmartRouter,
     private readonly config: ChampConfig,
   ) {
+    // embeddingModelId is not known until _initialize() resolves; VectorStore
+    // is re-created there once the model is confirmed. This placeholder holds
+    // the store until then.
     this.vectorStore = new VectorStore();
     this.chunkingService = new ChunkingService();
   }
@@ -72,6 +75,9 @@ export class IndexingService {
       baseUrl,
       model: modelId,
     });
+    // Re-create the VectorStore now that we know the embedding model, so that
+    // save/load operations can validate model ID consistency.
+    this.vectorStore = new VectorStore(":memory:", modelId);
 
     // Verify the model actually responds before indexing.
     try {
@@ -102,12 +108,22 @@ export class IndexingService {
   /**
    * Semantic search over the indexed workspace.
    * Returns empty array if the index is not ready.
+   *
+   * @param topK - Maximum number of results to return before filtering.
+   * @param minSimilarity - Minimum similarity threshold (0–1). Results with
+   *   a similarity score below this value are dropped. Default 0.65 prevents
+   *   irrelevant chunks from polluting small model context windows.
    */
-  async search(query: string, topK = 10): Promise<VectorSearchResult[]> {
+  async search(
+    query: string,
+    topK = 10,
+    minSimilarity = 0.65,
+  ): Promise<VectorSearchResult[]> {
     if (!this.embeddingService || this.vectorStore.size() === 0) return [];
     try {
       const queryVec = await this.embeddingService.embed(query);
-      return this.vectorStore.search(queryVec, topK);
+      const results = this.vectorStore.search(queryVec, topK);
+      return (await results).filter((r) => r.similarity >= minSimilarity);
     } catch {
       return [];
     }
