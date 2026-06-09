@@ -162,6 +162,7 @@ export const editFileTool: Tool = {
           ? `Staged edit for ${relativePath} (will write when turn completes)`
           : `Successfully edited ${relativePath}`;
 
+      context.auditLog?.record("file_edit", `edit:${relativePath}`);
       return {
         success: true,
         output: successMsg,

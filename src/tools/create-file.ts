@@ -59,6 +59,7 @@ export const createFileTool: Tool = {
         new TextEncoder().encode(content),
       );
 
+      context.auditLog?.record("file_edit", `create:${relativePath}`);
       return {
         success: true,
         output: `Created ${relativePath}`,

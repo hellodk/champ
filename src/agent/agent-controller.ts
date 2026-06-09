@@ -268,6 +268,7 @@ export class AgentController {
   private _pendingProvider: LLMProvider | null = null;
   /** Cached system prompt content — built once per processMessage() call, reset to null on entry. */
   private _cachedSystemContent: string | null = null;
+  private _auditLog?: import("../observability/audit-log").AuditLog;
 
   constructor(
     provider: LLMProvider,
@@ -282,6 +283,11 @@ export class AgentController {
     tracker: import("./edit-review-tracker").EditReviewTracker,
   ): void {
     this.editReviewTracker = tracker;
+  }
+
+  /** Wire the audit log — called from extension.ts after activation. */
+  setAuditLog(log: import("../observability/audit-log").AuditLog): void {
+    this._auditLog = log;
   }
 
   /**
@@ -904,6 +910,7 @@ export class AgentController {
           requestApproval: options.requestApproval ?? (async () => true),
           editReviewTracker: this.editReviewTracker,
           stagedEdits,
+          auditLog: this._auditLog,
         };
 
         const result = await this.toolRegistry.execute(

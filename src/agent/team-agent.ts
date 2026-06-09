@@ -138,6 +138,7 @@ export class TeamAgent implements Agent {
       description: string,
       preview?: { type: "diff" | "command"; content: string; label?: string },
     ) => Promise<boolean>,
+    private readonly _auditLog?: import("../observability/audit-log").AuditLog,
   ) {
     this.name = def.id;
     this.role = def.role;
@@ -287,6 +288,10 @@ export class TeamAgent implements Agent {
         this.metrics,
       );
       const result = await loop.run(messages, this.streamCallback);
+      this._auditLog?.record(
+        "llm_call",
+        `agent:${this.def.id} model:${this.provider.modelInfo().id ?? "unknown"} in:${result.usage.inputTokens} out:${result.usage.outputTokens}`,
+      );
       text = result.text;
       usage = result.usage;
       error = result.error;
@@ -297,6 +302,10 @@ export class TeamAgent implements Agent {
         messages,
         this.streamCallback,
         this.def.outputFormat === "json" ? { jsonFormat: true } : undefined,
+      );
+      this._auditLog?.record(
+        "llm_call",
+        `agent:${this.def.id} model:${this.provider.modelInfo().id ?? "unknown"} in:${result.usage.inputTokens} out:${result.usage.outputTokens}`,
       );
       text = result.text;
       usage = result.usage;

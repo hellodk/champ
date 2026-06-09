@@ -72,6 +72,7 @@ export interface TeamRunOptions {
     agentId: string,
     preview?: { type: "diff" | "command"; content: string; label?: string },
   ) => Promise<boolean>;
+  auditLog?: import("../observability/audit-log").AuditLog;
 }
 
 async function writeCheckpoint(
@@ -463,6 +464,7 @@ export class TeamRunner {
                           preview,
                         )
                     : undefined,
+                  options.auditLog,
                 );
 
                 let output: import("./agents/types").AgentOutput;
