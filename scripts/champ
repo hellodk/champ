@@ -4,8 +4,9 @@
 #   scripts/champ                         # interactive menu
 #   scripts/champ build                   # compile + package VSIX
 #   scripts/champ install                 # build + install into VS Code
+#   scripts/champ release                 # build + push + create GitHub release
 #   scripts/champ watch                   # dev watch (extension + webview)
-#   scripts/champ test [unit|int|e2e]     # run tests
+#   scripts/champ test [unit|int|e2e|all] # run tests
 #   scripts/champ test report             # print test report summary
 #   scripts/champ lint                    # eslint + type-check
 #   scripts/champ clean                   # remove dist/, *.vsix older than current
@@ -29,9 +30,7 @@ _require_cmds() {
 }
 
 _section() { echo ""; echo "── $* ──────────────────────────────────────"; }
-
-_ok()   { echo "  ✓ $*"; }
-_fail() { echo "  ✗ $*" >&2; }
+_ok()      { echo "  ✓ $*"; }
 
 # ── commands ─────────────────────────────────────────────────────────────────
 
@@ -54,15 +53,64 @@ cmd_install() {
   _require_cmds code
   cmd_build
   _section "install"
-  local ver
+  local ver vsix
   ver=$(_version)
-  local vsix="${ROOT}/champ-${ver}.vsix"
+  vsix="${ROOT}/champ-${ver}.vsix"
   if [[ ! -f "$vsix" ]]; then
     echo "ERROR: VSIX not found: $vsix" >&2
     exit 1
   fi
   code --install-extension "$vsix"
   _ok "installed champ ${ver}"
+}
+
+cmd_release() {
+  _require_cmds git gh node npm npx
+  local ver vsix tag
+  ver=$(_version)
+  vsix="${ROOT}/champ-${ver}.vsix"
+  tag="v${ver}"
+
+  # Build VSIX if not already present
+  if [[ ! -f "$vsix" ]]; then
+    cmd_build
+  else
+    _section "VSIX already built"
+    _ok "${vsix##*/} exists — skipping build"
+  fi
+
+  _section "push to GitHub"
+  git push github master
+  _ok "master pushed"
+
+  _section "create GitHub release ${tag}"
+  # Build release notes from recent PRs since last tag
+  local prev_tag
+  prev_tag=$(git tag --sort=-version:refname | grep '^v' | head -1 || echo "")
+
+  local notes
+  if [[ -n "$prev_tag" ]]; then
+    notes=$(git log "${prev_tag}..HEAD" --pretty=format:"- %s" --no-merges 2>/dev/null | head -20 || echo "- See commit history for changes")
+  else
+    notes=$(git log --pretty=format:"- %s" --no-merges -20 2>/dev/null || echo "- Initial release")
+  fi
+
+  gh release create "$tag" \
+    "$vsix" \
+    --title "Champ ${tag}" \
+    --notes "$(cat <<NOTES
+## Champ ${tag}
+
+${notes}
+
+---
+Install: download \`champ-${ver}.vsix\` and run:
+\`\`\`
+code --install-extension champ-${ver}.vsix
+\`\`\`
+NOTES
+)"
+  _ok "release ${tag} created — $(gh release view "$tag" --json url -q .url)"
 }
 
 cmd_watch() {
@@ -115,7 +163,6 @@ cmd_test_report() {
   printf "%-40s  %-8s  %-8s  %s\n" "Suite" "Passed" "Failed" "Skipped"
   printf "%-40s  %-8s  %-8s  %s\n" "─────────────────────────────────────" "──────" "──────" "───────"
 
-  # Parse vitest JSON report files
   for f in "$dir"/*.json; do
     [[ -f "$f" ]] || continue
     local suite passed failed skipped
@@ -127,7 +174,6 @@ cmd_test_report() {
   done
 
   echo ""
-  # TypeScript errors
   if [[ -f "$dir/typecheck.txt" ]]; then
     local errs
     errs=$(wc -l < "$dir/typecheck.txt" 2>/dev/null || echo 0)
@@ -173,26 +219,28 @@ _menu() {
   echo ""
   echo "  1) build     — compile + package VSIX"
   echo "  2) install   — build + install into VS Code"
-  echo "  3) watch     — dev watch mode"
-  echo "  4) test      — run unit tests"
-  echo "  5) test all  — unit + integration tests"
-  echo "  6) report    — print test-reports/ summary"
-  echo "  7) lint      — type-check + ESLint"
-  echo "  8) clean     — remove dist/ and old VSIX files"
-  echo "  9) version   — print version"
+  echo "  3) release   — build + push + create GitHub release"
+  echo "  4) watch     — dev watch mode"
+  echo "  5) test      — run unit tests"
+  echo "  6) test all  — unit + integration tests"
+  echo "  7) report    — print test-reports/ summary"
+  echo "  8) lint      — type-check + ESLint"
+  echo "  9) clean     — remove dist/ and old VSIX files"
+  echo "  0) version   — print version"
   echo "  q) quit"
   echo ""
   read -rp "  Choice: " pick
   case "$pick" in
     1) cmd_build ;;
     2) cmd_install ;;
-    3) cmd_watch ;;
-    4) cmd_test unit ;;
-    5) cmd_test all ;;
-    6) cmd_test_report ;;
-    7) cmd_lint ;;
-    8) cmd_clean ;;
-    9) cmd_version ;;
+    3) cmd_release ;;
+    4) cmd_watch ;;
+    5) cmd_test unit ;;
+    6) cmd_test all ;;
+    7) cmd_test_report ;;
+    8) cmd_lint ;;
+    9) cmd_clean ;;
+    0) cmd_version ;;
     q|Q) exit 0 ;;
     *) echo "  Unknown choice." >&2 ;;
   esac
@@ -208,6 +256,7 @@ fi
 case "$1" in
   build)           cmd_build ;;
   install)         cmd_install ;;
+  release)         cmd_release ;;
   watch)           cmd_watch ;;
   test)            shift; cmd_test "${1:-unit}" ;;
   lint)            cmd_lint ;;
