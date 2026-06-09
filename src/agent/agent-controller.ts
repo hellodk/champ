@@ -257,14 +257,16 @@ export class AgentController {
   private globalMemoryBank: MemoryBank | undefined;
   private editReviewTracker?: import("./edit-review-tracker").EditReviewTracker;
   private responseCache: ResponseCache | null = null;
-  /**
-   * True while a processMessage() call is actively streaming from the LLM.
-   * Used to safely queue provider swaps that arrive mid-flight rather than
-   * swapping the provider under an active stream (which would corrupt history
-   * and potentially cause tool-format mismatches).
-   */
-  private _isStreaming = false;
-  /** Provider swap queued while _isStreaming was true. Applied when the stream ends. */
+  /** True while a processMessage() call is actively executing (streaming or tool calls). */
+  private _isProcessing = false;
+  /** FIFO queue of processMessage() calls that arrived while _isProcessing was true. */
+  private _messageQueue: Array<{
+    userText: string | import("../providers/types").ContentBlock[];
+    options: ProcessMessageOptions;
+    resolve: (r: ProcessMessageResult) => void;
+    reject: (e: unknown) => void;
+  }> = [];
+  /** Provider swap queued while _isProcessing was true. Applied after the current call ends. */
   private _pendingProvider: LLMProvider | null = null;
   /** Cached system prompt content — built once per processMessage() call, reset to null on entry. */
   private _cachedSystemContent: string | null = null;
@@ -396,8 +398,8 @@ export class AgentController {
    * corruption (tool-format mismatches, history inconsistency).
    */
   setProvider(provider: LLMProvider): void {
-    if (this._isStreaming) {
-      // Queue the swap — applied after the active stream finishes.
+    if (this._isProcessing) {
+      // Queue the swap — applied after the active processMessage() call finishes.
       this._pendingProvider = provider;
       return;
     }
@@ -478,606 +480,655 @@ export class AgentController {
 
   /**
    * Process a user message through the full agent loop.
+   * If a call is already in progress, the new call is queued and resolved
+   * in FIFO order after the current call completes.
    */
   async processMessage(
     userText: string | ContentBlock[],
     options: ProcessMessageOptions = {},
   ): Promise<ProcessMessageResult> {
-    const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
-
-    // ── Smart routing: pick the best provider for this agent mode ─────────
-    // Selection is done once per message (not per-iteration) to avoid
-    // tool-calling format mismatches mid-conversation.
-    let activeProvider = this.provider;
-    if (this.smartRouter) {
-      const taskType = this.modeToTaskType(this.mode);
-      const routed = this.smartRouter.select(taskType);
-      if (routed) {
-        const routedPromptBased = !routed.provider.supportsToolUse();
-        const currentPromptBased = !this.provider.supportsToolUse();
-        const hasHistory = this.history.length > 0;
-
-        if (routedPromptBased === currentPromptBased || !hasHistory) {
-          // Same tool format, or no history yet — safe to route.
-          activeProvider = routed.provider;
-          console.log(
-            `Champ SmartRouter: ${this.mode} → ${routed.model.id} [${routed.reason}]`,
-          );
-        } else {
-          console.log(
-            `Champ SmartRouter: skipping ${routed.model.id} — ` +
-              `tool format mismatch with existing history`,
-          );
-        }
-      }
-    }
-
-    // ── Prompt injection guard ────────────────────────────────────────────
-    // Check the raw text before anything else. Blocks the request if an
-    // injection attempt is detected and fires telemetry.
-    const rawText = Array.isArray(userText)
-      ? userText
-          .filter(
-            (b): b is ContentBlock & { type: "text" } => b.type === "text",
-          )
-          .map((b) => b.text)
-          .join(" ")
-      : userText;
-
-    const guardResult = this.promptGuard.check(rawText);
-    if (!guardResult.safe) {
-      // Emit a text delta so the UI can show the block reason inline.
-      this.emit({
-        type: "text",
-        text: `⛔ **Request blocked** — ${guardResult.reason}`,
+    if (this._isProcessing) {
+      return new Promise<ProcessMessageResult>((resolve, reject) => {
+        this._messageQueue.push({ userText, options, resolve, reject });
       });
-      throw new PromptInjectionError(guardResult);
     }
+    return this._runMessage(userText, options);
+  }
 
-    // ── PII redaction ─────────────────────────────────────────────────────
-    // Scan the user's message text and replace PII before it goes to history
-    // (and therefore to the LLM). Non-text content blocks are not modified.
-    if (typeof userText === "string") {
-      const piiResult = this.piiScanner.scan(userText);
-      if (piiResult.hasFindings) {
-        const types = [...new Set(piiResult.findings.map((f) => f.type))].join(
-          ", ",
-        );
-        const summary = `${piiResult.findings.length} value(s) redacted before sending (${types})`;
-        console.log(`Champ PII: ${summary}`);
-        options.onPiiRedacted?.(summary);
-        userText = piiResult.redacted;
-      }
-    } else {
-      const allFindings: import("../safety/pii-scanner").PiiFinding[] = [];
-      userText = userText.map((block) => {
-        if (block.type !== "text") return block;
-        const piiResult = this.piiScanner.scan(block.text);
-        if (piiResult.hasFindings) allFindings.push(...piiResult.findings);
-        return piiResult.hasFindings
-          ? { ...block, text: piiResult.redacted }
-          : block;
-      });
-      if (allFindings.length > 0) {
-        const types = [...new Set(allFindings.map((f) => f.type))].join(", ");
-        const summary = `${allFindings.length} value(s) redacted before sending (${types})`;
-        console.log(`Champ PII: ${summary}`);
-        options.onPiiRedacted?.(summary);
-      }
-    }
+  /**
+   * Internal implementation of processMessage(). Contains the full agent loop.
+   * Always called with _isProcessing === false; sets it true for its duration.
+   */
+  private async _runMessage(
+    userText: string | ContentBlock[],
+    options: ProcessMessageOptions = {},
+  ): Promise<ProcessMessageResult> {
+    this._isProcessing = true;
+    try {
+      const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
-    // ── Image stripping for non-vision providers ──────────────────────────
-    if (Array.isArray(userText)) {
-      const supportsImages = activeProvider.modelInfo().supportsImages;
-      if (!supportsImages) {
-        const textParts = userText
-          .filter(
-            (b): b is ContentBlock & { type: "text" } => b.type === "text",
-          )
-          .map((b) => b.text)
-          .join("\n");
-        const imageCount = userText.filter((b) => b.type === "image").length;
-        const combined =
-          imageCount > 0
-            ? `${textParts}\n\n[${imageCount} image(s) attached — this provider does not support image input]`
-            : textParts;
-        // Re-scan the collapsed string for PII — the image placeholder
-        // itself is safe, but text parts from blocks were already redacted
-        // individually; this second pass is a safety net for anything
-        // introduced by the join or the image note.
-        const postStripPii = this.piiScanner.scan(combined);
-        if (postStripPii.hasFindings) {
-          const types = [
-            ...new Set(postStripPii.findings.map((f) => f.type)),
-          ].join(", ");
-          const summary = `${postStripPii.findings.length} value(s) redacted before sending (${types})`;
-          options.onPiiRedacted?.(summary);
-          userText = postStripPii.redacted;
-        } else {
-          userText = combined;
-        }
-      }
-    }
+      // ── Smart routing: pick the best provider for this agent mode ─────────
+      // Selection is done once per message (not per-iteration) to avoid
+      // tool-calling format mismatches mid-conversation.
+      let activeProvider = this.provider;
+      if (this.smartRouter) {
+        const taskType = this.modeToTaskType(this.mode);
+        const routed = this.smartRouter.select(taskType);
+        if (routed) {
+          const routedPromptBased = !routed.provider.supportsToolUse();
+          const currentPromptBased = !this.provider.supportsToolUse();
+          const hasHistory = this.history.length > 0;
 
-    this.history.push({ role: "user", content: userText });
-
-    // Reset the system prompt cache at the start of each message so it's rebuilt fresh
-    this._cachedSystemContent = null;
-
-    const collectedText: string[] = [];
-    const collectedToolCalls: Array<{ call: ToolCall; result: ToolResult }> =
-      [];
-
-    const usePromptBased = !activeProvider.supportsToolUse();
-    // Filter tools by the active mode (Ask/Plan = read-only).
-    const allTools = this.filterToolsByMode(this.toolRegistry.getDefinitions());
-    // Fetch the repo map once per session for grounding. Cached after
-    // first call. Empty string if no provider attached.
-    const repoMap = await this.getRepoMap();
-    // Context window manager — created once per message, reused across iterations.
-    const contextManager = new ContextWindowManager(activeProvider);
-
-    // Analytics tracking — optional; must not affect message processing if it fails.
-    const toolStartTimes = new Map<string, number>();
-    let totalInputTokens = 0;
-    let totalOutputTokens = 0;
-    let hadError = false;
-    let analyticsActive = false;
-    if (this.analyticsInstance) {
-      try {
-        this.analyticsInstance.startTask(this.analyticsAgentName);
-        analyticsActive = true;
-      } catch {
-        // ignore — analytics failure must not break the message path
-      }
-    }
-
-    // Staging buffer: all edit_file calls within this agent turn write to
-    // this buffer instead of disk. Flushed atomically after the loop ends.
-    const stagedEdits = new StagedEdits();
-
-    let iterationRan = false;
-    for (let iteration = 0; iteration < maxIterations; iteration++) {
-      if (options.abortSignal?.aborted) break;
-      iterationRan = true;
-
-      // Emit iteration start event so the UI can display live progress.
-      this.emitIterationStart(iteration, totalInputTokens + totalOutputTokens);
-
-      // Yield to the event loop between iterations. This keeps the VS Code
-      // extension host responsive and allows cancellation signals (abort,
-      // UI interactions) to be processed between agent steps.
-      if (iteration > 0) {
-        await new Promise<void>((resolve) => setImmediate(resolve));
-        if (options.abortSignal?.aborted) break;
-      }
-
-      const pendingToolCalls: ToolCall[] = [];
-      let assistantText = "";
-
-      // Build the message list to send. In prompt-based mode we prepend
-      // (or merge into) a system message with the tool catalog as XML.
-      // For native-tool-calling providers we still inject the repo map
-      // and base directives as a system message — they need grounding too.
-      const rawMessages = usePromptBased
-        ? this.withInjectedToolPrompt(this.history, allTools, repoMap)
-        : this.withGroundingSystemPrompt(this.history, repoMap);
-
-      // Fit into context window — summarises dropped turns via LLM instead of
-      // silently discarding them. Falls back to plain drop if summarize throws.
-      const messagesToSend = await contextManager.fitWithSummary(
-        rawMessages,
-        async (dropped) => {
-          const turns = dropped
-            .filter((m) => m.role === "user" || m.role === "assistant")
-            .map((m) => {
-              const text =
-                typeof m.content === "string"
-                  ? m.content.slice(0, 300)
-                  : (m.content as ContentBlock[])
-                      .filter(
-                        (b): b is ContentBlock & { type: "text" } =>
-                          b.type === "text",
-                      )
-                      .map((b) => b.text)
-                      .join(" ")
-                      .slice(0, 300);
-              return `${m.role}: ${text}`;
-            })
-            .join("\n");
-          // Safe: calls the provider directly (not processMessage), so fitWithSummary
-          // is never re-entered. The summarization request is always a single small message.
-          const summaryStream = activeProvider.chat(
-            [
-              {
-                role: "user",
-                content: `Summarize this conversation in 2 sentences, preserving key facts and decisions:\n\n${turns}`,
-              },
-            ],
-            { abortSignal: options.abortSignal },
-          );
-          const parts: string[] = [];
-          for await (const delta of summaryStream) {
-            if (delta.type === "text" && delta.text) parts.push(delta.text);
-            if (delta.type === "done" || delta.type === "error") break;
+          if (routedPromptBased === currentPromptBased || !hasHistory) {
+            // Same tool format, or no history yet — safe to route.
+            activeProvider = routed.provider;
+            console.log(
+              `Champ SmartRouter: ${this.mode} → ${routed.model.id} [${routed.reason}]`,
+            );
+          } else {
+            console.log(
+              `Champ SmartRouter: skipping ${routed.model.id} — ` +
+                `tool format mismatch with existing history`,
+            );
           }
-          return (
-            parts.join("").trim() ||
-            "Earlier conversation context not available."
-          );
-        },
-      );
-      if (messagesToSend.length < rawMessages.length) {
-        const dropped = rawMessages.length - messagesToSend.length;
-        console.log(
-          `Champ: context window — compacted ${dropped} oldest message(s) into summary`,
-        );
+        }
       }
 
-      // ── Response cache lookup ─────────────────────────────────────────────
-      // Only cache on the first iteration (no tool calls yet) and when there
-      // are no tool calls in-flight. Tool-using responses are never cached
-      // because they depend on live workspace state.
-      // Include tool names in cache key so different tool sets produce different keys.
-      const toolNames = allTools
-        .map((t) => t.name)
-        .sort()
-        .join(",");
-      const cacheMessagesJson =
-        this.responseCache && iteration === 0
-          ? `${JSON.stringify(messagesToSend)}::tools:${toolNames}`
-          : null;
-      const cachedResponse =
-        cacheMessagesJson && this.responseCache
-          ? this.responseCache.get(
+      // ── Prompt injection guard ────────────────────────────────────────────
+      // Check the raw text before anything else. Blocks the request if an
+      // injection attempt is detected and fires telemetry.
+      const rawText = Array.isArray(userText)
+        ? userText
+            .filter(
+              (b): b is ContentBlock & { type: "text" } => b.type === "text",
+            )
+            .map((b) => b.text)
+            .join(" ")
+        : userText;
+
+      const guardResult = this.promptGuard.check(rawText);
+      if (!guardResult.safe) {
+        // Emit a text delta so the UI can show the block reason inline.
+        this.emit({
+          type: "text",
+          text: `⛔ **Request blocked** — ${guardResult.reason}`,
+        });
+        throw new PromptInjectionError(guardResult);
+      }
+
+      // ── PII redaction ─────────────────────────────────────────────────────
+      // Scan the user's message text and replace PII before it goes to history
+      // (and therefore to the LLM). Non-text content blocks are not modified.
+      if (typeof userText === "string") {
+        const piiResult = this.piiScanner.scan(userText);
+        if (piiResult.hasFindings) {
+          const types = [
+            ...new Set(piiResult.findings.map((f) => f.type)),
+          ].join(", ");
+          const summary = `${piiResult.findings.length} value(s) redacted before sending (${types})`;
+          console.log(`Champ PII: ${summary}`);
+          options.onPiiRedacted?.(summary);
+          userText = piiResult.redacted;
+        }
+      } else {
+        const allFindings: import("../safety/pii-scanner").PiiFinding[] = [];
+        userText = userText.map((block) => {
+          if (block.type !== "text") return block;
+          const piiResult = this.piiScanner.scan(block.text);
+          if (piiResult.hasFindings) allFindings.push(...piiResult.findings);
+          return piiResult.hasFindings
+            ? { ...block, text: piiResult.redacted }
+            : block;
+        });
+        if (allFindings.length > 0) {
+          const types = [...new Set(allFindings.map((f) => f.type))].join(", ");
+          const summary = `${allFindings.length} value(s) redacted before sending (${types})`;
+          console.log(`Champ PII: ${summary}`);
+          options.onPiiRedacted?.(summary);
+        }
+      }
+
+      // ── Image stripping for non-vision providers ──────────────────────────
+      if (Array.isArray(userText)) {
+        const supportsImages = activeProvider.modelInfo().supportsImages;
+        if (!supportsImages) {
+          const textParts = userText
+            .filter(
+              (b): b is ContentBlock & { type: "text" } => b.type === "text",
+            )
+            .map((b) => b.text)
+            .join("\n");
+          const imageCount = userText.filter((b) => b.type === "image").length;
+          const combined =
+            imageCount > 0
+              ? `${textParts}\n\n[${imageCount} image(s) attached — this provider does not support image input]`
+              : textParts;
+          // Re-scan the collapsed string for PII — the image placeholder
+          // itself is safe, but text parts from blocks were already redacted
+          // individually; this second pass is a safety net for anything
+          // introduced by the join or the image note.
+          const postStripPii = this.piiScanner.scan(combined);
+          if (postStripPii.hasFindings) {
+            const types = [
+              ...new Set(postStripPii.findings.map((f) => f.type)),
+            ].join(", ");
+            const summary = `${postStripPii.findings.length} value(s) redacted before sending (${types})`;
+            options.onPiiRedacted?.(summary);
+            userText = postStripPii.redacted;
+          } else {
+            userText = combined;
+          }
+        }
+      }
+
+      this.history.push({ role: "user", content: userText });
+
+      // Reset the system prompt cache at the start of each message so it's rebuilt fresh
+      this._cachedSystemContent = null;
+
+      const collectedText: string[] = [];
+      const collectedToolCalls: Array<{ call: ToolCall; result: ToolResult }> =
+        [];
+
+      const usePromptBased = !activeProvider.supportsToolUse();
+      // Filter tools by the active mode (Ask/Plan = read-only).
+      const allTools = this.filterToolsByMode(
+        this.toolRegistry.getDefinitions(),
+      );
+      // Fetch the repo map once per session for grounding. Cached after
+      // first call. Empty string if no provider attached.
+      const repoMap = await this.getRepoMap();
+      // Context window manager — created once per message, reused across iterations.
+      const contextManager = new ContextWindowManager(activeProvider);
+
+      // Analytics tracking — optional; must not affect message processing if it fails.
+      const toolStartTimes = new Map<string, number>();
+      let totalInputTokens = 0;
+      let totalOutputTokens = 0;
+      let hadError = false;
+      let analyticsActive = false;
+      if (this.analyticsInstance) {
+        try {
+          this.analyticsInstance.startTask(this.analyticsAgentName);
+          analyticsActive = true;
+        } catch {
+          // ignore — analytics failure must not break the message path
+        }
+      }
+
+      // Staging buffer: all edit_file calls within this agent turn write to
+      // this buffer instead of disk. Flushed atomically after the loop ends.
+      const stagedEdits = new StagedEdits();
+
+      let iterationRan = false;
+      for (let iteration = 0; iteration < maxIterations; iteration++) {
+        if (options.abortSignal?.aborted) break;
+        iterationRan = true;
+
+        // Emit iteration start event so the UI can display live progress.
+        this.emitIterationStart(
+          iteration,
+          totalInputTokens + totalOutputTokens,
+        );
+
+        // Yield to the event loop between iterations. This keeps the VS Code
+        // extension host responsive and allows cancellation signals (abort,
+        // UI interactions) to be processed between agent steps.
+        if (iteration > 0) {
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          if (options.abortSignal?.aborted) break;
+        }
+
+        const pendingToolCalls: ToolCall[] = [];
+        let assistantText = "";
+
+        // Build the message list to send. In prompt-based mode we prepend
+        // (or merge into) a system message with the tool catalog as XML.
+        // For native-tool-calling providers we still inject the repo map
+        // and base directives as a system message — they need grounding too.
+        const rawMessages = usePromptBased
+          ? this.withInjectedToolPrompt(this.history, allTools, repoMap)
+          : this.withGroundingSystemPrompt(this.history, repoMap);
+
+        // Fit into context window — summarises dropped turns via LLM instead of
+        // silently discarding them. Falls back to plain drop if summarize throws.
+        const messagesToSend = await contextManager.fitWithSummary(
+          rawMessages,
+          async (dropped) => {
+            const turns = dropped
+              .filter((m) => m.role === "user" || m.role === "assistant")
+              .map((m) => {
+                const text =
+                  typeof m.content === "string"
+                    ? m.content.slice(0, 300)
+                    : (m.content as ContentBlock[])
+                        .filter(
+                          (b): b is ContentBlock & { type: "text" } =>
+                            b.type === "text",
+                        )
+                        .map((b) => b.text)
+                        .join(" ")
+                        .slice(0, 300);
+                return `${m.role}: ${text}`;
+              })
+              .join("\n");
+            // Safe: calls the provider directly (not processMessage), so fitWithSummary
+            // is never re-entered. The summarization request is always a single small message.
+            const summaryStream = activeProvider.chat(
+              [
+                {
+                  role: "user",
+                  content: `Summarize this conversation in 2 sentences, preserving key facts and decisions:\n\n${turns}`,
+                },
+              ],
+              { abortSignal: options.abortSignal },
+            );
+            const parts: string[] = [];
+            for await (const delta of summaryStream) {
+              if (delta.type === "text" && delta.text) parts.push(delta.text);
+              if (delta.type === "done" || delta.type === "error") break;
+            }
+            return (
+              parts.join("").trim() ||
+              "Earlier conversation context not available."
+            );
+          },
+        );
+        if (messagesToSend.length < rawMessages.length) {
+          const dropped = rawMessages.length - messagesToSend.length;
+          console.log(
+            `Champ: context window — compacted ${dropped} oldest message(s) into summary`,
+          );
+        }
+
+        // ── Response cache lookup ─────────────────────────────────────────────
+        // Only cache on the first iteration (no tool calls yet) and when there
+        // are no tool calls in-flight. Tool-using responses are never cached
+        // because they depend on live workspace state.
+        // Include tool names in cache key so different tool sets produce different keys.
+        const toolNames = allTools
+          .map((t) => t.name)
+          .sort()
+          .join(",");
+        const cacheMessagesJson =
+          this.responseCache && iteration === 0
+            ? `${JSON.stringify(messagesToSend)}::tools:${toolNames}`
+            : null;
+        const cachedResponse =
+          cacheMessagesJson && this.responseCache
+            ? this.responseCache.get(
+                activeProvider.modelInfo().name,
+                activeProvider.modelInfo().id ?? "",
+                cacheMessagesJson,
+              )
+            : null;
+
+        if (cachedResponse !== null) {
+          // Cache hit — emit the stored response as if it came from the provider.
+          console.log("Champ ResponseCache: hit");
+          this.emit({ type: "text", text: cachedResponse });
+          collectedText.push(cachedResponse);
+          assistantText = cachedResponse;
+          this.history.push({ role: "assistant", content: cachedResponse });
+          // No tool calls — break immediately.
+          break;
+        }
+
+        const stream = activeProvider.chat(messagesToSend, {
+          // Native tool defs only when the provider says it supports them.
+          tools: usePromptBased ? undefined : allTools,
+          abortSignal: options.abortSignal,
+        });
+
+        let errorOccurred = false;
+        for await (const delta of stream) {
+          if (delta.type === "text" && delta.text) {
+            assistantText += delta.text;
+            if (!usePromptBased) {
+              // Native mode: stream text directly to the UI for live render.
+              this.emit(delta);
+              collectedText.push(delta.text);
+            }
+            // In prompt-based mode we buffer the text so we can strip out
+            // the <tool_call> XML before showing it to the user.
+          } else if (delta.type === "tool_call_start" && delta.toolCall) {
+            // In native mode, if no text has been streamed yet, emit a synthetic
+            // prefix so the user sees activity rather than a silent spinner.
+            if (
+              !usePromptBased &&
+              assistantText.length === 0 &&
+              pendingToolCalls.length === 0
+            ) {
+              this.emit({
+                type: "text",
+                text: `Using \`${delta.toolCall.name}\`…\n`,
+              });
+            }
+            pendingToolCalls.push(delta.toolCall);
+            toolStartTimes.set(delta.toolCall.id, Date.now());
+            this.emit(delta);
+          } else if (delta.type === "tool_call_end") {
+            this.emit(delta);
+          } else if (delta.type === "done") {
+            totalInputTokens += delta.usage.inputTokens;
+            totalOutputTokens += delta.usage.outputTokens;
+            this.emit(delta);
+            break;
+          } else if (delta.type === "error") {
+            this.emit(delta);
+            errorOccurred = true;
+            break;
+          } else {
+            this.emit(delta);
+          }
+        }
+        if (errorOccurred) {
+          hadError = true;
+          if (analyticsActive && this.analyticsInstance) {
+            try {
+              this.analyticsInstance.recordTokens(
+                this.analyticsAgentName,
+                totalInputTokens,
+                totalOutputTokens,
+              );
+              this.analyticsInstance.endTask(
+                this.analyticsAgentName,
+                false,
+                "stream error",
+              );
+            } catch {
+              // ignore — analytics failure must not break the message path
+            }
+          }
+          return {
+            text: collectedText.join(""),
+            toolCalls: collectedToolCalls,
+          };
+        }
+
+        // Prompt-based mode: parse <tool_call> blocks out of the buffered
+        // response text, then emit a cleaned text delta to the UI so the
+        // user sees prose without the XML noise.
+        if (usePromptBased && assistantText) {
+          const parsed = parseToolCallsFromText(assistantText);
+          const promptToolStart = Date.now();
+          for (const call of parsed) {
+            pendingToolCalls.push(call);
+            toolStartTimes.set(call.id, promptToolStart);
+          }
+          const cleaned = extractPreToolText(assistantText);
+          if (cleaned) {
+            this.emit({ type: "text", text: cleaned });
+            collectedText.push(cleaned);
+          }
+          for (const call of parsed) {
+            this.emit({ type: "tool_call_start", toolCall: call });
+          }
+        }
+
+        // Persist the assistant turn to history. Strip any fabricated
+        // <tool_output> blocks that the model self-generated (Qwen models
+        // often output both the tool call AND a fake result in one turn).
+        // We keep the tool_call blocks so the model stays consistent.
+        const historyText = assistantText
+          .replace(
+            /<｜tool▁outputs▁begin｜>[\s\S]*?<｜tool▁outputs▁end｜>/g,
+            "",
+          )
+          .trim();
+        const assistantMessage: LLMMessage = {
+          role: "assistant",
+          content: historyText || assistantText,
+          toolCalls: pendingToolCalls.length > 0 ? pendingToolCalls : undefined,
+        };
+        this.history.push(assistantMessage);
+
+        // If the model produced no tool calls, we're done.
+        if (pendingToolCalls.length === 0) {
+          // ── Response cache store ──────────────────────────────────────────
+          // Only cache clean, tool-free responses. Store the raw assistant text
+          // (before prompt-based cleaning) so the same content is returned on hit.
+          if (this.responseCache && cacheMessagesJson && assistantText) {
+            this.responseCache.set(
               activeProvider.modelInfo().name,
               activeProvider.modelInfo().id ?? "",
               cacheMessagesJson,
-            )
-          : null;
-
-      if (cachedResponse !== null) {
-        // Cache hit — emit the stored response as if it came from the provider.
-        console.log("Champ ResponseCache: hit");
-        this.emit({ type: "text", text: cachedResponse });
-        collectedText.push(cachedResponse);
-        assistantText = cachedResponse;
-        this.history.push({ role: "assistant", content: cachedResponse });
-        // No tool calls — break immediately.
-        break;
-      }
-
-      const stream = activeProvider.chat(messagesToSend, {
-        // Native tool defs only when the provider says it supports them.
-        tools: usePromptBased ? undefined : allTools,
-        abortSignal: options.abortSignal,
-      });
-
-      let errorOccurred = false;
-      this._isStreaming = true;
-      for await (const delta of stream) {
-        if (delta.type === "text" && delta.text) {
-          assistantText += delta.text;
-          if (!usePromptBased) {
-            // Native mode: stream text directly to the UI for live render.
-            this.emit(delta);
-            collectedText.push(delta.text);
+              assistantText,
+            );
           }
-          // In prompt-based mode we buffer the text so we can strip out
-          // the <tool_call> XML before showing it to the user.
-        } else if (delta.type === "tool_call_start" && delta.toolCall) {
-          // In native mode, if no text has been streamed yet, emit a synthetic
-          // prefix so the user sees activity rather than a silent spinner.
-          if (
-            !usePromptBased &&
-            assistantText.length === 0 &&
-            pendingToolCalls.length === 0
-          ) {
-            this.emit({
-              type: "text",
-              text: `Using \`${delta.toolCall.name}\`…\n`,
+          break;
+        }
+
+        // Prompt-based mode: if the model produced tool calls with no visible
+        // text, emit a synthetic prefix so the user isn't watching a silent spinner.
+        if (usePromptBased && pendingToolCalls.length > 0) {
+          const hasNarration =
+            (extractTextContent(assistantText) || "").trim().length > 0;
+          if (!hasNarration) {
+            const toolNames = pendingToolCalls
+              .map((c) => `\`${c.name}\``)
+              .join(", ");
+            this.emit({ type: "text", text: `Using ${toolNames}…\n` });
+          }
+        }
+
+        // Execute each tool call and append results to history. Native and
+        // prompt-based modes use slightly different result formats so the
+        // model parses them correctly on the next turn.
+        for (const call of pendingToolCalls) {
+          if (options.abortSignal?.aborted) break;
+
+          const toolContext: ToolExecutionContext = {
+            workspaceRoot: this.workspaceRoot,
+            abortSignal: options.abortSignal ?? new AbortController().signal,
+            reportProgress: (chunk: string) => {
+              this.emit({
+                type: "terminal_chunk",
+                executionId: call.id,
+                chunk,
+                done: false,
+              });
+            },
+            requestApproval: options.requestApproval ?? (async () => true),
+            editReviewTracker: this.editReviewTracker,
+            stagedEdits,
+            auditLog: this._auditLog,
+          };
+
+          const result = await this.toolRegistry.execute(
+            call.name,
+            call.arguments,
+            toolContext,
+          );
+
+          // Emit terminal done sentinel so the webview closes the streaming block.
+          this.emit({
+            type: "terminal_chunk",
+            executionId: call.id,
+            chunk: "",
+            done: true,
+          });
+
+          // Re-check after tool execution — user may have cancelled during a
+          // long-running tool. Don't commit the result to history if aborted.
+          if (options.abortSignal?.aborted) break;
+
+          collectedToolCalls.push({ call, result });
+
+          // Redact secrets from the tool output before adding it to
+          // history. This prevents API keys / passwords / PEM blocks in
+          // file contents and command output from leaking to the LLM
+          // on the next turn. The user-visible result (collected above)
+          // intentionally retains the unredacted output for display.
+          // 1. Redact secrets from tool output before sending to LLM.
+          const secretScan = this.secretScanner.scan(result.output);
+          // 2. Check tool output for indirect prompt injection (e.g. malicious
+          //    instructions embedded in workspace files or command output).
+          const injectionCheck = this.promptGuard.check(secretScan.redacted);
+          const redactedOutput = injectionCheck.safe
+            ? secretScan.redacted
+            : `[Tool output blocked — possible prompt injection in ${call.name} output (${injectionCheck.category ?? "unknown"})]`;
+          if (!injectionCheck.safe) {
+            console.warn(
+              `Champ PromptGuard: blocked indirect injection in ${call.name} output — ${injectionCheck.reason}`,
+            );
+          }
+          const redactedResult: ToolResult = {
+            ...result,
+            output: redactedOutput,
+          };
+
+          // Emit tool result so the UI can update the "Running..." card.
+          this.emit({
+            type: "tool_call_end",
+            toolCallId: call.id,
+            toolName: call.name,
+            toolResult: redactedOutput,
+            toolSuccess: result.success,
+            fileEditDiff: result.metadata?.fileEditDiff,
+          });
+
+          // Record tool call for analytics
+          if (analyticsActive && this.analyticsInstance) {
+            const toolStart = toolStartTimes.get(call.id) ?? Date.now();
+            toolStartTimes.delete(call.id);
+            this.analyticsInstance.recordToolCall(this.analyticsAgentName, {
+              toolName: call.name,
+              args: call.arguments,
+              startTime: toolStart,
+              durationMs: Date.now() - toolStart,
+              success: result.success,
+              result: result.success ? result.output.slice(0, 200) : undefined,
+              error: result.success ? undefined : result.output,
             });
           }
-          pendingToolCalls.push(delta.toolCall);
-          toolStartTimes.set(delta.toolCall.id, Date.now());
-          this.emit(delta);
-        } else if (delta.type === "tool_call_end") {
-          this.emit(delta);
-        } else if (delta.type === "done") {
-          totalInputTokens += delta.usage.inputTokens;
-          totalOutputTokens += delta.usage.outputTokens;
-          this.emit(delta);
-          break;
-        } else if (delta.type === "error") {
-          this.emit(delta);
-          errorOccurred = true;
-          break;
-        } else {
-          this.emit(delta);
+
+          if (usePromptBased) {
+            // For prompt-based providers, the next user message contains
+            // the tool result wrapped in <tool_result> so the model can
+            // see it as part of the conversation.
+            this.history.push({
+              role: "user",
+              content: this.formatToolResultForPromptBased(
+                call,
+                redactedResult,
+              ),
+            });
+          } else {
+            const toolResultBlock: ContentBlock = {
+              type: "tool_result",
+              toolUseId: call.id,
+              content: redactedOutput,
+              isError: !result.success,
+            };
+            this.history.push({
+              role: "tool",
+              content: [toolResultBlock],
+              toolCallId: call.id,
+            });
+          }
         }
       }
-      // Stream ended — clear the streaming flag and apply any queued provider swap.
-      this._isStreaming = false;
+
+      // Flush all staged file edits to disk atomically now that the turn is done.
+      // This ensures edits across multiple files are applied together — no half-
+      // applied states — and later edits to the same file correctly compose.
+      if (stagedEdits.size() > 0) {
+        const flushed = await stagedEdits.flush();
+        for (const change of flushed) {
+          if (this.editReviewTracker) {
+            this.editReviewTracker.record({
+              path: change.relativePath,
+              oldContent: change.oldContent,
+              newContent: change.newContent,
+            });
+          }
+        }
+      }
+
+      // Warn the user if the loop was cut short by the iteration cap.
+      if (iterationRan && !hadError && !options.abortSignal?.aborted) {
+        // If the loop ran maxIterations without breaking early (no-tool-call
+        // break), the for-loop simply exhausted — notify the user.
+        const reachedCap =
+          collectedToolCalls.length > 0 && collectedText.join("").trim() === "";
+        if (reachedCap) {
+          this.emit({
+            type: "text",
+            text: `\n\n⚠️ Reached the ${maxIterations}-iteration limit. The task may be incomplete — try continuing with a follow-up message.`,
+          });
+        }
+      }
+
+      // Finalize analytics for this processMessage call
+      if (analyticsActive && this.analyticsInstance) {
+        try {
+          this.analyticsInstance.recordTokens(
+            this.analyticsAgentName,
+            totalInputTokens,
+            totalOutputTokens,
+          );
+          this.analyticsInstance.endTask(
+            this.analyticsAgentName,
+            iterationRan && !hadError,
+            iterationRan ? undefined : "aborted before first iteration",
+          );
+        } catch {
+          // ignore — analytics failure must not break the message path
+        }
+      }
+
+      if (this.memoryBank && userText) {
+        const query =
+          typeof userText === "string"
+            ? userText.slice(0, 120)
+            : (userText as ContentBlock[])
+                .filter(
+                  (b): b is ContentBlock & { type: "text" } =>
+                    b.type === "text",
+                )
+                .map((b) => b.text)
+                .join(" ")
+                .slice(0, 120);
+        const summary =
+          collectedText.join("").slice(0, 200).replace(/\n/g, " ") ||
+          "(no text response)";
+        void this.memoryBank.store({
+          userQuery: query,
+          assistantSummary: summary,
+          sessionId: this.analyticsAgentName,
+        });
+      }
+
+      return {
+        text: collectedText.join(""),
+        toolCalls: collectedToolCalls,
+      };
+    } finally {
+      this._isProcessing = false;
       if (this._pendingProvider) {
         this.provider = this._pendingProvider;
         this._pendingProvider = null;
       }
-
-      if (errorOccurred) {
-        hadError = true;
-        if (analyticsActive && this.analyticsInstance) {
-          try {
-            this.analyticsInstance.recordTokens(
-              this.analyticsAgentName,
-              totalInputTokens,
-              totalOutputTokens,
-            );
-            this.analyticsInstance.endTask(
-              this.analyticsAgentName,
-              false,
-              "stream error",
-            );
-          } catch {
-            // ignore — analytics failure must not break the message path
-          }
-        }
-        return {
-          text: collectedText.join(""),
-          toolCalls: collectedToolCalls,
-        };
-      }
-
-      // Prompt-based mode: parse <tool_call> blocks out of the buffered
-      // response text, then emit a cleaned text delta to the UI so the
-      // user sees prose without the XML noise.
-      if (usePromptBased && assistantText) {
-        const parsed = parseToolCallsFromText(assistantText);
-        const promptToolStart = Date.now();
-        for (const call of parsed) {
-          pendingToolCalls.push(call);
-          toolStartTimes.set(call.id, promptToolStart);
-        }
-        const cleaned = extractPreToolText(assistantText);
-        if (cleaned) {
-          this.emit({ type: "text", text: cleaned });
-          collectedText.push(cleaned);
-        }
-        for (const call of parsed) {
-          this.emit({ type: "tool_call_start", toolCall: call });
-        }
-      }
-
-      // Persist the assistant turn to history. Strip any fabricated
-      // <tool_output> blocks that the model self-generated (Qwen models
-      // often output both the tool call AND a fake result in one turn).
-      // We keep the tool_call blocks so the model stays consistent.
-      const historyText = assistantText
-        .replace(/<｜tool▁outputs▁begin｜>[\s\S]*?<｜tool▁outputs▁end｜>/g, "")
-        .trim();
-      const assistantMessage: LLMMessage = {
-        role: "assistant",
-        content: historyText || assistantText,
-        toolCalls: pendingToolCalls.length > 0 ? pendingToolCalls : undefined,
-      };
-      this.history.push(assistantMessage);
-
-      // If the model produced no tool calls, we're done.
-      if (pendingToolCalls.length === 0) {
-        // ── Response cache store ──────────────────────────────────────────
-        // Only cache clean, tool-free responses. Store the raw assistant text
-        // (before prompt-based cleaning) so the same content is returned on hit.
-        if (this.responseCache && cacheMessagesJson && assistantText) {
-          this.responseCache.set(
-            activeProvider.modelInfo().name,
-            activeProvider.modelInfo().id ?? "",
-            cacheMessagesJson,
-            assistantText,
-          );
-        }
-        break;
-      }
-
-      // Prompt-based mode: if the model produced tool calls with no visible
-      // text, emit a synthetic prefix so the user isn't watching a silent spinner.
-      if (usePromptBased && pendingToolCalls.length > 0) {
-        const hasNarration =
-          (extractTextContent(assistantText) || "").trim().length > 0;
-        if (!hasNarration) {
-          const toolNames = pendingToolCalls
-            .map((c) => `\`${c.name}\``)
-            .join(", ");
-          this.emit({ type: "text", text: `Using ${toolNames}…\n` });
-        }
-      }
-
-      // Execute each tool call and append results to history. Native and
-      // prompt-based modes use slightly different result formats so the
-      // model parses them correctly on the next turn.
-      for (const call of pendingToolCalls) {
-        if (options.abortSignal?.aborted) break;
-
-        const toolContext: ToolExecutionContext = {
-          workspaceRoot: this.workspaceRoot,
-          abortSignal: options.abortSignal ?? new AbortController().signal,
-          reportProgress: (chunk: string) => {
-            this.emit({
-              type: "terminal_chunk",
-              executionId: call.id,
-              chunk,
-              done: false,
-            });
-          },
-          requestApproval: options.requestApproval ?? (async () => true),
-          editReviewTracker: this.editReviewTracker,
-          stagedEdits,
-          auditLog: this._auditLog,
-        };
-
-        const result = await this.toolRegistry.execute(
-          call.name,
-          call.arguments,
-          toolContext,
-        );
-
-        // Emit terminal done sentinel so the webview closes the streaming block.
-        this.emit({
-          type: "terminal_chunk",
-          executionId: call.id,
-          chunk: "",
-          done: true,
-        });
-
-        // Re-check after tool execution — user may have cancelled during a
-        // long-running tool. Don't commit the result to history if aborted.
-        if (options.abortSignal?.aborted) break;
-
-        collectedToolCalls.push({ call, result });
-
-        // Redact secrets from the tool output before adding it to
-        // history. This prevents API keys / passwords / PEM blocks in
-        // file contents and command output from leaking to the LLM
-        // on the next turn. The user-visible result (collected above)
-        // intentionally retains the unredacted output for display.
-        // 1. Redact secrets from tool output before sending to LLM.
-        const secretScan = this.secretScanner.scan(result.output);
-        // 2. Check tool output for indirect prompt injection (e.g. malicious
-        //    instructions embedded in workspace files or command output).
-        const injectionCheck = this.promptGuard.check(secretScan.redacted);
-        const redactedOutput = injectionCheck.safe
-          ? secretScan.redacted
-          : `[Tool output blocked — possible prompt injection in ${call.name} output (${injectionCheck.category ?? "unknown"})]`;
-        if (!injectionCheck.safe) {
-          console.warn(
-            `Champ PromptGuard: blocked indirect injection in ${call.name} output — ${injectionCheck.reason}`,
-          );
-        }
-        const redactedResult: ToolResult = {
-          ...result,
-          output: redactedOutput,
-        };
-
-        // Emit tool result so the UI can update the "Running..." card.
-        this.emit({
-          type: "tool_call_end",
-          toolCallId: call.id,
-          toolName: call.name,
-          toolResult: redactedOutput,
-          toolSuccess: result.success,
-          fileEditDiff: result.metadata?.fileEditDiff,
-        });
-
-        // Record tool call for analytics
-        if (analyticsActive && this.analyticsInstance) {
-          const toolStart = toolStartTimes.get(call.id) ?? Date.now();
-          toolStartTimes.delete(call.id);
-          this.analyticsInstance.recordToolCall(this.analyticsAgentName, {
-            toolName: call.name,
-            args: call.arguments,
-            startTime: toolStart,
-            durationMs: Date.now() - toolStart,
-            success: result.success,
-            result: result.success ? result.output.slice(0, 200) : undefined,
-            error: result.success ? undefined : result.output,
-          });
-        }
-
-        if (usePromptBased) {
-          // For prompt-based providers, the next user message contains
-          // the tool result wrapped in <tool_result> so the model can
-          // see it as part of the conversation.
-          this.history.push({
-            role: "user",
-            content: this.formatToolResultForPromptBased(call, redactedResult),
-          });
-        } else {
-          const toolResultBlock: ContentBlock = {
-            type: "tool_result",
-            toolUseId: call.id,
-            content: redactedOutput,
-            isError: !result.success,
-          };
-          this.history.push({
-            role: "tool",
-            content: [toolResultBlock],
-            toolCallId: call.id,
-          });
-        }
-      }
+      void this._drainQueue();
     }
+  }
 
-    // Flush all staged file edits to disk atomically now that the turn is done.
-    // This ensures edits across multiple files are applied together — no half-
-    // applied states — and later edits to the same file correctly compose.
-    if (stagedEdits.size() > 0) {
-      const flushed = await stagedEdits.flush();
-      for (const change of flushed) {
-        if (this.editReviewTracker) {
-          this.editReviewTracker.record({
-            path: change.relativePath,
-            oldContent: change.oldContent,
-            newContent: change.newContent,
-          });
-        }
-      }
-    }
-
-    // Warn the user if the loop was cut short by the iteration cap.
-    if (iterationRan && !hadError && !options.abortSignal?.aborted) {
-      // If the loop ran maxIterations without breaking early (no-tool-call
-      // break), the for-loop simply exhausted — notify the user.
-      const reachedCap =
-        collectedToolCalls.length > 0 && collectedText.join("").trim() === "";
-      if (reachedCap) {
-        this.emit({
-          type: "text",
-          text: `\n\n⚠️ Reached the ${maxIterations}-iteration limit. The task may be incomplete — try continuing with a follow-up message.`,
-        });
-      }
-    }
-
-    // Finalize analytics for this processMessage call
-    if (analyticsActive && this.analyticsInstance) {
+  /**
+   * Drain the FIFO message queue, processing one entry at a time.
+   * Called from the finally block of _runMessage() so queued calls
+   * are processed in order after each completes.
+   */
+  private async _drainQueue(): Promise<void> {
+    while (this._messageQueue.length > 0 && !this._isProcessing) {
+      const next = this._messageQueue.shift()!;
       try {
-        this.analyticsInstance.recordTokens(
-          this.analyticsAgentName,
-          totalInputTokens,
-          totalOutputTokens,
-        );
-        this.analyticsInstance.endTask(
-          this.analyticsAgentName,
-          iterationRan && !hadError,
-          iterationRan ? undefined : "aborted before first iteration",
-        );
-      } catch {
-        // ignore — analytics failure must not break the message path
+        const result = await this._runMessage(next.userText, next.options);
+        next.resolve(result);
+      } catch (e) {
+        next.reject(e);
       }
     }
-
-    if (this.memoryBank && userText) {
-      const query =
-        typeof userText === "string"
-          ? userText.slice(0, 120)
-          : (userText as ContentBlock[])
-              .filter(
-                (b): b is ContentBlock & { type: "text" } => b.type === "text",
-              )
-              .map((b) => b.text)
-              .join(" ")
-              .slice(0, 120);
-      const summary =
-        collectedText.join("").slice(0, 200).replace(/\n/g, " ") ||
-        "(no text response)";
-      void this.memoryBank.store({
-        userQuery: query,
-        assistantSummary: summary,
-        sessionId: this.analyticsAgentName,
-      });
-    }
-
-    return {
-      text: collectedText.join(""),
-      toolCalls: collectedToolCalls,
-    };
   }
 
   /**
