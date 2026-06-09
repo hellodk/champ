@@ -1,6 +1,7 @@
 // webview-ui/src/components/MemoryPanel.tsx
 import { h, Fragment } from "preact";
 import { useState, useEffect } from "preact/hooks";
+import { isValidMessage } from "../../../src/ui/messages";
 
 interface MemoryItem {
   id: string;
@@ -170,6 +171,7 @@ export function MemoryPanel(): JSX.Element {
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
+      if (!isValidMessage(event.data)) return; // drop malformed
       const msg = event.data as { type: string; items?: MemoryItem[] };
       if (msg.type === "memoryList" && Array.isArray(msg.items)) {
         setItems(msg.items);

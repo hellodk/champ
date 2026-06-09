@@ -1,9 +1,10 @@
 // webview-ui/src/components/TeamBuilderPanel.tsx
 import { signal } from "@preact/signals";
 import { useEffect, useRef } from "preact/hooks";
-import type {
-  TeamBuilderLoadMessage,
-  TeamBuilderSaveAckMessage,
+import {
+  isValidMessage,
+  type TeamBuilderLoadMessage,
+  type TeamBuilderSaveAckMessage,
 } from "../../../src/ui/messages";
 
 // ---------------------------------------------------------------------------
@@ -795,7 +796,8 @@ export function TeamBuilderPanel(): JSX.Element {
     executionConfigSignal.value = null;
 
     const handleMessage = (e: MessageEvent): void => {
-      const msg = e.data as { type: string };
+      if (!isValidMessage(e.data)) return; // drop malformed
+      const msg = e.data;
       if (msg.type === "teamBuilderLoad") {
         const m = msg as TeamBuilderLoadMessage;
         existingNamesSignal.value = m.existingNames;
