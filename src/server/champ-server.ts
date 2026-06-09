@@ -6,6 +6,7 @@
  *   GET  /health            — server status and version
  *   POST /run-team          — trigger a team run (returns runId)
  *   GET  /run/:runId        — get team run state
+ *   GET  /run/:runId/stream — SSE stream of run state changes
  *   GET  /runs              — list recent runs (last 20)
  *   POST /chat              — send a single chat message, get response
  *
@@ -131,6 +132,68 @@ export class ChampServer {
           return;
         }
         this.respond(res, 202, result);
+        return;
+      }
+
+      // SSE stream for a run — emits state updates as text/event-stream
+      const streamMatch = url.pathname.match(/^\/run\/([^/]+)\/stream$/);
+      if (method === "GET" && streamMatch) {
+        const runId = decodeURIComponent(streamMatch[1]);
+
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+          "X-Champ-Version": this.options.version ?? "unknown",
+        });
+
+        // Keep the connection alive with a comment every 15s
+        const heartbeat = setInterval(() => {
+          res.write(": heartbeat\n\n");
+        }, 15_000);
+
+        // Poll for state changes every 500ms
+        let lastSerialized = "";
+        const poll = setInterval(async () => {
+          try {
+            const state = await this.options.onGetRun?.(runId);
+            if (!state) {
+              clearInterval(poll);
+              clearInterval(heartbeat);
+              res.write(
+                `event: error\ndata: ${JSON.stringify({ error: `Run ${runId} not found` })}\n\n`,
+              );
+              res.end();
+              return;
+            }
+            const serialized = JSON.stringify(state);
+            if (serialized !== lastSerialized) {
+              lastSerialized = serialized;
+              res.write(`data: ${serialized}\n\n`);
+            }
+            const status = (state as { status?: string }).status;
+            if (
+              status === "completed" ||
+              status === "failed" ||
+              status === "cancelled"
+            ) {
+              clearInterval(poll);
+              clearInterval(heartbeat);
+              res.write(`event: done\ndata: ${serialized}\n\n`);
+              res.end();
+            }
+          } catch {
+            clearInterval(poll);
+            clearInterval(heartbeat);
+            res.end();
+          }
+        }, 500);
+
+        req.on("close", () => {
+          clearInterval(poll);
+          clearInterval(heartbeat);
+        });
+
         return;
       }
 
