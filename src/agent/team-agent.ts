@@ -134,6 +134,10 @@ export class TeamAgent implements Agent {
     private readonly streamCallback?: (chunk: string) => void,
     private readonly toolRegistry?: ToolRegistry,
     private readonly abortSignal?: AbortSignal,
+    private readonly requestApprovalCallback?: (
+      description: string,
+      preview?: { type: "diff" | "command"; content: string; label?: string },
+    ) => Promise<boolean>,
   ) {
     this.name = def.id;
     this.role = def.role;
@@ -279,7 +283,7 @@ export class TeamAgent implements Agent {
           workspaceRoot,
           abortSignal: this.abortSignal ?? new AbortController().signal,
           reportProgress: () => {},
-          requestApproval: async () => true,
+          requestApproval: this.requestApprovalCallback ?? (async () => true),
         },
         this.metrics,
       );

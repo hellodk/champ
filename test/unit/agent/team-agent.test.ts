@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { TeamAgent } from "@/agent/team-agent";
 import { SharedMemory } from "@/agent/shared-memory";
+import { ToolRegistry } from "@/tools/registry";
 import type { LLMMessage } from "@/providers/types";
 
 const agentDef = {
@@ -112,5 +113,141 @@ describe("TeamAgent — context overflow", () => {
     expect(userMsg).toBeDefined();
     // No context, no trim — user message should start with the original request
     expect((userMsg!.content as string).startsWith(originalRequest)).toBe(true);
+  });
+});
+
+// --- Shared provider factory for approval tests ---
+function makeToolProvider(
+  toolCallName: string,
+  toolCallArgs: Record<string, unknown>,
+) {
+  let callCount = 0;
+  return {
+    name: "tool-provider",
+    config: { provider: "tool-provider" as const, model: "tool-provider" },
+    chat: async function* (_msgs: LLMMessage[], _opts?: { tools?: unknown[] }) {
+      callCount++;
+      if (callCount === 1) {
+        // First call: emit tool_call_start (empty args) + tool_call_end to flush
+        yield {
+          type: "tool_call_start" as const,
+          toolCall: {
+            id: "call-1",
+            name: toolCallName,
+            arguments: {},
+          },
+        };
+        // tool_call_delta with JSON-serialized args
+        yield {
+          type: "tool_call_delta" as const,
+          argumentsDelta: JSON.stringify(toolCallArgs),
+        };
+        yield { type: "tool_call_end" as const };
+        yield {
+          type: "done" as const,
+          usage: { inputTokens: 10, outputTokens: 5 },
+        };
+      } else {
+        // Second call (after tool result): return final text
+        yield { type: "text" as const, text: "done" };
+        yield {
+          type: "done" as const,
+          usage: { inputTokens: 5, outputTokens: 2 },
+        };
+      }
+    },
+    complete: async function* () {},
+    supportsToolUse: () => true,
+    supportsStreaming: () => true,
+    countTokens: (text: string) => Math.ceil(text.length / 4),
+    modelInfo: () => ({
+      contextWindow: 100_000,
+      name: "tool-provider",
+      provider: "tool-provider" as const,
+    }),
+    dispose: () => {},
+  };
+}
+
+const toolAgentDef = {
+  id: "tool-agent",
+  name: "Tool Agent",
+  role: "Tool Runner",
+  systemPrompt: "You are a tool agent.",
+  dependsOn: [] as string[],
+  condition: "",
+  tools: ["noop_tool"],
+  model: "",
+  maxTokens: 100,
+  outputKey: "tool_output",
+  outputFormat: "text" as const,
+  selfCritique: false,
+  subscribes: [] as string[],
+};
+
+describe("TeamAgent — requestApproval callback", () => {
+  function makeToolRegistry(requiresApproval = true): ToolRegistry {
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "noop_tool",
+      description: "A noop tool for testing",
+      parameters: {
+        type: "object" as const,
+        properties: {},
+        required: [],
+      },
+      requiresApproval,
+      execute: vi.fn(async () => ({ success: true, output: "noop result" })),
+    });
+    return registry;
+  }
+
+  it("calls the approval callback when one is provided", async () => {
+    const approvalCallback = vi.fn(async (_description: string) => true);
+
+    const fakeProvider = makeToolProvider("noop_tool", {});
+    const registry = makeToolRegistry(true);
+
+    const agent = new TeamAgent(
+      toolAgentDef,
+      fakeProvider as any,
+      undefined,
+      registry,
+      undefined,
+      approvalCallback,
+    );
+
+    const memory = new SharedMemory();
+    await agent.execute({ userRequest: "run the tool", context: [] }, memory);
+
+    // The approval callback must have been invoked because the tool requiresApproval
+    expect(approvalCallback).toHaveBeenCalled();
+    // The description arg must be a non-empty string
+    const firstCall = approvalCallback.mock.calls[0];
+    expect(typeof firstCall[0]).toBe("string");
+    expect(firstCall[0].length).toBeGreaterThan(0);
+  });
+
+  it("auto-approves when no callback provided (backward compat)", async () => {
+    const fakeProvider = makeToolProvider("noop_tool", {});
+    const registry = makeToolRegistry(true);
+
+    // No 6th argument — backward compat path
+    const agent = new TeamAgent(
+      toolAgentDef,
+      fakeProvider as any,
+      undefined,
+      registry,
+      undefined,
+      // no requestApprovalCallback
+    );
+
+    const memory = new SharedMemory();
+    // Should not throw — tool should execute, auto-approved via async () => true
+    const output = await agent.execute(
+      { userRequest: "run the tool", context: [] },
+      memory,
+    );
+    expect(output.success).toBe(true);
   });
 });
