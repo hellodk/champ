@@ -294,6 +294,14 @@ const selectedIdSignal = signal<string | null>(null);
 const showGallerySignal = signal(false);
 const saveAckSignal = signal<string | null>(null);
 const existingNamesSignal = signal<string[]>([]);
+const executionConfigSignal = signal<{
+  maxParallel?: number;
+  totalTokenBudget?: number;
+  timeoutSeconds?: number;
+  retries?: number;
+  checkpoints?: boolean;
+  mode?: string;
+} | null>(null);
 
 // Dragging state — ephemeral, not signals
 let dragging: {
@@ -784,6 +792,7 @@ export function TeamBuilderPanel(): JSX.Element {
     showGallerySignal.value = false;
     saveAckSignal.value = null;
     existingNamesSignal.value = [];
+    executionConfigSignal.value = null;
 
     const handleMessage = (e: MessageEvent): void => {
       const msg = e.data as { type: string };
@@ -809,6 +818,9 @@ export function TeamBuilderPanel(): JSX.Element {
             subscribes: a.subscribes ?? [],
           }));
           positionsSignal.value = computeInitialPositions(agentsSignal.value);
+          if (m.team.execution) {
+            executionConfigSignal.value = m.team.execution;
+          }
         }
       } else if (msg.type === "teamBuilderSaveAck") {
         const m = msg as TeamBuilderSaveAckMessage;
@@ -859,12 +871,13 @@ export function TeamBuilderPanel(): JSX.Element {
         agents: agentsSignal.value,
         defaults: {},
         execution: {
-          maxParallel: 3,
-          totalTokenBudget: 100000,
-          timeoutSeconds: 120,
-          retries: 1,
-          checkpoints: true,
-          mode: "auto",
+          maxParallel: executionConfigSignal.value?.maxParallel ?? 3,
+          totalTokenBudget:
+            executionConfigSignal.value?.totalTokenBudget ?? 100000,
+          timeoutSeconds: executionConfigSignal.value?.timeoutSeconds ?? 120,
+          retries: executionConfigSignal.value?.retries ?? 1,
+          checkpoints: executionConfigSignal.value?.checkpoints ?? true,
+          mode: executionConfigSignal.value?.mode ?? "auto",
         },
       },
     });
