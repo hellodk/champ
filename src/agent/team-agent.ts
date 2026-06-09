@@ -24,6 +24,7 @@ import { TemplateInterpolator } from "./template-interpolator";
 import { ToolCallingLoop } from "./tool-calling-loop";
 import type { ToolRegistry } from "../tools/registry";
 import { ContextWindowManager } from "../providers/context-manager";
+import type { MetricsCollector } from "../observability/metrics-collector";
 
 export interface SpawnRequest {
   id: string;
@@ -125,6 +126,7 @@ IMPORTANT RULES:
 export class TeamAgent implements Agent {
   readonly name: string;
   readonly role: string;
+  private metrics?: MetricsCollector;
 
   constructor(
     private readonly def: Required<TeamAgentDefinition>,
@@ -137,7 +139,45 @@ export class TeamAgent implements Agent {
     this.role = def.role;
   }
 
+  setMetrics(metrics: MetricsCollector): void {
+    this.metrics = metrics;
+  }
+
   async execute(input: AgentInput, memory: SharedMemory): Promise<AgentOutput> {
+    const stepStartTime = Date.now();
+    let stepOutput: AgentOutput;
+    try {
+      stepOutput = await this._executeInternal(input, memory);
+    } catch (err) {
+      this.metrics?.recordAgentStep({
+        agentName: this.def.id,
+        startTime: stepStartTime,
+        endTime: Date.now(),
+        durationMs: Date.now() - stepStartTime,
+        input: input.userRequest ?? "",
+        output: "",
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+    this.metrics?.recordAgentStep({
+      agentName: this.def.id,
+      startTime: stepStartTime,
+      endTime: Date.now(),
+      durationMs: Date.now() - stepStartTime,
+      input: input.userRequest ?? "",
+      output: (stepOutput.output ?? "").slice(0, 500),
+      success: stepOutput.success,
+      error: stepOutput.error,
+    });
+    return stepOutput;
+  }
+
+  private async _executeInternal(
+    input: AgentInput,
+    memory: SharedMemory,
+  ): Promise<AgentOutput> {
     // Build memory snapshot for template interpolation
     const memSnapshot: Record<string, unknown> = {};
     for (const key of memory.keys()) {
@@ -232,12 +272,17 @@ export class TeamAgent implements Agent {
       // Use tool-calling loop when agent has tools
       const workspaceRoot =
         (memory.get("__workspaceRoot") as string | undefined) ?? process.cwd();
-      const loop = new ToolCallingLoop(this.provider, this.toolRegistry, {
-        workspaceRoot,
-        abortSignal: this.abortSignal ?? new AbortController().signal,
-        reportProgress: () => {},
-        requestApproval: async () => true,
-      });
+      const loop = new ToolCallingLoop(
+        this.provider,
+        this.toolRegistry,
+        {
+          workspaceRoot,
+          abortSignal: this.abortSignal ?? new AbortController().signal,
+          reportProgress: () => {},
+          requestApproval: async () => true,
+        },
+        this.metrics,
+      );
       const result = await loop.run(messages, this.streamCallback);
       text = result.text;
       usage = result.usage;

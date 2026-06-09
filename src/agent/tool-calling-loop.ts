@@ -15,6 +15,7 @@
 import type { LLMProvider, LLMMessage, ContentBlock } from "../providers/types";
 import type { ToolRegistry } from "../tools/registry";
 import type { ToolExecutionContext } from "../tools/types";
+import type { MetricsCollector } from "../observability/metrics-collector";
 
 export interface ToolLoopResult {
   /** Final accumulated text from the last LLM turn with no tool calls. */
@@ -34,6 +35,7 @@ export class ToolCallingLoop {
     private readonly provider: LLMProvider,
     private readonly toolRegistry: ToolRegistry,
     private readonly context: ToolExecutionContext,
+    private readonly metrics?: MetricsCollector,
   ) {}
 
   async run(
@@ -189,11 +191,43 @@ export class ToolCallingLoop {
       for (const tc of pendingToolCalls) {
         if (this.context.abortSignal?.aborted) break;
 
-        const result = await this.toolRegistry.execute(
-          tc.name,
-          tc.args,
-          this.context,
-        );
+        const toolStartTime = Date.now();
+        let toolResultStr: string | undefined;
+        let toolSuccess = false;
+        let toolError: string | undefined;
+        let result: Awaited<ReturnType<ToolRegistry["execute"]>>;
+        try {
+          result = await this.toolRegistry.execute(
+            tc.name,
+            tc.args,
+            this.context,
+          );
+          toolResultStr =
+            typeof result.output === "string"
+              ? result.output.slice(0, 500)
+              : JSON.stringify(result.output).slice(0, 500);
+          toolSuccess = result.success;
+        } catch (err) {
+          toolError = err instanceof Error ? err.message : String(err);
+          this.metrics?.recordToolCall({
+            toolName: tc.name,
+            startTime: toolStartTime,
+            durationMs: Date.now() - toolStartTime,
+            success: false,
+            args: tc.args,
+            error: toolError,
+          });
+          throw err;
+        }
+        this.metrics?.recordToolCall({
+          toolName: tc.name,
+          startTime: toolStartTime,
+          durationMs: Date.now() - toolStartTime,
+          success: toolSuccess,
+          args: tc.args,
+          result: toolResultStr,
+          error: toolError,
+        });
 
         toolResultBlocks.push({
           type: "tool_result",
