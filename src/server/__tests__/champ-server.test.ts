@@ -103,6 +103,23 @@ describe("ChampServer", () => {
     expect(status).toBe(401);
   });
 
+  it("rejects requests with a token that is a prefix of the real token (401)", async () => {
+    // Ensures length check in timingSafeEqual path rejects shorter tokens
+    const shortToken = token.slice(0, Math.max(1, token.length - 4));
+    const { status } = await request(port, "GET", "/health", {
+      Authorization: `Bearer ${shortToken}`,
+    });
+    expect(status).toBe(401);
+  });
+
+  it("accepts requests with the exact correct token (200)", async () => {
+    // Confirms timingSafeEqual returns true for the exact match
+    const { status } = await request(port, "GET", "/health", {
+      Authorization: `Bearer ${token}`,
+    });
+    expect(status).toBe(200);
+  });
+
   // ---- /health ----
 
   it("GET /health returns 200 with version and port", async () => {

@@ -78,12 +78,18 @@ export class ChampServer {
     req: http.IncomingMessage,
     res: http.ServerResponse,
   ): Promise<void> {
-    // Auth check
+    // Auth check — constant-time comparison to prevent timing oracle attacks
     const authHeader = req.headers["authorization"] ?? "";
-    if (
-      !authHeader.startsWith("Bearer ") ||
-      authHeader.slice(7) !== this.token
-    ) {
+    const provided = authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7)
+      : "";
+    const expected = this.token;
+    const providedBuf = Buffer.from(provided);
+    const expectedBuf = Buffer.from(expected);
+    const isValid =
+      providedBuf.length === expectedBuf.length &&
+      crypto.timingSafeEqual(providedBuf, expectedBuf);
+    if (!isValid) {
       this.respond(res, 401, {
         error: "Unauthorized. Include Authorization: Bearer <token> header.",
       });
