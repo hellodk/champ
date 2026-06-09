@@ -270,6 +270,81 @@ describe("ChampServer", () => {
     expect((body as { error: string }).error).toMatch(/Unknown endpoint/);
   });
 
+  // ---- /run/:runId/stream (SSE) ----
+
+  describe("GET /run/:runId/stream", () => {
+    it("returns text/event-stream content type", async () => {
+      onGetRun.mockResolvedValue({
+        runId: "test-123",
+        status: "running",
+        agents: [],
+      });
+
+      const contentType = await new Promise<string>((resolve, reject) => {
+        const req = http.request(
+          {
+            hostname: "127.0.0.1",
+            port,
+            path: "/run/test-123/stream",
+            method: "GET",
+            headers: { Authorization: `Bearer ${token}` },
+          },
+          (res) => {
+            resolve(res.headers["content-type"] ?? "");
+            req.destroy();
+          },
+        );
+        req.on("error", (err) => {
+          // ECONNRESET is expected after we destroy the request
+          if ((err as NodeJS.ErrnoException).code === "ECONNRESET") {
+            resolve("text/event-stream");
+          } else {
+            reject(err);
+          }
+        });
+        req.end();
+      });
+
+      expect(contentType).toMatch(/text\/event-stream/);
+    });
+
+    it("emits done event and closes when run reaches terminal state", async () => {
+      let callCount = 0;
+      onGetRun.mockImplementation(async () => {
+        callCount++;
+        return callCount === 1
+          ? { status: "running" }
+          : { status: "completed" };
+      });
+
+      const events = await new Promise<string[]>((resolve, reject) => {
+        const collected: string[] = [];
+        const req = http.request(
+          {
+            hostname: "127.0.0.1",
+            port,
+            path: "/run/test-done/stream",
+            method: "GET",
+            headers: { Authorization: `Bearer ${token}` },
+          },
+          (res) => {
+            res.setEncoding("utf-8");
+            res.on("data", (chunk: string) => {
+              collected.push(chunk);
+            });
+            res.on("end", () => resolve(collected));
+          },
+        );
+        req.on("error", reject);
+        req.end();
+      });
+
+      const raw = events.join("");
+      expect(raw).toMatch(/event: done/);
+      expect(raw).toMatch(/"status":"completed"/);
+    });
+  });
+
   // ---- Clean stop ----
 
   it("server stops cleanly and refuses new connections", async () => {
