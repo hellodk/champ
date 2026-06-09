@@ -138,3 +138,82 @@ describe("OllamaProvider", () => {
     expect(() => provider.dispose()).not.toThrow();
   });
 });
+
+describe("supportsToolUse with capability detection", () => {
+  let provider: OllamaProvider;
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    provider = new OllamaProvider({
+      provider: "ollama",
+      model: "llama3.1",
+      baseUrl: "http://localhost:11434",
+      maxTokens: 2048,
+      temperature: 0.7,
+    });
+  });
+
+  it("returns true when Ollama reports tools capability", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        model_info: { "llama.context_length": 8192 },
+        capabilities: ["completion", "tools", "insert"],
+      }),
+    });
+
+    // Trigger detection
+    provider.modelInfo();
+    // Wait for detection
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(provider.supportsToolUse()).toBe(true);
+  });
+
+  it("returns false when Ollama reports no tools capability", async () => {
+    const noToolsProvider = new OllamaProvider({
+      provider: "ollama",
+      model: "some-model",
+      baseUrl: "http://localhost:11434",
+      maxTokens: 2048,
+      temperature: 0.7,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        model_info: { "llama.context_length": 8192 },
+        capabilities: ["completion"], // no "tools"
+      }),
+    });
+
+    noToolsProvider.modelInfo();
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(noToolsProvider.supportsToolUse()).toBe(false);
+  });
+
+  it("falls back to name-based check when capabilities field is absent (old Ollama)", async () => {
+    const llama31Provider = new OllamaProvider({
+      provider: "ollama",
+      model: "llama3.1",
+      baseUrl: "http://localhost:11434",
+      maxTokens: 2048,
+      temperature: 0.7,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        model_info: { "llama.context_length": 8192 },
+        // No capabilities field
+      }),
+    });
+
+    llama31Provider.modelInfo();
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Falls back to name-based check — llama3.1 is in TOOL_CALLING_MODELS_FALLBACK
+    expect(llama31Provider.supportsToolUse()).toBe(true);
+  });
+});

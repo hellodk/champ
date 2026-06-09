@@ -37,16 +37,14 @@ function stripThinkingTokens(text: string): string {
 }
 
 /**
- * Known models that support native tool calling in Ollama. For unknown
- * models, the prompt-based XML tool calling fallback should be used.
+ * Fallback set of models known to support Ollama's native tool calling API
+ * (not just text-based tool tokens). Used only when the /api/show response
+ * does not include a `capabilities` field (Ollama < v0.4).
+ *
+ * Qwen models use their own special token format (<｜tool▁calls▁begin｜>)
+ * which our prompt-based parser handles — they should NOT be in this list.
  */
-/**
- * Models that support Ollama's native tool calling API (not just
- * text-based tool tokens). Qwen models use their own special token
- * format (<｜tool▁calls▁begin｜>) which our prompt-based parser
- * handles — they should NOT be in this list.
- */
-const TOOL_CALLING_MODELS = new Set([
+const TOOL_CALLING_MODELS_FALLBACK = new Set([
   "llama3.1",
   "llama3.1:8b",
   "llama3.1:70b",
@@ -80,9 +78,16 @@ export class OllamaProvider implements LLMProvider {
   }
 
   supportsToolUse(): boolean {
+    if (this.detectedToolSupport !== null) {
+      return this.detectedToolSupport;
+    }
+    // Fall back to name-based heuristic (used before detection resolves or if API fails)
     const model = this.config.model.toLowerCase();
     const baseModel = model.split(":")[0];
-    return TOOL_CALLING_MODELS.has(model) || TOOL_CALLING_MODELS.has(baseModel);
+    return (
+      TOOL_CALLING_MODELS_FALLBACK.has(model) ||
+      TOOL_CALLING_MODELS_FALLBACK.has(baseModel)
+    );
   }
 
   supportsStreaming(): boolean {
@@ -98,11 +103,12 @@ export class OllamaProvider implements LLMProvider {
   }
 
   private detectedContextWindow: number | null = null;
+  private detectedToolSupport: boolean | null = null;
   private contextDetectionPromise: Promise<void> | null = null;
 
   modelInfo(): ModelInfo {
     if (this.detectedContextWindow === null && !this.contextDetectionPromise) {
-      this.contextDetectionPromise = this.detectContextWindow();
+      this.contextDetectionPromise = this.detectModelCapabilities();
     }
     return {
       id: this.config.model,
@@ -118,10 +124,10 @@ export class OllamaProvider implements LLMProvider {
 
   /**
    * Query Ollama's /api/show endpoint for model metadata including
-   * the context length. Returns something like:
-   *   { model_info: { "llama.context_length": 32768, ... } }
+   * the context length and tool support capability. Returns something like:
+   *   { model_info: { "llama.context_length": 32768, ... }, capabilities: ["completion", "tools"] }
    */
-  private async detectContextWindow(): Promise<void> {
+  private async detectModelCapabilities(): Promise<void> {
     try {
       const res = await fetch(`${this.config.baseUrl}/api/show`, {
         method: "POST",
@@ -131,10 +137,11 @@ export class OllamaProvider implements LLMProvider {
       if (res.ok) {
         const data = (await res.json()) as {
           model_info?: Record<string, unknown>;
+          capabilities?: string[];
           parameters?: string;
         };
-        // Look for *.context_length in model_info (key prefix varies:
-        // llama.context_length, qwen2.context_length, etc.)
+
+        // Parse context window — key prefix varies: llama.context_length, qwen2.context_length, etc.
         if (data.model_info) {
           for (const [key, value] of Object.entries(data.model_info)) {
             if (key.endsWith(".context_length") && typeof value === "number") {
@@ -142,15 +149,29 @@ export class OllamaProvider implements LLMProvider {
               console.log(
                 `Champ: detected Ollama context window ${value} from /api/show (${key})`,
               );
-              return;
+              break;
             }
           }
         }
+
+        // Parse tool support from capabilities (Ollama v0.4+)
+        if (Array.isArray(data.capabilities)) {
+          this.detectedToolSupport = data.capabilities.includes("tools");
+          console.log(
+            `Champ: Ollama model ${this.config.model} tool support from API: ${this.detectedToolSupport}`,
+          );
+        }
+        // If capabilities absent, detectedToolSupport stays null → fallback to name-based check
       }
     } catch {
-      // Fallback to default.
+      // Fallback to defaults.
     }
-    this.detectedContextWindow = 8192;
+
+    // Ensure context window is set (may be null if API didn't provide it)
+    if (this.detectedContextWindow === null) {
+      this.detectedContextWindow = 8192;
+    }
+    // detectedToolSupport stays null if API didn't report capabilities → fallback used
   }
 
   async *chat(
@@ -161,6 +182,13 @@ export class OllamaProvider implements LLMProvider {
       yield { type: "error", error: "Request aborted before send" };
       yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
       return;
+    }
+
+    if (this.detectedContextWindow === null) {
+      if (!this.contextDetectionPromise) {
+        this.contextDetectionPromise = this.detectModelCapabilities();
+      }
+      await this.contextDetectionPromise;
     }
 
     const url = `${this.config.baseUrl}/api/chat`;
