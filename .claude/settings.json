@@ -23,11 +23,20 @@
       "Bash(git stash *)",
       "Bash(git checkout *)",
       "Bash(git branch *)",
+      "Bash(git worktree *)",
+      "Bash(git fetch *)",
+      "Bash(git merge *)",
+      "Bash(git rebase *)",
       "Bash(node *)",
       "Bash(node --check *)",
       "Bash(node -e *)",
       "Bash(node esbuild.mjs *)",
       "Bash(node esbuild.webview.mjs *)",
+      "Bash(gh issue *)",
+      "Bash(gh pr *)",
+      "Bash(gh repo *)",
+      "Bash(gh api *)",
+      "Bash(gh label *)",
       "Bash(grep *)",
       "Bash(grep -n *)",
       "Bash(grep -rn *)",
@@ -40,6 +49,7 @@
       "Bash(mkdir -p *)",
       "Bash(cp *)",
       "Bash(mv *)",
+      "Bash(rm *)",
       "Bash(ls *)",
       "Bash(ls -la *)",
       "Bash(ls -l *)",
@@ -52,7 +62,8 @@
       "Bash(sort *)",
       "Bash(uniq *)",
       "Bash(echo *)",
-      "Bash(jq *)"
+      "Bash(jq *)",
+      "Bash(graphify *)"
     ]
   }
 }
