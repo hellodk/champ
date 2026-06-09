@@ -40,6 +40,7 @@ export const deleteFileTool: Tool = {
     try {
       const uri = vscode.Uri.file(resolved);
       await vscode.workspace.fs.delete(uri, { useTrash: false });
+      context.auditLog?.record("file_edit", `delete:${relativePath}`);
       return {
         success: true,
         output: `Deleted ${relativePath}`,

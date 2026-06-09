@@ -32,6 +32,8 @@ export interface ToolExecutionContext {
    * Flushed to disk at the end of the agent turn.
    */
   stagedEdits?: import("../agent/staged-edits").StagedEdits;
+  /** Optional audit log — tools call record() on success for tamper-evident logging. */
+  auditLog?: import("../observability/audit-log").AuditLog;
 }
 
 /**

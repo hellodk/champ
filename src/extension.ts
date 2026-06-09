@@ -284,6 +284,7 @@ export async function activate(
   // 5-minute TTL; shared across the session. Cleared on new conversation.
   const responseCache = new ResponseCache(5);
   agentController.setResponseCache(responseCache);
+  if (auditLog) agentController.setAuditLog(auditLog);
 
   // ---- Iteration progress reporting -----------------------------------
   // Update the status bar with live step count during long agent runs.
@@ -2306,6 +2307,7 @@ export async function activate(
           abortSignal: abortController.signal,
           pauseSignal,
           teamRunStore,
+          auditLog,
           onBlocked: (agentId, _reason) =>
             new Promise((resolve) => {
               blockedResolvers.set(agentId, resolve);
@@ -2666,6 +2668,7 @@ export async function activate(
             workspaceRoot,
             abortSignal: rerunAbortController.signal,
             teamRunStore,
+            auditLog,
             onEvent: (event) => {
               if (event.type === "state_update" || event.type === "complete") {
                 rerunPanel.update(event.state);
@@ -3885,6 +3888,7 @@ export async function activate(
         workspaceRoot: workspaceRoot ?? "",
         teamRunStore,
         runId,
+        auditLog,
       });
       return { runId };
     },
