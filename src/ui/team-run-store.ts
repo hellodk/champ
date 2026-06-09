@@ -96,7 +96,12 @@ export class TeamRunStore {
       }
       records.sort((a, b) => a.savedAt - b.savedAt);
       for (let i = 0; i < records.length - MAX_RUNS; i++) {
+        const runId = records[i].file.slice(0, -5); // strip .json
         await fs.unlink(path.join(this.dir, records[i].file)).catch(() => {});
+        // Also delete checkpoint subdirectory if it exists
+        await fs
+          .rm(path.join(this.dir, runId), { recursive: true, force: true })
+          .catch(() => {});
       }
     } catch {
       // Pruning failure is non-fatal

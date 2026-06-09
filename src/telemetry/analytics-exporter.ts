@@ -121,7 +121,7 @@ export class AnalyticsExporter {
           key: "run.duration_ms",
           value: { intValue: ev.report.totalDurationMs },
         },
-        ...(ev.userEmail
+        ...(ev.userEmail && this.config.includeUserIdentity === true
           ? [{ key: "user.email", value: { stringValue: ev.userEmail } }]
           : []),
       ],

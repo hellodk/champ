@@ -144,6 +144,8 @@ export interface TelemetryConfig {
   bufferMaxEvents?: number;
   bufferMaxBytes?: number;
   timeoutMs?: number;
+  /** Include user email in telemetry data. Default: false (opt-in). */
+  includeUserIdentity?: boolean;
 }
 
 export interface FallbackConfig {
