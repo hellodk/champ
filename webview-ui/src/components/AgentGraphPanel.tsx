@@ -1,5 +1,6 @@
 // webview-ui/src/components/AgentGraphPanel.tsx
 import { signal, computed } from "@preact/signals";
+import { useEffect } from "preact/hooks";
 import type {
   TeamRunState,
   TeamAgentRunState,
@@ -21,31 +22,6 @@ const designTeamSignal = signal<{
 } | null>(null);
 type PanelMode = "live" | "design";
 const activePanelModeSignal = signal<PanelMode>("live");
-
-window.addEventListener("message", (e: MessageEvent) => {
-  const msg = e.data as { type: string };
-  if (msg.type === "teamBuilderLoad") {
-    const m = msg as TeamBuilderLoadMessage;
-    if (m.team) {
-      designTeamSignal.value = {
-        name: m.team.name,
-        agents: m.team.agents.map((a) => ({
-          id: a.id,
-          name: a.name,
-          dependsOn: a.dependsOn ?? [],
-        })),
-      };
-      activePanelModeSignal.value = "design";
-    }
-  }
-});
-
-window.addEventListener("champ:teamUpdate", (e: Event) => {
-  const msg = (e as CustomEvent<{ state: TeamRunState }>).detail;
-  if (msg.state) {
-    teamStateSignal.value = msg.state;
-  }
-});
 
 function getVsCode(): { postMessage: (msg: unknown) => void } {
   if (
@@ -318,6 +294,43 @@ function TimelineRow({ agent }: { agent: TeamAgentRunState }): JSX.Element {
 }
 
 export function AgentGraphPanel(): JSX.Element | null {
+  // Register both message listeners inside useEffect with cleanup — fixes
+  // module-level listener leak: each panel re-creation previously added
+  // another permanent listener with no removal path (#9).
+  useEffect(() => {
+    const handleMessage = (e: MessageEvent): void => {
+      const msg = e.data as { type: string };
+      if (msg.type === "teamBuilderLoad") {
+        const m = msg as TeamBuilderLoadMessage;
+        if (m.team) {
+          designTeamSignal.value = {
+            name: m.team.name,
+            agents: m.team.agents.map((a) => ({
+              id: a.id,
+              name: a.name,
+              dependsOn: a.dependsOn ?? [],
+            })),
+          };
+          activePanelModeSignal.value = "design";
+        }
+      }
+    };
+
+    const handleTeamUpdate = (e: Event): void => {
+      const msg = (e as CustomEvent<{ state: TeamRunState }>).detail;
+      if (msg.state) {
+        teamStateSignal.value = msg.state;
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    window.addEventListener("champ:teamUpdate", handleTeamUpdate);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      window.removeEventListener("champ:teamUpdate", handleTeamUpdate);
+    };
+  }, []);
+
   const hasLive = isVisibleSignal.value;
   const hasDesign = designTeamSignal.value !== null;
 

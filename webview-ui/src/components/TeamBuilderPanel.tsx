@@ -1,6 +1,6 @@
 // webview-ui/src/components/TeamBuilderPanel.tsx
 import { signal } from "@preact/signals";
-import { useRef } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 import type {
   TeamBuilderLoadMessage,
   TeamBuilderSaveAckMessage,
@@ -400,44 +400,6 @@ function hasCycle(agents: AgentNode[]): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Message listener
-// ---------------------------------------------------------------------------
-
-window.addEventListener("message", (e: MessageEvent) => {
-  const msg = e.data as { type: string };
-  if (msg.type === "teamBuilderLoad") {
-    const m = msg as TeamBuilderLoadMessage;
-    existingNamesSignal.value = m.existingNames;
-    if (m.team) {
-      teamNameSignal.value = m.team.name;
-      teamDescSignal.value = m.team.description;
-      agentsSignal.value = m.team.agents.map((a) => ({
-        id: a.id,
-        name: a.name,
-        role: a.role,
-        systemPrompt: a.systemPrompt,
-        dependsOn: a.dependsOn ?? [],
-        condition: a.condition ?? "",
-        tools: a.tools ?? [],
-        model: a.model ?? "",
-        maxTokens: a.maxTokens ?? 4096,
-        outputKey: a.outputKey ?? a.id,
-        outputFormat: a.outputFormat ?? "text",
-        selfCritique: a.selfCritique ?? false,
-        subscribes: a.subscribes ?? [],
-      }));
-      positionsSignal.value = computeInitialPositions(agentsSignal.value);
-    }
-  } else if (msg.type === "teamBuilderSaveAck") {
-    const m = msg as TeamBuilderSaveAckMessage;
-    saveAckSignal.value = `Saved to ${m.savedPath}`;
-    setTimeout(() => {
-      saveAckSignal.value = null;
-    }, 3000);
-  }
-});
-
-// ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
@@ -810,6 +772,56 @@ function TemplateGallery(): JSX.Element {
 
 export function TeamBuilderPanel(): JSX.Element {
   const _canvasRef = useRef<HTMLDivElement>(null);
+
+  // Reset all signal state on every mount (panel re-creation) and register
+  // the message listener with cleanup — fixes module-level listener leak (#9).
+  useEffect(() => {
+    teamNameSignal.value = "My Team";
+    teamDescSignal.value = "A new agent team";
+    agentsSignal.value = [];
+    positionsSignal.value = new Map();
+    selectedIdSignal.value = null;
+    showGallerySignal.value = false;
+    saveAckSignal.value = null;
+    existingNamesSignal.value = [];
+
+    const handleMessage = (e: MessageEvent): void => {
+      const msg = e.data as { type: string };
+      if (msg.type === "teamBuilderLoad") {
+        const m = msg as TeamBuilderLoadMessage;
+        existingNamesSignal.value = m.existingNames;
+        if (m.team) {
+          teamNameSignal.value = m.team.name;
+          teamDescSignal.value = m.team.description;
+          agentsSignal.value = m.team.agents.map((a) => ({
+            id: a.id,
+            name: a.name,
+            role: a.role,
+            systemPrompt: a.systemPrompt,
+            dependsOn: a.dependsOn ?? [],
+            condition: a.condition ?? "",
+            tools: a.tools ?? [],
+            model: a.model ?? "",
+            maxTokens: a.maxTokens ?? 4096,
+            outputKey: a.outputKey ?? a.id,
+            outputFormat: a.outputFormat ?? "text",
+            selfCritique: a.selfCritique ?? false,
+            subscribes: a.subscribes ?? [],
+          }));
+          positionsSignal.value = computeInitialPositions(agentsSignal.value);
+        }
+      } else if (msg.type === "teamBuilderSaveAck") {
+        const m = msg as TeamBuilderSaveAckMessage;
+        saveAckSignal.value = `Saved to ${m.savedPath}`;
+        setTimeout(() => {
+          saveAckSignal.value = null;
+        }, 3000);
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
 
   function addAgent(): void {
     const newId = `agent-${Date.now()}`;
