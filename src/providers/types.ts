@@ -216,5 +216,5 @@ export interface LLMProvider {
    * Used by SmartRouter to route a request to a specific discovered model
    * without mutating the shared provider instance.
    */
-  withModel?(modelId: string): LLMProvider;
+  withModel(modelId: string): LLMProvider;
 }

@@ -43,6 +43,9 @@ function makeProvider(
       supportsStreaming: true,
     }),
     dispose: vi.fn(),
+    withModel(_modelId: string) {
+      return makeProvider(name, deltas, shouldThrow);
+    },
   };
 }
 
@@ -138,6 +141,9 @@ describe("CircuitBreaker", () => {
         supportsStreaming: true,
       }),
       dispose: vi.fn(),
+      withModel(_modelId: string) {
+        return dynamic;
+      },
     };
     const cb = new CircuitBreaker(dynamic, 1, 0);
     // Trip circuit
@@ -191,6 +197,9 @@ describe("CircuitBreaker", () => {
         supportsStreaming: true,
       }),
       dispose: vi.fn(),
+      withModel(_modelId: string) {
+        return intermittent;
+      },
     };
     // threshold=5, so 2 failures won't open the circuit
     const cb = new CircuitBreaker(intermittent, 5, 30_000);

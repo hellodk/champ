@@ -400,7 +400,7 @@ export class TeamRunner {
                 agentDef.model || team.defaults.model || "";
               const effectiveProvider =
                 effectiveModel && effectiveModel !== provider.config.model
-                  ? (provider.withModel?.(effectiveModel) ?? provider)
+                  ? provider.withModel(effectiveModel)
                   : provider;
 
               // Build scoped tool registry for this agent

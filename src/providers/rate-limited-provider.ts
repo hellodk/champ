@@ -95,15 +95,12 @@ export class RateLimitedProvider implements LLMProvider {
     this.inner.dispose?.();
   }
 
-  withModel?(modelId: string): LLMProvider {
-    if (this.inner.withModel) {
-      return new RateLimitedProvider(this.inner.withModel(modelId), {
-        requestsPerMinute:
-          this.limiter.getStats().limit === Infinity
-            ? undefined
-            : this.limiter.getStats().limit,
-      });
-    }
-    return this;
+  withModel(modelId: string): LLMProvider {
+    return new RateLimitedProvider(this.inner.withModel(modelId), {
+      requestsPerMinute:
+        this.limiter.getStats().limit === Infinity
+          ? undefined
+          : this.limiter.getStats().limit,
+    });
   }
 }

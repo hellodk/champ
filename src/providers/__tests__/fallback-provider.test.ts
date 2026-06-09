@@ -45,6 +45,9 @@ function makeProvider(
       supportsStreaming: true,
     }),
     dispose: vi.fn(),
+    withModel(_modelId: string) {
+      return makeProvider(name, deltas, shouldThrow);
+    },
   };
 }
 
@@ -201,6 +204,9 @@ describe("FallbackProvider", () => {
         supportsStreaming: true,
       }),
       dispose: vi.fn(),
+      withModel(_modelId: string) {
+        return flaky;
+      },
     };
     const fallback = makeProvider("fallback", [{ type: "text", text: "ok" }]);
     const fp = new FallbackProvider([flaky, fallback], 3);

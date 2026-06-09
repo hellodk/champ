@@ -84,4 +84,23 @@ describe("GeminiProvider", () => {
   it("should dispose cleanly", () => {
     expect(() => provider.dispose()).not.toThrow();
   });
+
+  describe("withModel", () => {
+    it("should return a new GeminiProvider with the given model", () => {
+      const next = provider.withModel("gemini-1.5-pro");
+      expect(next).not.toBe(provider);
+      expect(next.config.model).toBe("gemini-1.5-pro");
+    });
+
+    it("should preserve apiKey and other config fields", () => {
+      const next = provider.withModel("gemini-1.5-pro");
+      expect(next.config.apiKey).toBe("test-key");
+      expect(next.config.maxTokens).toBe(4096);
+    });
+
+    it("should return GeminiProvider instance", () => {
+      const next = provider.withModel("gemini-1.5-pro");
+      expect(next.name).toBe("gemini");
+    });
+  });
 });

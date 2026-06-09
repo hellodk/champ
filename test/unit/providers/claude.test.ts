@@ -123,6 +123,25 @@ describe("ClaudeProvider", () => {
     expect(() => provider.dispose()).not.toThrow();
   });
 
+  describe("withModel", () => {
+    it("should return a new ClaudeProvider with the given model", () => {
+      const next = provider.withModel("claude-3-5-haiku-20241022");
+      expect(next).not.toBe(provider);
+      expect(next.config.model).toBe("claude-3-5-haiku-20241022");
+    });
+
+    it("should preserve apiKey and other config fields", () => {
+      const next = provider.withModel("claude-3-5-haiku-20241022");
+      expect(next.config.apiKey).toBe("test-key");
+      expect(next.config.maxTokens).toBe(4096);
+    });
+
+    it("should return ClaudeProvider instance", () => {
+      const next = provider.withModel("claude-3-5-haiku-20241022");
+      expect(next.name).toBe("claude");
+    });
+  });
+
   describe("lazy client initialization", () => {
     it("should not throw at construction when apiKey is undefined", () => {
       // Regression: prior versions called `new Anthropic({apiKey: undefined})`

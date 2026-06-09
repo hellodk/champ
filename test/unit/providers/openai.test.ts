@@ -115,4 +115,23 @@ describe("OpenAIProvider", () => {
   it("should dispose cleanly", () => {
     expect(() => provider.dispose()).not.toThrow();
   });
+
+  describe("withModel", () => {
+    it("should return a new OpenAIProvider with the given model", () => {
+      const next = provider.withModel("gpt-4o-mini");
+      expect(next).not.toBe(provider);
+      expect(next.config.model).toBe("gpt-4o-mini");
+    });
+
+    it("should preserve apiKey and other config fields", () => {
+      const next = provider.withModel("gpt-4o-mini");
+      expect(next.config.apiKey).toBe("test-key");
+      expect(next.config.maxTokens).toBe(4096);
+    });
+
+    it("should return OpenAIProvider instance", () => {
+      const next = provider.withModel("gpt-4o-mini");
+      expect(next.name).toBe("openai");
+    });
+  });
 });
