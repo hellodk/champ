@@ -361,6 +361,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         }
       }
     } finally {
+      await reader.cancel().catch(() => {});
       reader.releaseLock();
     }
 

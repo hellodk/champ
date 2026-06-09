@@ -41,6 +41,9 @@ function makeProvider(name: string): LLMProvider {
         usage: { inputTokens: 0, outputTokens: 0 },
       };
     },
+    withModel(_modelId: string) {
+      return makeProvider(name);
+    },
   };
 }
 

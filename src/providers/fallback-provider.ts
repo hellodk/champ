@@ -178,4 +178,11 @@ export class FallbackProvider implements LLMProvider {
   dispose(): void {
     for (const p of this.providers) p.dispose?.();
   }
+
+  withModel(modelId: string): FallbackProvider {
+    return new FallbackProvider(
+      this.providers.map((p) => p.withModel(modelId)),
+      this.maxRetries,
+    );
+  }
 }

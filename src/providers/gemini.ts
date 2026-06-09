@@ -188,6 +188,10 @@ export class GeminiProvider implements LLMProvider {
     // GoogleGenerativeAI client has no explicit cleanup.
   }
 
+  withModel(modelId: string): GeminiProvider {
+    return new GeminiProvider({ ...this.config, model: modelId });
+  }
+
   private convertMessages(messages: LLMMessage[]): {
     systemInstruction?: { parts: Array<{ text: string }> };
     contents: Array<{ role: string; parts: Array<Record<string, unknown>> }>;

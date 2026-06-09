@@ -229,6 +229,10 @@ export class ClaudeProvider implements LLMProvider {
     // The Anthropic SDK manages its own HTTP agent; nothing to release.
   }
 
+  withModel(modelId: string): ClaudeProvider {
+    return new ClaudeProvider({ ...this.config, model: modelId });
+  }
+
   /**
    * Convert unified LLMMessage[] into Claude's expected format.
    * Claude uses a separate `system` parameter (not a message role).

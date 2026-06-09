@@ -431,6 +431,7 @@ export class OllamaProvider implements LLMProvider {
         }
       }
     } finally {
+      await reader.cancel().catch(() => {});
       reader.releaseLock();
     }
 
@@ -490,6 +491,7 @@ export class OllamaProvider implements LLMProvider {
         }
       }
     } finally {
+      await reader.cancel().catch(() => {});
       reader.releaseLock();
     }
 

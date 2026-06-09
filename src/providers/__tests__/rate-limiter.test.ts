@@ -42,6 +42,9 @@ function makeProvider(deltas: StreamDelta[] = []): LLMProvider {
       supportsStreaming: true,
     }),
     dispose: vi.fn(),
+    withModel(_modelId: string) {
+      return makeProvider(deltas);
+    },
   };
 }
 

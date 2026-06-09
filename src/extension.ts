@@ -4020,6 +4020,7 @@ function createStubProvider(name: string): LLMProvider {
       supportsStreaming: true,
     }),
     dispose: () => {},
+    withModel: (_modelId: string) => createStubProvider(name),
   };
 }
 

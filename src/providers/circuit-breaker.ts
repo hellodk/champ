@@ -172,4 +172,12 @@ export class CircuitBreaker implements LLMProvider {
   dispose(): void {
     this.inner.dispose?.();
   }
+
+  withModel(modelId: string): CircuitBreaker {
+    return new CircuitBreaker(
+      this.inner.withModel(modelId),
+      this.failureThreshold,
+      this.recoveryTimeMs,
+    );
+  }
 }

@@ -46,6 +46,7 @@ function makeProvider(chunks: StreamDelta[]): LLMProvider {
       supportsStreaming: true,
     }),
     dispose: () => {},
+    withModel: (_modelId: string) => makeProvider(chunks),
   };
 }
 

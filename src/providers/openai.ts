@@ -242,6 +242,10 @@ export class OpenAIProvider implements LLMProvider {
     // OpenAI SDK manages its own HTTP agent; nothing to release.
   }
 
+  withModel(modelId: string): OpenAIProvider {
+    return new OpenAIProvider({ ...this.config, model: modelId });
+  }
+
   private convertMessages(
     messages: LLMMessage[],
   ): Array<Record<string, unknown>> {
