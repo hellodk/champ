@@ -150,6 +150,7 @@ function toAgentDef(
     outputKey: request.outputKey,
     outputFormat: "text",
     selfCritique: false,
+    selfCritiqueMinContextWindow: 32768,
     subscribes: [],
   };
 }

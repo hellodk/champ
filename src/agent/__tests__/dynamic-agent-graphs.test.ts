@@ -21,6 +21,7 @@ function makeAgent(
     outputKey: id,
     outputFormat: "text" as const,
     selfCritique: false,
+    selfCritiqueMinContextWindow: 32768,
     subscribes: [],
   };
 }
@@ -101,7 +102,11 @@ describe("hasCycle (via TeamRunner.computeExecutionGroups)", () => {
 
   it("accepts a valid DAG without cycles", () => {
     const runner = new TeamRunner();
-    const agents = [makeAgent("a"), makeAgent("b", ["a"]), makeAgent("c", ["b"])];
+    const agents = [
+      makeAgent("a"),
+      makeAgent("b", ["a"]),
+      makeAgent("c", ["b"]),
+    ];
     const groups = runner.computeExecutionGroups(agents);
     expect(groups).toHaveLength(3);
   });

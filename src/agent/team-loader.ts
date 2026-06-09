@@ -155,6 +155,9 @@ export class TeamLoader {
         outputKey: String(a.outputKey ?? id).trim(),
         outputFormat: outputFormat as "text" | "json" | "files",
         selfCritique: Boolean(a.selfCritique ?? false),
+        selfCritiqueMinContextWindow: Number(
+          a.selfCritiqueMinContextWindow ?? 32768,
+        ),
         subscribes,
       };
     });
