@@ -107,4 +107,49 @@ describe("AnalyticsExporter", () => {
     );
     exp.dispose();
   });
+
+  it("excludes user.email from OTLP attributes when includeUserIdentity not set", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(null, { status: 200 }));
+    const eventWithEmail = { ...sampleEvent, userEmail: "user@example.com" };
+    const exp = new AnalyticsExporter(
+      { ...baseCfg, format: "otlp" },
+      "user-abc",
+      "ws-abc",
+    );
+    await exp.export(eventWithEmail);
+    const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as {
+      resourceSpans: Array<{ scopeSpans: Array<{ spans: any[] }> }>;
+    };
+    const spans = body.resourceSpans[0].scopeSpans[0].spans;
+    const attributes = spans[0].attributes;
+    const emailAttr = attributes.find(
+      (a: { key: string }) => a.key === "user.email",
+    );
+    expect(emailAttr).toBeUndefined();
+    exp.dispose();
+  });
+
+  it("includes user.email in OTLP attributes when includeUserIdentity is true", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(null, { status: 200 }));
+    const eventWithEmail = { ...sampleEvent, userEmail: "user@example.com" };
+    const exp = new AnalyticsExporter(
+      { ...baseCfg, format: "otlp", includeUserIdentity: true },
+      "user-abc",
+      "ws-abc",
+    );
+    await exp.export(eventWithEmail);
+    const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as {
+      resourceSpans: Array<{ scopeSpans: Array<{ spans: any[] }> }>;
+    };
+    const spans = body.resourceSpans[0].scopeSpans[0].spans;
+    const attributes = spans[0].attributes;
+    const emailAttr = attributes.find(
+      (a: { key: string }) => a.key === "user.email",
+    );
+    expect(emailAttr).toBeDefined();
+    expect(emailAttr.value.stringValue).toBe("user@example.com");
+    exp.dispose();
+  });
 });
