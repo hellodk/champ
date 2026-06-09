@@ -13,6 +13,20 @@ import type { McpMarketplaceEntry } from "../marketplace/mcp-marketplace-client"
 import type { TeamRunState } from "../agent/team-definition";
 
 // ---------------------------------------------------------------------------
+// Runtime message guard
+// ---------------------------------------------------------------------------
+
+/** Runtime guard — validates the bare minimum before dispatching in message handlers */
+export function isValidMessage(data: unknown): data is { type: string } {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "type" in data &&
+    typeof (data as Record<string, unknown>)["type"] === "string"
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Extension Host -> Webview
 // ---------------------------------------------------------------------------
 
@@ -246,16 +260,6 @@ export interface WorkflowHistoryRun {
 export interface WorkflowHistoryUpdateMessage {
   type: "workflowHistoryUpdate";
   runs: WorkflowHistoryRun[];
-}
-
-export interface OpenWorkflowRunRequest {
-  type: "openWorkflowRun";
-  runId: string;
-}
-
-export interface RerunWorkflowRequest {
-  type: "rerunWorkflow";
-  runId: string;
 }
 
 export interface FileEditDiffMessage {
@@ -678,6 +682,16 @@ export interface RunMultiAgentRequest {
 
 export interface RunTeamRequest {
   type: "runTeam";
+}
+
+export interface OpenWorkflowRunRequest {
+  type: "openWorkflowRun";
+  runId: string;
+}
+
+export interface RerunWorkflowRequest {
+  type: "rerunWorkflow";
+  runId: string;
 }
 
 export interface SetYoloModeRequest {

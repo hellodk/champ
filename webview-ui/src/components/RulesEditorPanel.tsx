@@ -1,8 +1,9 @@
 // webview-ui/src/components/RulesEditorPanel.tsx
 import { signal } from "@preact/signals";
-import type {
-  RulesListMessage,
-  RulesListAckMessage,
+import {
+  isValidMessage,
+  type RulesListMessage,
+  type RulesListAckMessage,
 } from "../../../src/ui/messages";
 
 // ---------------------------------------------------------------------------
@@ -48,7 +49,8 @@ function getVsCode(): { postMessage: (msg: unknown) => void } {
 // ---------------------------------------------------------------------------
 
 window.addEventListener("message", (e: MessageEvent) => {
-  const msg = e.data as { type: string };
+  if (!isValidMessage(e.data)) return; // drop malformed
+  const msg = e.data;
   if (msg.type === "rulesList") {
     rulesSignal.value = (msg as RulesListMessage).rules;
   } else if (msg.type === "rulesListAck") {

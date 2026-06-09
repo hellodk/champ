@@ -6,7 +6,7 @@ import type {
   TeamAgentRunState,
   TeamAgentStatus,
 } from "../types";
-import type { TeamBuilderLoadMessage } from "../../../src/ui/messages";
+import { isValidMessage, type TeamBuilderLoadMessage } from "../../../src/ui/messages";
 
 export const teamStateSignal = signal<TeamRunState | null>(null);
 const isVisibleSignal = computed(() => teamStateSignal.value !== null);
@@ -299,7 +299,8 @@ export function AgentGraphPanel(): JSX.Element | null {
   // another permanent listener with no removal path (#9).
   useEffect(() => {
     const handleMessage = (e: MessageEvent): void => {
-      const msg = e.data as { type: string };
+      if (!isValidMessage(e.data)) return; // drop malformed
+      const msg = e.data;
       if (msg.type === "teamBuilderLoad") {
         const m = msg as TeamBuilderLoadMessage;
         if (m.team) {
