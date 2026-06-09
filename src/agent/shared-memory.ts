@@ -10,17 +10,40 @@ import type {
   AgentMessage,
 } from "./agents/types";
 
+/**
+ * Known keys and their value types for typed memory access.
+ * Add entries here when introducing new well-known memory keys.
+ * Dynamic keys (e.g. `${agentId}_token_usage`) remain untyped.
+ */
+export interface MemorySchema {
+  __workspaceRoot: string;
+  __userRequest: string;
+  __globalContext?: string;
+}
+
 export class SharedMemory implements ISharedMemory {
   private state = new Map<string, unknown>();
   private outputs = new Map<string, AgentOutput>();
   private mailboxes = new Map<string, AgentMessage[]>();
 
+  /** @deprecated Use setTyped/getTyped for known keys */
   set(key: string, value: unknown): void {
     this.state.set(key, value);
   }
 
+  /** @deprecated Use setTyped/getTyped for known keys */
   get(key: string): unknown {
     return this.state.get(key);
+  }
+
+  /** Type-safe set — enforces value type at compile time for known keys. */
+  setTyped<K extends keyof MemorySchema>(key: K, value: MemorySchema[K]): void {
+    this.state.set(key, value);
+  }
+
+  /** Type-safe get — returns typed value or undefined. */
+  getTyped<K extends keyof MemorySchema>(key: K): MemorySchema[K] | undefined {
+    return this.state.get(key) as MemorySchema[K] | undefined;
   }
 
   has(key: string): boolean {

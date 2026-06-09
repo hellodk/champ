@@ -231,8 +231,8 @@ export class TeamRunner {
     const runId = options.runId ?? `team-${Date.now().toString(36)}`;
     const workspaceRoot = options.workspaceRoot ?? process.cwd();
     // Store workspaceRoot in memory so ToolCallingLoop can access it
-    memory.set("__workspaceRoot", workspaceRoot);
-    memory.set("__userRequest", userRequest);
+    memory.setTyped("__workspaceRoot", workspaceRoot);
+    memory.setTyped("__userRequest", userRequest);
     memory.set("userRequest", userRequest);
     const startTime = Date.now();
 
@@ -797,10 +797,9 @@ export class TeamRunner {
     }
 
     const resumedTeam: TeamDefinition = { ...team, agents: pendingAgents };
-    const userRequest =
-      (memory.get("__userRequest") as string | undefined) ?? "resumed run";
+    const userRequest = memory.getTyped("__userRequest") ?? "resumed run";
 
-    memory.set("__workspaceRoot", workspaceRoot);
+    memory.setTyped("__workspaceRoot", workspaceRoot);
 
     return this.runWithMemory(
       resumedTeam,

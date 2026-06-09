@@ -103,10 +103,19 @@ export interface AgentMessage {
  * Shared memory accessible to all agents in a workflow.
  */
 export interface SharedMemory {
-  /** Store a generic key-value pair. */
+  /** @deprecated Use setTyped/getTyped for known keys. */
   set(key: string, value: unknown): void;
-  /** Retrieve a stored value. */
+  /** @deprecated Use setTyped/getTyped for known keys. */
   get(key: string): unknown;
+  /** Type-safe set — enforces value type at compile time for known keys. */
+  setTyped<K extends keyof import("../shared-memory").MemorySchema>(
+    key: K,
+    value: import("../shared-memory").MemorySchema[K],
+  ): void;
+  /** Type-safe get — returns typed value or undefined. */
+  getTyped<K extends keyof import("../shared-memory").MemorySchema>(
+    key: K,
+  ): import("../shared-memory").MemorySchema[K] | undefined;
   /** Check if a key exists. */
   has(key: string): boolean;
   /** List all stored keys. */
