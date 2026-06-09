@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+# scripts/champ — unified CLI for the Champ VS Code extension
+# Usage:
+#   scripts/champ                         # interactive menu
+#   scripts/champ build                   # compile + package VSIX
+#   scripts/champ install                 # build + install into VS Code
+#   scripts/champ watch                   # dev watch (extension + webview)
+#   scripts/champ test [unit|int|e2e]     # run tests
+#   scripts/champ test report             # print test report summary
+#   scripts/champ lint                    # eslint + type-check
+#   scripts/champ clean                   # remove dist/, *.vsix older than current
+#   scripts/champ version                 # print current version
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$ROOT"
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+_version() {
+  node -e "process.stdout.write(require('./package.json').version)"
+}
+
+_require_cmds() {
+  for cmd in "$@"; do
+    command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: '$cmd' not found in PATH" >&2; exit 1; }
+  done
+}
+
+_section() { echo ""; echo "── $* ──────────────────────────────────────"; }
+
+_ok()   { echo "  ✓ $*"; }
+_fail() { echo "  ✗ $*" >&2; }
+
+# ── commands ─────────────────────────────────────────────────────────────────
+
+cmd_version() {
+  echo "champ $(_version)"
+}
+
+cmd_build() {
+  _require_cmds node npm npx
+  _section "compile"
+  npm run compile
+  _section "package VSIX"
+  local ver
+  ver=$(_version)
+  npx @vscode/vsce package --no-dependencies 2>&1
+  _ok "champ-${ver}.vsix ready"
+}
+
+cmd_install() {
+  _require_cmds code
+  cmd_build
+  _section "install"
+  local ver
+  ver=$(_version)
+  local vsix="${ROOT}/champ-${ver}.vsix"
+  if [[ ! -f "$vsix" ]]; then
+    echo "ERROR: VSIX not found: $vsix" >&2
+    exit 1
+  fi
+  code --install-extension "$vsix"
+  _ok "installed champ ${ver}"
+}
+
+cmd_watch() {
+  _require_cmds node npm
+  _section "watch (extension + webview)"
+  echo "  Ctrl-C to stop"
+  npm run watch
+}
+
+cmd_test() {
+  _require_cmds npx
+  local suite="${1:-unit}"
+  case "$suite" in
+    unit)
+      _section "unit tests"
+      npx vitest run --config vitest.config.ts
+      ;;
+    int|integration)
+      _section "integration tests"
+      npx vitest run --config vitest.integration.config.ts
+      ;;
+    e2e)
+      _section "E2E tests"
+      npx vitest run --config vitest.e2e.config.ts
+      ;;
+    report)
+      cmd_test_report
+      ;;
+    all)
+      _section "unit tests"
+      npx vitest run --config vitest.config.ts || true
+      _section "integration tests"
+      npx vitest run --config vitest.integration.config.ts || true
+      ;;
+    *)
+      echo "Usage: champ test [unit|int|e2e|all|report]" >&2
+      exit 1
+      ;;
+  esac
+}
+
+cmd_test_report() {
+  local dir="${ROOT}/test-reports"
+  if [[ ! -d "$dir" ]]; then
+    echo "No test-reports/ directory — run tests first." >&2
+    exit 1
+  fi
+
+  echo ""
+  printf "%-40s  %-8s  %-8s  %s\n" "Suite" "Passed" "Failed" "Skipped"
+  printf "%-40s  %-8s  %-8s  %s\n" "─────────────────────────────────────" "──────" "──────" "───────"
+
+  # Parse vitest JSON report files
+  for f in "$dir"/*.json; do
+    [[ -f "$f" ]] || continue
+    local suite passed failed skipped
+    suite="$(basename "$f" .json)"
+    passed=$(node -e "const r=require('$f'); process.stdout.write(String(r.numPassedTests??r.passed??0))" 2>/dev/null || echo 0)
+    failed=$(node -e "const r=require('$f'); process.stdout.write(String(r.numFailedTests??r.failed??0))" 2>/dev/null || echo 0)
+    skipped=$(node -e "const r=require('$f'); process.stdout.write(String(r.numPendingTests??r.skipped??0))" 2>/dev/null || echo 0)
+    printf "%-40s  %-8s  %-8s  %s\n" "$suite" "$passed" "$failed" "$skipped"
+  done
+
+  echo ""
+  # TypeScript errors
+  if [[ -f "$dir/typecheck.txt" ]]; then
+    local errs
+    errs=$(wc -l < "$dir/typecheck.txt" 2>/dev/null || echo 0)
+    echo "TypeScript errors: $errs (see test-reports/typecheck.txt)"
+  fi
+}
+
+cmd_lint() {
+  _require_cmds npx
+  _section "type-check"
+  npm run check-types
+  _ok "TypeScript OK"
+  _section "eslint"
+  npm run lint
+  _ok "ESLint OK"
+}
+
+cmd_clean() {
+  local ver
+  ver=$(_version)
+  _section "clean dist/"
+  rm -rf dist/
+  _ok "removed dist/"
+  _section "remove old VSIX files"
+  local removed=0
+  for f in "${ROOT}"/champ-*.vsix; do
+    [[ -f "$f" ]] || continue
+    [[ "$f" == "${ROOT}/champ-${ver}.vsix" ]] && continue
+    rm -f "$f"
+    echo "  removed $(basename "$f")"
+    ((removed++)) || true
+  done
+  [[ $removed -eq 0 ]] && echo "  (nothing to remove)"
+}
+
+# ── interactive menu ──────────────────────────────────────────────────────────
+
+_menu() {
+  local ver
+  ver=$(_version)
+  echo ""
+  echo "  Champ VS Code Extension — v${ver}"
+  echo ""
+  echo "  1) build     — compile + package VSIX"
+  echo "  2) install   — build + install into VS Code"
+  echo "  3) watch     — dev watch mode"
+  echo "  4) test      — run unit tests"
+  echo "  5) test all  — unit + integration tests"
+  echo "  6) report    — print test-reports/ summary"
+  echo "  7) lint      — type-check + ESLint"
+  echo "  8) clean     — remove dist/ and old VSIX files"
+  echo "  9) version   — print version"
+  echo "  q) quit"
+  echo ""
+  read -rp "  Choice: " pick
+  case "$pick" in
+    1) cmd_build ;;
+    2) cmd_install ;;
+    3) cmd_watch ;;
+    4) cmd_test unit ;;
+    5) cmd_test all ;;
+    6) cmd_test_report ;;
+    7) cmd_lint ;;
+    8) cmd_clean ;;
+    9) cmd_version ;;
+    q|Q) exit 0 ;;
+    *) echo "  Unknown choice." >&2 ;;
+  esac
+}
+
+# ── entrypoint ────────────────────────────────────────────────────────────────
+
+if [[ $# -eq 0 ]]; then
+  _menu
+  exit 0
+fi
+
+case "$1" in
+  build)           cmd_build ;;
+  install)         cmd_install ;;
+  watch)           cmd_watch ;;
+  test)            shift; cmd_test "${1:-unit}" ;;
+  lint)            cmd_lint ;;
+  clean)           cmd_clean ;;
+  version|-v|--version) cmd_version ;;
+  help|-h|--help)
+    grep '^# ' "$0" | sed 's/^# //' | head -15
+    ;;
+  *)
+    echo "Unknown command: $1  (run 'scripts/champ help')" >&2
+    exit 1
+    ;;
+esac
