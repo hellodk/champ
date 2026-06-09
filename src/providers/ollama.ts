@@ -21,22 +21,6 @@ import type {
 const DEFAULT_BASE_URL = "http://localhost:11434";
 
 /**
- * Strip <think>...</think> blocks produced by Qwen3, DeepSeek-R1, and
- * similar reasoning models. These are internal scratchpad tokens that
- * must not appear in the chat UI or be sent back as conversation history.
- * Handles both complete blocks and partial mid-stream fragments.
- */
-function stripThinkingTokens(text: string): string {
-  // Remove complete <think>...</think> blocks (multi-line).
-  let out = text.replace(/<think>[\s\S]*?<\/think>/g, "");
-  // Remove an opening <think> tag with no closing — mid-stream fragment.
-  out = out.replace(/<think>[\s\S]*/g, "");
-  // Remove a dangling </think> tag left over from a previous chunk.
-  out = out.replace(/[\s\S]*<\/think>/g, "");
-  return out;
-}
-
-/**
  * Fallback set of models known to support Ollama's native tool calling API
  * (not just text-based tool tokens). Used only when the /api/show response
  * does not include a `capabilities` field (Ollama < v0.4).
@@ -105,6 +89,43 @@ export class OllamaProvider implements LLMProvider {
   private detectedContextWindow: number | null = null;
   private detectedToolSupport: boolean | null = null;
   private contextDetectionPromise: Promise<void> | null = null;
+  private inThinkingBlock = false;
+
+  /**
+   * Strip <think>...</think> blocks produced by Qwen3, DeepSeek-R1, and
+   * similar reasoning models. Tracks state across streaming chunks so that
+   * mid-block chunks (no tags, just reasoning text) are suppressed entirely.
+   * Must be called per-chunk in order; reset inThinkingBlock at chat() start.
+   */
+  private stripThinkingTokens(text: string): string {
+    let out = text;
+
+    // Remove complete <think>...</think> blocks within this chunk.
+    out = out.replace(/<think>[\s\S]*?<\/think>/g, "");
+
+    // Closing tag — exit the thinking block, strip everything up to and including it.
+    if (out.includes("</think>")) {
+      this.inThinkingBlock = false;
+      out = out.replace(/[\s\S]*<\/think>/g, "");
+    }
+
+    // Opening tag with no close — enter thinking block, strip from tag onward.
+    if (out.includes("<think>")) {
+      this.inThinkingBlock = true;
+      out = out.replace(/<think>[\s\S]*/g, "");
+    }
+
+    // Mid-block chunk — no tags, but we are inside a thinking block: suppress entirely.
+    if (
+      this.inThinkingBlock &&
+      !out.includes("<think>") &&
+      !out.includes("</think>")
+    ) {
+      return "";
+    }
+
+    return out;
+  }
 
   modelInfo(): ModelInfo {
     if (this.detectedContextWindow === null && !this.contextDetectionPromise) {
@@ -190,6 +211,9 @@ export class OllamaProvider implements LLMProvider {
       }
       await this.contextDetectionPromise;
     }
+
+    // Reset per-request state so thinking-block tracking doesn't leak between calls.
+    this.inThinkingBlock = false;
 
     const url = `${this.config.baseUrl}/api/chat`;
     const body = {
@@ -376,7 +400,7 @@ export class OllamaProvider implements LLMProvider {
               // Strip Qwen3 / DeepSeek thinking blocks before surfacing text.
               // These models wrap internal reasoning in <think>...</think> tags
               // that must not be shown to the user or sent back as conversation.
-              const cleaned = stripThinkingTokens(json.message.content);
+              const cleaned = this.stripThinkingTokens(json.message.content);
               if (cleaned) yield { type: "text", text: cleaned };
             }
 
