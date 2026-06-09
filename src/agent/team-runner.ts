@@ -66,6 +66,12 @@ export interface TeamRunOptions {
   ) => Promise<{ action: "skip" | "retry"; context?: string }>;
   /** Optional pause/resume signal checked between execution groups. */
   pauseSignal?: PauseSignal;
+  /** Called when an agent's tool requests user approval. Only invoked when mode !== "auto". */
+  requestApproval?: (
+    description: string,
+    agentId: string,
+    preview?: { type: "diff" | "command"; content: string; label?: string },
+  ) => Promise<boolean>;
 }
 
 async function writeCheckpoint(
@@ -447,6 +453,15 @@ export class TeamRunner {
                   },
                   scopedRegistry,
                   timeoutController.signal,
+                  // Pass approval callback — only for supervised/safe modes
+                  team.execution.mode !== "auto" && options.requestApproval
+                    ? (description, preview) =>
+                        options.requestApproval!(
+                          description,
+                          agentDef.id,
+                          preview,
+                        )
+                    : undefined,
                 );
 
                 let output: import("./agents/types").AgentOutput;
