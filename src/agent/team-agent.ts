@@ -274,8 +274,7 @@ export class TeamAgent implements Agent {
 
     if (this.toolRegistry && this.def.tools.length > 0) {
       // Use tool-calling loop when agent has tools
-      const workspaceRoot =
-        (memory.get("__workspaceRoot") as string | undefined) ?? process.cwd();
+      const workspaceRoot = memory.getTyped("__workspaceRoot") ?? process.cwd();
       const loop = new ToolCallingLoop(
         this.provider,
         this.toolRegistry,

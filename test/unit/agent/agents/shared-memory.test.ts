@@ -72,3 +72,40 @@ describe("SharedMemory", () => {
     expect(memory.keys()).toEqual(expect.arrayContaining(["a", "b"]));
   });
 });
+
+describe("SharedMemory typed accessors", () => {
+  let memory: SharedMemory;
+
+  beforeEach(() => {
+    memory = new SharedMemory();
+  });
+
+  it("setTyped/getTyped round-trip preserves value and type", () => {
+    memory.setTyped("__workspaceRoot", "/home/user/project");
+    const val = memory.getTyped("__workspaceRoot");
+    expect(val).toBe("/home/user/project");
+  });
+
+  it("getTyped returns undefined for unset key", () => {
+    expect(memory.getTyped("__workspaceRoot")).toBeUndefined();
+  });
+
+  it("old set/get still work (backward compat)", () => {
+    memory.set("someKey", "value");
+    expect(memory.get("someKey")).toBe("value");
+  });
+
+  it("setTyped/getTyped round-trip for __userRequest", () => {
+    memory.setTyped("__userRequest", "fix the bug");
+    expect(memory.getTyped("__userRequest")).toBe("fix the bug");
+  });
+
+  it("setTyped/getTyped round-trip for __globalContext", () => {
+    memory.setTyped("__globalContext", "some context");
+    expect(memory.getTyped("__globalContext")).toBe("some context");
+  });
+
+  it("getTyped for __globalContext returns undefined when not set", () => {
+    expect(memory.getTyped("__globalContext")).toBeUndefined();
+  });
+});
