@@ -70,6 +70,14 @@ export interface TeamAgentDefinition {
    */
   selfCritique?: boolean;
   /**
+   * Minimum provider context window (in tokens) required for the self-critique
+   * pass to fire. Providers with a smaller context window (e.g. 4B–8B local
+   * Ollama models) are silently skipped — a small model critiquing its own
+   * output just produces a second hallucination.
+   * Default: 32768.
+   */
+  selfCritiqueMinContextWindow?: number;
+  /**
    * List of channel names this agent subscribes to before executing.
    * For each channel, the agent waits (up to 30s) for a publish event
    * before starting its main LLM call. Channel data is injected into the

@@ -362,7 +362,7 @@ export class TeamAgent implements Agent {
 
     // Self-critique pass (opt-in per agent, doubles token cost)
     let finalOutput = extracted;
-    if (this.def.selfCritique) {
+    if (this.shouldRunSelfCritique()) {
       finalOutput = await this.runSelfCritique(
         messages,
         extracted,
@@ -383,6 +383,18 @@ export class TeamAgent implements Agent {
     }
 
     return agentOutput;
+  }
+
+  private shouldRunSelfCritique(): boolean {
+    if (!this.def.selfCritique) return false;
+    const info = this.provider.modelInfo();
+    const minContextForCritique =
+      this.def.selfCritiqueMinContextWindow ?? 32768;
+    if (info.contextWindow >= minContextForCritique) return true;
+    console.log(
+      `Champ: skipping selfCritique for model with context window ${info.contextWindow} < ${minContextForCritique}`,
+    );
+    return false;
   }
 
   private async runSelfCritique(

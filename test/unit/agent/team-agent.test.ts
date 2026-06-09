@@ -185,6 +185,159 @@ const toolAgentDef = {
   subscribes: [] as string[],
 };
 
+describe("selfCritique capability gate", () => {
+  function makeCritiqueAgentDef(
+    selfCritiqueMinContextWindow?: number,
+  ): typeof agentDef & {
+    selfCritique: boolean;
+    subscribes: string[];
+    selfCritiqueMinContextWindow?: number;
+  } {
+    return {
+      ...agentDef,
+      selfCritique: true,
+      subscribes: [] as string[],
+      ...(selfCritiqueMinContextWindow !== undefined
+        ? { selfCritiqueMinContextWindow }
+        : {}),
+    };
+  }
+
+  it("skips selfCritique for providers with small context window", async () => {
+    let chatCallCount = 0;
+
+    const smallModelProvider = {
+      name: "small",
+      config: { provider: "small" as const, model: "small-4b" },
+      chat: async function* (_msgs: LLMMessage[]) {
+        chatCallCount++;
+        yield {
+          type: "text" as const,
+          text: "<output>small model response</output>",
+        };
+        yield {
+          type: "done" as const,
+          usage: { inputTokens: 5, outputTokens: 2 },
+        };
+      },
+      complete: async function* () {},
+      supportsToolUse: () => false,
+      supportsStreaming: () => true,
+      countTokens: (text: string) => Math.ceil(text.length / 4),
+      modelInfo: () => ({
+        contextWindow: 4096,
+        name: "small-4b",
+        provider: "small" as const,
+      }),
+      dispose: () => {},
+    };
+
+    const agent = new TeamAgent(
+      makeCritiqueAgentDef() as any,
+      smallModelProvider as any,
+    );
+    const memory = new SharedMemory();
+    await agent.execute({ userRequest: "do something", context: [] }, memory);
+
+    // Only the main call — critique must be skipped for small context window
+    expect(chatCallCount).toBe(1);
+  });
+
+  it("runs selfCritique for providers with large context window (≥32768)", async () => {
+    let chatCallCount = 0;
+
+    const largeModelProvider = {
+      name: "large",
+      config: { provider: "large" as const, model: "large-70b" },
+      chat: async function* (_msgs: LLMMessage[]) {
+        chatCallCount++;
+        if (chatCallCount === 1) {
+          // Main response
+          yield {
+            type: "text" as const,
+            text: "<output>main response</output>",
+          };
+        } else if (chatCallCount === 2) {
+          // Critique response — no issue found
+          yield { type: "text" as const, text: "NO_ISSUES" };
+        } else {
+          yield { type: "text" as const, text: "retry response" };
+        }
+        yield {
+          type: "done" as const,
+          usage: { inputTokens: 5, outputTokens: 2 },
+        };
+      },
+      complete: async function* () {},
+      supportsToolUse: () => false,
+      supportsStreaming: () => true,
+      countTokens: (text: string) => Math.ceil(text.length / 4),
+      modelInfo: () => ({
+        contextWindow: 32768,
+        name: "large-70b",
+        provider: "large" as const,
+      }),
+      dispose: () => {},
+    };
+
+    const agent = new TeamAgent(
+      makeCritiqueAgentDef() as any,
+      largeModelProvider as any,
+    );
+    const memory = new SharedMemory();
+    await agent.execute({ userRequest: "do something", context: [] }, memory);
+
+    // Main call + critique call
+    expect(chatCallCount).toBe(2);
+  });
+
+  it("respects custom selfCritiqueMinContextWindow override", async () => {
+    let chatCallCount = 0;
+
+    // Provider has 16384 context — above the custom threshold of 8192
+    const midSizeProvider = {
+      name: "mid",
+      config: { provider: "mid" as const, model: "mid-model" },
+      chat: async function* (_msgs: LLMMessage[]) {
+        chatCallCount++;
+        if (chatCallCount === 1) {
+          yield {
+            type: "text" as const,
+            text: "<output>mid response</output>",
+          };
+        } else {
+          yield { type: "text" as const, text: "NO_ISSUES" };
+        }
+        yield {
+          type: "done" as const,
+          usage: { inputTokens: 5, outputTokens: 2 },
+        };
+      },
+      complete: async function* () {},
+      supportsToolUse: () => false,
+      supportsStreaming: () => true,
+      countTokens: (text: string) => Math.ceil(text.length / 4),
+      modelInfo: () => ({
+        contextWindow: 16384,
+        name: "mid-model",
+        provider: "mid" as const,
+      }),
+      dispose: () => {},
+    };
+
+    // selfCritiqueMinContextWindow set to 8192 — provider at 16384 should pass
+    const agent = new TeamAgent(
+      makeCritiqueAgentDef(8192) as any,
+      midSizeProvider as any,
+    );
+    const memory = new SharedMemory();
+    await agent.execute({ userRequest: "do something", context: [] }, memory);
+
+    // Critique should run since 16384 >= 8192
+    expect(chatCallCount).toBe(2);
+  });
+});
+
 describe("TeamAgent — requestApproval callback", () => {
   function makeToolRegistry(requiresApproval = true): ToolRegistry {
     const registry = new ToolRegistry();
