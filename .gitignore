@@ -1,5 +1,6 @@
 node_modules/
 /dist/
+webview-ui/dist/
 out/
 .vscode-test/
 *.vsix
@@ -10,7 +11,4 @@ test-reports/
 .env
 .env.*
 *.map
-
-# webview-ui/dist/ is hand-written vanilla JS source, not a build artifact,
-# so it is intentionally tracked (not ignored).
 .claude/worktrees/
