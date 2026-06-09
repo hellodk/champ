@@ -163,6 +163,15 @@ export class OllamaProvider implements LLMProvider {
       return;
     }
 
+    // Ensure context window is detected before trimming messages.
+    // modelInfo() fires detection lazily; chat() may be called before modelInfo().
+    if (this.detectedContextWindow === null) {
+      if (!this.contextDetectionPromise) {
+        this.contextDetectionPromise = this.detectContextWindow();
+      }
+      await this.contextDetectionPromise;
+    }
+
     const url = `${this.config.baseUrl}/api/chat`;
     const body = {
       model: this.config.model,

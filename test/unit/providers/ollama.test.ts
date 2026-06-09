@@ -137,4 +137,99 @@ describe("OllamaProvider", () => {
   it("should dispose cleanly", () => {
     expect(() => provider.dispose()).not.toThrow();
   });
+
+  describe("context window detection", () => {
+    function createMockStream(
+      chunks: Array<Record<string, unknown>>,
+    ): ReadableStream {
+      return new ReadableStream({
+        start(controller) {
+          for (const chunk of chunks) {
+            controller.enqueue(
+              new TextEncoder().encode(JSON.stringify(chunk) + "\n"),
+            );
+          }
+          controller.close();
+        },
+      });
+    }
+
+    it("awaits context window detection before trimming in chat()", async () => {
+      let resolveDetection!: () => void;
+      const detectionPromise = new Promise<void>((resolve) => {
+        resolveDetection = resolve;
+      });
+
+      // First call: /api/show (detection), then /api/chat (actual request)
+      mockFetch
+        .mockImplementationOnce(async () => {
+          await detectionPromise; // simulate slow detection
+          return {
+            ok: true,
+            json: async () => ({
+              model_info: { "llama.context_length": 4096 },
+            }),
+          };
+        })
+        .mockImplementationOnce(async () => ({
+          ok: true,
+          body: createMockStream([
+            { message: { content: "hello" }, done: false },
+            {
+              message: { content: "" },
+              done: true,
+              prompt_eval_count: 10,
+              eval_count: 5,
+            },
+          ]),
+        }));
+
+      // Start chat — should await detection
+      const chatPromise = (async () => {
+        const chunks: string[] = [];
+        for await (const delta of provider.chat([
+          { role: "user", content: "hello" },
+        ])) {
+          if (delta.type === "text") chunks.push(delta.text ?? "");
+        }
+        return chunks;
+      })();
+
+      // Resolve detection after a tick
+      resolveDetection();
+      await chatPromise;
+
+      // After chat completes, detectedContextWindow should be 4096
+      expect(
+        (provider as unknown as { detectedContextWindow: number })
+          .detectedContextWindow,
+      ).toBe(4096);
+    });
+
+    it("uses default 8192 when /api/show fails", async () => {
+      mockFetch
+        .mockImplementationOnce(async () => ({ ok: false, status: 404 })) // detection fails
+        .mockImplementationOnce(async () => ({
+          ok: true,
+          body: createMockStream([
+            { message: { content: "hello" }, done: false },
+            {
+              message: { content: "" },
+              done: true,
+              prompt_eval_count: 10,
+              eval_count: 5,
+            },
+          ]),
+        }));
+
+      for await (const _ of provider.chat([{ role: "user", content: "hi" }])) {
+        // consume stream
+      }
+
+      expect(
+        (provider as unknown as { detectedContextWindow: number })
+          .detectedContextWindow,
+      ).toBe(8192);
+    });
+  });
 });
