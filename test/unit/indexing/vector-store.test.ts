@@ -2,7 +2,10 @@
  * TDD: Tests for VectorStore.
  * sqlite-vec based vector storage and KNN search.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import * as fs from "fs/promises";
+import * as os from "os";
+import * as path from "path";
 import { VectorStore } from "@/indexing/vector-store";
 
 describe("VectorStore", () => {
@@ -137,5 +140,102 @@ describe("VectorStore", () => {
 
     const results = await store.search(embedding, 5);
     expect(results.length).toBeLessThanOrEqual(5);
+  });
+
+  it("search results include a similarity field", async () => {
+    const embedding = new Float32Array(384).fill(0.5);
+    store.upsert({
+      filePath: "sim.ts",
+      chunkText: "similarity test",
+      startLine: 1,
+      endLine: 1,
+      symbolName: "sim",
+      chunkType: "function",
+      embedding,
+    });
+    const results = await store.search(embedding, 1);
+    expect(results[0]).toHaveProperty("similarity");
+    expect(typeof results[0].similarity).toBe("number");
+    // identical vector → distance ≈ 0 → similarity ≈ 1
+    expect(results[0].similarity).toBeGreaterThan(0.9);
+  });
+});
+
+describe("VectorStore model ID validation", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "vs-test-"));
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("rejects cached index built with different embedding model", async () => {
+    const idxPath = path.join(tmpDir, "test.idx");
+
+    // Save with model-a
+    const saveStore = new VectorStore(":memory:", "model-a");
+    saveStore.upsert({
+      filePath: "f.ts",
+      chunkText: "text",
+      startLine: 1,
+      endLine: 1,
+      chunkType: "function",
+      embedding: new Float32Array(4).fill(0.1),
+    });
+    await saveStore.save(idxPath);
+    saveStore.dispose();
+
+    // Load with model-b → should reject (return 0)
+    const loadStore = new VectorStore(":memory:", "model-b");
+    const loaded = await loadStore.load(idxPath);
+    expect(loaded).toBe(0);
+    loadStore.dispose();
+  });
+
+  it("accepts cached index built with same embedding model", async () => {
+    const idxPath = path.join(tmpDir, "test.idx");
+
+    const saveStore = new VectorStore(":memory:", "model-x");
+    saveStore.upsert({
+      filePath: "f.ts",
+      chunkText: "text",
+      startLine: 1,
+      endLine: 1,
+      chunkType: "function",
+      embedding: new Float32Array(4).fill(0.1),
+    });
+    await saveStore.save(idxPath);
+    saveStore.dispose();
+
+    const loadStore = new VectorStore(":memory:", "model-x");
+    const loaded = await loadStore.load(idxPath);
+    expect(loaded).toBe(1);
+    loadStore.dispose();
+  });
+
+  it("accepts cached index when no model ID is set on loader (backward compat)", async () => {
+    const idxPath = path.join(tmpDir, "test.idx");
+
+    // Save without model ID (old-style store)
+    const saveStore = new VectorStore(":memory:");
+    saveStore.upsert({
+      filePath: "f.ts",
+      chunkText: "text",
+      startLine: 1,
+      endLine: 1,
+      chunkType: "function",
+      embedding: new Float32Array(4).fill(0.1),
+    });
+    await saveStore.save(idxPath);
+    saveStore.dispose();
+
+    // Load without model ID → should succeed (no validation possible)
+    const loadStore = new VectorStore(":memory:");
+    const loaded = await loadStore.load(idxPath);
+    expect(loaded).toBe(1);
+    loadStore.dispose();
   });
 });
