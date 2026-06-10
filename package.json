@@ -412,8 +412,8 @@
     ]
   },
   "scripts": {
-    "compile": "npm run check-types && node esbuild.mjs && node esbuild.webview.mjs --production",
-    "build:webview": "node esbuild.webview.mjs --production",
+    "compile": "npm run check-types && node esbuild.mjs && node esbuild.webview.mjs --production && node scripts/copy-assets.mjs",
+    "build:webview": "node esbuild.webview.mjs --production && node scripts/copy-assets.mjs",
     "watch:webview": "node esbuild.webview.mjs --watch",
     "watch": "npm-run-all -p watch:*",
     "watch:extension": "node esbuild.mjs --watch",
