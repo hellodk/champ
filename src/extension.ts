@@ -126,6 +126,7 @@ let persistentRunner:
   | undefined;
 let triggerManager: TriggerManager | undefined;
 let activeWorkflowSession: WorkflowSession | undefined;
+let teamRunner: TeamRunner | undefined;
 let workflowStore: WorkflowStore | undefined;
 let teamRunStore: TeamRunStore | undefined;
 let teamLoader: TeamLoader | undefined;
@@ -175,6 +176,7 @@ export async function activate(
   // ---- Singletons that don't depend on the provider ------------------
   providerRegistry = new ProviderRegistry();
   metrics = new MetricsCollector();
+  teamRunner = new TeamRunner();
   const factory = new ProviderFactory();
 
   // ---- Tool registry --------------------------------------------------
@@ -2238,7 +2240,7 @@ export async function activate(
             ? `${selectedTeam.name} [${runCount}]`
             : selectedTeam.name;
         const panel = new TeamPanel(context.extensionUri, panelTitle);
-        const runner = new TeamRunner();
+        const runner = teamRunner!;
         const abortController = new AbortController();
 
         const blockedResolvers = new Map<
@@ -2528,7 +2530,7 @@ export async function activate(
         }
 
         const panel = new TeamPanel(context.extensionUri, team.name);
-        const runner = new TeamRunner();
+        const runner = teamRunner!;
         const abortController = new AbortController();
         const resumeBlockedResolvers = new Map<
           string,
@@ -2652,7 +2654,7 @@ export async function activate(
 
         const rerunPanel = new TeamPanel(context.extensionUri, team.name);
         rerunPanel.showCostEstimate({ ...rerunEstimate, teamName: team.name });
-        const rerunRunner = new TeamRunner();
+        const rerunRunner = teamRunner!;
         const rerunAbortController = new AbortController();
         rerunPanel.onMessage(
           (msg: import("./ui/team-panel").TeamPanelMessage) => {
@@ -3883,7 +3885,7 @@ export async function activate(
       if (!provider || provider.name === "not-configured")
         throw new Error("No provider configured");
       const runId = `api-${Date.now().toString(36)}`;
-      const runner = new TeamRunner();
+      const runner = teamRunner!;
       void runner.run(team, task, provider, toolRegistry, {
         workspaceRoot: workspaceRoot ?? "",
         teamRunStore,
