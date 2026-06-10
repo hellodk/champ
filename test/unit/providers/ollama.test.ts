@@ -363,3 +363,73 @@ describe("stripThinkingTokens (streaming)", () => {
     }
   });
 });
+
+describe("context window detection is awaited before trimForContext", () => {
+  let provider: OllamaProvider;
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    provider = new OllamaProvider({
+      provider: "ollama",
+      model: "small-model",
+      baseUrl: "http://localhost:11434",
+      maxTokens: 2048,
+      temperature: 0.7,
+    });
+  });
+
+  it("uses detected context window (4096) to trim messages, not the 8192 default", async () => {
+    // First fetch: /api/show detection → 4096 context window
+    // Second fetch: /api/chat streaming response
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          model_info: { "llama.context_length": 4096 },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        body: createMockStream([
+          { message: { content: "ok" }, done: false },
+          {
+            message: { content: "" },
+            done: true,
+            prompt_eval_count: 1,
+            eval_count: 1,
+          },
+        ]),
+      });
+
+    // Build 50 messages of ~250 chars each ≈ 73 tokens each = ~3650 total tokens.
+    // budget at 4096: floor(4096 * 0.75) = 3072 → only ~42 messages fit → trimmed
+    // budget at 8192: floor(8192 * 0.75) = 6144 → all 50 fit → NOT trimmed
+    const messages: LLMMessage[] = [];
+    for (let i = 0; i < 50; i++) {
+      messages.push({
+        role: i % 2 === 0 ? "user" : "assistant",
+        content: "x".repeat(250),
+      });
+    }
+
+    const deltas: unknown[] = [];
+    for await (const d of provider.chat(messages)) {
+      deltas.push(d);
+    }
+
+    // Two fetch calls: detection first, then /api/chat
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+
+    // Inspect the messages actually sent to Ollama
+    const chatCall = mockFetch.mock.calls[1];
+    const chatBody = JSON.parse(
+      (chatCall[1] as RequestInit).body as string,
+    ) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+
+    // With a 4096-token context window, only ~42 of the 50 messages fit in the
+    // 0.75 budget. If the default 8192 were used all 50 would fit.
+    expect(chatBody.messages.length).toBeLessThan(50);
+  });
+});
