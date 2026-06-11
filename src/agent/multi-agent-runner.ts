@@ -5,6 +5,8 @@ import {
 } from "./orchestrator";
 import type { AgentAnalytics } from "../observability/agent-analytics";
 import type { AgentRunReport } from "../agent-manager/types";
+import type { IWorkflowRunner } from "./workflow-runner";
+import type { Agent } from "./agents/types";
 
 export type MultiAgentProgressEvent =
   | AgentProgressEvent
@@ -19,7 +21,7 @@ export interface MultiAgentRunOptions {
   maxRetries?: number;
 }
 
-export class MultiAgentRunner {
+export class MultiAgentRunner implements IWorkflowRunner {
   constructor(private readonly orchestrator: AgentOrchestrator) {}
 
   async run(
@@ -92,6 +94,14 @@ export class MultiAgentRunner {
 
   getOrchestrator(): AgentOrchestrator {
     return this.orchestrator;
+  }
+
+  registerAgent(agent: Agent): void {
+    this.orchestrator.registerAgent(agent);
+  }
+
+  listAgents(): Agent[] {
+    return this.orchestrator.listAgents();
   }
 
   /**
