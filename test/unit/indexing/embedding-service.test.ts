@@ -57,7 +57,7 @@ describe("EmbeddingService", () => {
       data: [{ embedding: [0.5, 0.6] }],
     });
     const svc = new EmbeddingService("openai", {
-      baseUrl: "https://api.openai.com/v1",
+      baseUrl: "https://api.openai.com",
       model: "text-embedding-3-small",
       apiKey: "test-key",
     });
@@ -88,5 +88,83 @@ describe("EmbeddingService", () => {
     });
     await svc.embed("test");
     expect(svc.getDimensions()).toBe(4);
+  });
+
+  describe("provider routing", () => {
+    it("vllm provider routes to openai endpoint", async () => {
+      const mockFetchFn = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+      });
+      global.fetch = mockFetchFn as unknown as typeof fetch;
+
+      const svc = new EmbeddingService("vllm", {
+        baseUrl: "http://localhost:8000",
+        model: "BAAI/bge-base-en",
+      });
+      await svc.embed("hello");
+
+      // Verify the endpoint is /embeddings (openai format, not /api/embeddings)
+      expect(mockFetchFn).toHaveBeenCalled();
+      const callUrl = mockFetchFn.mock.calls[0][0] as string;
+      expect(callUrl).toBe("http://localhost:8000/embeddings");
+    });
+
+    it("openai-compatible provider routes to openai endpoint", async () => {
+      const mockFetchFn = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+      });
+      global.fetch = mockFetchFn as unknown as typeof fetch;
+
+      const svc = new EmbeddingService("openai-compatible", {
+        baseUrl: "http://localhost:8080",
+        model: "mlx-community/nomic-embed-text",
+      });
+      await svc.embed("hello");
+
+      // Verify the endpoint is /embeddings (openai format, not /api/embeddings)
+      expect(mockFetchFn).toHaveBeenCalled();
+      const callUrl = mockFetchFn.mock.calls[0][0] as string;
+      expect(callUrl).toBe("http://localhost:8080/embeddings");
+    });
+
+    it("ollama provider routes to ollama endpoint", async () => {
+      const mockFetchFn = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ embedding: [0.1, 0.2, 0.3] }),
+      });
+      global.fetch = mockFetchFn as unknown as typeof fetch;
+
+      const svc = new EmbeddingService("ollama", {
+        baseUrl: "http://localhost:11434",
+        model: "nomic-embed-text",
+      });
+      await svc.embed("hello");
+
+      // Verify the endpoint is /api/embeddings (ollama format)
+      expect(mockFetchFn).toHaveBeenCalled();
+      const callUrl = mockFetchFn.mock.calls[0][0] as string;
+      expect(callUrl).toContain("/api/embeddings");
+    });
+
+    it("openai provider routes to openai endpoint", async () => {
+      const mockFetchFn = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+      });
+      global.fetch = mockFetchFn as unknown as typeof fetch;
+
+      const svc = new EmbeddingService("openai", {
+        baseUrl: "https://api.openai.com",
+        model: "text-embedding-3-small",
+      });
+      await svc.embed("hello");
+
+      // Verify the endpoint is /embeddings (openai format, not /api/embeddings)
+      expect(mockFetchFn).toHaveBeenCalled();
+      const callUrl = mockFetchFn.mock.calls[0][0] as string;
+      expect(callUrl).toBe("https://api.openai.com/embeddings");
+    });
   });
 });

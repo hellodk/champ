@@ -195,7 +195,12 @@ const SELF_HOSTED_PROVIDERS: ProviderName[] = [
   "openai-compatible",
 ];
 
-const EMBEDDING_PROVIDERS = ["ollama", "openai"] as const;
+const EMBEDDING_PROVIDERS = [
+  "ollama",
+  "openai",
+  "vllm",
+  "openai-compatible",
+] as const;
 
 const VALID_MODES: AgentModeName[] = [
   "agent",

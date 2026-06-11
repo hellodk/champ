@@ -9,7 +9,11 @@
  * llama.cpp with --embedding, etc.).
  */
 
-export type EmbeddingProvider = "ollama" | "openai";
+export type EmbeddingProvider =
+  | "ollama"
+  | "openai"
+  | "vllm"
+  | "openai-compatible";
 
 export interface EmbeddingConfig {
   baseUrl: string;
