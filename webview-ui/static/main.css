@@ -275,9 +275,9 @@ html, body {
 /* Error messages */
 .message.error .body {
   background-color: var(--vscode-inputValidation-errorBackground, rgba(255, 0, 0, 0.08));
-  color: var(--vscode-errorForeground);
+  color: var(--vscode-editor-foreground, #e8e8e8);
   border-radius: 8px;
-  border-left: 3px solid var(--vscode-errorForeground);
+  border-left: 3px solid var(--vscode-errorForeground, #f14c4c);
   padding: 10px 14px;
 }
 

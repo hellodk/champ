@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import { MultiAgentRunner } from "../../../src/agent/multi-agent-runner";
-import { AgentOrchestrator } from "../../../src/agent/orchestrator";
+import {
+  MultiAgentRunner,
+  AgentOrchestrator,
+} from "../../../src/agent/multi-agent-runner";
 
 function makeOrchestrator(
   agentNames: string[],
@@ -79,5 +81,98 @@ describe("MultiAgentRunner", () => {
     });
     expect(result.success).toBe(false);
     expect(workflowComplete?.report.success).toBe(false);
+  });
+});
+
+describe("MultiAgentRunner — inlined execution (retry, retry-from, abort)", () => {
+  function makeAgent(
+    name: string,
+    responses: Array<{ success: boolean; output: string }>,
+  ): import("../../../src/agent/agents/types").Agent {
+    let call = 0;
+    return {
+      name,
+      role: name,
+      async execute() {
+        const r = responses[Math.min(call, responses.length - 1)];
+        call++;
+        return r;
+      },
+    };
+  }
+
+  it("retries a failing agent up to maxRetries times then succeeds", async () => {
+    const runner = new MultiAgentRunner();
+    runner.registerAgent(
+      makeAgent("a", [
+        { success: false, output: "fail 1" },
+        { success: false, output: "fail 2" },
+        { success: true, output: "ok" },
+      ]),
+    );
+    const result = await runner.run("test", { sequence: ["a"], maxRetries: 3 });
+    expect(result.success).toBe(true);
+    expect(result.output).toBe("ok");
+  });
+
+  it("returns failure when maxRetries exceeded", async () => {
+    const runner = new MultiAgentRunner();
+    runner.registerAgent(
+      makeAgent("a", [{ success: false, output: "always fail" }]),
+    );
+    const result = await runner.run("test", { sequence: ["a"], maxRetries: 2 });
+    expect(result.success).toBe(false);
+  });
+
+  it("branches back to retryFrom target on failure", async () => {
+    const visited: string[] = [];
+    function trackAgent(name: string, failOnFirstCall = false) {
+      let calls = 0;
+      return {
+        name,
+        role: name,
+        async execute(): Promise<
+          import("../../../src/agent/agents/types").AgentOutput
+        > {
+          calls++;
+          visited.push(name);
+          if (failOnFirstCall && calls === 1)
+            return { success: false, output: "fail" };
+          return { success: true, output: `${name} ok` };
+        },
+      };
+    }
+    const runner = new MultiAgentRunner();
+    runner.registerAgent(trackAgent("code"));
+    runner.registerAgent(trackAgent("reviewer", true));
+    const result = await runner.run("test", {
+      sequence: ["code", "reviewer"],
+      maxRetries: 3,
+      retryFrom: { reviewer: "code" },
+    });
+    expect(result.success).toBe(true);
+    expect(visited).toEqual(["code", "reviewer", "code", "reviewer"]);
+  });
+
+  it("aborts on signal", async () => {
+    const controller = new AbortController();
+    const runner = new MultiAgentRunner();
+    runner.registerAgent({
+      name: "slow",
+      role: "slow",
+      async execute() {
+        controller.abort();
+        return { success: true, output: "done" };
+      },
+    });
+    runner.registerAgent(
+      makeAgent("never", [{ success: true, output: "should not run" }]),
+    );
+    const result = await runner.run("test", {
+      sequence: ["slow", "never"],
+      abortSignal: controller.signal,
+    });
+    expect(result.success).toBe(false);
+    expect(result.output).toContain("abort");
   });
 });

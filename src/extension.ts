@@ -59,6 +59,7 @@ import { generateDocTool } from "./tools/generate-doc";
 import { createCodebaseSearchTool } from "./tools/codebase-search";
 import { IndexingService } from "./indexing/indexing-service";
 import { MultiAgentRunner } from "./agent/multi-agent-runner";
+import type { IWorkflowRunner } from "./agent/workflow-runner";
 import { AgentLoader } from "./agent/agent-loader";
 import {
   CustomAgent,
@@ -121,9 +122,7 @@ let saveActiveTimeout: ReturnType<typeof setTimeout> | null = null;
 let indexingService: IndexingService | undefined;
 let mcpRegistry: McpRegistry | undefined;
 let mcpClientManager: MCPClientManager | undefined;
-let persistentRunner:
-  | import("./agent/multi-agent-runner").MultiAgentRunner
-  | undefined;
+let persistentRunner: IWorkflowRunner | undefined;
 let triggerManager: TriggerManager | undefined;
 let activeWorkflowSession: WorkflowSession | undefined;
 let teamRunner: TeamRunner | undefined;
@@ -3354,9 +3353,7 @@ export async function activate(
           return [] as CustomAgentDefinition[];
         });
         for (const def of defs) {
-          baseRunner
-            .getOrchestrator()
-            .registerAgent(new CustomAgent(def, newProvider));
+          baseRunner.registerAgent(new CustomAgent(def, newProvider));
           console.log(`Champ: loaded custom agent "${def.name}"`);
         }
       }
@@ -3386,10 +3383,7 @@ export async function activate(
     if (cachedYamlConfig?.triggers?.length && workspaceRoot) {
       // Warn about triggers that reference unregistered agents.
       const registeredAgentNames = new Set(
-        persistentRunner
-          ?.getOrchestrator()
-          .listAgents()
-          .map((a) => a.name) ?? [],
+        persistentRunner?.listAgents().map((a) => a.name) ?? [],
       );
       for (const trigger of cachedYamlConfig.triggers) {
         if (!registeredAgentNames.has(trigger.run)) {

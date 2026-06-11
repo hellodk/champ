@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { AgentOrchestrator } from "@/agent/orchestrator";
+import { AgentOrchestrator } from "@/agent/multi-agent-runner";
 import type { Agent, AgentOutput } from "@/agent/agents/types";
 
 function makeAgent(name: string, output: Partial<AgentOutput> = {}): Agent {
