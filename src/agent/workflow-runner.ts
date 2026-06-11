@@ -1,6 +1,8 @@
 import type { Agent } from "./agents/types";
-import type { WorkflowResult } from "./orchestrator";
-import type { MultiAgentRunOptions } from "./multi-agent-runner";
+import type {
+  WorkflowResult,
+  MultiAgentRunOptions,
+} from "./multi-agent-runner";
 
 /**
  * Narrow interface that WorkflowSession and extension.ts depend on.

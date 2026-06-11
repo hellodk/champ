@@ -9,7 +9,10 @@
  * is easy to roll back.
  */
 import * as vscode from "vscode";
-import type { AgentOrchestrator, WorkflowResult } from "../agent/orchestrator";
+import type {
+  AgentOrchestrator,
+  WorkflowResult,
+} from "../agent/multi-agent-runner";
 import type { Diff, Plan, PlanStep } from "../agent/agents/types";
 import { resolveInWorkspace } from "../utils/workspace-path";
 
