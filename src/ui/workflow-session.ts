@@ -1,4 +1,4 @@
-import type { MultiAgentRunner } from "../agent/multi-agent-runner";
+import type { IWorkflowRunner } from "../agent/workflow-runner";
 import {
   WorkflowStore,
   type WorkflowRun,
@@ -18,7 +18,7 @@ export class WorkflowSession {
 
   constructor(
     private readonly store: WorkflowStore,
-    private readonly runner: MultiAgentRunner,
+    private readonly runner: IWorkflowRunner,
     id: string,
     name: string,
     mode: WorkflowMode,
