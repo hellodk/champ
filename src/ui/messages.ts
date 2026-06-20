@@ -519,7 +519,8 @@ export type ExtensionToWebviewMessage =
   | MemoryBadgeMessage
   | MemoryListMessage
   | TeamCostEstimateMessage
-  | TerminalOutputChunkMessage;
+  | TerminalOutputChunkMessage
+  | DiscoveredModelsMessage;
 
 // ---------------------------------------------------------------------------
 // Webview -> Extension Host
@@ -845,6 +846,7 @@ export type WebviewToExtensionMessage =
   | RunInTerminalRequest
   | RegenerateResponseRequest
   | SaveSettingsRequest
+  | DiscoverModelsRequest
   | CopyToClipboardRequest;
 
 export interface CopyToClipboardRequest {
@@ -1300,10 +1302,37 @@ export interface SaveSettingsRequest {
   type: "saveSettings";
   provider: string;
   model: string;
+  baseUrl?: string;
 }
 
 export function isSaveSettingsRequest(
   msg: WebviewToExtensionMessage,
 ): msg is SaveSettingsRequest {
   return msg.type === "saveSettings";
+}
+
+/**
+ * Webview asks the host to discover available models at a local endpoint.
+ * The host fetches /api/tags (Ollama) or /v1/models (vLLM, MLX, openai-compatible)
+ * and posts back DiscoveredModelsMessage.
+ */
+export interface DiscoverModelsRequest {
+  type: "discoverModels";
+  provider: "ollama" | "vllm" | "mlx" | "openai-compatible";
+  baseUrl: string;
+}
+
+export function isDiscoverModelsRequest(
+  msg: WebviewToExtensionMessage,
+): msg is DiscoverModelsRequest {
+  return msg.type === "discoverModels";
+}
+
+/**
+ * Extension → webview: result of a discoverModels request.
+ */
+export interface DiscoveredModelsMessage {
+  type: "discoveredModels";
+  models: Array<{ name: string; size?: string }>;
+  error?: string;
 }

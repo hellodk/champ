@@ -896,6 +896,17 @@
     });
     footer.append(addBtn, rescanBtn);
     modelListEl.append(footer);
+
+    // "+ Add local model" entry at the bottom
+    const addLocalBtn = document.createElement('button');
+    addLocalBtn.className = 'add-local-model-row';
+    addLocalBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 13 13" fill="none"><line x1="6.5" y1="1" x2="6.5" y2="12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="1" y1="6.5" x2="12" y2="6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg> Add local model…';
+    addLocalBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      modelPickerPopup.setAttribute('hidden', 'true');
+      showAddModelDialogue();
+    });
+    modelListEl.append(addLocalBtn);
   }
 
   const bottomSpacer = el('div', { class: 'bottom-spacer' });
@@ -2498,8 +2509,325 @@
         }
         break;
       }
+      case 'discoveredModels':
+        // Handled by the per-dialogue listener registered in showAddModelDialogue()
+        break;
     }
   });
+
+  // -------------------------------------------------------------------
+  // Add Local Model Dialogue
+  // -------------------------------------------------------------------
+
+  const PROVIDER_DEFAULTS = {
+    ollama:              { label: 'Ollama',           sub: 'Local inference',         url: 'http://localhost:11434'     },
+    vllm:                { label: 'vLLM',             sub: 'High-throughput serving', url: 'http://localhost:8000'      },
+    mlx:                 { label: 'Apple MLX',         sub: 'Apple Silicon',           url: 'http://192.168.1.19:8080'  },
+    'openai-compatible': { label: 'OpenAI-compatible', sub: 'LM Studio, llama.cpp',    url: ''                          },
+  };
+
+  const PROVIDER_ICONS = {
+    ollama: '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="3" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="4" y="5" width="3" height="2" rx="0.5" fill="currentColor"/><rect x="8" y="5" width="3" height="2" rx="0.5" fill="currentColor"/><rect x="4" y="8.5" width="7" height="1.5" rx="0.5" fill="currentColor" opacity="0.4"/><line x1="5" y1="13" x2="5" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="13" y1="13" x2="13" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="4" y1="15" x2="14" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    vllm:   '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="2" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="5" y="5" width="2" height="2" rx="0.4" fill="currentColor"/><rect x="8.5" y="5" width="2" height="2" rx="0.4" fill="currentColor"/><rect x="12" y="5" width="1" height="2" rx="0.4" fill="currentColor" opacity="0.4"/><rect x="5" y="8.5" width="2" height="2" rx="0.4" fill="currentColor" opacity="0.4"/><rect x="8.5" y="8.5" width="2" height="2" rx="0.4" fill="currentColor"/><rect x="12" y="8.5" width="1" height="2" rx="0.4" fill="currentColor"/><rect x="5" y="12" width="2" height="1" rx="0.4" fill="currentColor"/><rect x="8.5" y="12" width="2" height="1" rx="0.4" fill="currentColor" opacity="0.4"/><rect x="12" y="12" width="1" height="1" rx="0.4" fill="currentColor"/></svg>',
+    mlx:    '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5" fill="none"/><line x1="9" y1="2.5" x2="9" y2="6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="9" y1="11.5" x2="9" y2="15.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="2.5" y1="9" x2="6.5" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="11.5" y1="9" x2="15.5" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    'openai-compatible': '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="5" cy="9" r="2" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="13" cy="9" r="2" stroke="currentColor" stroke-width="1.5" fill="none"/><line x1="7" y1="9" x2="11" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="5" y1="3" x2="5" y2="7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="5" y1="11" x2="5" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="13" y1="3" x2="13" y2="7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="13" y1="11" x2="13" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+  };
+
+  const ICON_CHECK = '<svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 6.5l3.2 3.2 5.8-5.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const ICON_X     = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><line x1="1.5" y1="1.5" x2="10.5" y2="10.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="10.5" y1="1.5" x2="1.5" y2="10.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+
+  function showAddModelDialogue() {
+    let step = 1;
+    let selectedProvider = 'ollama';
+    let baseUrl = PROVIDER_DEFAULTS.ollama.url;
+    let discoveredModels = [];
+    let selectedModel = null;
+    let discoverError = null;
+    let manualMode = false;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'add-model-overlay';
+    overlay.addEventListener('click', (ev) => {
+      if (ev.target === overlay) closeDialogue();
+    });
+
+    function closeDialogue() { overlay.remove(); }
+
+    function render() {
+      overlay.innerHTML = '';
+
+      const dlg = document.createElement('div');
+      dlg.className = 'add-model-dialogue';
+
+      // Header
+      const hdr = document.createElement('div');
+      hdr.className = 'amd-header';
+      hdr.innerHTML = '<span class="amd-title">Add local model</span>';
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'amd-close';
+      closeBtn.innerHTML = ICON_X;
+      closeBtn.addEventListener('click', closeDialogue);
+      hdr.appendChild(closeBtn);
+      dlg.appendChild(hdr);
+
+      // Steps bar
+      const steps = ['Provider', 'Connect', 'Pick model'];
+      const stepsEl = document.createElement('div');
+      stepsEl.className = 'amd-steps';
+      steps.forEach((label, i) => {
+        const idx = i + 1;
+        const s = document.createElement('div');
+        s.className = 'amd-step' + (idx < step ? ' done' : idx === step ? ' active' : '');
+        const numContent = idx < step ? ICON_CHECK : '<span>' + idx + '</span>';
+        s.innerHTML = '<div class="amd-step-num">' + numContent + '</div>' + label;
+        stepsEl.appendChild(s);
+        if (i < steps.length - 1) {
+          const conn = document.createElement('div');
+          conn.className = 'amd-connector';
+          stepsEl.appendChild(conn);
+        }
+      });
+      dlg.appendChild(stepsEl);
+
+      // Body
+      const body = document.createElement('div');
+      body.className = 'amd-body';
+
+      if (step === 1) renderStep1(body);
+      else if (step === 2) renderStep2(body);
+      else renderStep3(body);
+
+      dlg.appendChild(body);
+
+      // Footer
+      const footer = document.createElement('div');
+      footer.className = 'amd-footer';
+
+      if (step === 1) {
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'amd-btn amd-btn-secondary';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', closeDialogue);
+
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'amd-btn amd-btn-primary';
+        nextBtn.textContent = 'Connect →';
+        nextBtn.addEventListener('click', () => { step = 2; doDiscover(); });
+
+        footer.appendChild(cancelBtn);
+        footer.appendChild(nextBtn);
+
+      } else if (step === 2) {
+        const backBtn = document.createElement('button');
+        backBtn.className = 'amd-btn amd-btn-secondary';
+        backBtn.textContent = '← Back';
+        backBtn.addEventListener('click', () => { step = 1; render(); });
+
+        const retryBtn = document.createElement('button');
+        retryBtn.className = 'amd-btn amd-btn-primary';
+        retryBtn.textContent = discoverError ? 'Retry' : 'Connecting…';
+        retryBtn.disabled = !discoverError;
+        retryBtn.addEventListener('click', () => doDiscover());
+
+        footer.appendChild(backBtn);
+        footer.appendChild(retryBtn);
+
+      } else {
+        const backBtn = document.createElement('button');
+        backBtn.className = 'amd-btn amd-btn-secondary';
+        backBtn.textContent = '← Back';
+        backBtn.addEventListener('click', () => { step = 1; render(); });
+
+        const addBtn = document.createElement('button');
+        addBtn.className = 'amd-btn amd-btn-primary';
+        addBtn.disabled = !selectedModel;
+        addBtn.textContent = selectedModel ? 'Add ' + selectedModel : 'Select a model';
+        addBtn.addEventListener('click', () => {
+          if (!selectedModel) return;
+          const providerKey = selectedProvider === 'mlx' ? 'openai-compatible' : selectedProvider;
+          vscode.postMessage({ type: 'saveSettings', provider: providerKey, model: selectedModel, baseUrl });
+          closeDialogue();
+          modelPickerBtn.textContent = selectedModel + ' ▾';
+          modelChip.textContent = selectedModel;
+        });
+
+        footer.appendChild(backBtn);
+        footer.appendChild(addBtn);
+      }
+
+      dlg.appendChild(footer);
+      overlay.appendChild(dlg);
+    }
+
+    function renderStep1(body) {
+      const grid = document.createElement('div');
+      grid.className = 'amd-provider-grid';
+
+      const iconBgs = { ollama: 'rgba(37,99,235,0.08)', vllm: 'rgba(22,163,74,0.08)', mlx: 'rgba(109,40,217,0.08)', 'openai-compatible': 'rgba(217,119,6,0.08)' };
+      const iconColors = { ollama: '#2563EB', vllm: '#16A34A', mlx: '#6D28D9', 'openai-compatible': '#D97706' };
+
+      for (const [key, def] of Object.entries(PROVIDER_DEFAULTS)) {
+        const card = document.createElement('button');
+        card.className = 'amd-provider-card' + (selectedProvider === key ? ' active' : '');
+        card.innerHTML =
+          '<div class="amd-provider-icon" style="background:' + (iconBgs[key] || '') + ';color:' + (iconColors[key] || 'currentColor') + '">' + (PROVIDER_ICONS[key] || '') + '</div>' +
+          '<div><div class="amd-provider-name">' + def.label + '</div><div class="amd-provider-sub">' + def.sub + '</div></div>';
+        card.addEventListener('click', () => {
+          selectedProvider = key;
+          baseUrl = def.url;
+          render();
+        });
+        grid.appendChild(card);
+      }
+      body.appendChild(grid);
+
+      const field = document.createElement('div');
+      field.className = 'amd-field';
+      field.innerHTML = '<label class="amd-label">Base URL</label>';
+      const input = document.createElement('input');
+      input.className = 'amd-input';
+      input.type = 'text';
+      input.value = baseUrl;
+      input.placeholder = 'http://localhost:11434';
+      input.addEventListener('input', () => { baseUrl = input.value.trim(); });
+      field.appendChild(input);
+      const hint = document.createElement('div');
+      hint.className = 'amd-hint';
+      hint.textContent = selectedProvider === 'openai-compatible' ? 'Enter your server URL.' : 'Change only if using a non-default port.';
+      field.appendChild(hint);
+      body.appendChild(field);
+    }
+
+    function renderStep2(body) {
+      const status = document.createElement('div');
+      status.className = 'amd-status loading';
+      status.innerHTML = '<span>Connecting to ' + baseUrl + '…</span>';
+      body.appendChild(status);
+
+      const field = document.createElement('div');
+      field.className = 'amd-field';
+      field.innerHTML = '<label class="amd-label">Base URL</label>';
+      const row = document.createElement('div');
+      row.className = 'amd-field-row';
+      const input = document.createElement('input');
+      input.className = 'amd-input';
+      input.type = 'text';
+      input.value = baseUrl;
+      input.addEventListener('input', () => { baseUrl = input.value.trim(); });
+      row.appendChild(input);
+      field.appendChild(row);
+      body.appendChild(field);
+    }
+
+    function renderStep3(body) {
+      if (discoverError) {
+        const status = document.createElement('div');
+        status.className = 'amd-status err';
+        status.innerHTML = ICON_X + ' Could not reach ' + baseUrl;
+        body.appendChild(status);
+
+        const field = document.createElement('div');
+        field.className = 'amd-field';
+        field.innerHTML = '<label class="amd-label">Base URL</label>';
+        const row = document.createElement('div');
+        row.className = 'amd-field-row';
+        const input = document.createElement('input');
+        input.className = 'amd-input';
+        input.type = 'text';
+        input.value = baseUrl;
+        input.style.borderColor = 'var(--vscode-inputValidation-errorBorder, #f14c4c)';
+        input.addEventListener('input', () => { baseUrl = input.value.trim(); });
+        row.appendChild(input);
+        field.appendChild(row);
+        const hint = document.createElement('div');
+        hint.className = 'amd-hint error';
+        hint.textContent = discoverError;
+        field.appendChild(hint);
+        body.appendChild(field);
+
+        const manualBtn = document.createElement('button');
+        manualBtn.className = 'amd-manual-link';
+        manualBtn.textContent = 'Enter model ID manually →';
+        manualBtn.addEventListener('click', () => {
+          manualMode = true;
+          discoverError = null;
+          discoveredModels = [];
+          render();
+        });
+        body.appendChild(manualBtn);
+        return;
+      }
+
+      if (manualMode) { renderManual(body); return; }
+
+      const status = document.createElement('div');
+      status.className = 'amd-status ok';
+      status.innerHTML = ICON_CHECK + ' Connected · ' + discoveredModels.length + ' model' + (discoveredModels.length !== 1 ? 's' : '') + ' found';
+      body.appendChild(status);
+
+      discoveredModels.forEach(m => {
+        const row = document.createElement('button');
+        row.className = 'amd-model-row' + (selectedModel === m.name ? ' active' : '');
+        row.innerHTML =
+          '<div style="flex:1"><div class="amd-model-name">' + m.name + '</div>' +
+          (m.size ? '<div class="amd-model-size">' + m.size + '</div>' : '') +
+          '</div><div class="amd-model-check">' + (selectedModel === m.name ? ICON_CHECK : '') + '</div>';
+        row.addEventListener('click', () => { selectedModel = m.name; render(); });
+        body.appendChild(row);
+      });
+
+      if (discoveredModels.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'text-align:center;padding:20px 0;color:var(--vscode-descriptionForeground);font-size:12px';
+        empty.textContent = 'No models found at this endpoint.';
+        body.appendChild(empty);
+      }
+    }
+
+    function renderManual(body) {
+      const field = document.createElement('div');
+      field.className = 'amd-field';
+      field.innerHTML = '<label class="amd-label">Model ID</label>';
+      const input = document.createElement('input');
+      input.className = 'amd-input';
+      input.type = 'text';
+      input.placeholder = 'e.g. llama3.2:latest or BAAI/bge-base-en';
+      input.value = selectedModel || '';
+      input.addEventListener('input', () => { selectedModel = input.value.trim() || null; });
+      field.appendChild(input);
+      const hint = document.createElement('div');
+      hint.className = 'amd-hint';
+      hint.textContent = 'Enter the model name as reported by your provider.';
+      field.appendChild(hint);
+      body.appendChild(field);
+    }
+
+    function doDiscover() {
+      step = 3;
+      discoverError = null;
+      discoveredModels = [];
+      selectedModel = null;
+      render();
+      vscode.postMessage({ type: 'discoverModels', provider: selectedProvider, baseUrl });
+    }
+
+    // Listen for discovery result — per-dialogue instance listener
+    function discoveryListener(event) {
+      if (event.data && event.data.type === 'discoveredModels') {
+        window.removeEventListener('message', discoveryListener);
+        if (event.data.error) {
+          discoverError = event.data.error;
+        } else {
+          discoveredModels = event.data.models || [];
+        }
+        render();
+      }
+    }
+    window.addEventListener('message', discoveryListener);
+
+    render();
+    document.body.appendChild(overlay);
+  }
 
   // -------------------------------------------------------------------
   // DOM helpers
