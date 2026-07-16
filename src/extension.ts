@@ -99,6 +99,7 @@ import { DiffOverlayController } from "./ui/diff-overlay-controller";
 import { CircuitBreaker } from "./providers/circuit-breaker";
 import { FallbackProvider } from "./providers/fallback-provider";
 import { RateLimitedProvider } from "./providers/rate-limited-provider";
+import { resolveActiveWorkspaceFolder } from "./extension-utils";
 import { AuditLog } from "./observability/audit-log";
 import { ChampServer } from "./server/champ-server";
 
@@ -1395,14 +1396,15 @@ export async function activate(
       );
     }),
     vscode.commands.registerCommand("champ.generateConfig", async () => {
-      if (!workspaceRoot) {
+      const activeFolder = resolveActiveWorkspaceFolder() ?? workspaceRoot;
+      if (!activeFolder) {
         void vscode.window.showErrorMessage(
           "Champ: open a workspace folder before generating a config file.",
         );
         return;
       }
       const targetUri = vscode.Uri.file(
-        path.join(workspaceRoot, ".champ", "config.yaml"),
+        path.join(activeFolder, ".champ", "config.yaml"),
       );
       // If file exists, just open it (don't prompt to overwrite).
       try {
@@ -1416,7 +1418,7 @@ export async function activate(
       const template = generateDefaultConfigYaml();
       try {
         await vscode.workspace.fs.createDirectory(
-          vscode.Uri.file(path.join(workspaceRoot, ".champ")),
+          vscode.Uri.file(path.join(activeFolder, ".champ")),
         );
       } catch {
         // Directory may already exist.
@@ -1515,13 +1517,14 @@ export async function activate(
         // `provider:` line. Comments and the rest of the file are
         // preserved. The file watcher fires loadProvider() which
         // broadcasts a fresh providerStatus to the chat view.
-        if (!workspaceRoot) {
+        const activeFolder = resolveActiveWorkspaceFolder() ?? workspaceRoot;
+        if (!activeFolder) {
           void vscode.window.showErrorMessage(
             "Champ: cannot switch model without an open workspace.",
           );
           return;
         }
-        const yamlPath = path.join(workspaceRoot, ".champ", "config.yaml");
+        const yamlPath = path.join(activeFolder, ".champ", "config.yaml");
         const yamlUri = vscode.Uri.file(yamlPath);
         let text: string;
         let configExisted = true;
@@ -1535,7 +1538,7 @@ export async function activate(
           const template = generateDefaultConfigYaml();
           try {
             await vscode.workspace.fs.createDirectory(
-              vscode.Uri.file(path.join(workspaceRoot, ".champ")),
+              vscode.Uri.file(path.join(activeFolder, ".champ")),
             );
           } catch {
             /* dir already exists */
@@ -1582,15 +1585,16 @@ export async function activate(
           );
           return;
         }
-        if (!workspaceRoot) {
+        const activeFolder = resolveActiveWorkspaceFolder() ?? workspaceRoot;
+        if (!activeFolder) {
           void vscode.window.showErrorMessage(
             "Champ: open a workspace folder before creating a config file.",
           );
           return;
         }
-        const targetDir = vscode.Uri.file(path.join(workspaceRoot, ".champ"));
+        const targetDir = vscode.Uri.file(path.join(activeFolder, ".champ"));
         const targetUri = vscode.Uri.file(
-          path.join(workspaceRoot, ".champ", "config.yaml"),
+          path.join(activeFolder, ".champ", "config.yaml"),
         );
         try {
           await vscode.workspace.fs.createDirectory(targetDir);
@@ -1791,13 +1795,14 @@ export async function activate(
         },
         action: "add" | "delete",
       ) => {
-        if (!workspaceRoot) {
+        const activeMcpFolder = resolveActiveWorkspaceFolder() ?? workspaceRoot;
+        if (!activeMcpFolder) {
           void vscode.window.showErrorMessage(
             "Champ: open a workspace to configure MCP servers.",
           );
           return;
         }
-        const configPath = path.join(workspaceRoot, ".champ", "config.yaml");
+        const configPath = path.join(activeMcpFolder, ".champ", "config.yaml");
         let rawConfig = "";
         try {
           rawConfig = new TextDecoder().decode(
@@ -1895,7 +1900,9 @@ export async function activate(
 
             const newServer = buildMcpServerConfig(entry, resolvedEnv);
 
-            if (!workspaceRoot) {
+            const activeMcpInstallFolder =
+              resolveActiveWorkspaceFolder() ?? workspaceRoot;
+            if (!activeMcpInstallFolder) {
               void vscode.window.showErrorMessage(
                 "Champ: open a workspace to install MCP servers.",
               );
@@ -1903,7 +1910,7 @@ export async function activate(
             }
 
             const configPath = path.join(
-              workspaceRoot,
+              activeMcpInstallFolder,
               ".champ",
               "config.yaml",
             );
@@ -2953,8 +2960,9 @@ export async function activate(
    * crash activation.
    */
   const resolveConfig = async (): Promise<ChampConfig | null> => {
-    const workspacePath = workspaceRoot
-      ? path.join(workspaceRoot, ".champ", "config.yaml")
+    const activeFolder = resolveActiveWorkspaceFolder();
+    const workspacePath = activeFolder
+      ? path.join(activeFolder, ".champ", "config.yaml")
       : null;
     const userPath = path.join(os.homedir(), ".champ", "config.yaml");
 
@@ -3037,8 +3045,9 @@ export async function activate(
       yamlConfig = await resolveConfig();
       cachedYamlConfig = yamlConfig;
       // Load project rules from .champ/rules/*.md
-      if (workspaceRoot) {
-        const rulesDir = path.join(workspaceRoot, ".champ", "rules");
+      const activeRulesFolder = resolveActiveWorkspaceFolder();
+      if (activeRulesFolder) {
+        const rulesDir = path.join(activeRulesFolder, ".champ", "rules");
         rulesEngine.clearProjectRules();
         await rulesEngine.loadRulesFromDirectory(rulesDir).catch((err) => {
           console.warn(`Champ: failed to load rules from ${rulesDir}:`, err);
@@ -3673,36 +3682,47 @@ export async function activate(
     }),
   );
 
-  // Watch .champ/config.yaml in the workspace for live reload. Created,
-  // changed, or deleted — any of those should trigger a provider reload
-  // since the file is the source of truth when it exists.
-  if (workspaceRoot) {
-    const yamlWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(workspaceRoot, ".champ/config.yaml"),
-    );
+  // Reload provider when the active editor moves to a different workspace
+  // folder so that the correct .champ/config.yaml is used per project.
+  let _lastActiveFolder: string | undefined = workspaceRoot ?? undefined;
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor(async (editor) => {
+      if (!editor) return;
+      const newFolder = resolveActiveWorkspaceFolder();
+      if (newFolder !== _lastActiveFolder) {
+        _lastActiveFolder = newFolder;
+        await loadProvider();
+      }
+    }),
+  );
+
+  // Watch .champ/config.yaml in every open workspace folder and in ~/.champ/
+  // for live reload. Created, changed, or deleted — any triggers a provider reload.
+  {
+    const yamlWatchers: vscode.FileSystemWatcher[] = [];
+    const watchedRoots = [
+      ...(vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ??
+        (workspaceRoot ? [workspaceRoot] : [])),
+      os.homedir(),
+    ];
     let configReloadTimer: ReturnType<typeof setTimeout> | undefined;
-    (yamlWatcher.onDidChange(() => {
+    const debouncedReload = () => {
       if (configReloadTimer) clearTimeout(configReloadTimer);
       configReloadTimer = setTimeout(() => {
         configReloadTimer = undefined;
         void loadProvider();
-      }, 300); // 300ms debounce
-    }),
-      yamlWatcher.onDidCreate(() => {
-        if (configReloadTimer) clearTimeout(configReloadTimer);
-        configReloadTimer = setTimeout(() => {
-          configReloadTimer = undefined;
-          void loadProvider();
-        }, 300);
-      }),
-      yamlWatcher.onDidDelete(() => {
-        if (configReloadTimer) clearTimeout(configReloadTimer);
-        configReloadTimer = setTimeout(() => {
-          configReloadTimer = undefined;
-          void loadProvider();
-        }, 300);
-      }));
-    context.subscriptions.push(yamlWatcher);
+      }, 300);
+    };
+    for (const root of watchedRoots) {
+      const w = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(root, ".champ/config.yaml"),
+      );
+      w.onDidChange(debouncedReload);
+      w.onDidCreate(debouncedReload);
+      w.onDidDelete(debouncedReload);
+      yamlWatchers.push(w);
+    }
+    context.subscriptions.push(...yamlWatchers);
   }
 
   // ---- Team Builder and Rules Editor commands -------------------------
