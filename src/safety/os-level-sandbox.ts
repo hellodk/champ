@@ -143,13 +143,10 @@ export class OSLevelSandbox {
     command: string,
     options: ExecutionOptions = {},
   ): Promise<ExecutionResult> {
-    const {
-      cwd = process.cwd(),
-      timeout = 30000,
-      env = process.env,
-      work_dir = cwd,
-      allow_fallback = this.defaultConfig.allow_fallback ?? true,
-    } = options;
+    const cwd = options.cwd ?? process.cwd();
+    const work_dir = options.work_dir ?? cwd;
+    const allow_fallback =
+      options.allow_fallback ?? this.defaultConfig.allow_fallback ?? true;
 
     // Validate working directory
     if (!fs.existsSync(work_dir)) {
@@ -201,14 +198,13 @@ export class OSLevelSandbox {
     command: string,
     options: ExecutionOptions,
   ): Promise<ExecutionResult> {
-    const {
-      cwd = process.cwd(),
-      work_dir = cwd,
-      readonly_paths = this.defaultConfig.readonly_paths,
-      readonly_root: _readonly_root = this.defaultConfig.readonly_root,
-      restrict_net = this.defaultConfig.restrict_net,
-      timeout = 30000,
-    } = options;
+    const cwd = options.cwd ?? process.cwd();
+    const work_dir = options.work_dir ?? cwd;
+    const readonly_paths =
+      options.readonly_paths ?? this.defaultConfig.readonly_paths;
+    const restrict_net =
+      options.restrict_net ?? this.defaultConfig.restrict_net;
+    const timeout = options.timeout ?? 30000;
 
     return new Promise<ExecutionResult>((resolve) => {
       let stdout = "";
@@ -334,7 +330,9 @@ export class OSLevelSandbox {
     command: string,
     options: ExecutionOptions,
   ): Promise<ExecutionResult> {
-    const { cwd = process.cwd(), timeout = 30000, env = process.env } = options;
+    const cwd = options.cwd ?? process.cwd();
+    const timeout = options.timeout ?? 30000;
+    const env = options.env ?? process.env;
 
     return new Promise<ExecutionResult>((resolve) => {
       let stdout = "";
