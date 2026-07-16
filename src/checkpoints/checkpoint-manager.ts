@@ -17,7 +17,6 @@
  * restoration across extension restarts.
  */
 import * as vscode from "vscode";
-import * as path from "path";
 import { resolveInWorkspace } from "../utils/workspace-path";
 import { CheckpointStore } from "./checkpoint-store";
 
@@ -48,11 +47,14 @@ export class CheckpointManager {
   private store: CheckpointStore | null;
   private loadPromise: Promise<void> = Promise.resolve();
 
-  constructor(private readonly workspaceRoot: string, storagePath?: string) {
+  constructor(
+    private readonly workspaceRoot: string,
+    storagePath?: string,
+  ) {
     if (storagePath) {
       this.store = new CheckpointStore(storagePath);
       // Load checkpoints from disk on initialization
-      this.loadPromise = this.loadFromDisk().catch(err => {
+      this.loadPromise = this.loadFromDisk().catch((err) => {
         console.warn("Champ: failed to load checkpoints from disk:", err);
       });
     } else {
@@ -135,8 +137,11 @@ export class CheckpointManager {
       const oldest = this.checkpoints.shift();
       if (oldest && this.store) {
         // Delete the oldest checkpoint from disk as well
-        await this.store.delete(oldest.id).catch(err => {
-          console.warn("Champ: failed to delete old checkpoint from disk:", err);
+        await this.store.delete(oldest.id).catch((err) => {
+          console.warn(
+            "Champ: failed to delete old checkpoint from disk:",
+            err,
+          );
         });
       }
     }
@@ -145,7 +150,7 @@ export class CheckpointManager {
 
     // Persist to disk if storage is configured
     if (this.store) {
-      await this.store.save(checkpoint).catch(err => {
+      await this.store.save(checkpoint).catch((err) => {
         console.warn("Champ: failed to save checkpoint to disk:", err);
       });
     }
@@ -203,8 +208,11 @@ export class CheckpointManager {
     const discarded = this.checkpoints.slice(idx + 1);
     for (const cp of discarded) {
       if (this.store) {
-        await this.store.delete(cp.id).catch(err => {
-          console.warn("Champ: failed to delete discarded checkpoint from disk:", err);
+        await this.store.delete(cp.id).catch((err) => {
+          console.warn(
+            "Champ: failed to delete discarded checkpoint from disk:",
+            err,
+          );
         });
       }
     }
@@ -226,12 +234,15 @@ export class CheckpointManager {
     // Delete checkpoints from disk asynchronously in the background
     if (this.store && toDelete.length > 0) {
       Promise.all(
-        toDelete.map(cp =>
-          this.store!.delete(cp.id).catch(err => {
-            console.warn("Champ: failed to delete checkpoint from disk during clear:", err);
-          })
-        )
-      ).catch(err => {
+        toDelete.map((cp) =>
+          this.store!.delete(cp.id).catch((err) => {
+            console.warn(
+              "Champ: failed to delete checkpoint from disk during clear:",
+              err,
+            );
+          }),
+        ),
+      ).catch((err) => {
         console.warn("Champ: error during checkpoint cleanup:", err);
       });
     }
