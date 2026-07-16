@@ -269,6 +269,11 @@ export async function activate(
     ? new CheckpointManager(workspaceRoot)
     : null;
 
+  // Initialize checkpoint manager to load persisted checkpoints from disk
+  void checkpointManager?.initialize().catch((err) => {
+    console.warn("[Champ] CheckpointManager initialization failed:", err);
+  });
+
   workflowStore = workspaceRoot ? new WorkflowStore(workspaceRoot) : undefined;
   teamRunStore = workspaceRoot ? new TeamRunStore(workspaceRoot) : undefined;
   teamLoader = workspaceRoot ? new TeamLoader(workspaceRoot) : undefined;

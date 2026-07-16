@@ -9,9 +9,11 @@ import * as vscode from "vscode";
 describe("CheckpointManager", () => {
   let manager: CheckpointManager;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     manager = new CheckpointManager("/test-workspace");
+    // Initialize to load from disk (no-op for in-memory tests)
+    await manager.initialize();
   });
 
   it("should create a checkpoint before file modification", async () => {
