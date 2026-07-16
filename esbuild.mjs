@@ -12,7 +12,7 @@ const buildOptions = {
   sourcesContent: false,
   platform: 'node',
   outfile: 'dist/extension.js',
-  external: ['vscode'],
+  external: ['vscode', 'playwright-core', 'chromium-bidi'],
   logLevel: 'info',
   target: 'node20',
   // Redirect polyfill packages to native Node 20 globals.
