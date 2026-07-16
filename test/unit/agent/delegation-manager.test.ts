@@ -193,9 +193,7 @@ describe("DelegationManager", () => {
         id: "failing-agent",
         name: "FailingAgent",
         maxConcurrentTasks: 1,
-        execute: vi
-          .fn()
-          .mockRejectedValue(new Error("Execution failed")),
+        execute: vi.fn().mockRejectedValue(new Error("Execution failed")),
       };
 
       dm.registerAgent(failingAgent);

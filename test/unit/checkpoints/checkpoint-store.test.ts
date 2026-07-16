@@ -14,7 +14,9 @@ describe("CheckpointStore", () => {
 
   beforeEach(async () => {
     // Create a temporary directory for tests
-    tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "checkpoint-store-test-"));
+    tempDir = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), "checkpoint-store-test-"),
+    );
     store = new CheckpointStore(tempDir);
   });
 
@@ -48,7 +50,9 @@ describe("CheckpointStore", () => {
     expect(loaded[0].id).toBe("cp_test_1");
     expect(loaded[0].label).toBe("Test Checkpoint");
     expect(loaded[0].snapshots[0].filePath).toBe("src/test.ts");
-    expect(loaded[0].snapshots[0].content).toEqual(new Uint8Array([1, 2, 3, 4, 5]));
+    expect(loaded[0].snapshots[0].content).toEqual(
+      new Uint8Array([1, 2, 3, 4, 5]),
+    );
   });
 
   it("should handle checkpoints with null content (deleted files)", async () => {
@@ -93,8 +97,8 @@ describe("CheckpointStore", () => {
 
     const loaded = await store.loadAll();
     expect(loaded).toHaveLength(2);
-    expect(loaded.map(c => c.id)).toContain("cp_1");
-    expect(loaded.map(c => c.id)).toContain("cp_2");
+    expect(loaded.map((c) => c.id)).toContain("cp_1");
+    expect(loaded.map((c) => c.id)).toContain("cp_2");
   });
 
   it("should delete a checkpoint", async () => {

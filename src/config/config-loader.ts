@@ -886,7 +886,9 @@ export class ConfigLoader {
 
               // Required fields
               if (typeof target.host !== "string" || !target.host.trim()) {
-                errors.push(`ssh.targets[${idx}].host must be a non-empty string`);
+                errors.push(
+                  `ssh.targets[${idx}].host must be a non-empty string`,
+                );
                 continue;
               }
               if (
@@ -910,7 +912,10 @@ export class ConfigLoader {
 
               // Validate authMethod-specific requirements
               if (target.authMethod === "key") {
-                if (typeof target.keyPath !== "string" || !target.keyPath.trim()) {
+                if (
+                  typeof target.keyPath !== "string" ||
+                  !target.keyPath.trim()
+                ) {
                   errors.push(
                     `ssh.targets[${idx}].keyPath is required when authMethod is "key"`,
                   );
@@ -941,7 +946,11 @@ export class ConfigLoader {
               // Optional port
               let port = 22;
               if ("port" in target) {
-                if (typeof target.port !== "number" || target.port < 1 || target.port > 65535) {
+                if (
+                  typeof target.port !== "number" ||
+                  target.port < 1 ||
+                  target.port > 65535
+                ) {
                   errors.push(
                     `ssh.targets[${idx}].port must be a number between 1 and 65535`,
                   );
@@ -951,9 +960,11 @@ export class ConfigLoader {
               }
 
               // Name
-              let name = target.name;
+              const name = target.name;
               if (typeof name !== "string" || !name.trim()) {
-                errors.push(`ssh.targets[${idx}].name must be a non-empty string`);
+                errors.push(
+                  `ssh.targets[${idx}].name must be a non-empty string`,
+                );
                 continue;
               }
 
@@ -974,7 +985,12 @@ export class ConfigLoader {
               if ("certPath" in target && typeof target.certPath === "string") {
                 sshTarget.certPath = target.certPath;
               }
-              if ("options" in target && typeof target.options === "object" && target.options !== null && !Array.isArray(target.options)) {
+              if (
+                "options" in target &&
+                typeof target.options === "object" &&
+                target.options !== null &&
+                !Array.isArray(target.options)
+              ) {
                 sshTarget.options = target.options as Record<string, string>;
               }
 
@@ -989,7 +1005,11 @@ export class ConfigLoader {
             errors.push("ssh.trustedHosts must be an array");
           } else {
             out.trustedHosts = [];
-            for (let idx = 0; idx < (s.trustedHosts as unknown[]).length; idx++) {
+            for (
+              let idx = 0;
+              idx < (s.trustedHosts as unknown[]).length;
+              idx++
+            ) {
               const h = (s.trustedHosts as unknown[])[idx];
               if (typeof h !== "object" || h === null || Array.isArray(h)) {
                 errors.push(`ssh.trustedHosts[${idx}] must be an object`);
@@ -1003,13 +1023,20 @@ export class ConfigLoader {
                 );
                 continue;
               }
-              if (typeof host.port !== "number" || host.port < 1 || host.port > 65535) {
+              if (
+                typeof host.port !== "number" ||
+                host.port < 1 ||
+                host.port > 65535
+              ) {
                 errors.push(
                   `ssh.trustedHosts[${idx}].port must be a number between 1 and 65535`,
                 );
                 continue;
               }
-              if (typeof host.fingerprint !== "string" || !host.fingerprint.trim()) {
+              if (
+                typeof host.fingerprint !== "string" ||
+                !host.fingerprint.trim()
+              ) {
                 errors.push(
                   `ssh.trustedHosts[${idx}].fingerprint must be a non-empty string`,
                 );
@@ -1042,8 +1069,14 @@ export class ConfigLoader {
             const def: SSHDefaults = {};
 
             if ("port" in defaults) {
-              if (typeof defaults.port !== "number" || defaults.port < 1 || defaults.port > 65535) {
-                errors.push("ssh.defaults.port must be a number between 1 and 65535");
+              if (
+                typeof defaults.port !== "number" ||
+                defaults.port < 1 ||
+                defaults.port > 65535
+              ) {
+                errors.push(
+                  "ssh.defaults.port must be a number between 1 and 65535",
+                );
               } else {
                 def.port = defaults.port;
               }
@@ -1056,21 +1089,32 @@ export class ConfigLoader {
               }
             }
             if ("connectTimeoutMs" in defaults) {
-              if (typeof defaults.connectTimeoutMs !== "number" || defaults.connectTimeoutMs < 1) {
-                errors.push("ssh.defaults.connectTimeoutMs must be a number >= 1");
+              if (
+                typeof defaults.connectTimeoutMs !== "number" ||
+                defaults.connectTimeoutMs < 1
+              ) {
+                errors.push(
+                  "ssh.defaults.connectTimeoutMs must be a number >= 1",
+                );
               } else {
                 def.connectTimeoutMs = defaults.connectTimeoutMs;
               }
             }
             if ("retryCount" in defaults) {
-              if (typeof defaults.retryCount !== "number" || defaults.retryCount < 1) {
+              if (
+                typeof defaults.retryCount !== "number" ||
+                defaults.retryCount < 1
+              ) {
                 errors.push("ssh.defaults.retryCount must be a number >= 1");
               } else {
                 def.retryCount = defaults.retryCount;
               }
             }
             if ("retryDelayMs" in defaults) {
-              if (typeof defaults.retryDelayMs !== "number" || defaults.retryDelayMs < 1) {
+              if (
+                typeof defaults.retryDelayMs !== "number" ||
+                defaults.retryDelayMs < 1
+              ) {
                 errors.push("ssh.defaults.retryDelayMs must be a number >= 1");
               } else {
                 def.retryDelayMs = defaults.retryDelayMs;

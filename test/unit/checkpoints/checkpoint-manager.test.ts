@@ -111,7 +111,9 @@ describe("CheckpointManager - Persistence", () => {
 
   beforeEach(async () => {
     // Create a temporary directory for tests
-    tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "checkpoint-manager-test-"));
+    tempDir = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), "checkpoint-manager-test-"),
+    );
     manager = new CheckpointManager("/test-workspace", tempDir);
   });
 
@@ -161,7 +163,7 @@ describe("CheckpointManager - Persistence", () => {
     // The new manager should have loaded the checkpoint from disk
     const list = newManager.list();
     expect(list.length).toBeGreaterThan(0);
-    expect(list.some(c => c.id === cpId)).toBe(true);
+    expect(list.some((c) => c.id === cpId)).toBe(true);
   });
 
   it("should restore checkpoints persisted to disk", async () => {
@@ -225,7 +227,9 @@ describe("CheckpointManager - Persistence", () => {
     const cpId = checkpoint.id;
 
     // Verify checkpoint exists in memory
-    expect(manager.list()).toContainEqual(expect.objectContaining({ id: cpId }));
+    expect(manager.list()).toContainEqual(
+      expect.objectContaining({ id: cpId }),
+    );
 
     // Delete via clear - should clear from memory immediately
     manager.clear();
@@ -234,7 +238,7 @@ describe("CheckpointManager - Persistence", () => {
     expect(manager.list()).toHaveLength(0);
 
     // Files should be deleted asynchronously (within 2 seconds)
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
     const files = await fs.promises.readdir(tempDir);
     expect(files).not.toContain(`${cpId}.json`);
   });

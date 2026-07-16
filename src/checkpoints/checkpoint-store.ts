@@ -22,9 +22,11 @@ export class CheckpointStore {
     // Convert Uint8Array to base64 strings for JSON serialization
     const serialized = {
       ...checkpoint,
-      snapshots: checkpoint.snapshots.map(snap => ({
+      snapshots: checkpoint.snapshots.map((snap) => ({
         filePath: snap.filePath,
-        content: snap.content ? Buffer.from(snap.content).toString('base64') : null,
+        content: snap.content
+          ? Buffer.from(snap.content).toString("base64")
+          : null,
         existed: snap.existed,
       })),
     };
@@ -63,7 +65,9 @@ export class CheckpointStore {
             timestamp: parsed.timestamp,
             snapshots: parsed.snapshots.map((snap: any) => ({
               filePath: snap.filePath,
-              content: snap.content ? new Uint8Array(Buffer.from(snap.content, 'base64')) : null,
+              content: snap.content
+                ? new Uint8Array(Buffer.from(snap.content, "base64"))
+                : null,
               existed: snap.existed,
             })),
           };

@@ -27,7 +27,10 @@ export class DelegationManager {
   private runningTasks = new Map<string, Set<string>>(); // agent ID -> set of task IDs
   private maxRetries: number;
   private defaultTimeoutMs: number;
-  private onStateChangeCallback?: (taskId: string, state: DelegationState) => void;
+  private onStateChangeCallback?: (
+    taskId: string,
+    state: DelegationState,
+  ) => void;
   private onProgressCallback?: (event: DelegationProgressEvent) => void;
 
   constructor(config: DelegationManagerConfig = {}) {
@@ -94,7 +97,11 @@ export class DelegationManager {
 
     // Emit initial state change
     this.setState(task.id, "pending");
-    this.taskLog(task.id, "info", `Task ${task.id} created: ${task.description}`);
+    this.taskLog(
+      task.id,
+      "info",
+      `Task ${task.id} created: ${task.description}`,
+    );
 
     let lastError: Error | undefined;
     const maxAttempts = this.maxRetries + 1;
@@ -121,7 +128,11 @@ export class DelegationManager {
         taskStatus.attempts = attempt;
         this.setState(task.id, "running");
 
-        this.taskLog(task.id, "info", `Task assigned to ${agent.name} (${agent.id})`);
+        this.taskLog(
+          task.id,
+          "info",
+          `Task assigned to ${agent.name} (${agent.id})`,
+        );
 
         // Emit agent assigned event
         this.emitProgress({
@@ -186,7 +197,11 @@ export class DelegationManager {
           runningSet.delete(task.id);
 
           lastError = error as Error;
-          this.taskLog(task.id, "warn", `Attempt ${attempt} failed: ${(error as Error).message}`);
+          this.taskLog(
+            task.id,
+            "warn",
+            `Attempt ${attempt} failed: ${(error as Error).message}`,
+          );
 
           // Emit retry event if we'll retry
           if (attempt < maxAttempts) {
@@ -205,7 +220,11 @@ export class DelegationManager {
         }
       } catch (error) {
         lastError = error as Error;
-        this.taskLog(task.id, "error", `Attempt ${attempt} error: ${(error as Error).message}`);
+        this.taskLog(
+          task.id,
+          "error",
+          `Attempt ${attempt} error: ${(error as Error).message}`,
+        );
       }
     }
 
