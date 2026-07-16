@@ -2,10 +2,23 @@
  * TDD: Tests for OSLevelSandbox.
  * Validates OS-level isolation (bwrap/seccomp) for terminal execution.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { OSLevelSandbox } from "@/safety/os-level-sandbox";
 import * as fs from "fs";
 import * as path from "path";
+
+const spawnMock = vi.fn();
+
+vi.mock("child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("child_process")>();
+  return {
+    ...actual,
+    spawn: (...args: Parameters<typeof actual.spawn>) => {
+      spawnMock(...args);
+      return actual.spawn(...args);
+    },
+  };
+});
 
 describe("OSLevelSandbox", () => {
   let sandbox: OSLevelSandbox;
@@ -249,6 +262,73 @@ describe("OSLevelSandbox", () => {
       const integrations = await sandbox.getIntegrationOptions();
       expect(integrations).toBeDefined();
       expect(integrations.supportsDenylist).toBe(true);
+    });
+  });
+
+  describe("environment variable filtering", () => {
+    const SECRET_KEYS = [
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_ACCESS_KEY_ID",
+      "DATABASE_PASSWORD",
+      "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY",
+    ];
+    const originalEnv: Record<string, string | undefined> = {};
+
+    beforeEach(() => {
+      for (const key of SECRET_KEYS) {
+        originalEnv[key] = process.env[key];
+        process.env[key] = `secret-value-${key}`;
+      }
+    });
+
+    afterEach(() => {
+      for (const key of SECRET_KEYS) {
+        if (originalEnv[key] === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = originalEnv[key];
+        }
+      }
+      spawnMock.mockClear();
+      vi.restoreAllMocks();
+    });
+
+    it("should not pass known secret env vars through to the bwrap child process", async () => {
+      await sandbox.executeInSandbox("echo hi", {
+        cwd: testTempDir,
+        allow_fallback: true,
+      });
+
+      const bwrapCall = spawnMock.mock.calls.find(
+        (call) => call[0] === "bwrap",
+      );
+      // Only assert when bwrap is actually available on this system; on
+      // fallback-only systems the unsandboxed path is covered separately.
+      if (bwrapCall) {
+        const spawnOptions = bwrapCall[2] as { env?: Record<string, unknown> };
+        for (const key of SECRET_KEYS) {
+          expect(spawnOptions.env?.[key]).toBeUndefined();
+        }
+      }
+    });
+
+    it("should not pass known secret env vars through to the unsandboxed fallback process", async () => {
+      // Force the fallback path deterministically regardless of whether
+      // bwrap is installed on the machine running this test.
+      vi.spyOn(sandbox, "isBwrapAvailable").mockResolvedValue(false);
+
+      await sandbox.executeInSandbox("echo hi", {
+        cwd: testTempDir,
+        allow_fallback: true,
+      });
+
+      const bashCall = spawnMock.mock.calls.find((call) => call[0] === "bash");
+      expect(bashCall).toBeDefined();
+      const spawnOptions = bashCall?.[2] as { env?: Record<string, unknown> };
+      for (const key of SECRET_KEYS) {
+        expect(spawnOptions.env?.[key]).toBeUndefined();
+      }
     });
   });
 });

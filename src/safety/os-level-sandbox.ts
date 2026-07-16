@@ -12,6 +12,70 @@
 import { spawn, execSync } from "child_process";
 import * as fs from "fs";
 
+/**
+ * Explicit denylist of well-known secret / credential env var names.
+ * Matched case-insensitively against the full variable name.
+ */
+const SENSITIVE_ENV_NAMES = new Set(
+  [
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SESSION_TOKEN",
+    "DATABASE_PASSWORD",
+    "DATABASE_URL",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+    "NPM_TOKEN",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "SSH_PRIVATE_KEY",
+    "SLACK_TOKEN",
+    "STRIPE_SECRET_KEY",
+  ].map((name) => name.toUpperCase()),
+);
+
+/**
+ * Name patterns that catch secrets not covered by the explicit denylist
+ * above (defense-in-depth: any newly introduced secret-shaped var is
+ * stripped even if it isn't individually enumerated).
+ */
+const SENSITIVE_ENV_PATTERNS: RegExp[] = [
+  /SECRET/i,
+  /TOKEN/i,
+  /API[_-]?KEY/i,
+  /ACCESS[_-]?KEY/i,
+  /PRIVATE[_-]?KEY/i,
+  /PASSWORD/i,
+  /PASSWD/i,
+  /CREDENTIAL/i,
+];
+
+function isSensitiveEnvVar(key: string): boolean {
+  if (SENSITIVE_ENV_NAMES.has(key.toUpperCase())) {
+    return true;
+  }
+  return SENSITIVE_ENV_PATTERNS.some((pattern) => pattern.test(key));
+}
+
+/**
+ * Build a copy of an environment with all known/suspected secret
+ * variables removed. Used for every child process spawned by the
+ * sandbox (both the bwrap-isolated path and the unsandboxed fallback)
+ * so that secrets never leak into commands executed on behalf of the
+ * agent.
+ */
+function filterSensitiveEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const filtered: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (isSensitiveEnvVar(key)) {
+      continue;
+    }
+    filtered[key] = value;
+  }
+  return filtered;
+}
+
 export interface SandboxConfig {
   /** Paths to mount as read-only in the sandbox. */
   readonly_paths?: string[];
@@ -255,7 +319,7 @@ export class OSLevelSandbox {
       try {
         proc = spawn("bwrap", bwrapArgs, {
           cwd: work_dir,
-          env: process.env,
+          env: filterSensitiveEnv(options.env ?? process.env),
           stdio: ["pipe", "pipe", "pipe"],
         });
       } catch (err) {
@@ -332,7 +396,7 @@ export class OSLevelSandbox {
   ): Promise<ExecutionResult> {
     const cwd = options.cwd ?? process.cwd();
     const timeout = options.timeout ?? 30000;
-    const env = options.env ?? process.env;
+    const env = filterSensitiveEnv(options.env ?? process.env);
 
     return new Promise<ExecutionResult>((resolve) => {
       let stdout = "";
