@@ -58,6 +58,7 @@ import { ResponseCache } from "./providers/response-cache";
 import { generateDiagramTool } from "./tools/generate-diagram";
 import { generateDocTool } from "./tools/generate-doc";
 import { createCodebaseSearchTool } from "./tools/codebase-search";
+import { gitTool } from "./tools/git-tool";
 import { IndexingService } from "./indexing/indexing-service";
 import { MultiAgentRunner } from "./agent/multi-agent-runner";
 import type { IWorkflowRunner } from "./agent/workflow-runner";
@@ -197,6 +198,7 @@ export async function activate(
   toolRegistry.register(
     createCodebaseSearchTool(() => indexingService ?? null),
   );
+  toolRegistry.register(gitTool);
 
   // ---- Audit log middleware: intercept every tool call ----------------
   // Wrap toolRegistry.execute() so every tool invocation is logged to the
