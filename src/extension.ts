@@ -58,6 +58,8 @@ import { SmartRouter } from "./providers/smart-router";
 import { ResponseCache } from "./providers/response-cache";
 import { generateDiagramTool } from "./tools/generate-diagram";
 import { generateDocTool } from "./tools/generate-doc";
+import { remoteRunTerminalTool } from "./tools/remote-run-terminal";
+import { remoteEditFileTool } from "./tools/remote-edit-file";
 import { createCodebaseSearchTool } from "./tools/codebase-search";
 import { gitTool } from "./tools/git-tool";
 import { IndexingService } from "./indexing/indexing-service";
@@ -198,6 +200,8 @@ export async function activate(
   toolRegistry.register(generateDocTool);
   toolRegistry.register(browserTool);
   toolRegistry.register(createWebSearchTool(context.secrets));
+  toolRegistry.register(remoteRunTerminalTool);
+  toolRegistry.register(remoteEditFileTool);
   toolRegistry.register(
     createCodebaseSearchTool(() => indexingService ?? null),
   );
