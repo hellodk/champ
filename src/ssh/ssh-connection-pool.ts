@@ -277,7 +277,7 @@ export class SSHConnectionPool {
   private evictLRU(): void {
     let lruKey: string | null = null;
     let lruIndex = -1;
-    let lruTime = new Date();
+    let lruTime = new Date(Date.now() + 1000); // Future time to ensure any real time is earlier
 
     for (const [key, conns] of this.connections.entries()) {
       for (let i = 0; i < conns.length; i++) {
