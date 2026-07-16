@@ -30,6 +30,7 @@ import { fileSearchTool } from "./tools/file-search";
 import { fetchUrlTool } from "./tools/fetch-url";
 import { runTestsTool } from "./tools/run-tests";
 import { browserTool, closeBrowser } from "./tools/browser";
+import { createWebSearchTool } from "./tools/web-search";
 import { AgentController, type AgentMode } from "./agent/agent-controller";
 import { ChatViewProvider } from "./ui/chat-view-provider";
 import { ChampInlineCompletionProvider } from "./completion/inline-provider";
@@ -196,6 +197,7 @@ export async function activate(
   toolRegistry.register(runTestsTool);
   toolRegistry.register(generateDocTool);
   toolRegistry.register(browserTool);
+  toolRegistry.register(createWebSearchTool(context.secrets));
   toolRegistry.register(
     createCodebaseSearchTool(() => indexingService ?? null),
   );
