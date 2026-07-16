@@ -273,7 +273,10 @@ export async function activate(
   const globalMemoryBank = new GlobalMemoryBank();
 
   const checkpointManager = workspaceRoot
-    ? new CheckpointManager(workspaceRoot)
+    ? new CheckpointManager(
+        workspaceRoot,
+        path.join(workspaceRoot, ".champ", "checkpoints"),
+      )
     : null;
 
   workflowStore = workspaceRoot ? new WorkflowStore(workspaceRoot) : undefined;
