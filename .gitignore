@@ -12,3 +12,4 @@ test-reports/
 .env.*
 *.map
 .claude/worktrees/
+.worktrees/

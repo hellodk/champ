@@ -2,7 +2,7 @@
  * TDD: Tests for ContextWindowManager.
  * Validates token counting, message truncation, and context fitting.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ContextWindowManager } from "@/providers/context-manager";
 import type { LLMProvider, LLMMessage } from "@/providers/types";
 
@@ -115,5 +115,192 @@ describe("ContextWindowManager", () => {
     const budget = manager.availableTokens([]);
     expect(budget).toBeGreaterThan(0);
     expect(budget).toBeLessThanOrEqual(100); // context window minus reserved for output
+  });
+});
+
+describe("ContextWindowManager.fitWithSummary — context compaction", () => {
+  let manager: ContextWindowManager;
+  let provider: LLMProvider;
+
+  beforeEach(() => {
+    provider = createMockProvider(100); // 100 token context window
+    manager = new ContextWindowManager(provider);
+  });
+
+  it("should return original messages when within budget", async () => {
+    const messages: LLMMessage[] = [
+      { role: "system", content: "You are helpful." },
+      { role: "user", content: "Hello" },
+      { role: "assistant", content: "Hi" },
+    ];
+    const summarize = vi.fn();
+
+    const result = await manager.fitWithSummary(messages, summarize);
+
+    expect(result).toHaveLength(3);
+    expect(result).toEqual(messages);
+    expect(summarize).not.toHaveBeenCalled();
+  });
+
+  it("should call summarize when messages exceed budget", async () => {
+    const messages: LLMMessage[] = [
+      {
+        role: "system",
+        content: "System prompt with many words to take up tokens",
+      },
+      { role: "user", content: "First message with a lot of words" },
+      { role: "assistant", content: "First response with a lot of words" },
+      { role: "user", content: "Second message with many words" },
+      { role: "assistant", content: "Second response with many words" },
+      { role: "user", content: "Third message" },
+      { role: "assistant", content: "Third response" },
+      { role: "user", content: "Latest" },
+    ];
+    const summarize = vi.fn(async () => "Summary of previous conversation");
+
+    const result = await manager.fitWithSummary(messages, summarize);
+
+    expect(summarize).toHaveBeenCalled();
+    expect(result.length).toBeLessThan(messages.length);
+  });
+
+  it("should preserve system message and last message", async () => {
+    const messages: LLMMessage[] = [
+      { role: "system", content: "Important system instructions" },
+      { role: "user", content: "Old message" },
+      { role: "assistant", content: "Old response" },
+      { role: "user", content: "Latest message" },
+    ];
+    const summarize = vi.fn(async () => "Summary");
+
+    const result = await manager.fitWithSummary(messages, summarize);
+
+    expect(result[0].role).toBe("system");
+    expect(result[result.length - 1].content).toBe("Latest message");
+  });
+
+  it("should include summary as system message", async () => {
+    const messages: LLMMessage[] = [
+      { role: "system", content: "System prompt" },
+      { role: "user", content: "word ".repeat(20) },
+      { role: "assistant", content: "word ".repeat(20) },
+      { role: "user", content: "word ".repeat(20) },
+      { role: "assistant", content: "word ".repeat(20) },
+      { role: "user", content: "Latest" },
+    ];
+    const summaryText = "Previous discussion summary";
+    const summarize = vi.fn(async () => summaryText);
+
+    const result = await manager.fitWithSummary(messages, summarize);
+
+    // Should have a system message containing the summary
+    const summaryMsg = result.find(
+      (m) =>
+        m.role === "system" &&
+        typeof m.content === "string" &&
+        m.content.includes(summaryText),
+    );
+    expect(summaryMsg).toBeDefined();
+  });
+
+  it("should fall back to plain drop when summarizer throws", async () => {
+    const messages: LLMMessage[] = [
+      { role: "system", content: "System" },
+      { role: "user", content: "a".repeat(80) },
+      { role: "assistant", content: "b".repeat(80) },
+      { role: "user", content: "c".repeat(80) },
+      { role: "assistant", content: "d".repeat(80) },
+      { role: "user", content: "Latest" },
+    ];
+    const summarize = vi.fn(async () => {
+      throw new Error("Summarizer failed");
+    });
+
+    const result = await manager.fitWithSummary(messages, summarize);
+
+    // Should return a valid result without the summary
+    expect(result[0].role).toBe("system");
+    expect(result[result.length - 1].content).toBe("Latest");
+    // Should not include any "[Earlier conversation summary: ...]" message
+    const hasSummary = result.some(
+      (m) =>
+        typeof m.content === "string" &&
+        m.content.includes("Earlier conversation summary"),
+    );
+    expect(hasSummary).toBe(false);
+  });
+
+  it("should fall back to plain drop when summary is too large to fit", async () => {
+    const messages: LLMMessage[] = [
+      { role: "system", content: "System" },
+      { role: "user", content: "a".repeat(80) },
+      { role: "assistant", content: "b".repeat(80) },
+      { role: "user", content: "c".repeat(80) },
+      { role: "assistant", content: "d".repeat(80) },
+      { role: "user", content: "Latest" },
+    ];
+    // Return a summary that is too large to fit
+    const summarize = vi.fn(async () => "x".repeat(500));
+
+    const result = await manager.fitWithSummary(messages, summarize);
+
+    // Should return a valid result
+    expect(result[0].role).toBe("system");
+    expect(result[result.length - 1].content).toBe("Latest");
+  });
+
+  it("should preserve only middle messages that fit with summary", async () => {
+    const messages: LLMMessage[] = [
+      { role: "system", content: "System" },
+      { role: "user", content: "Message 1 with content" },
+      { role: "assistant", content: "Response 1 with content" },
+      { role: "user", content: "Message 2 with content" },
+      { role: "assistant", content: "Response 2 with content" },
+      { role: "user", content: "Latest question" },
+    ];
+    const summarize = vi.fn(async () => "Earlier summary");
+
+    const result = await manager.fitWithSummary(messages, summarize);
+
+    // Result should have fewer messages than input
+    expect(result.length).toBeLessThanOrEqual(messages.length);
+    // Last message should be preserved
+    expect(result[result.length - 1].content).toBe("Latest question");
+  });
+
+  it("should pass dropped messages to summarizer", async () => {
+    const messages: LLMMessage[] = [
+      { role: "system", content: "System" },
+      { role: "user", content: "word ".repeat(20) },
+      { role: "assistant", content: "word ".repeat(20) },
+      { role: "user", content: "word ".repeat(20) },
+      { role: "assistant", content: "word ".repeat(20) },
+      { role: "user", content: "Latest" },
+    ];
+    const summarize = vi.fn(async (dropped) => {
+      // Verify we received the dropped messages
+      expect(dropped.length).toBeGreaterThan(0);
+      return "Summary";
+    });
+
+    await manager.fitWithSummary(messages, summarize);
+
+    expect(summarize).toHaveBeenCalled();
+    const droppedArg = summarize.mock.calls[0][0];
+    expect(Array.isArray(droppedArg)).toBe(true);
+  });
+
+  it("should not call summarizer if no messages need to be dropped", async () => {
+    const messages: LLMMessage[] = [
+      { role: "system", content: "System" },
+      { role: "user", content: "Hello" },
+      { role: "assistant", content: "Hi" },
+    ];
+    const summarize = vi.fn(async () => "Summary");
+
+    const result = await manager.fitWithSummary(messages, summarize);
+
+    expect(summarize).not.toHaveBeenCalled();
+    expect(result).toEqual(messages);
   });
 });

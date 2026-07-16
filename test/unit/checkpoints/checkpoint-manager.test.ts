@@ -2,9 +2,12 @@
  * TDD: Tests for CheckpointManager.
  * Shadow-copy snapshot and restore.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { CheckpointManager } from "@/checkpoints/checkpoint-manager";
 import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 
 describe("CheckpointManager", () => {
   let manager: CheckpointManager;
@@ -99,5 +102,144 @@ describe("CheckpointManager", () => {
 
   it("should throw for unknown checkpoint id", async () => {
     await expect(manager.restore("nonexistent")).rejects.toThrow();
+  });
+});
+
+describe("CheckpointManager - Persistence", () => {
+  let tempDir: string;
+  let manager: CheckpointManager;
+
+  beforeEach(async () => {
+    // Create a temporary directory for tests
+    tempDir = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), "checkpoint-manager-test-"),
+    );
+    manager = new CheckpointManager("/test-workspace", tempDir);
+  });
+
+  afterEach(async () => {
+    // Clean up temporary directory
+    try {
+      await fs.promises.rm(tempDir, { recursive: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+  });
+
+  it("should save checkpoints to disk", async () => {
+    const fileContent = new TextEncoder().encode("original content");
+    (
+      vscode.workspace.fs.readFile as ReturnType<typeof vi.fn>
+    ).mockResolvedValue(fileContent);
+
+    // Wait for async initialization to complete
+    await manager.waitForLoad();
+
+    const checkpoint = await manager.create("Persistent CP", ["src/main.ts"]);
+
+    // Check that the file was saved to disk
+    const files = await fs.promises.readdir(tempDir);
+    expect(files).toContain(`${checkpoint.id}.json`);
+  });
+
+  it("should load checkpoints from disk on initialization", async () => {
+    const fileContent = new TextEncoder().encode("original content");
+    (
+      vscode.workspace.fs.readFile as ReturnType<typeof vi.fn>
+    ).mockResolvedValue(fileContent);
+
+    // Wait for async initialization to complete
+    await manager.waitForLoad();
+
+    // Create a checkpoint with the first manager
+    const checkpoint = await manager.create("CP 1", ["src/main.ts"]);
+    const cpId = checkpoint.id;
+
+    // Create a new manager instance (simulating extension restart)
+    const newManager = new CheckpointManager("/test-workspace", tempDir);
+    // Wait for async initialization to complete
+    await newManager.waitForLoad();
+
+    // The new manager should have loaded the checkpoint from disk
+    const list = newManager.list();
+    expect(list.length).toBeGreaterThan(0);
+    expect(list.some((c) => c.id === cpId)).toBe(true);
+  });
+
+  it("should restore checkpoints persisted to disk", async () => {
+    const fileContent = new TextEncoder().encode("original");
+    (
+      vscode.workspace.fs.readFile as ReturnType<typeof vi.fn>
+    ).mockResolvedValue(fileContent);
+    (
+      vscode.workspace.fs.writeFile as ReturnType<typeof vi.fn>
+    ).mockResolvedValue(undefined);
+
+    // Wait for async initialization to complete
+    await manager.waitForLoad();
+
+    // Create a checkpoint
+    const checkpoint = await manager.create("Before edit", ["main.ts"]);
+
+    // Create a new manager and restore
+    const newManager = new CheckpointManager("/test-workspace", tempDir);
+    // Wait for async initialization to complete
+    await newManager.waitForLoad();
+    await newManager.restore(checkpoint.id);
+
+    expect(vscode.workspace.fs.writeFile).toHaveBeenCalledWith(
+      expect.anything(),
+      fileContent,
+    );
+  });
+
+  it("should persist multiple checkpoints", async () => {
+    const fileContent = new TextEncoder().encode("content");
+    (
+      vscode.workspace.fs.readFile as ReturnType<typeof vi.fn>
+    ).mockResolvedValue(fileContent);
+
+    // Wait for async initialization to complete
+    await manager.waitForLoad();
+
+    await manager.create("CP 1", ["a.ts"]);
+    await manager.create("CP 2", ["b.ts"]);
+
+    // Load a new manager instance
+    const newManager = new CheckpointManager("/test-workspace", tempDir);
+    // Wait for async initialization to complete
+    await newManager.waitForLoad();
+    const list = newManager.list();
+
+    expect(list.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("should delete persisted checkpoints from memory immediately", async () => {
+    const fileContent = new TextEncoder().encode("content");
+    (
+      vscode.workspace.fs.readFile as ReturnType<typeof vi.fn>
+    ).mockResolvedValue(fileContent);
+
+    // Wait for async initialization to complete
+    await manager.waitForLoad();
+
+    const checkpoint = await manager.create("CP to delete", ["test.ts"]);
+    const cpId = checkpoint.id;
+
+    // Verify checkpoint exists in memory
+    expect(manager.list()).toContainEqual(
+      expect.objectContaining({ id: cpId }),
+    );
+
+    // Delete via clear - should clear from memory immediately
+    manager.clear();
+
+    // Memory should be cleared immediately
+    expect(manager.list()).toHaveLength(0);
+
+    // Files should be deleted asynchronously (within 2 seconds)
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const files = await fs.promises.readdir(tempDir);
+    expect(files).not.toContain(`${cpId}.json`);
   });
 });
