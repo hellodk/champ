@@ -162,6 +162,62 @@ export interface RateLimitConfig {
   warningAt?: number;
 }
 
+export type SSHAuthMethod = "key" | "password" | "cert";
+
+export interface SSHTarget {
+  /** Unique name for this SSH target. */
+  name: string;
+  /** Hostname or IP address of the SSH server. */
+  host: string;
+  /** SSH port. Default: 22. */
+  port?: number;
+  /** Username to authenticate with. */
+  username: string;
+  /** Authentication method: "key" (private key), "password", or "cert" (certificate). */
+  authMethod: SSHAuthMethod;
+  /** Path to private key file. Required if authMethod is "key". */
+  keyPath?: string;
+  /** SSH password. Required if authMethod is "password". Can use ${env:VAR_NAME}. */
+  password?: string;
+  /** Path to certificate file. Required if authMethod is "cert". */
+  certPath?: string;
+  /** Additional SSH options (e.g. compression, ciphers). */
+  options?: Record<string, string>;
+}
+
+export interface TrustedHost {
+  /** Hostname or IP address. */
+  host: string;
+  /** SSH port. */
+  port: number;
+  /** Host key fingerprint (e.g. SHA256:abcd...). */
+  fingerprint: string;
+  /** Whether this fingerprint has been verified by the user. */
+  verified: boolean;
+}
+
+export interface SSHDefaults {
+  /** Default SSH port. Default: 22. */
+  port?: number;
+  /** Default username for SSH connections. */
+  username?: string;
+  /** Connection timeout in milliseconds. Default: 30000. */
+  connectTimeoutMs?: number;
+  /** Maximum number of connection retry attempts. Default: 3. */
+  retryCount?: number;
+  /** Retry backoff delay in milliseconds. Default: 1000. */
+  retryDelayMs?: number;
+}
+
+export interface SSHConfig {
+  /** List of SSH targets (remote servers). */
+  targets?: SSHTarget[];
+  /** Trusted host public key fingerprints. */
+  trustedHosts?: TrustedHost[];
+  /** Default SSH connection settings. */
+  defaults?: SSHDefaults;
+}
+
 export interface ChampConfig {
   provider?: ProviderName;
   providers?: Partial<Record<ProviderName, ProviderConfig>>;
@@ -175,6 +231,7 @@ export interface ChampConfig {
   telemetry?: TelemetryConfig;
   fallback?: FallbackConfig;
   rateLimit?: RateLimitConfig;
+  ssh?: SSHConfig;
 }
 
 const VALID_PROVIDERS: ProviderName[] = [
@@ -804,6 +861,234 @@ export class ConfigLoader {
       }
     }
 
+    // ssh
+    if ("ssh" in raw) {
+      const ssh = raw.ssh;
+      if (typeof ssh !== "object" || ssh === null || Array.isArray(ssh)) {
+        errors.push("`ssh` must be an object");
+      } else {
+        const s = ssh as Record<string, unknown>;
+        const out: SSHConfig = {};
+
+        // ssh.targets
+        if ("targets" in s) {
+          if (!Array.isArray(s.targets)) {
+            errors.push("ssh.targets must be an array");
+          } else {
+            out.targets = [];
+            for (let idx = 0; idx < (s.targets as unknown[]).length; idx++) {
+              const t = (s.targets as unknown[])[idx];
+              if (typeof t !== "object" || t === null || Array.isArray(t)) {
+                errors.push(`ssh.targets[${idx}] must be an object`);
+                continue;
+              }
+              const target = t as Record<string, unknown>;
+
+              // Required fields
+              if (typeof target.host !== "string" || !target.host.trim()) {
+                errors.push(`ssh.targets[${idx}].host must be a non-empty string`);
+                continue;
+              }
+              if (
+                typeof target.username !== "string" ||
+                !target.username.trim()
+              ) {
+                errors.push(
+                  `ssh.targets[${idx}].username must be a non-empty string`,
+                );
+                continue;
+              }
+              if (
+                typeof target.authMethod !== "string" ||
+                !["key", "password", "cert"].includes(target.authMethod)
+              ) {
+                errors.push(
+                  `ssh.targets[${idx}].authMethod must be one of: key, password, cert`,
+                );
+                continue;
+              }
+
+              // Validate authMethod-specific requirements
+              if (target.authMethod === "key") {
+                if (typeof target.keyPath !== "string" || !target.keyPath.trim()) {
+                  errors.push(
+                    `ssh.targets[${idx}].keyPath is required when authMethod is "key"`,
+                  );
+                  continue;
+                }
+              } else if (target.authMethod === "password") {
+                if (
+                  typeof target.password !== "string" ||
+                  !target.password.trim()
+                ) {
+                  errors.push(
+                    `ssh.targets[${idx}].password is required when authMethod is "password"`,
+                  );
+                  continue;
+                }
+              } else if (target.authMethod === "cert") {
+                if (
+                  typeof target.certPath !== "string" ||
+                  !target.certPath.trim()
+                ) {
+                  errors.push(
+                    `ssh.targets[${idx}].certPath is required when authMethod is "cert"`,
+                  );
+                  continue;
+                }
+              }
+
+              // Optional port
+              let port = 22;
+              if ("port" in target) {
+                if (typeof target.port !== "number" || target.port < 1 || target.port > 65535) {
+                  errors.push(
+                    `ssh.targets[${idx}].port must be a number between 1 and 65535`,
+                  );
+                  continue;
+                }
+                port = target.port;
+              }
+
+              // Name
+              let name = target.name;
+              if (typeof name !== "string" || !name.trim()) {
+                errors.push(`ssh.targets[${idx}].name must be a non-empty string`);
+                continue;
+              }
+
+              const sshTarget: SSHTarget = {
+                name,
+                host: target.host as string,
+                port,
+                username: target.username as string,
+                authMethod: target.authMethod as SSHAuthMethod,
+              };
+
+              if ("keyPath" in target && typeof target.keyPath === "string") {
+                sshTarget.keyPath = target.keyPath;
+              }
+              if ("password" in target && typeof target.password === "string") {
+                sshTarget.password = target.password;
+              }
+              if ("certPath" in target && typeof target.certPath === "string") {
+                sshTarget.certPath = target.certPath;
+              }
+              if ("options" in target && typeof target.options === "object" && target.options !== null && !Array.isArray(target.options)) {
+                sshTarget.options = target.options as Record<string, string>;
+              }
+
+              out.targets?.push(sshTarget);
+            }
+          }
+        }
+
+        // ssh.trustedHosts
+        if ("trustedHosts" in s) {
+          if (!Array.isArray(s.trustedHosts)) {
+            errors.push("ssh.trustedHosts must be an array");
+          } else {
+            out.trustedHosts = [];
+            for (let idx = 0; idx < (s.trustedHosts as unknown[]).length; idx++) {
+              const h = (s.trustedHosts as unknown[])[idx];
+              if (typeof h !== "object" || h === null || Array.isArray(h)) {
+                errors.push(`ssh.trustedHosts[${idx}] must be an object`);
+                continue;
+              }
+              const host = h as Record<string, unknown>;
+
+              if (typeof host.host !== "string" || !host.host.trim()) {
+                errors.push(
+                  `ssh.trustedHosts[${idx}].host must be a non-empty string`,
+                );
+                continue;
+              }
+              if (typeof host.port !== "number" || host.port < 1 || host.port > 65535) {
+                errors.push(
+                  `ssh.trustedHosts[${idx}].port must be a number between 1 and 65535`,
+                );
+                continue;
+              }
+              if (typeof host.fingerprint !== "string" || !host.fingerprint.trim()) {
+                errors.push(
+                  `ssh.trustedHosts[${idx}].fingerprint must be a non-empty string`,
+                );
+                continue;
+              }
+              if (typeof host.verified !== "boolean") {
+                errors.push(
+                  `ssh.trustedHosts[${idx}].verified must be a boolean`,
+                );
+                continue;
+              }
+
+              out.trustedHosts?.push({
+                host: host.host as string,
+                port: host.port as number,
+                fingerprint: host.fingerprint as string,
+                verified: host.verified as boolean,
+              });
+            }
+          }
+        }
+
+        // ssh.defaults
+        if ("defaults" in s) {
+          const d = s.defaults;
+          if (typeof d !== "object" || d === null || Array.isArray(d)) {
+            errors.push("ssh.defaults must be an object");
+          } else {
+            const defaults = d as Record<string, unknown>;
+            const def: SSHDefaults = {};
+
+            if ("port" in defaults) {
+              if (typeof defaults.port !== "number" || defaults.port < 1 || defaults.port > 65535) {
+                errors.push("ssh.defaults.port must be a number between 1 and 65535");
+              } else {
+                def.port = defaults.port;
+              }
+            }
+            if ("username" in defaults) {
+              if (typeof defaults.username !== "string") {
+                errors.push("ssh.defaults.username must be a string");
+              } else {
+                def.username = defaults.username;
+              }
+            }
+            if ("connectTimeoutMs" in defaults) {
+              if (typeof defaults.connectTimeoutMs !== "number" || defaults.connectTimeoutMs < 1) {
+                errors.push("ssh.defaults.connectTimeoutMs must be a number >= 1");
+              } else {
+                def.connectTimeoutMs = defaults.connectTimeoutMs;
+              }
+            }
+            if ("retryCount" in defaults) {
+              if (typeof defaults.retryCount !== "number" || defaults.retryCount < 1) {
+                errors.push("ssh.defaults.retryCount must be a number >= 1");
+              } else {
+                def.retryCount = defaults.retryCount;
+              }
+            }
+            if ("retryDelayMs" in defaults) {
+              if (typeof defaults.retryDelayMs !== "number" || defaults.retryDelayMs < 1) {
+                errors.push("ssh.defaults.retryDelayMs must be a number >= 1");
+              } else {
+                def.retryDelayMs = defaults.retryDelayMs;
+              }
+            }
+
+            if (Object.keys(def).length > 0) {
+              out.defaults = def;
+            }
+          }
+        }
+
+        if (Object.keys(out).length > 0) {
+          result.ssh = out;
+        }
+      }
+    }
+
     return { errors, config: result };
   }
 
@@ -874,6 +1159,35 @@ export class ConfigLoader {
 
     if (override.rateLimit) {
       result.rateLimit = { ...result.rateLimit, ...override.rateLimit };
+    }
+
+    if (override.ssh) {
+      // Merge SSH config: combine targets and trustedHosts arrays, merge defaults
+      const baseSsh = result.ssh ?? {};
+      const overrideSsh = override.ssh;
+
+      // Merge targets array
+      const mergedTargets = [...(baseSsh.targets ?? [])];
+      if (overrideSsh.targets) {
+        mergedTargets.push(...overrideSsh.targets);
+      }
+
+      // Merge trustedHosts array
+      const mergedHosts = [...(baseSsh.trustedHosts ?? [])];
+      if (overrideSsh.trustedHosts) {
+        mergedHosts.push(...overrideSsh.trustedHosts);
+      }
+
+      const mergedSsh: SSHConfig = {};
+      if (mergedTargets.length > 0) mergedSsh.targets = mergedTargets;
+      if (mergedHosts.length > 0) mergedSsh.trustedHosts = mergedHosts;
+      if (overrideSsh.defaults) {
+        mergedSsh.defaults = { ...baseSsh.defaults, ...overrideSsh.defaults };
+      } else if (baseSsh.defaults) {
+        mergedSsh.defaults = baseSsh.defaults;
+      }
+
+      result.ssh = mergedSsh;
     }
 
     return result;
