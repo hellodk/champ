@@ -3172,7 +3172,17 @@ export async function activate(
       // Probe connectivity for local providers (ollama, llamacpp, vllm).
       // This surfaces connectivity errors during init, not on first chat message.
       const probeLocalProvider = async (): Promise<void> => {
-        const providerName = newProvider.name.toLowerCase();
+        // Unwrap FallbackProvider to get the actual underlying provider.
+        let providerToProbe = newProvider;
+        if (
+          "providers" in newProvider &&
+          Array.isArray((newProvider as any).providers)
+        ) {
+          // FallbackProvider — probe the first provider in the chain
+          providerToProbe = (newProvider as any).providers[0];
+        }
+
+        const providerName = providerToProbe.name.toLowerCase();
         if (
           !["ollama", "llamacpp", "vllm", "openai-compatible"].includes(
             providerName,
@@ -3180,7 +3190,7 @@ export async function activate(
         )
           return;
 
-        // Extract baseUrl from config
+        // Extract baseUrl from config using the actual underlying provider name
         const providerConfig =
           yamlConfig?.providers?.[
             providerName as keyof typeof yamlConfig.providers
