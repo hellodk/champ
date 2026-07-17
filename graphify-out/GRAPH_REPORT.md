@@ -1,16 +1,16 @@
 # Graph Report - vs-code-plugin  (2026-07-18)
 
 ## Corpus Check
-- 447 files · ~469,308 words
+- 447 files · ~469,496 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 6488 nodes · 8519 edges · 470 communities (437 shown, 33 thin omitted)
+- 6488 nodes · 8519 edges · 471 communities (438 shown, 33 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `bb43eaf6`
+- Built from commit: `41082aa0`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -475,6 +475,7 @@
 - [[_COMMUNITY_Community 458|Community 458]]
 - [[_COMMUNITY_Community 459|Community 459]]
 - [[_COMMUNITY_Community 460|Community 460]]
+- [[_COMMUNITY_Community 470|Community 470]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `LLMProvider` - 88 edges
@@ -500,7 +501,7 @@
 - `ChampInlineCompletionProvider` --references--> `LLMProvider`  [EXTRACTED]
   src/completion/inline-provider.ts → src/providers/types.ts
 
-## Communities (470 total, 33 thin omitted)
+## Communities (471 total, 33 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.02
@@ -536,7 +537,7 @@ Nodes (18): IWorkflowRunner, PanelMessage, WorkflowPanel, ApprovalDecision, sess
 
 ### Community 8 - "Community 8"
 Cohesion: 0.08
-Nodes (45): ChatContextResolver, ChatSkillRegistry, SkillContextProvider, SkillVariableResolver, AvailableProviderModel, createPiiNotice(), createProviderStatus(), isAcceptHunkAtLineRequest() (+37 more)
+Nodes (42): ChatContextResolver, ChatSkillRegistry, SkillContextProvider, SkillVariableResolver, createPiiNotice(), isAcceptHunkAtLineRequest(), isApprovalResponse(), isAttachFileRequest() (+34 more)
 
 ### Community 9 - "Community 9"
 Cohesion: 0.04
@@ -619,8 +620,8 @@ Cohesion: 0.05
 Nodes (36): Agent Studio Implementation Plan, code:typescript (import { describe, it, expect, vi, beforeEach } from "vitest), code:bash (npm run check-types 2>&1 | tail -3), code:typescript (import * as vscode from "vscode";), code:bash (npm run check-types 2>&1 | tail -5), code:bash (npm version patch --no-git-tag-version), code:typescript (export interface WorkflowHistoryRun {), code:typescript (broadcastWorkflowHistory(runs: WorkflowHistoryRun[]): void {) (+28 more)
 
 ### Community 29 - "Community 29"
-Cohesion: 0.06
-Nodes (22): a, b, c, d, orch, a, b, c (+14 more)
+Cohesion: 0.07
+Nodes (16): a, b, c, d, orch, a, b, c (+8 more)
 
 ### Community 30 - "Community 30"
 Cohesion: 0.06
@@ -799,8 +800,8 @@ Cohesion: 0.14
 Nodes (7): AgentManager, AgentSession, generateId(), ManagerEvent, SessionMetadata, SessionState, SessionListMessage
 
 ### Community 75 - "Community 75"
-Cohesion: 0.11
-Nodes (6): SharedMemory, messages, output, val, AgentMessage, mem
+Cohesion: 0.09
+Nodes (12): AgentProgressEvent, ExecutionLogEntry, MultiAgentProgressEvent, WorkflowOptions, MemorySchema, SharedMemory, messages, output (+4 more)
 
 ### Community 76 - "Community 76"
 Cohesion: 0.08
@@ -1315,8 +1316,8 @@ Cohesion: 0.20
 Nodes (10): 11. Agent Builder (Custom Agents), code:markdown (---), code:markdown (---), code:markdown (---), code:block35 (Champ: loaded custom agent "security-auditor" from .champ/ag), code:block36 (Ctrl+Shift+P → Champ: Run Multi-Agent Workflow), Create a custom agent, Frontmatter reference (+2 more)
 
 ### Community 210 - "Community 210"
-Cohesion: 0.20
-Nodes (10): 4. Checkpoint Save / Restore, 5. Token Accounting, code:block14 (Ctrl+Shift+P → Champ: Save Checkpoint), code:block15 (┌────────────────────────────────────────┐), code:block16 (Ctrl+Shift+P → Champ: Restore Checkpoint), code:block17 (┌────────────────────────────────────────────────────┐), code:block18 (✓ planner   2.1s  in=1,204  out=387  tools=0), How to use (+2 more)
+Cohesion: 0.33
+Nodes (6): 4. Checkpoint Save / Restore, code:block14 (Ctrl+Shift+P → Champ: Save Checkpoint), code:block15 (┌────────────────────────────────────────┐), code:block16 (Ctrl+Shift+P → Champ: Restore Checkpoint), code:block17 (┌────────────────────────────────────────────────────┐), How to use
 
 ### Community 211 - "Community 211"
 Cohesion: 0.20
@@ -1407,8 +1408,8 @@ Cohesion: 0.22
 Nodes (9): 12. Event-driven Triggers, code:yaml (triggers:), code:block38 (┌─────────────────────────────────────────────────────┐), code:yaml (provider: ollama), Configuration, Example: Security scan on every save, Full config example, Trigger fields (+1 more)
 
 ### Community 235 - "Community 235"
-Cohesion: 0.22
-Nodes (9): 2. Project Rules (.champ/rules/), code:block10 (.champ/), code:bash (mkdir -p .champ/rules), code:markdown (---), code:markdown (---), code:markdown (---), File structure, Rule types (+1 more)
+Cohesion: 0.15
+Nodes (13): 2. Project Rules (.champ/rules/), 5. Token Accounting, code:block10 (.champ/), code:block18 (✓ planner   2.1s  in=1,204  out=387  tools=0), code:bash (mkdir -p .champ/rules), code:markdown (---), code:markdown (---), code:markdown (---) (+5 more)
 
 ### Community 236 - "Community 236"
 Cohesion: 0.22
@@ -1612,7 +1613,7 @@ Nodes (8): code:typescript (import { TeamLoader } from "./agent/team-loader";), 
 
 ### Community 287 - "Community 287"
 Cohesion: 0.25
-Nodes (7): Agent Teams Implementation Plan, code:typescript (/**), code:bash (cd /home/dk/Documents/git/vs-code-plugin && npx vitest run 2), code:bash (cd /home/dk/Documents/git/vs-code-plugin && git add src/agen), File Map, Self-Review, Task 3: TeamAgent (agent execution with BLOCKED + structured output)
+Nodes (7): Agent Teams Implementation Plan, code:typescript (/**), code:bash (cd /home/dk/Documents/git/vs-code-plugin && npm run compile ), code:bash (cd /home/dk/Documents/git/vs-code-plugin && git add src/ui/t), File Map, Self-Review, Task 5: TeamPanel — real-time control room WebviewPanel
 
 ### Community 288 - "Community 288"
 Cohesion: 0.25
@@ -2064,7 +2065,7 @@ Nodes (3): new_lines, old_lines, preview
 
 ### Community 402 - "Community 402"
 Cohesion: 0.50
-Nodes (4): code:typescript (/**), code:bash (cd /home/dk/Documents/git/vs-code-plugin && npm run compile ), code:bash (cd /home/dk/Documents/git/vs-code-plugin && git add src/ui/t), Task 5: TeamPanel — real-time control room WebviewPanel
+Nodes (4): code:typescript (/**), code:bash (cd /home/dk/Documents/git/vs-code-plugin && npx vitest run 2), code:bash (cd /home/dk/Documents/git/vs-code-plugin && git add src/agen), Task 3: TeamAgent (agent execution with BLOCKED + structured output)
 
 ### Community 403 - "Community 403"
 Cohesion: 0.50
@@ -2209,6 +2210,10 @@ Nodes (3): markdownDescription, type, champ.openaiCompatible.baseUrl
 ### Community 447 - "Community 447"
 Cohesion: 0.67
 Nodes (3): repository, type, url
+
+### Community 470 - "Community 470"
+Cohesion: 0.50
+Nodes (3): AvailableProviderModel, createProviderStatus(), ProviderStatusState
 
 ## Knowledge Gaps
 - **3745 isolated node(s):** `name`, `displayName`, `description`, `version`, `publisher` (+3740 more)

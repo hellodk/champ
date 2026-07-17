@@ -3188,16 +3188,31 @@ export async function activate(
         const baseUrl = (providerConfig as any)?.baseUrl;
         if (!baseUrl) return;
 
+        // Use provider-specific endpoints that actually exist
+        const endpoints: Record<string, string> = {
+          ollama: "/api/tags", // Lists available models
+          llamacpp: "/v1/models", // OpenAI-compatible endpoint
+          vllm: "/v1/models", // OpenAI-compatible endpoint
+          "openai-compatible": "/v1/models",
+        };
+        const endpoint = endpoints[providerName] || "/v1/models";
+        const url = `${baseUrl.replace(/\/$/, "")}${endpoint}`;
+
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 3_000);
-          await fetch(`${baseUrl.replace(/\/$/, "")}/health`, {
+          const response = await fetch(url, {
             signal: controller.signal,
-          }).catch(() => {});
+            method: "GET",
+          });
           clearTimeout(timeoutId);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
         } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
           throw new Error(
-            `Cannot reach ${providerName} at ${baseUrl} — check that it is running and accessible`,
+            `Cannot reach ${providerName} at ${baseUrl} (tried ${endpoint}) — ${errMsg}`,
           );
         }
       };
