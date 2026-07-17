@@ -12,11 +12,15 @@ interface MemoryItem {
   pinned?: boolean;
 }
 
-const vscode = (
-  window as unknown as {
-    acquireVsCodeApi?: () => { postMessage: (m: unknown) => void };
-  }
-).acquireVsCodeApi?.();
+const vscode =
+  typeof (window as unknown as { vscode?: unknown }).vscode !== "undefined"
+    ? (window as unknown as { vscode: { postMessage: (m: unknown) => void } })
+        .vscode
+    : (
+        window as unknown as {
+          acquireVsCodeApi?: () => { postMessage: (m: unknown) => void };
+        }
+      ).acquireVsCodeApi?.();
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, {
