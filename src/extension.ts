@@ -290,6 +290,7 @@ export async function activate(
 
   const stubProvider = createStubProvider("not-configured");
   const inlineProviderRef: { current: LLMProvider } = { current: stubProvider };
+  let lastProviderError: string | null = null; // Cache provider load error for webview-ready re-broadcast
   const agentController = new AgentController(
     stubProvider,
     toolRegistry,
@@ -1002,6 +1003,13 @@ export async function activate(
         providerName: provider.name,
         modelName: provider.config.model,
         available,
+      });
+    } else if (provider.name === "not-configured" && lastProviderError) {
+      // Webview resolved after provider init failed. Broadcast the cached error.
+      chatViewProvider?.broadcastProviderStatus({
+        state: "error",
+        errorMessage: lastProviderError,
+        available: [],
       });
     }
     broadcastSessionList();
@@ -3272,6 +3280,7 @@ export async function activate(
 
       inlineProvider.setProvider(newProvider);
       inlineProviderRef.current = newProvider;
+      lastProviderError = null; // Clear cached error on successful load
       // If YAML configures a separate autocomplete provider or model, wire it.
       if (
         yamlConfig?.autocomplete?.provider &&
@@ -3478,6 +3487,7 @@ export async function activate(
       persistentRunner = baseRunner;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      lastProviderError = message; // Cache for onWebviewReady re-broadcast if webview isn't ready yet
       setStatusError(message);
       chatViewProvider?.broadcastProviderStatus({
         state: "error",
