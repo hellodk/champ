@@ -1266,6 +1266,7 @@
    * from the latest providerStatus snapshot. Idempotent — safe to call
    * on every providerStatus message.
    */
+  let retryBtn = null;
   function renderProviderStatus() {
     const ps = state.providerStatus;
 
@@ -1273,6 +1274,8 @@
     if (ps.state === 'loading') {
       headerSubtitle.textContent = 'loading…';
       headerSubtitle.classList.remove('error');
+      // Remove retry button if present
+      if (retryBtn) { retryBtn.remove(); retryBtn = null; }
       // Keep the chip showing the last known model name during reload
       // (not '…') so it stays clickable and doesn't look broken.
       if (modelChip.textContent === '…' || !modelChip.textContent) {
@@ -1284,6 +1287,18 @@
       headerSubtitle.classList.add('error');
       modelChip.textContent = '!';
       modelChip.style.display = '';
+      // Add retry button if not already present
+      if (!retryBtn) {
+        retryBtn = el('button', { class: 'header-retry-btn', title: 'Retry provider connection' }, ['↻ retry']);
+        retryBtn.addEventListener('click', () => {
+          headerSubtitle.textContent = 'retrying…';
+          headerSubtitle.classList.remove('error');
+          retryBtn.remove();
+          retryBtn = null;
+          vscode.postMessage({ type: 'reloadProvider' });
+        });
+        headerLeft.appendChild(retryBtn);
+      }
     } else {
       const label =
         ps.providerName && ps.modelName
@@ -1291,6 +1306,8 @@
           : ps.providerName || 'ready';
       headerSubtitle.textContent = label;
       headerSubtitle.classList.remove('error');
+      // Remove retry button if present
+      if (retryBtn) { retryBtn.remove(); retryBtn = null; }
       // Update the header model chip label too.
       if (modelAutoMode) {
         modelChip.textContent = 'Auto';

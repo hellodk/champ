@@ -13,6 +13,7 @@
  *   5. Repeat until no tool calls or maxIterations reached
  */
 import type { LLMProvider, LLMMessage, ContentBlock } from "../providers/types";
+import type { ResponseCache } from "../providers/response-cache";
 import type { ToolRegistry } from "../tools/registry";
 import type { ToolExecutionContext } from "../tools/types";
 import type { MetricsCollector } from "../observability/metrics-collector";
@@ -30,12 +31,33 @@ export interface ToolLoopResult {
 
 const MAX_ITERATIONS = 4;
 
+/** Tools safe to run concurrently (read-only, no side effects). */
+const READ_ONLY_TOOLS = new Set([
+  "read-file",
+  "grep-search",
+  "file-search",
+  "list-directory",
+  "codebase-search",
+]);
+
+/**
+ * Truncate tool result for metrics logging. Preserves first + last halves
+ * when output exceeds the limit, with a placeholder in between.
+ */
+function truncateForMetrics(text: string, limit = 3000): string {
+  if (text.length <= limit) return text;
+  const half = Math.floor(limit / 2);
+  const dropped = text.length - limit;
+  return `${text.slice(0, half)}\n... [truncated ${dropped} chars] ...\n${text.slice(-half)}`;
+}
+
 export class ToolCallingLoop {
   constructor(
     private readonly provider: LLMProvider,
     private readonly toolRegistry: ToolRegistry,
     private readonly context: ToolExecutionContext,
     private readonly metrics?: MetricsCollector,
+    private readonly responseCache?: ResponseCache,
   ) {}
 
   async run(
@@ -82,6 +104,24 @@ export class ToolCallingLoop {
       let currentToolArgs = "";
 
       try {
+        // Check response cache before calling the API (Fix 8)
+        // Use actual provider + model for proper cache separation
+        const messagesJson = JSON.stringify(history);
+        if (iteration === 0 && this.responseCache) {
+          const cached = this.responseCache.get(
+            this.provider.name,
+            this.provider.config.model,
+            messagesJson,
+          );
+          if (cached) {
+            return {
+              text: cached,
+              usage: { inputTokens: 0, outputTokens: 0 },
+              usedTools: false,
+            };
+          }
+        }
+
         const stream = this.provider.chat(history, {
           tools: toolDefs.length > 0 ? toolDefs : undefined,
           abortSignal: this.context.abortSignal,
@@ -165,6 +205,15 @@ export class ToolCallingLoop {
       // No tool calls — we're done
       if (pendingToolCalls.length === 0) {
         finalText = iterText;
+        // Cache the final response (Fix 8)
+        if (iteration === 0 && this.responseCache && iterText) {
+          this.responseCache.set(
+            "tool-loop",
+            "default",
+            JSON.stringify(messages),
+            iterText,
+          );
+        }
         break;
       }
 
@@ -186,11 +235,15 @@ export class ToolCallingLoop {
       }
       history.push({ role: "assistant", content: assistantContent });
 
-      // Execute each tool and collect results
+      // Execute tools: read-only tools run concurrently, write tools sequentially.
       const toolResultBlocks: ContentBlock[] = [];
-      for (const tc of pendingToolCalls) {
-        if (this.context.abortSignal?.aborted) break;
+      const allReadOnly = pendingToolCalls.every((tc) =>
+        READ_ONLY_TOOLS.has(tc.name),
+      );
 
+      const executeOne = async (
+        tc: (typeof pendingToolCalls)[number],
+      ): Promise<ContentBlock> => {
         const toolStartTime = Date.now();
         let toolResultStr: string | undefined;
         let toolSuccess = false;
@@ -204,8 +257,8 @@ export class ToolCallingLoop {
           );
           toolResultStr =
             typeof result.output === "string"
-              ? result.output.slice(0, 500)
-              : JSON.stringify(result.output).slice(0, 500);
+              ? truncateForMetrics(result.output)
+              : truncateForMetrics(JSON.stringify(result.output));
           toolSuccess = result.success;
         } catch (err) {
           toolError = err instanceof Error ? err.message : String(err);
@@ -228,13 +281,51 @@ export class ToolCallingLoop {
           result: toolResultStr,
           error: toolError,
         });
-
-        toolResultBlocks.push({
+        return {
           type: "tool_result",
           toolUseId: tc.id,
           content: result.output,
           isError: !result.success,
-        });
+        };
+      };
+
+      if (allReadOnly && pendingToolCalls.length > 1) {
+        // All tools are read-only — run concurrently
+        const results = await Promise.allSettled(
+          pendingToolCalls.map((tc) => executeOne(tc)),
+        );
+        for (const r of results) {
+          if (r.status === "fulfilled") {
+            toolResultBlocks.push(r.value);
+          } else {
+            // Find the tool call that failed
+            const failedIdx = results.indexOf(r);
+            const tc = pendingToolCalls[failedIdx];
+            toolResultBlocks.push({
+              type: "tool_result",
+              toolUseId: tc.id,
+              content:
+                r.reason instanceof Error ? r.reason.message : String(r.reason),
+              isError: true,
+            });
+          }
+        }
+      } else {
+        // Sequential execution (write tools, or mixed read/write)
+        for (const tc of pendingToolCalls) {
+          if (this.context.abortSignal?.aborted) break;
+          try {
+            const block = await executeOne(tc);
+            toolResultBlocks.push(block);
+          } catch (err) {
+            toolResultBlocks.push({
+              type: "tool_result",
+              toolUseId: tc.id,
+              content: err instanceof Error ? err.message : String(err),
+              isError: true,
+            });
+          }
+        }
       }
 
       // Append tool results as user message

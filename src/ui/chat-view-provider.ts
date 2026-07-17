@@ -75,6 +75,7 @@ import {
   isRegenerateResponseRequest,
   isSaveSettingsRequest,
   isCopyToClipboardRequest,
+  isReloadProviderRequest,
   createSessionList,
   createSessionTokenUsage,
   type ExtensionToWebviewMessage,
@@ -636,6 +637,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           "champ.reloadMcpServer",
           msg.serverName,
         );
+      } else if (isReloadProviderRequest(msg)) {
+        void vscode.commands.executeCommand("champ.reloadProvider");
       } else if (isMcpConfigSaveRequest(msg)) {
         void vscode.commands.executeCommand(
           "champ.saveMcpConfig",

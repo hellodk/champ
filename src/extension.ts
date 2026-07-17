@@ -62,8 +62,8 @@ import { remoteRunTerminalTool } from "./tools/remote-run-terminal";
 import { remoteEditFileTool } from "./tools/remote-edit-file";
 import { createCodebaseSearchTool } from "./tools/codebase-search";
 import { gitTool } from "./tools/git-tool";
-import { IndexingService } from "./indexing/indexing-service";
-import { MultiAgentRunner } from "./agent/multi-agent-runner";
+// Lazy-loaded: IndexingService, MultiAgentRunner (dynamic import() in handlers)
+import type { IndexingService } from "./indexing/indexing-service";
 import type { IWorkflowRunner } from "./agent/workflow-runner";
 import { AgentLoader } from "./agent/agent-loader";
 import {
@@ -92,7 +92,6 @@ import { TeamRunner, type PauseSignal } from "./agent/team-runner";
 import { TeamPanel } from "./ui/team-panel";
 import { TeamBuilderPanel } from "./ui/team-builder-panel";
 import { RulesEditorPanel } from "./ui/rules-editor-panel";
-import { TeamMarketplaceClient } from "./marketplace/team-marketplace-client";
 import {
   McpMarketplaceClient,
   buildMcpServerConfig,
@@ -126,6 +125,8 @@ let sessionAnalytics: AgentAnalytics | undefined;
 let analyticsChannel: vscode.OutputChannel | undefined;
 let saveActiveTimeout: ReturnType<typeof setTimeout> | null = null;
 let indexingService: IndexingService | undefined;
+/** Generation counter to prevent orphaned IndexingService from stale onChange callbacks. */
+let indexingGeneration = 0;
 let mcpRegistry: McpRegistry | undefined;
 let mcpClientManager: MCPClientManager | undefined;
 let persistentRunner: IWorkflowRunner | undefined;
@@ -513,19 +514,30 @@ export async function activate(
   smartRouter.onChange(() => {
     if (cachedYamlConfig?.indexing?.enabled !== false && smartRouter) {
       indexingService?.dispose();
-      indexingService = new IndexingService(
-        workspaceRoot,
-        smartRouter,
-        cachedYamlConfig ?? {},
-      );
-      // Trigger auto-index immediately after IndexingService is ready.
-      // triggerAutoIndex probes embedding provider reachability before calling initialize().
-      void triggerAutoIndex(
-        indexingService,
-        cachedYamlConfig ?? {},
-        context,
-        statusBarItem,
-        analyticsChannel,
+      const gen = ++indexingGeneration;
+      // Lazy-load IndexingService to reduce activation time
+      void import("./indexing/indexing-service.js").then(
+        ({ IndexingService: IS }) => {
+          // Stale callback — a newer onChange already fired, skip
+          if (gen !== indexingGeneration) return;
+          if (!smartRouter) return;
+          indexingService = new IS(
+            workspaceRoot,
+            smartRouter,
+            cachedYamlConfig ?? {},
+          );
+          // Trigger auto-index immediately after IndexingService is ready.
+          // triggerAutoIndex probes embedding provider reachability before calling initialize().
+          if (indexingService) {
+            void triggerAutoIndex(
+              indexingService,
+              cachedYamlConfig ?? {},
+              context,
+              statusBarItem,
+              analyticsChannel,
+            );
+          }
+        },
       );
     }
     if (!chatViewProvider) return;
@@ -2000,9 +2012,12 @@ export async function activate(
           .slice(2, 6)}`;
         const runName = userRequest.slice(0, 60);
 
+        // Lazy-load MultiAgentRunner to reduce activation time
+        const { MultiAgentRunner: MAR } =
+          await import("./agent/multi-agent-runner.js");
         const runner =
           persistentRunner ??
-          MultiAgentRunner.buildDefaultPipeline(
+          MAR.buildDefaultPipeline(
             provider,
             toolRegistry,
             workspaceRoot ?? "",
@@ -2393,6 +2408,9 @@ export async function activate(
         void vscode.window.showErrorMessage("Champ: No workspace folder open.");
         return;
       }
+      // Lazy-load TeamMarketplaceClient to reduce activation time
+      const { TeamMarketplaceClient } =
+        await import("./marketplace/team-marketplace-client.js");
       const client = new TeamMarketplaceClient();
       let entries: import("./marketplace/team-marketplace-client").MarketplaceEntry[] =
         [];
@@ -3018,6 +3036,8 @@ export async function activate(
   };
 
   // ---- Provider loader (callable on demand) ---------------------------
+  /** Mutex: prevents concurrent loadProvider() calls from racing. */
+  let providerLoadInFlight: Promise<void> | null = null;
   /**
    * Try to (re)load the active provider. On success, hot-swaps it into
    * the agent controller, inline completion provider, and status bar.
@@ -3026,8 +3046,21 @@ export async function activate(
    *
    * Tries the YAML config path first, falling back to legacy
    * VS Code settings if no YAML config is present.
+   *
+   * Concurrent calls are deduplicated — the second caller receives
+   * the same promise as the first, preventing config/race corruption.
    */
   const loadProvider = async (): Promise<void> => {
+    if (providerLoadInFlight) return providerLoadInFlight;
+    providerLoadInFlight = loadProviderInner();
+    try {
+      await providerLoadInFlight;
+    } finally {
+      providerLoadInFlight = null;
+    }
+  };
+
+  const loadProviderInner = async (): Promise<void> => {
     setStatusLoading();
     // Preserve the last known model list during reload — don't wipe available[]
     // to empty, which causes the picker to appear blank for up to 5 seconds
@@ -3163,18 +3196,15 @@ export async function activate(
         sess?.controller.setAnalytics(sessionAnalytics!, "champ");
       });
       // Refresh cloud key status so the model picker reflects current key state.
-      cloudKeyStatus.set(
-        "claude",
-        !!(await context.secrets.get("champ.claude.apiKey")),
-      );
-      cloudKeyStatus.set(
-        "openai",
-        !!(await context.secrets.get("champ.openai.apiKey")),
-      );
-      cloudKeyStatus.set(
-        "gemini",
-        !!(await context.secrets.get("champ.gemini.apiKey")),
-      );
+      // Parallelize — 3 independent SecretStorage reads.
+      const [claudeKey, openaiKey, geminiKey] = await Promise.all([
+        context.secrets.get("champ.claude.apiKey"),
+        context.secrets.get("champ.openai.apiKey"),
+        context.secrets.get("champ.gemini.apiKey"),
+      ]);
+      cloudKeyStatus.set("claude", !!claudeKey);
+      cloudKeyStatus.set("openai", !!openaiKey);
+      cloudKeyStatus.set("gemini", !!geminiKey);
 
       inlineProvider.setProvider(newProvider);
       inlineProviderRef.current = newProvider;
@@ -3360,7 +3390,9 @@ export async function activate(
       }
       // Rebuild the persistent multi-agent runner so custom agents get
       // the fresh provider on every config reload.
-      const baseRunner = MultiAgentRunner.buildDefaultPipeline(
+      const { MultiAgentRunner: MAR2 } =
+        await import("./agent/multi-agent-runner.js");
+      const baseRunner = MAR2.buildDefaultPipeline(
         newProvider,
         toolRegistry,
         workspaceRoot ?? "",
@@ -3422,9 +3454,12 @@ export async function activate(
       triggerManager.loadTriggers(
         cachedYamlConfig.triggers,
         async (agentName, filePath) => {
+          // Lazy-load MultiAgentRunner to reduce activation time
+          const { MultiAgentRunner: MAR3 } =
+            await import("./agent/multi-agent-runner.js");
           const runner =
             persistentRunner ??
-            MultiAgentRunner.buildDefaultPipeline(
+            MAR3.buildDefaultPipeline(
               inlineProviderRef.current,
               toolRegistry,
               workspaceRoot,
@@ -3432,7 +3467,9 @@ export async function activate(
           const rel = path.relative(workspaceRoot, filePath);
           await runner.run(`Process changed file: ${rel}`, {
             sequence: [agentName],
-            onProgress: (evt) => {
+            onProgress: (
+              evt: import("./agent/multi-agent-runner").MultiAgentProgressEvent,
+            ) => {
               if (evt.type === "agent_completed") {
                 void vscode.window.showInformationMessage(
                   `Champ trigger "${agentName}" on "${path.basename(filePath)}": done`,
@@ -3569,16 +3606,51 @@ export async function activate(
   // auto-detect) runs AFTER activate() returns. This means the Champ
   // sidebar icon appears instantly; the user can open it and see
   // "loading..." while the provider and sessions come online.
+  //
+  // The entire init is wrapped in a 10-second timeout so that if any
+  // step hangs (SecretStorage, file I/O, provider factory), the user
+  // sees an error with retry instead of infinite "loading...".
+  const INIT_TIMEOUT_MS = 10_000;
   void (async () => {
-    // 0. Await memory bank load so cross-session facts are available immediately.
-    if (memoryBank) {
-      await memoryBank.load();
-      broadcastMemoryBadge();
-    }
-    await globalMemoryBank.load();
+    try {
+      await Promise.race([
+        (async () => {
+          // 0. Await memory bank load so cross-session facts are available immediately.
+          if (memoryBank) {
+            await memoryBank.load();
+            broadcastMemoryBadge();
+          }
+          await globalMemoryBank.load();
 
-    // 1. Load provider (reads YAML, creates provider, auto-detects models).
-    await loadProvider();
+          // 1. Load provider (reads YAML, creates provider, auto-detects models).
+          await loadProvider();
+        })(),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `Provider initialization timed out after ${INIT_TIMEOUT_MS / 1000}s — check that your provider is reachable`,
+                ),
+              ),
+            INIT_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatusError(message);
+      chatViewProvider?.broadcastProviderStatus({
+        state: "error",
+        errorMessage: message,
+        available: [],
+      });
+      chatViewProvider?.postMessage({
+        type: "error",
+        message: `Champ failed to initialize: ${message}\n\nClick the error indicator in the header to retry, or open settings to configure a different provider.`,
+      });
+      console.error("Champ: background init failed:", err);
+    }
 
     // 2. First-run detection. Use cached config (loadProvider already read it).
     if (isFirstRunRequired(context.globalState) && !cachedYamlConfig) {

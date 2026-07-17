@@ -1,4 +1,3 @@
-import * as fs from "fs";
 import * as fsp from "fs/promises";
 import * as crypto from "crypto";
 import * as os from "os";
@@ -75,6 +74,8 @@ export class IndexingService {
       baseUrl,
       model: modelId,
     });
+    // Load the content-hash embedding cache to skip redundant API calls.
+    await this.embeddingService.loadCache();
     // Re-create the VectorStore now that we know the embedding model, so that
     // save/load operations can validate model ID consistency.
     this.vectorStore = new VectorStore(":memory:", modelId);
@@ -136,7 +137,7 @@ export class IndexingService {
     if (!this.embeddingService) return;
     try {
       this.vectorStore.deleteByFile(filePath);
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = await fsp.readFile(filePath, "utf8");
       await this.indexFile(filePath, content);
     } catch {
       // Silently skip — file may have been deleted.
@@ -159,30 +160,46 @@ export class IndexingService {
       "yarn.lock",
       "pnpm-lock.yaml",
     ];
-    const files = this.collectFiles(this.workspaceRoot, ignore);
+    const files = await this.collectFiles(this.workspaceRoot, ignore);
     let filesIndexed = 0;
     let chunksIndexed = 0;
 
-    for (const filePath of files) {
-      try {
-        const content = fs.readFileSync(filePath, "utf8");
-        const indexed = await this.indexFile(filePath, content);
-        if (indexed > 0) {
-          filesIndexed++;
-          chunksIndexed += indexed;
+    // Parallel indexing with concurrency limit (no external dependency).
+    const CONCURRENCY = 6;
+    let idx = 0;
+    const next = async (): Promise<void> => {
+      while (idx < files.length) {
+        const i = idx++;
+        const filePath = files[i];
+        try {
+          const content = await fsp.readFile(filePath, "utf8");
+          const indexed = await this.indexFile(filePath, content);
+          if (indexed > 0) {
+            filesIndexed++;
+            chunksIndexed += indexed;
+          }
+        } catch {
+          // Skip unreadable files.
         }
-      } catch {
-        // Skip unreadable files.
       }
-    }
+    };
+    const workers = Array.from(
+      { length: Math.min(CONCURRENCY, files.length) },
+      () => next(),
+    );
+    await Promise.all(workers);
 
     console.log(
       `Champ: indexed ${filesIndexed} files, ${chunksIndexed} chunks`,
     );
 
-    // Persist index to disk so subsequent sessions skip re-embedding.
+    // Persist index + embedding cache to disk so subsequent sessions skip re-embedding.
     // Stored at ~/.champ/index/<workspace-hash>.idx
-    void this.saveIndex();
+    // Await both to prevent races with dispose().
+    await Promise.allSettled([
+      this.saveIndex(),
+      this.embeddingService?.saveCache() ?? Promise.resolve(),
+    ]);
 
     return {
       filesIndexed,
@@ -268,7 +285,10 @@ export class IndexingService {
     return chunks.length;
   }
 
-  private collectFiles(root: string, ignorePatterns: string[]): string[] {
+  private async collectFiles(
+    root: string,
+    ignorePatterns: string[],
+  ): Promise<string[]> {
     const results: string[] = [];
     const TEXT_EXTS = new Set([
       ".ts",
@@ -299,32 +319,35 @@ export class IndexingService {
       ".env",
     ]);
 
-    const walk = (dir: string) => {
-      let entries: fs.Dirent[];
+    const walk = async (dir: string): Promise<void> => {
+      let entries: import("fs").Dirent[];
       try {
-        entries = fs.readdirSync(dir, { withFileTypes: true });
+        entries = (await fsp.readdir(dir, {
+          withFileTypes: true,
+        })) as import("fs").Dirent[];
       } catch {
         return;
       }
 
       for (const entry of entries) {
-        const full = path.join(dir, entry.name);
+        const name = entry.name.toString();
+        const full = path.join(dir, name);
         const rel = path.relative(root, full);
 
         if (this.matchesIgnore(rel, ignorePatterns)) continue;
 
         if (entry.isDirectory()) {
-          walk(full);
+          await walk(full);
         } else if (
           entry.isFile() &&
-          TEXT_EXTS.has(path.extname(entry.name).toLowerCase())
+          TEXT_EXTS.has(path.extname(name).toLowerCase())
         ) {
           results.push(full);
         }
       }
     };
 
-    walk(root);
+    await walk(root);
     return results;
   }
 
