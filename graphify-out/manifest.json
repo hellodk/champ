@@ -1,0 +1,2387 @@
+{
+  "/home/dk/Documents/git/vs-code-plugin/package.json": {
+    "mtime": 1784241502.3000822,
+    "ast_hash": "6dbfd86ba09fc4803f7d0f1105fae9f5",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/eslint.config.mjs": {
+    "mtime": 1775465942.829204,
+    "ast_hash": "c59ae22b103b1201abfb570e100468c4",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/vitest.integration.config.ts": {
+    "mtime": 1775466014.6886997,
+    "ast_hash": "3ae0d3a08f79573ad366e5d206ddbc30",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/esbuild.mjs": {
+    "mtime": 1784228512.2562954,
+    "ast_hash": "a44f6b040da91bd43770e4fcc06dca4a",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/tsconfig.json": {
+    "mtime": 1778861176.5900998,
+    "ast_hash": "173e50a6096e72de22c854f4325d097b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/vitest.e2e.config.ts": {
+    "mtime": 1779187015.693033,
+    "ast_hash": "adb013887691a9fd7c2eebdfe5194ee2",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/esbuild.webview.mjs": {
+    "mtime": 1778934792.7063842,
+    "ast_hash": "de1688d80688ea902fd8e6752d7d6ea4",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/vitest.config.ts": {
+    "mtime": 1779118410.1608922,
+    "ast_hash": "12c9695524ebd77b582714e99494cd6d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/webview-ui/vitest.config.ts": {
+    "mtime": 1778935134.3330426,
+    "ast_hash": "d638ddd7911e9a122dd786128f0f21c1",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/webview-ui/src/index.tsx": {
+    "mtime": 1779120916.3873303,
+    "ast_hash": "0a0783a20de4a5a18365c6c9adbb4fca",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/webview-ui/src/bash-run-button.ts": {
+    "mtime": 1779119903.8553166,
+    "ast_hash": "ca73e3664c49ef4e9d3260d02bd06e0d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/webview-ui/src/types.ts": {
+    "mtime": 1778934817.3194275,
+    "ast_hash": "073a981bc34999832ed46c5c444f64c0",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/webview-ui/src/components/MemoryPanel.tsx": {
+    "mtime": 1780998292.0358305,
+    "ast_hash": "cb338ce322ef5d6b5d9d642afb8131f9",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/webview-ui/src/components/McpMarketplacePanel.tsx": {
+    "mtime": 1778935413.9694698,
+    "ast_hash": "fc42f9811e69169a053ae712a37708a4",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/webview-ui/src/components/RulesEditorPanel.tsx": {
+    "mtime": 1780998292.0358305,
+    "ast_hash": "232f8299ebae5a107cc34666558b63d7",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/webview-ui/src/components/TeamBuilderPanel.tsx": {
+    "mtime": 1780998292.0358305,
+    "ast_hash": "418eec07a68319efc4ff308013e96b61",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/webview-ui/src/components/DiffOverlayPanel.tsx": {
+    "mtime": 1779119827.0157814,
+    "ast_hash": "e01f1e84b822a11cd01364e501fc2b60",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/webview-ui/src/components/AgentGraphPanel.tsx": {
+    "mtime": 1780998292.0358305,
+    "ast_hash": "f283c22c9733958888c16780a79e3b4a",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/webview-ui/src/utils/diff.ts": {
+    "mtime": 1778935414.183475,
+    "ast_hash": "2b6056ed1d3390455f65cb6bf89cbe39",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/webview-ui/src/test/components.test.tsx": {
+    "mtime": 1779116351.9183018,
+    "ast_hash": "d989e0d11d73fbfd475569834278742c",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/webview-ui/static/main.js": {
+    "mtime": 1784313976.7521749,
+    "ast_hash": "fc4352243ed1946cfd68b3e2dd21f0a9",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.claude/settings.json": {
+    "mtime": 1780993432.8409617,
+    "ast_hash": "95256aa5fd401712a547219cbd7b592a",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.claude/settings.local.json": {
+    "mtime": 1779202406.8501732,
+    "ast_hash": "ce26fa97336b4addbdf2cce5164bf846",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/grafana/champ-analytics-dashboard.json": {
+    "mtime": 1776860315.4661684,
+    "ast_hash": "f53128c6973a412953f5812b53974897",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.husky/_/post-rewrite": {
+    "mtime": 1784227154.1592352,
+    "ast_hash": "0b71c2e7d39daa010985d529f1320b37",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.husky/_/post-checkout": {
+    "mtime": 1784227154.1592352,
+    "ast_hash": "0b71c2e7d39daa010985d529f1320b37",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.husky/_/post-applypatch": {
+    "mtime": 1784227154.1592352,
+    "ast_hash": "0b71c2e7d39daa010985d529f1320b37",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.husky/_/pre-auto-gc": {
+    "mtime": 1784227154.1592352,
+    "ast_hash": "0b71c2e7d39daa010985d529f1320b37",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.husky/_/post-merge": {
+    "mtime": 1784227154.1592352,
+    "ast_hash": "0b71c2e7d39daa010985d529f1320b37",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.husky/_/husky.sh": {
+    "mtime": 1784227154.1592352,
+    "ast_hash": "13871d2ab13e8423790ecb2c01c78c18",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.husky/_/h": {
+    "mtime": 1784227154.1592352,
+    "ast_hash": "15239a01c5554e56ff745570fb583a91",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.husky/_/pre-rebase": {
+    "mtime": 1784227154.1592352,
+    "ast_hash": "0b71c2e7d39daa010985d529f1320b37",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.husky/_/post-commit": {
+    "mtime": 1784227154.1592352,
+    "ast_hash": "0b71c2e7d39daa010985d529f1320b37",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.husky/_/pre-applypatch": {
+    "mtime": 1784227154.1592352,
+    "ast_hash": "0b71c2e7d39daa010985d529f1320b37",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.husky/_/commit-msg": {
+    "mtime": 1784227154.1592352,
+    "ast_hash": "0b71c2e7d39daa010985d529f1320b37",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.husky/_/prepare-commit-msg": {
+    "mtime": 1784227154.1592352,
+    "ast_hash": "0b71c2e7d39daa010985d529f1320b37",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.husky/_/pre-merge-commit": {
+    "mtime": 1784227154.1592352,
+    "ast_hash": "0b71c2e7d39daa010985d529f1320b37",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.husky/_/pre-push": {
+    "mtime": 1784227154.1592352,
+    "ast_hash": "0b71c2e7d39daa010985d529f1320b37",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.husky/_/pre-commit": {
+    "mtime": 1784227154.1592352,
+    "ast_hash": "0b71c2e7d39daa010985d529f1320b37",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.husky/_/applypatch-msg": {
+    "mtime": 1784227154.1592352,
+    "ast_hash": "0b71c2e7d39daa010985d529f1320b37",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/setup.ts": {
+    "mtime": 1775799101.3438385,
+    "ast_hash": "ddf8d123fa402bb2550a49f14dfc2a2d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/integration/team-agent.integration.test.ts": {
+    "mtime": 1778824026.4952042,
+    "ast_hash": "0396056c07dfdfb2ccdceec1891f3128",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/__mocks__/vscode.ts": {
+    "mtime": 1775799101.3437471,
+    "ast_hash": "0ea8b7f9a3f98bd69b52d87f6383cb35",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/e2e/memory-bank.test.ts": {
+    "mtime": 1779187015.4330313,
+    "ast_hash": "326d727b51a3d838366885a2356f56c6",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/e2e/team-runner.test.ts": {
+    "mtime": 1779187015.6020324,
+    "ast_hash": "3a7613928c4468d44d59c7c3c68130cf",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/e2e/webview-protocol.test.ts": {
+    "mtime": 1779187015.6800327,
+    "ast_hash": "ce22d6f6c9aaaf24946996eace38277d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/e2e/context-resolver.test.ts": {
+    "mtime": 1779187015.2800305,
+    "ast_hash": "22404b94161c1822b67d29bbbd56e739",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/e2e/api-server.test.ts": {
+    "mtime": 1779187014.9800289,
+    "ast_hash": "0f7dfc85ac976b22ddeea427c63a42fb",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/messages-edit.test.ts": {
+    "mtime": 1779118851.0159183,
+    "ast_hash": "aea2d3baa21baac894a62072ce9a6ca1",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/mcp/sse-reconnect-limits.test.ts": {
+    "mtime": 1778859041.3662615,
+    "ast_hash": "0e4df2232edea1fba8c6b6907eb29dde",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/mcp/sse-passive-retry.test.ts": {
+    "mtime": 1778860008.6129646,
+    "ast_hash": "31cc75369ce048f06054983c4619ddaf",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/mcp/mcp-registry.test.ts": {
+    "mtime": 1777308082.5119488,
+    "ast_hash": "0c73c14ef791bffdd2c47990e2f87271",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/mcp/sse-reconnect-method.test.ts": {
+    "mtime": 1778859165.4400833,
+    "ast_hash": "e57dd4c3bd6ce606fcae9a1367598c0c",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/mcp/mcp-manager-reconnect.test.ts": {
+    "mtime": 1778859909.796268,
+    "ast_hash": "1a623e9c1dd35d4b208573d2e6407989",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/mcp/mcp-tool-adapter.test.ts": {
+    "mtime": 1777307569.3524082,
+    "ast_hash": "645fda492d95d43852bd06f12e527574",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/mcp/mcp-client.test.ts": {
+    "mtime": 1775799101.3439856,
+    "ast_hash": "090df3549a3ed70b2a625b2fac177215",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/mcp/registry-reconnect-route.test.ts": {
+    "mtime": 1778859928.758213,
+    "ast_hash": "f09ef41313b8a773989dcf6f2f9a3eff",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/completion/inline-provider.test.ts": {
+    "mtime": 1775799101.3441727,
+    "ast_hash": "464a8abebbc7eb93405f64282ff3e870",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent-manager/session-store.test.ts": {
+    "mtime": 1777289760.3261237,
+    "ast_hash": "b50d9d9821f06ad5b9edc831b5f7a9de",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent-manager/agent-manager.test.ts": {
+    "mtime": 1775799101.3445911,
+    "ast_hash": "401f7d14ee4c708f76dff3bbebe551d3",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/providers/llamacpp-vllm.test.ts": {
+    "mtime": 1780998336.00775,
+    "ast_hash": "81436a785107e6c1a28449e73aa704a5",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/providers/types.test.ts": {
+    "mtime": 1775799101.3449414,
+    "ast_hash": "9019c6e8a7d66d5e7e96d79c27e0d678",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/providers/context-manager.test.ts": {
+    "mtime": 1784228512.2602954,
+    "ast_hash": "46bfa226f5039a2ff9d772c87d19686e",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/providers/openai.test.ts": {
+    "mtime": 1780998336.00775,
+    "ast_hash": "ab70b09d4b57013ce6d05ad6312f3c0b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/providers/factory.test.ts": {
+    "mtime": 1775799101.3455298,
+    "ast_hash": "7ee30c1ec93f065bf4d2d378da8dd35b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/providers/ollama.test.ts": {
+    "mtime": 1781148892.7271929,
+    "ast_hash": "07e39ce109d3f3778976a0c9a152f76a",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/providers/openai-compatible.test.ts": {
+    "mtime": 1775799101.3458571,
+    "ast_hash": "697572f17270615ba625d383d5b9ecf8",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/providers/claude.test.ts": {
+    "mtime": 1780998336.00675,
+    "ast_hash": "bf5a661ca699b95c8672a3ae3a32f138",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/providers/context-summariser.test.ts": {
+    "mtime": 1778608894.8347394,
+    "ast_hash": "4d5e1c530f854e91a01f547ee83c74dc",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/providers/registry.test.ts": {
+    "mtime": 1775799101.3461967,
+    "ast_hash": "79b728ffab97838dbd6b286c98a263a0",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/providers/smart-router.test.ts": {
+    "mtime": 1778937068.197774,
+    "ast_hash": "8405cc78eeb7dd99d719ac23dae85243",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/providers/prompt-based-tools.test.ts": {
+    "mtime": 1775812227.943394,
+    "ast_hash": "67a516ffb7a402139b3bbf5ee1f9fb9b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/providers/gemini.test.ts": {
+    "mtime": 1780998336.00775,
+    "ast_hash": "39c0aba3e2fa8b8bb50b7cabd7a114bd",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/config/sample-configs.test.ts": {
+    "mtime": 1775799101.3467557,
+    "ast_hash": "12333334088c6afb4af8ac1b612ec20b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/config/config-loader.test.ts": {
+    "mtime": 1776839133.9311752,
+    "ast_hash": "8dc605b1b860491eb6da7fb4cf9b74ff",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/config/ssh-config.test.ts": {
+    "mtime": 1784228512.2602954,
+    "ast_hash": "d9659d8f9a15aa1216935a18f5c8f0f7",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/config/telemetry-config.test.ts": {
+    "mtime": 1776860072.9085739,
+    "ast_hash": "d29be4350e74c815019ae1b06bbfcb9b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/utils/diff-utils.test.ts": {
+    "mtime": 1778842463.2520974,
+    "ast_hash": "3e1ee3e93902becf7577716d51254229",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/memory/memory-bank.test.ts": {
+    "mtime": 1778608499.5906239,
+    "ast_hash": "1ec3831a3e5f7a31c8c00b1adc8fb2bb",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/skills/skill-loader.test.ts": {
+    "mtime": 1775799101.3473024,
+    "ast_hash": "172556217b89248cc4452c06df8e6486",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/skills/variable-resolver.test.ts": {
+    "mtime": 1775799101.3474438,
+    "ast_hash": "17afdfe5512d2fdf9de26f0f66abf6b1",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/skills/skill-registry.test.ts": {
+    "mtime": 1775799101.3476102,
+    "ast_hash": "ebd3aa87e26bd3e7e4af787a15d64f03",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/skills/built-in.test.ts": {
+    "mtime": 1775799101.3477492,
+    "ast_hash": "7eb8cd976cdab5eb3bf56a773f242283",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/ssh/ssh-connection-pool.test.ts": {
+    "mtime": 1784228512.2602954,
+    "ast_hash": "a2a6d910c32a97ec687661db44ededc5",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/extension/active-workspace-folder.test.ts": {
+    "mtime": 1784228512.2602954,
+    "ast_hash": "3d634b0aa79c677070b89c4d9f1e9bbf",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/preview-types.test.ts": {
+    "mtime": 1778857552.420487,
+    "ast_hash": "1bbc2074700cc5a5f2f6e502c608c54f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/grep-search.test.ts": {
+    "mtime": 1778724086.578386,
+    "ast_hash": "93a5834bda54d8f5ca64222aa2fa77ed",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/web-search.test.ts": {
+    "mtime": 1784228512.2602954,
+    "ast_hash": "268dc0780420d8b78f3a693ba81820bd",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/generate-doc.test.ts": {
+    "mtime": 1776857987.1525745,
+    "ast_hash": "310e722bc5ba38331edda4d6a67ea755",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/delete-file.test.ts": {
+    "mtime": 1775799101.3480697,
+    "ast_hash": "2e731f4cf32de00798c03f53d5ad0ab3",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/remote-run-terminal.test.ts": {
+    "mtime": 1784228512.2602954,
+    "ast_hash": "3d22b3fae9fc7230849f978848eb1973",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/read-file.test.ts": {
+    "mtime": 1775799101.3482263,
+    "ast_hash": "fef5bf9376d0f14daad94896cc826a4f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/run-terminal.test.ts": {
+    "mtime": 1775799101.348362,
+    "ast_hash": "048cc0287954485c6c59cb4d5b19b8de",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/edit-file.test.ts": {
+    "mtime": 1775799101.348856,
+    "ast_hash": "b9081972df0543327079493ea0383c57",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/edit-file-preview.test.ts": {
+    "mtime": 1778857651.0961056,
+    "ast_hash": "019e362d8a487020f5788d022f6b1644",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/browser.test.ts": {
+    "mtime": 1784228512.2602954,
+    "ast_hash": "c3486faa3caa0560afcaf27c522e5376",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/registry-preview.test.ts": {
+    "mtime": 1778857777.5416768,
+    "ast_hash": "d020c51f0d86ff6001f631d5abd5b87e",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/file-search.test.ts": {
+    "mtime": 1775799101.349099,
+    "ast_hash": "bc964f3adddfba5e1fd4b62630f66ee5",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/run-terminal-preview.test.ts": {
+    "mtime": 1778857742.7443843,
+    "ast_hash": "45e132df43d25cd0b8ffe63f0a8af206",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/generate-diagram.test.ts": {
+    "mtime": 1776857975.9787443,
+    "ast_hash": "15e6d674afa4ad628fe1e4dca948ad9e",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/git-tool.test.ts": {
+    "mtime": 1784228512.2602954,
+    "ast_hash": "059891e96676e199f4c21629108b14a9",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/git-utils.test.ts": {
+    "mtime": 1784228512.2602954,
+    "ast_hash": "5d4b05b7b773292f53c33852ee9c7277",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/list-directory.test.ts": {
+    "mtime": 1775799101.3492687,
+    "ast_hash": "9fab09e193e56dda99d82a032bb3f1e6",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/create-file.test.ts": {
+    "mtime": 1775799101.3493996,
+    "ast_hash": "ac6f4e07d961e18862d4e54f3c72fea6",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/github-api.test.ts": {
+    "mtime": 1784228512.2602954,
+    "ast_hash": "c83878006a9a7d2fcbad806363a91ad9",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/registry.test.ts": {
+    "mtime": 1775799101.349571,
+    "ast_hash": "2c75bf41eedcf70c5b39743c55e4b189",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/approval-preview-integration.test.ts": {
+    "mtime": 1778857927.8779345,
+    "ast_hash": "8773da4969ee6130db782454eaae5636",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/tools/remote-edit-file.test.ts": {
+    "mtime": 1784228512.2602954,
+    "ast_hash": "c0c02947f931628cc451bd3d0c6702e1",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/composer/composer-controller.test.ts": {
+    "mtime": 1775799101.349733,
+    "ast_hash": "140763cd8eaaa59ca04545630fe23694",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/safety/prompt-guard.test.ts": {
+    "mtime": 1777289727.9847987,
+    "ast_hash": "7e589b0b228eadca56504ee55a3196ce",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/safety/pii-scanner.test.ts": {
+    "mtime": 1777288254.7689009,
+    "ast_hash": "03ad942a22bd5aeb8ba644c0121af13d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/safety/command-sandbox.test.ts": {
+    "mtime": 1775799101.3500385,
+    "ast_hash": "68b3cd7a0d0570882b2d3bb76a3660f9",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/safety/os-level-sandbox.test.ts": {
+    "mtime": 1784241498.8436658,
+    "ast_hash": "c7ce2a59ccc5e365f79f0ff383f1fd0b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/prompts/system-prompt.test.ts": {
+    "mtime": 1775799101.3502178,
+    "ast_hash": "b0ea8979b72ffacf4d6ef8a891ce1ad2",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/upload/file-upload-service.test.ts": {
+    "mtime": 1775799101.3503857,
+    "ast_hash": "d7fd74a0718d359ccc2aa95681bc3341",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/trigger-manager.test.ts": {
+    "mtime": 1778615429.3327827,
+    "ast_hash": "d8e8893a067193c280fe096b89308e7b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/sequential-pipeline.test.ts": {
+    "mtime": 1781158553.4516504,
+    "ast_hash": "d54964af1691df01f4cf7bf8998200da",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/custom-agent.test.ts": {
+    "mtime": 1778612165.2081554,
+    "ast_hash": "d47181faaf08847d1b910f795e752c1e",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/agent-registry.test.ts": {
+    "mtime": 1778613192.4546514,
+    "ast_hash": "dce6b877fb002b5be92e1ed4ff9d31bd",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/team-agent.test.ts": {
+    "mtime": 1780998314.138133,
+    "ast_hash": "cb145ed76b55f48e5fa3cd4641f199ca",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/agent-controller.test.ts": {
+    "mtime": 1777291181.7216382,
+    "ast_hash": "303441506edaf89f61192e4e426b0531",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/condition-evaluator.test.ts": {
+    "mtime": 1778774020.751454,
+    "ast_hash": "a0fd07054544ab41bb6a3fdc0cdf4f33",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/context-window-wiring.test.ts": {
+    "mtime": 1778608857.6706421,
+    "ast_hash": "59e0f8b148f93d01a759765589c4a85d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/team-runner.test.ts": {
+    "mtime": 1778921981.315519,
+    "ast_hash": "98ad8dd1df11603cf0e6677962352811",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/context-resolver.test.ts": {
+    "mtime": 1778841718.8696659,
+    "ast_hash": "5dc3b44eea73f56e5684405908784edd",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/auto-context-e2e.test.ts": {
+    "mtime": 1778860530.1358612,
+    "ast_hash": "755622d6859e95c3b556e52957189e37",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/auto-fix.test.ts": {
+    "mtime": 1775799101.352416,
+    "ast_hash": "61a9d6d90c37d6c995a2f311b6637ece",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/smart-routing.test.ts": {
+    "mtime": 1777289591.8044064,
+    "ast_hash": "56a317f321a56ee98f19d21dd4345b63",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/multi-agent-runner.test.ts": {
+    "mtime": 1781158553.4516504,
+    "ast_hash": "458c41ab9ba3dd790ae9072bf6c241f3",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/dag-edge-case.test.ts": {
+    "mtime": 1781158553.4516504,
+    "ast_hash": "e83617876d481d9bc9f7f4bff9cd79ca",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/text-tool-call-parser.test.ts": {
+    "mtime": 1780994336.0639672,
+    "ast_hash": "17ae1149c153652e5bd998819b769558",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/dag-composer.test.ts": {
+    "mtime": 1781158553.4516504,
+    "ast_hash": "5a748db9d6a651e09a7993d4ecc234b1",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/dag-retries.test.ts": {
+    "mtime": 1781158553.4516504,
+    "ast_hash": "9c6edf61119f6d71fb1838443ea658fe",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/edit-review-tracker.test.ts": {
+    "mtime": 1778854564.6111333,
+    "ast_hash": "c1792e73c1c4d90336ecb9438e01da93",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/delegation-manager.test.ts": {
+    "mtime": 1784241498.8436658,
+    "ast_hash": "7a271bdc00985f504f7db1fd965ae05f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/template-interpolator.test.ts": {
+    "mtime": 1778773982.2673337,
+    "ast_hash": "0559095c7d978a404943e9c2de86d5fc",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/test-driven-fix-loop.test.ts": {
+    "mtime": 1784228512.2602375,
+    "ast_hash": "e0034f944e85734158b7cb55cab718c0",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/auto-context-injection.test.ts": {
+    "mtime": 1778860595.6005588,
+    "ast_hash": "27e80339ade547cbf2cacf5857c62ce6",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/system-prompt-builder.test.ts": {
+    "mtime": 1781279373.974805,
+    "ast_hash": "94a67987d8921119ba85d0348222c626",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/team-loader.test.ts": {
+    "mtime": 1778773865.541233,
+    "ast_hash": "be96f27fe2a628d096fa94afff175bb9",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/agents/reviewer-agent.test.ts": {
+    "mtime": 1775799101.3505397,
+    "ast_hash": "70b9a23896cd32c589de1d4635b334bf",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/agents/orchestrator.test.ts": {
+    "mtime": 1781158553.4516504,
+    "ast_hash": "eed0ebda5a36ec32147b07383f14edeb",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/agents/shared-memory.test.ts": {
+    "mtime": 1780998324.4028995,
+    "ast_hash": "3c122208b3ff8fe37dc210a163af8af9",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/agents/code-agent.test.ts": {
+    "mtime": 1775799101.351089,
+    "ast_hash": "4294cf57a7684fd1107a328e68130c89",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/agents/planner-agent.test.ts": {
+    "mtime": 1775799101.3512387,
+    "ast_hash": "54e1a49ddf29d043fe70b47963fbe0e3",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/agent/agents/validator-agent.test.ts": {
+    "mtime": 1775799101.351376,
+    "ast_hash": "767a5f047b3cbeb97519b3f92958d4da",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/observability/metrics-collector.test.ts": {
+    "mtime": 1780995076.7126427,
+    "ast_hash": "b008f769fe36e002952070b8c7278f15",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/observability/agent-analytics.test.ts": {
+    "mtime": 1776853913.233908,
+    "ast_hash": "6c35c912490572cca5e4f3dfd7a40753",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/telemetry/event-buffer.test.ts": {
+    "mtime": 1776859976.3153248,
+    "ast_hash": "9ee1535106ac9ca4e8233a2568cbeea1",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/telemetry/analytics-exporter.test.ts": {
+    "mtime": 1780998190.345922,
+    "ast_hash": "922842551c05285f50d4008f3def4599",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/ui/edit-summary-bulk-disable.test.ts": {
+    "mtime": 1778858576.8527753,
+    "ast_hash": "30210b560352df4508cb9a7ce539dd3f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/ui/workflow-store.test.ts": {
+    "mtime": 1778658427.6548738,
+    "ast_hash": "cb517b5b5eabd646666ee3bd22aecf64",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/ui/atomic-changeset-types.test.ts": {
+    "mtime": 1778858406.228538,
+    "ast_hash": "402bb8707f8da81d7c99dcf92de8df28",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/ui/team-run-store.test.ts": {
+    "mtime": 1780998190.345922,
+    "ast_hash": "205cdccac5f4e19c41b4e390126e07fb",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/ui/chat-view-provider.test.ts": {
+    "mtime": 1778854849.9876184,
+    "ast_hash": "79c6a129b2fcd9230e2f99e65d93f3e9",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/ui/chat-view-provider-bulk-revert.test.ts": {
+    "mtime": 1778858443.9208517,
+    "ast_hash": "cbe9033300f9b2bd0e8d2067f0ce8971",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/ui/messages.test.ts": {
+    "mtime": 1775799101.353781,
+    "ast_hash": "d0d2c320174b531a34ed4c8af64bc41b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/ui/auto-context-notice-type.test.ts": {
+    "mtime": 1778860402.891732,
+    "ast_hash": "7cc5cdcc93e1c949139a635890eabe9b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/ui/message-validation.test.ts": {
+    "mtime": 1780998292.0358305,
+    "ast_hash": "9c84438686428fa9d33e5d18dc052fc7",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/ui/workflow-session.test.ts": {
+    "mtime": 1778658579.1795733,
+    "ast_hash": "28b73a6d2fccfb82c40905d8f6720446",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/rules/rules-engine.test.ts": {
+    "mtime": 1778604754.640526,
+    "ast_hash": "7650952e31a12450908b22f6b3386658",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/webview/slash-preview.test.ts": {
+    "mtime": 1779118725.7670872,
+    "ast_hash": "9e70e6b7cf1194f25faf9f9b56a0fc2e",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/webview/syntax-highlight.test.ts": {
+    "mtime": 1779118531.1425054,
+    "ast_hash": "392520378e22bebe6439a35e8a1e8ac3",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/webview/setup.ts": {
+    "mtime": 1779118382.0369997,
+    "ast_hash": "ecc44f60a4a4ab35edd1f2af85070696",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/webview/message-edit.test.ts": {
+    "mtime": 1779118947.2570975,
+    "ast_hash": "3608c60f3951f69eec90c3321b0feb9e",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/webview/panel-listener-cleanup.test.ts": {
+    "mtime": 1780995061.963535,
+    "ast_hash": "5c4fa1362daf3b292bb31663fda83c7b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/webview/canary.test.ts": {
+    "mtime": 1779118385.8809845,
+    "ast_hash": "24f274583dd2f0de06cf856d58f3dd7e",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/webview/team-builder-save.test.ts": {
+    "mtime": 1780998241.8388698,
+    "ast_hash": "0c9a9384c02c05c8f117afd192030449",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/webview/image-paste.test.ts": {
+    "mtime": 1779119045.5292656,
+    "ast_hash": "ed7d37b97f41d9f2e1e4f83a7ea93e63",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/webview/tool-card.test.ts": {
+    "mtime": 1779118625.8622746,
+    "ast_hash": "e9effc09194e28deaf94c72c3931fcdc",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/indexing/chunking-service.test.ts": {
+    "mtime": 1775799101.3541791,
+    "ast_hash": "c73d86a03756dd60c1ecd9a37898d952",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/indexing/repo-map-builder.test.ts": {
+    "mtime": 1775799101.3543887,
+    "ast_hash": "c69c30e7c478777b16ee9426e80f10c4",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/indexing/vector-store.test.ts": {
+    "mtime": 1780998303.470823,
+    "ast_hash": "1f495276cec42778f41a5c1538ed8db5",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/indexing/embedding-service.test.ts": {
+    "mtime": 1781158553.4516504,
+    "ast_hash": "9020802d89e1f697605809f55ff347ed",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/indexing/indexing-service.test.ts": {
+    "mtime": 1780998303.470823,
+    "ast_hash": "0dc671669f39ad72524f5520694b8d08",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/checkpoints/checkpoint-store.test.ts": {
+    "mtime": 1784241498.8436658,
+    "ast_hash": "0ccea3db27ee5043e56f7cf18a7a12c4",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/test/unit/checkpoints/checkpoint-manager.test.ts": {
+    "mtime": 1784241498.8436658,
+    "ast_hash": "3d1b3446fec67b7d921bbd76c2e72b4f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/scripts/run-e2e.sh": {
+    "mtime": 1779186698.4865427,
+    "ast_hash": "5d4cc54137b281f04c2abc3c7c12f953",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/scripts/run-team.ts": {
+    "mtime": 1779198451.8208935,
+    "ast_hash": "0d60d5f582fdb7c27b04b01e0881da10",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/scripts/test-report.sh": {
+    "mtime": 1779186687.1654942,
+    "ast_hash": "34caa3fa234b4d78b1ef5c0b13cf443f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/scripts/run-tests-and-report.js": {
+    "mtime": 1775466088.0792139,
+    "ast_hash": "21f376a4d06562baee81a6953a256f23",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/scripts/champ": {
+    "mtime": 1781008249.0958576,
+    "ast_hash": "61a9ac330c87b06ef33422a9600bbb25",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/scripts/copy-assets.mjs": {
+    "mtime": 1781148892.726193,
+    "ast_hash": "c6393bc25a00bf83e8288df2da5360f1",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/scripts/__tests__/run-team-args.test.ts": {
+    "mtime": 1778861228.5107336,
+    "ast_hash": "e0fc7ff11a3e0e191959b1ec09660e54",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/extension-utils.ts": {
+    "mtime": 1784228512.258565,
+    "ast_hash": "f2b12038d6935fa88f675dda6f44d25b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/extension.ts": {
+    "mtime": 1784311250.7405112,
+    "ast_hash": "92c6faebb6113de69ad4e99130920ca1",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/mcp/mcp-registry.ts": {
+    "mtime": 1779157512.7497637,
+    "ast_hash": "f94963c4e08456337e35c018c19fc8f8",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/mcp/mcp-client.ts": {
+    "mtime": 1779184613.0021148,
+    "ast_hash": "e264f6279a6fca525998f5e3c919e3af",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/mcp/mcp-analytics.ts": {
+    "mtime": 1779157425.5051782,
+    "ast_hash": "9bc341a343edcc56f66f4aa135d23983",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/mcp/mcp-tool-adapter.ts": {
+    "mtime": 1777309880.0848048,
+    "ast_hash": "1f48434c0b7cc864e56efd10dd364809",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/mcp/__tests__/mcp-analytics.test.ts": {
+    "mtime": 1779157553.7670512,
+    "ast_hash": "f74f53c1080135ecc306714e2fc92225",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/mcp/__tests__/mcp-capabilities.test.ts": {
+    "mtime": 1779115785.491108,
+    "ast_hash": "4681b582cf052f5cf2a5fb469dd3d3d8",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/mcp/__tests__/mcp-sampling.test.ts": {
+    "mtime": 1779157536.9449325,
+    "ast_hash": "4ef4e324eee3c95e10dd8065c9c04b9b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/completion/inline-provider.ts": {
+    "mtime": 1778947085.5987425,
+    "ast_hash": "09bf88b1cd915709c957d836b9bed3a0",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/completion/__tests__/inline-provider.test.ts": {
+    "mtime": 1780998336.0047498,
+    "ast_hash": "45eaab6a8bffbff767d94b8783af7e94",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/server/champ-server.ts": {
+    "mtime": 1780998248.343864,
+    "ast_hash": "beaeafe239eea7eec11215f461b0e4a7",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/server/__tests__/champ-server.test.ts": {
+    "mtime": 1780998248.343864,
+    "ast_hash": "5a94d8ebf4438d512836191116d61acb",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent-manager/session-store.ts": {
+    "mtime": 1777291291.1027732,
+    "ast_hash": "4ab89171de20a49d02e5cb0269232d01",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent-manager/agent-manager.ts": {
+    "mtime": 1777285741.1218665,
+    "ast_hash": "0e1a970d043068dddd4d4dc106d1740a",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent-manager/types.ts": {
+    "mtime": 1776853853.8908396,
+    "ast_hash": "e4b7d9b3eefc9d15159cb118621f7065",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/openai.ts": {
+    "mtime": 1780998336.00675,
+    "ast_hash": "7c073405b72c9c6d4e82136cc56cfb80",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/llamacpp.ts": {
+    "mtime": 1775799101.3305168,
+    "ast_hash": "3a907884c46a371ebc9c9478c5a116f7",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/prompt-based-tools.ts": {
+    "mtime": 1778947079.1989408,
+    "ast_hash": "fc7b4a3fad7c6f846deb3ca0aeaeee30",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/rate-limited-provider.ts": {
+    "mtime": 1780998336.00675,
+    "ast_hash": "3a4ab783b78431f5f3bd97a1878f3ebd",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/vllm.ts": {
+    "mtime": 1775799101.3309088,
+    "ast_hash": "b6c7ea0c8a5bba2aabf1f83fa35a55a1",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/context-manager.ts": {
+    "mtime": 1778615680.9165828,
+    "ast_hash": "487f486c06f0e80fd5c8bdcec027b955",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/fallback-provider.ts": {
+    "mtime": 1780998336.00675,
+    "ast_hash": "55dc5a57fde491ce3f3820c052659abd",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/ollama.ts": {
+    "mtime": 1780998336.00675,
+    "ast_hash": "ae7b328b716f76bb5871cc5e4227abe5",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/types.ts": {
+    "mtime": 1780998336.00675,
+    "ast_hash": "dddb48d018d060e8b74f8132fd075a52",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/circuit-breaker.ts": {
+    "mtime": 1780998336.00575,
+    "ast_hash": "4930455d999016ae5e92cfb781ab5156",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/rate-limiter.ts": {
+    "mtime": 1779184731.0785215,
+    "ast_hash": "baaa4b1e6dcd20329ca581a523b99d44",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/response-cache.ts": {
+    "mtime": 1779156643.595057,
+    "ast_hash": "33c790869190b7142fdbcf3cfa82be8b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/smart-router.ts": {
+    "mtime": 1784311250.741511,
+    "ast_hash": "d11962775537c25ff7caee905688add7",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/claude.ts": {
+    "mtime": 1780998336.00675,
+    "ast_hash": "1fb650ba3360d56d4569460d26286e10",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/factory.ts": {
+    "mtime": 1778941721.9314125,
+    "ast_hash": "3dc05639ffb7292eca30fb75c74d391d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/registry.ts": {
+    "mtime": 1775799101.3326542,
+    "ast_hash": "575a7b35125e2487b5edf175203037ee",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/gemini.ts": {
+    "mtime": 1780998336.00675,
+    "ast_hash": "d0c2df2c299021be37207a4a9c16ab60",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/openai-compatible.ts": {
+    "mtime": 1782044520.8516235,
+    "ast_hash": "b73496b783fa870ac8769475870c4bbc",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/__tests__/response-cache.test.ts": {
+    "mtime": 1779156139.987188,
+    "ast_hash": "a9db341805c0921a6b182760ff710156",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/__tests__/fallback-provider.test.ts": {
+    "mtime": 1780998336.00575,
+    "ast_hash": "031a7475a7f51c111ee54abcea198b41",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/__tests__/circuit-breaker.test.ts": {
+    "mtime": 1780998336.00575,
+    "ast_hash": "fbaade223adf46ff74fed73d30359735",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/__tests__/smart-router-user-rules.test.ts": {
+    "mtime": 1780998336.00575,
+    "ast_hash": "3d06300717e1aa41db615a6e2ab06508",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/providers/__tests__/rate-limiter.test.ts": {
+    "mtime": 1780998336.00575,
+    "ast_hash": "62c30a3071ecec57d4433cdd478c91ba",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/config/first-run-keys.ts": {
+    "mtime": 1779117969.949673,
+    "ast_hash": "140cffe7e50cf8e5293b0fecea182744",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/config/config-loader.ts": {
+    "mtime": 1784241498.8436658,
+    "ast_hash": "72066a24f2b1886fe23d82f1e69a6b97",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/config/sample-configs.ts": {
+    "mtime": 1779172560.1281343,
+    "ast_hash": "d209a213c67b95d717b00009c2bba5c2",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/utils/workspace-path.ts": {
+    "mtime": 1776872697.4338908,
+    "ast_hash": "e7eca536714023ff9edd73b659f1b0b1",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/utils/diff-utils.ts": {
+    "mtime": 1778842610.4094713,
+    "ast_hash": "3cd73cec3caa6d03c03339412984172a",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/memory/memory-bank.ts": {
+    "mtime": 1779184693.1193907,
+    "ast_hash": "79b55fe982c5371c9c6053db0b4f9ad4",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/memory/global-memory-bank.ts": {
+    "mtime": 1779157993.2884846,
+    "ast_hash": "a0ffc48f5dff81172a1753e5aea092cd",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/memory/__tests__/global-memory-bank.test.ts": {
+    "mtime": 1779158039.843875,
+    "ast_hash": "721fbf37f781abcdb8706c6579d4e5a4",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/memory/__tests__/memory-bank-ui.test.ts": {
+    "mtime": 1779158523.6261263,
+    "ast_hash": "e6348ad903c802654d3e15933da1cedf",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/skills/skill-loader.ts": {
+    "mtime": 1775799101.334251,
+    "ast_hash": "b7ed742695a7b8b9a48f83a592ffd6e4",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/skills/built-in.ts": {
+    "mtime": 1775799101.3345127,
+    "ast_hash": "b2cbe31170c09c81219c8fc745b94680",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/skills/variable-resolver.ts": {
+    "mtime": 1775799101.3346992,
+    "ast_hash": "e86dbb1739041313760f91a277001893",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/skills/types.ts": {
+    "mtime": 1775799101.3348022,
+    "ast_hash": "e20b27bb7e75850cf0b71058a56a8f5b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/skills/skill-registry.ts": {
+    "mtime": 1775799101.3349311,
+    "ast_hash": "9c7074193ceb58ba72581a966ada4a05",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ssh/index.ts": {
+    "mtime": 1784228512.2592955,
+    "ast_hash": "ecc904efffdc8e7abbe2c0cff85175dc",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ssh/ssh-connection-pool.ts": {
+    "mtime": 1784228512.2599328,
+    "ast_hash": "844ea8c6d090894c3e28d0c89734a3fd",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ssh/types.ts": {
+    "mtime": 1784228512.2599328,
+    "ast_hash": "56197024449d1ecbac07578af4728e99",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/edit-file.ts": {
+    "mtime": 1781002383.6716666,
+    "ast_hash": "797086200d2fe507f1da61e32c3d41e4",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/fetch-url.ts": {
+    "mtime": 1778940157.4887612,
+    "ast_hash": "e79c026b93f060e62d56e48a746fb321",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/create-file.ts": {
+    "mtime": 1781002383.6716666,
+    "ast_hash": "3ba86d54d7cae3e3b1178dc1445de7d4",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/delete-file.ts": {
+    "mtime": 1781002383.6716666,
+    "ast_hash": "7a9391bc1b35a80112cab713c3dd49d7",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/grep-search.ts": {
+    "mtime": 1778723833.589123,
+    "ast_hash": "1ee012c35d7a70868c3bfdeaaba12ee2",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/list-directory.ts": {
+    "mtime": 1775799101.3356984,
+    "ast_hash": "531d0e6b6b3d47f00d289eae1ba31a89",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/publish-channel.ts": {
+    "mtime": 1778921981.315519,
+    "ast_hash": "929235fe11f3f6358ff43e2351793bb7",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/remote-edit-file.ts": {
+    "mtime": 1784228512.2602375,
+    "ast_hash": "248f34e5000b380a303805a7e0a06e88",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/git-tool.ts": {
+    "mtime": 1784228512.2599328,
+    "ast_hash": "514d2dd149ad1fa2169e47508612169d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/run-terminal.ts": {
+    "mtime": 1779156874.0498204,
+    "ast_hash": "7f2056a397f533cf5d64e9a1fc1a7936",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/file-search.ts": {
+    "mtime": 1775799101.3360298,
+    "ast_hash": "e22c92cf91c3a900d5fb03861d401894",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/generate-diagram.ts": {
+    "mtime": 1778947079.1989408,
+    "ast_hash": "e024337b13f5187e5accca63f5439a34",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/types.ts": {
+    "mtime": 1784228512.2602375,
+    "ast_hash": "c688261b89549e359a5a9d0e0476419a",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/browser.ts": {
+    "mtime": 1784228512.2599328,
+    "ast_hash": "88405840ece8e9c64e7903c8d09afd99",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/remote-run-terminal.ts": {
+    "mtime": 1784228512.2602375,
+    "ast_hash": "de6774114d505a207d991178a78f28f3",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/read-file.ts": {
+    "mtime": 1778949489.055172,
+    "ast_hash": "e60b0c7b90e342b3865d64ef88cbd095",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/codebase-search.ts": {
+    "mtime": 1776941234.6148865,
+    "ast_hash": "5542b5a84880a0d7e2100e2cdf8b1b67",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/run-tests.ts": {
+    "mtime": 1778947085.6159496,
+    "ast_hash": "fcb20540d078ea07fb7236a3280da53d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/web-search.ts": {
+    "mtime": 1784228512.2602375,
+    "ast_hash": "62f7967c08815546803d158e3021946b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/registry.ts": {
+    "mtime": 1778857789.5861816,
+    "ast_hash": "1e4b2e21fda83d8c751d41677fc6e2d6",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/generate-doc.ts": {
+    "mtime": 1778947079.1989408,
+    "ast_hash": "5185d62f74245a5a874b21d7acdb7daf",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/git/github-api.ts": {
+    "mtime": 1784228512.2602375,
+    "ast_hash": "c0bb37bdd0a68bbc0586f0bffc776bba",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/git/git-utils.ts": {
+    "mtime": 1784228512.2599328,
+    "ast_hash": "77646e1fb1220aa1cf7d16bde66fdab1",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/tools/__tests__/publish-channel.test.ts": {
+    "mtime": 1778921981.315519,
+    "ast_hash": "940ce5725277075320a99974dc9d032d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/composer/composer-controller.ts": {
+    "mtime": 1781158553.4506505,
+    "ast_hash": "550209ccb5bd8fd6732ef8456cf94f6f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/types/hnswlib-node.d.ts": {
+    "mtime": 1784311250.741511,
+    "ast_hash": "a83044895e902e2867647526fabf2ca7",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/safety/os-level-sandbox.ts": {
+    "mtime": 1784241498.8436658,
+    "ast_hash": "23ab73d0654a78fc94e6571c4c03ee02",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/safety/pii-scanner.ts": {
+    "mtime": 1777292928.052015,
+    "ast_hash": "3dc1ddb73fc20dda480d2c9181714aed",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/safety/prompt-guard.ts": {
+    "mtime": 1777292955.6900709,
+    "ast_hash": "bd8e21ad9d499d1984480f2fe1e803f2",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/safety/command-sandbox.ts": {
+    "mtime": 1776872726.717923,
+    "ast_hash": "e63a8c4a720acc1fd51173de0d085734",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/prompts/system-prompt.ts": {
+    "mtime": 1775799101.3373735,
+    "ast_hash": "7bd6d9060dc4806cbd853176f93af9c3",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/upload/file-upload-service.ts": {
+    "mtime": 1775799101.3376036,
+    "ast_hash": "5fb1884baab5405a5974433164721b16",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/agent-controller.ts": {
+    "mtime": 1784226445.5428455,
+    "ast_hash": "b46a21db86c37075bcf448ac617722b3",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/team-agent.ts": {
+    "mtime": 1781002383.6706665,
+    "ast_hash": "a2f8b2ac5236e4646371ff6beaf88cf9",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/context-resolver.ts": {
+    "mtime": 1779156873.8588202,
+    "ast_hash": "c808bc99cf851dc4c9247693d0818368",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/template-interpolator.ts": {
+    "mtime": 1778823007.226591,
+    "ast_hash": "a900f0a96ed4960662e7b7dbec6cb577",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/staged-edits.ts": {
+    "mtime": 1778949634.3626359,
+    "ast_hash": "0af726e1998cb49ff2de6bc72425f64f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/team-loader.ts": {
+    "mtime": 1780998314.138133,
+    "ast_hash": "99f8413a59efd1eab96ef68d36b08f85",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/team-definition.ts": {
+    "mtime": 1780998314.138133,
+    "ast_hash": "f7b7762621170386fb8ca7d58274bb6c",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/agent-worker-bridge.ts": {
+    "mtime": 1779156397.6678145,
+    "ast_hash": "7cd388d35f9572fba6ecf67ac0c53296",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/transaction-manager.ts": {
+    "mtime": 1784228512.258565,
+    "ast_hash": "75805e1d943331d7c30a5088e000e194",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/test-driven-fix-loop.ts": {
+    "mtime": 1784228512.258565,
+    "ast_hash": "0f9b51ccc1f021d368b00005939feefa",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/multi-agent-runner.ts": {
+    "mtime": 1781158553.4506505,
+    "ast_hash": "67f643363b68d70e3c59b60f77dae33e",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/terminal-output-buffer.ts": {
+    "mtime": 1779156873.8628201,
+    "ast_hash": "48e5cddfe34c77fd02d52ec7c63c5426",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/team-runner.ts": {
+    "mtime": 1781002383.6706665,
+    "ast_hash": "6b4bb7e878213addc38897d08cf5d072",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/shared-memory.ts": {
+    "mtime": 1780998324.4028995,
+    "ast_hash": "1c16787ba291587edabd73f24f2bf13f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/condition-evaluator.ts": {
+    "mtime": 1779202385.2000659,
+    "ast_hash": "61088db76b8ba8b00d5235d244eb9bfa",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/auto-fix.ts": {
+    "mtime": 1775799101.3400939,
+    "ast_hash": "2bcebcb59907af490912d9d8c508bfeb",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/system-prompt-builder.ts": {
+    "mtime": 1781279373.974805,
+    "ast_hash": "1afa7073a0d705124f8ddeeac2d09d70",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/tool-calling-loop.ts": {
+    "mtime": 1784311250.739511,
+    "ast_hash": "a1f4da4e3e2952d01a556a19edeec931",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/text-tool-call-parser.ts": {
+    "mtime": 1780994336.0635555,
+    "ast_hash": "d327a4bfd3d97bbf22c374b45e5c26d8",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/edit-review-tracker.ts": {
+    "mtime": 1778854553.3643637,
+    "ast_hash": "86f720caa2a9001cd27ecfe6340cdc1a",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/workflow-runner.ts": {
+    "mtime": 1781158553.4506505,
+    "ast_hash": "5826a565ade1ee51aca375fa505a326f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/agent-registry.ts": {
+    "mtime": 1778613240.0424833,
+    "ast_hash": "cade4e33c8751d14cff565cfbff74eb8",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/agent-loader.ts": {
+    "mtime": 1778612165.0370748,
+    "ast_hash": "6e0e38c8a0c730471c1754156d41e82d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/trigger-manager.ts": {
+    "mtime": 1778615429.3327827,
+    "ast_hash": "571edd2bb7c3cb317e0506f6aec35916",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/agents/validator-agent.ts": {
+    "mtime": 1775799101.3385417,
+    "ast_hash": "b168073d5b9def112f65adb73bc7984b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/agents/code-agent.ts": {
+    "mtime": 1775799101.338699,
+    "ast_hash": "97530211b8597448595fb296741162cf",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/agents/llm-agent-base.ts": {
+    "mtime": 1778824760.93799,
+    "ast_hash": "6875d7968e915d962750086da2e3989a",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/agents/types.ts": {
+    "mtime": 1780998324.4028995,
+    "ast_hash": "80afc280a383de0412fa54fc88442249",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/agents/context-agent.ts": {
+    "mtime": 1778615684.5585945,
+    "ast_hash": "c255273b9d4f5a1fe4666b3e3d6bc98b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/agents/planner-agent.ts": {
+    "mtime": 1775799101.3392823,
+    "ast_hash": "64b72dda1fb294407fd02d4b9bd52ace",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/agents/custom-agent.ts": {
+    "mtime": 1778612165.050928,
+    "ast_hash": "68056e9a9e7f09a2ac00f2f63dce7429",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/agents/file-agent.ts": {
+    "mtime": 1775799101.3393993,
+    "ast_hash": "588dd5e9bc843093f3b7b91785abc0b7",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/agents/reviewer-agent.ts": {
+    "mtime": 1775799101.3395557,
+    "ast_hash": "62db9cd61cba9d3560f9be61243d8feb",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/__tests__/spawn-extraction.test.ts": {
+    "mtime": 1778921981.315519,
+    "ast_hash": "fd81f5eb4972f95a2772a17ae1d50c23",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/__tests__/dynamic-agent-graphs.test.ts": {
+    "mtime": 1780998314.137133,
+    "ast_hash": "5489681fa36229873132242597b0b355",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/__tests__/transaction-manager.test.ts": {
+    "mtime": 1784228512.2572954,
+    "ast_hash": "711dba25907c987ef95721bc53caee87",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/__tests__/context-resolver-phase2.test.ts": {
+    "mtime": 1779156873.72182,
+    "ast_hash": "b795ea351d1d84d74d7b0d53bcb95805",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/__tests__/team-runner-pause.test.ts": {
+    "mtime": 1780998314.137133,
+    "ast_hash": "30442e3871a307b004928bbc646489a8",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/__tests__/github-context-refs.test.ts": {
+    "mtime": 1779155859.3465245,
+    "ast_hash": "01dfffcd0b3d828cf8f947f5e9a4e3be",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/__tests__/mcp-context-resolution.test.ts": {
+    "mtime": 1779116025.2012625,
+    "ast_hash": "5af1dc41a6a0eb09199bab2e897b8725",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/__tests__/agent-worker-bridge.test.ts": {
+    "mtime": 1779156397.5788155,
+    "ast_hash": "a46d6fd5ee882c288141bd483f3c1cbf",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/__tests__/shared-memory-channels.test.ts": {
+    "mtime": 1778921981.315519,
+    "ast_hash": "2272e8ec871eb6f37d307d99b92cc057",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/delegation/index.ts": {
+    "mtime": 1784228512.258565,
+    "ast_hash": "7283214a1c302dee5f98b81cc0e031ca",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/delegation/types.ts": {
+    "mtime": 1784228512.258565,
+    "ast_hash": "7ff6c477cd4f1ee0405409e5df03992e",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/agent/delegation/delegation-manager.ts": {
+    "mtime": 1784241498.8427584,
+    "ast_hash": "7d739965d8cad10df721a3892040bbb0",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/observability/audit-log.ts": {
+    "mtime": 1779172560.128721,
+    "ast_hash": "b1cddb7660cf81ee941d77d593d719ad",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/observability/agent-analytics.ts": {
+    "mtime": 1776854506.2432225,
+    "ast_hash": "b67d75a4fb48509b0b1c11428ce66105",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/observability/metrics-collector.ts": {
+    "mtime": 1779128506.6265273,
+    "ast_hash": "2df0924dd0d8bbf13791c753e25aaaee",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/observability/__tests__/audit-log.test.ts": {
+    "mtime": 1779170003.6386442,
+    "ast_hash": "6b007392c00a9353f359360a4c29527d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/marketplace/team-marketplace-client.ts": {
+    "mtime": 1778860949.898222,
+    "ast_hash": "508e3485254e7e41933921eb6a936e33",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/marketplace/mcp-marketplace-client.ts": {
+    "mtime": 1778938206.2479072,
+    "ast_hash": "a3b8302891fba581cf19afa202e79f27",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/marketplace/__tests__/team-marketplace-e2e.test.ts": {
+    "mtime": 1778861316.1748526,
+    "ast_hash": "de33e0687f2c68e97ffcc82e38fde1e0",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/marketplace/__tests__/team-marketplace-client.test.ts": {
+    "mtime": 1778860949.8752189,
+    "ast_hash": "c7232503585b2fa9c4b9b40bf1bced93",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/marketplace/__tests__/mcp-marketplace-client.test.ts": {
+    "mtime": 1778938307.3560083,
+    "ast_hash": "dbb6ade984fa27c9934adcb3037df403",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/marketplace/__tests__/manifest-json.test.ts": {
+    "mtime": 1778860989.1681626,
+    "ast_hash": "002125d6185dadfd3ef74a83298b2f8e",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/telemetry/event-buffer.ts": {
+    "mtime": 1776859964.7994235,
+    "ast_hash": "ffb68b9f28f5f990477d34dbc663de83",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/telemetry/analytics-exporter.ts": {
+    "mtime": 1780998190.344922,
+    "ast_hash": "f17a020aa0df3aca6a52e85ae5b8fc60",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/empty-state-prompts.ts": {
+    "mtime": 1779117700.9602134,
+    "ast_hash": "6919e1776960b67d98a9c451af6cd3f4",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/rules-editor-panel.ts": {
+    "mtime": 1779121775.6557493,
+    "ast_hash": "bff1fb6b2fd0ff5b557598804698908a",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/workflow-store.ts": {
+    "mtime": 1778723944.2327268,
+    "ast_hash": "ca64d4819cf893bbac3e687bc44d51cf",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/team-builder-panel.ts": {
+    "mtime": 1779121775.6557493,
+    "ast_hash": "85824dad01dea53ed9d586c4bcd4819a",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/messages.ts": {
+    "mtime": 1784311250.742511,
+    "ast_hash": "0311b5c09d726bc13ad0f3116c4fb990",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/diff-overlay-controller.ts": {
+    "mtime": 1779119404.642878,
+    "ast_hash": "16bc0b98db1cfe862a16c0713ecf5db1",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/workflow-panel.ts": {
+    "mtime": 1778848968.489595,
+    "ast_hash": "f57781c36901abd3adf65aeb7f86778d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/workflow-session.ts": {
+    "mtime": 1781158553.4516504,
+    "ast_hash": "7267cdd588d9d0233744937863def012",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/memory-panel.ts": {
+    "mtime": 1779121775.6557493,
+    "ast_hash": "8ac1c0cfdf4804eba0feee3d8c2de3e1",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/chat-view-provider.ts": {
+    "mtime": 1784311250.742511,
+    "ast_hash": "98238c4be664ffee7575e3bcffd36f57",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/team-run-store.ts": {
+    "mtime": 1780998190.344922,
+    "ast_hash": "a3148a401f838ac8559c7f9e66bebbef",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/team-panel.ts": {
+    "mtime": 1779115729.0554638,
+    "ast_hash": "34390a8d4156ffc85dd44d8e64ca1477",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/__tests__/memory-messages.test.ts": {
+    "mtime": 1779114751.5038931,
+    "ast_hash": "f42867297f97a78d4702a3f2c006efd3",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/__tests__/diff-overlay-controller.test.ts": {
+    "mtime": 1778917259.7587974,
+    "ast_hash": "c22652a7bed99b057dd8aeb1c5845bc2",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/__tests__/diff-run-in-terminal.test.ts": {
+    "mtime": 1779119786.5034828,
+    "ast_hash": "c8ffa308bba28f853f24adb01dba0564",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/__tests__/team-execution-messages.test.ts": {
+    "mtime": 1779115431.6549852,
+    "ast_hash": "01fecc37c1cc28d16d94de7549943b93",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/__tests__/memory-panel.test.ts": {
+    "mtime": 1779114785.9386847,
+    "ast_hash": "ab0cd8b9cb922b4ef87c9a351dc8f7c1",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/__tests__/concurrent-runs.test.ts": {
+    "mtime": 1779157196.831158,
+    "ast_hash": "cb2c6268ee7967cceb8b9481aefa3d72",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/__tests__/team-builder-panel.test.ts": {
+    "mtime": 1779120494.4705327,
+    "ast_hash": "71fce94bec97fdaf16e56d7769673943",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/ui/__tests__/onboarding.test.ts": {
+    "mtime": 1779121864.7992508,
+    "ast_hash": "25b1b9c6dde9f61bba519bf3703821cc",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/rules/rules-engine.ts": {
+    "mtime": 1778615694.2566257,
+    "ast_hash": "ef276fdc2c3bfe0ea6540cfe1fc39e4c",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/indexing/vector-store.ts": {
+    "mtime": 1784311250.741511,
+    "ast_hash": "a98e540e8bbbc4c43595b0e7038cd818",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/indexing/chunking-service.ts": {
+    "mtime": 1784311250.7405112,
+    "ast_hash": "35122c83e018e97da02d672a2abab745",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/indexing/embedding-probe.ts": {
+    "mtime": 1778914226.9284658,
+    "ast_hash": "63c25146eb92373014cafed9bfc37388",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/indexing/repo-map-builder.ts": {
+    "mtime": 1775799101.3432217,
+    "ast_hash": "8a650e07654598063eb30357d691bf0b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/indexing/embedding-service.ts": {
+    "mtime": 1784311250.7405112,
+    "ast_hash": "c4edfd088213f249bc773f5f2a4f58da",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/indexing/indexing-service.ts": {
+    "mtime": 1784311250.741511,
+    "ast_hash": "048d82af7320ba8074f9f6b16681c473",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/indexing/__tests__/embedding-probe.test.ts": {
+    "mtime": 1778914226.9224658,
+    "ast_hash": "cf92ed11602d6febe41ee358161e6195",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/checkpoints/checkpoint-store.ts": {
+    "mtime": 1784241498.8427584,
+    "ast_hash": "52aee972f34c073e7022c218f55f6409",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/src/checkpoints/checkpoint-manager.ts": {
+    "mtime": 1784228512.258565,
+    "ast_hash": "bf7d19a15d59e3f4d60aaedbfbf38071",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/marketplace/mcp-manifest.json": {
+    "mtime": 1778914022.8969312,
+    "ast_hash": "3161915de6aa3b24dc481b0b89b18d34",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/marketplace/manifest.json": {
+    "mtime": 1778860970.8989017,
+    "ast_hash": "5d7a17a0710cd9e5884842da3c12fdb5",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.vscode/launch.json": {
+    "mtime": 1775417317.3825994,
+    "ast_hash": "352a49232c728fc83126307615791756",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.vscode/settings.json": {
+    "mtime": 1775417350.7064054,
+    "ast_hash": "a23557d95fd62f3016746b607c1cae71",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.vscode/tasks.json": {
+    "mtime": 1775417354.3694925,
+    "ast_hash": "75acd2ea7e369b413a62d3556e7a3b35",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpcolcmx/checkpoint-deepanshu.json": {
+    "mtime": 1779198108.5089996,
+    "ast_hash": "f5b0270d44d6977bccb5338ea7281e51",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpcolcmx/checkpoint-avinash.json": {
+    "mtime": 1779198375.8916733,
+    "ast_hash": "767799a20fc69f69f5f121026194b31b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpcolcmx/checkpoint-tushar.json": {
+    "mtime": 1779198158.3132975,
+    "ast_hash": "28307d0f72c072d38c4c8a6e01a59f68",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpcolcmx/checkpoint-animesh.json": {
+    "mtime": 1779198289.7686355,
+    "ast_hash": "c5121f3af539f952a27bb00447a5be94",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpcolcmx/checkpoint-preksha.json": {
+    "mtime": 1779198256.7470293,
+    "ast_hash": "09b7a4c820e63546c99c8daa5f061ccf",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpcolcmx/checkpoint-prahlad.json": {
+    "mtime": 1779198191.8758483,
+    "ast_hash": "c6dc69e750c7ae0321a46ebed698e6f6",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpcolcmx/checkpoint-mohit.json": {
+    "mtime": 1779198225.96041,
+    "ast_hash": "acb21ee21154be29b41ad3d8f9a18160",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpcp4hcn/checkpoint-deepanshu.json": {
+    "mtime": 1779199080.4239755,
+    "ast_hash": "7d0f9c4a2ca4c19de84bd8d7f6c98f24",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpcp4hcn/checkpoint-avinash.json": {
+    "mtime": 1779199236.4246247,
+    "ast_hash": "58cf9904423341ec67a4b77c1f24af2c",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpcp4hcn/checkpoint-tushar.json": {
+    "mtime": 1779199052.125159,
+    "ast_hash": "75424d06768da46a054c9db13dc457d8",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpcp4hcn/checkpoint-animesh.json": {
+    "mtime": 1779198993.2765484,
+    "ast_hash": "7374ec898a49a53b684fe939ed53b555",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpcp4hcn/checkpoint-preksha.json": {
+    "mtime": 1779199157.3994873,
+    "ast_hash": "d371ab4049a764ca2e0db9bb4f0ec6f4",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpcp4hcn/checkpoint-prahlad.json": {
+    "mtime": 1779199021.705359,
+    "ast_hash": "19277105d6e1a540a7c8a3434ae3f7fd",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpcp4hcn/checkpoint-mohit.json": {
+    "mtime": 1779199125.0256908,
+    "ast_hash": "dc7ab4905235b4b9eeaf674490bfa84f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpcqpw7s/checkpoint-tushar_design.json": {
+    "mtime": 1779201693.6445837,
+    "ast_hash": "a36d88426d517f2314a339e26ed68df6",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpcoezri/checkpoint-animesh.json": {
+    "mtime": 1779197862.8272376,
+    "ast_hash": "4fe64f832b41c7cb845193635dbcea86",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpco7rk2/checkpoint-deepanshu.json": {
+    "mtime": 1779197569.8307993,
+    "ast_hash": "5ddfc570da41499414267ac03e4cc6c0",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpco7rk2/checkpoint-tushar.json": {
+    "mtime": 1779197857.0893552,
+    "ast_hash": "66c286e4274b5a584129e14c3a48b85f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpco7rk2/checkpoint-animesh.json": {
+    "mtime": 1779197450.5320673,
+    "ast_hash": "5bbb5572288a8a4008124f0ecb81f82f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpco7rk2/checkpoint-preksha.json": {
+    "mtime": 1779197584.6783252,
+    "ast_hash": "c88bbf885e8cbe81858a9b06636d9783",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpco7rk2/checkpoint-prahlad.json": {
+    "mtime": 1779197828.7399514,
+    "ast_hash": "3dcfe18ac73f74363ba86699906f655c",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/team-runs/team-mpco7rk2/checkpoint-mohit.json": {
+    "mtime": 1779197443.718338,
+    "ast_hash": "a479e3aa8538adafd1af3f885807137c",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/CHANGELOG.md": {
+    "mtime": 1777308383.7216864,
+    "ast_hash": "e16097c479a95ccb4af79c32929c6f29",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/README.md": {
+    "mtime": 1775986318.9599023,
+    "ast_hash": "c6b9376165fcb0b1a048d1b0347d22d3",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/OPTIMIZATIONS.md": {
+    "mtime": 1784311250.738511,
+    "ast_hash": "95389f62af98101a37f7a86a6f2376f4",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.superpowers/brainstorm/388473-1778656824/content/waiting.html": {
+    "mtime": 1778657620.7844467,
+    "ast_hash": "82b179cb40571b6b1c649dcf286e5af0",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.superpowers/brainstorm/388473-1778656824/content/history-strip.html": {
+    "mtime": 1778657593.6094286,
+    "ast_hash": "6da62a376211f03b94d077006c2bd60c",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.superpowers/brainstorm/388473-1778656824/content/step-detail.html": {
+    "mtime": 1778657025.4416451,
+    "ast_hash": "6804873902ba0ea4dcb1209099e3af19",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.superpowers/brainstorm/388473-1778656824/content/diff-ux.html": {
+    "mtime": 1778657314.4827707,
+    "ast_hash": "a8ce74e314289fab6eafe84e4f8486aa",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.superpowers/brainstorm/388473-1778656824/content/panel-location.html": {
+    "mtime": 1778656892.911312,
+    "ast_hash": "25fbc6f35525831be87d326def780641",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.superpowers/brainstorm/388473-1778656824/content/control-model.html": {
+    "mtime": 1778657233.3141034,
+    "ast_hash": "521d7180dfeda9a76968212f1197d7a0",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/USER_GUIDE.md": {
+    "mtime": 1778724937.5755348,
+    "ast_hash": "6016b26d9eba5084152b3e807cf35c73",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/IMPLEMENTATION_ROADMAP.md": {
+    "mtime": 1775986176.263397,
+    "ast_hash": "51f8dab9ef8c7e2a6cdd718a10528144",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/PLAN_AGENT_MANAGER.md": {
+    "mtime": 1775986176.263591,
+    "ast_hash": "70ff79c5b5f0c07a4aaca68a63396f1f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/CONFIG.md": {
+    "mtime": 1775986176.2628648,
+    "ast_hash": "714642d82fdcb6d46fe4eefb611dfcb4",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/IMPL_CHAT_UI_V2.md": {
+    "mtime": 1775986176.263206,
+    "ast_hash": "75fc92c05dd39e68c6e9b534f6280f95",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/TEAMS.md": {
+    "mtime": 1778775426.239272,
+    "ast_hash": "66382015b225d4aa6ff366e4bdc82da5",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/HALLUCINATION_MITIGATION.md": {
+    "mtime": 1775986176.2630467,
+    "ast_hash": "86f91eeb2946b56d31a7e7f5976802af",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/MODEL_CAPABILITY_GUIDE.md": {
+    "mtime": 1778606458.6129022,
+    "ast_hash": "b6348fcce1867760c83c681683e9041d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/SETUP_GUIDE.md": {
+    "mtime": 1775986176.264088,
+    "ast_hash": "c41b9da1b53adade0c780356aec55b27",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/IMPL_CHAT_HISTORY.md": {
+    "mtime": 1775986366.5312152,
+    "ast_hash": "31ae5d0d9170d3b6ad4e798303322e37",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/MODEL_GUIDE.md": {
+    "mtime": 1775986176.263546,
+    "ast_hash": "349b144ead29aabc5f326b029748aa34",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/GAP_ANALYSIS.md": {
+    "mtime": 1775986176.2629957,
+    "ast_hash": "cae45f67224622d638110f4908d83a91",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/PLAN_ROADMAP_V2.md": {
+    "mtime": 1775986176.2637298,
+    "ast_hash": "be6bafe8d030269397c87173cf26e84f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/FEATURES_GUIDE.md": {
+    "mtime": 1778632751.7002397,
+    "ast_hash": "0924338ba6b7cd510286641fbeab3e08",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/AUDIT_AND_ROADMAP_2026-05.md": {
+    "mtime": 1778604046.1849802,
+    "ast_hash": "a1a2425d024f1af9bc9149fbf60da35e",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/PLAN_CHAT_UI_V2.md": {
+    "mtime": 1775986176.2636447,
+    "ast_hash": "8fdefb642f1d9a152b685d7bdfb39a17",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/ANALYSIS_TABBED_CHAT_UI.md": {
+    "mtime": 1775986385.8627775,
+    "ast_hash": "5f4fdc8161d453b44422115b720a2c38",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/ARCHITECTURE.md": {
+    "mtime": 1775986176.2626948,
+    "ast_hash": "03ebe22ddd29de468516385e1cf09f5c",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/SYSTEM_PROMPTS.md": {
+    "mtime": 1775986176.264302,
+    "ast_hash": "505b7becd733766af062a1ec5ff087cd",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/API_REFERENCE.md": {
+    "mtime": 1775986176.2622333,
+    "ast_hash": "23f2ed03db6060e690683fcd0c7e42de",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/PUBLISHING.md": {
+    "mtime": 1775986366.5314825,
+    "ast_hash": "5f06692597949b119458ddd0b772ff9c",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/PLAN_SKILLS.md": {
+    "mtime": 1775986176.2637856,
+    "ast_hash": "46147a9f3ceb3d90bd31006ae7389b9e",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/DESIGN_SMART_MODEL_ROUTING.md": {
+    "mtime": 1775986176.2629128,
+    "ast_hash": "5c129edd3d25b648f80b2bca151e1e09",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-15-per-tool-approval-preview.md": {
+    "mtime": 1778856424.84127,
+    "ast_hash": "c6a3e46488b29b7ce8a43cb09842304c",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-12-phase1-gap-fixes.md": {
+    "mtime": 1778604335.0835779,
+    "ast_hash": "0b6a6195155c6a0dc215cc3b09246a72",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-18-sprint-m-session-memory-ui.md": {
+    "mtime": 1779114058.99811,
+    "ast_hash": "fbcdd5ebc794752deb7f5f06b4e6c3f8",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-04-27-mcp-full-integration.md": {
+    "mtime": 1777307349.2981594,
+    "ast_hash": "1136b6bfaa8c841c6c376008163761c3",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-18-sprint-k-onboarding-model-picker.md": {
+    "mtime": 1779114014.324058,
+    "ast_hash": "d854116c1d30c98255622054d47eae1d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-15-mcp-hot-reload-reconnect.md": {
+    "mtime": 1778857071.56411,
+    "ast_hash": "53ce6927e0b0bac31d28014eab401ee1",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-16-dynamic-agent-graphs.md": {
+    "mtime": 1778909496.3278332,
+    "ast_hash": "8d53d4c5e06d1578d2855fa5f53f80cb",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-16-incremental-preact.md": {
+    "mtime": 1778909736.3534613,
+    "ast_hash": "575a075db8d531be45c893e222990175",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-13-agent-studio.md": {
+    "mtime": 1778658127.8357875,
+    "ast_hash": "0b8e17e264893efd4630393213eda203",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-04-22-audit-fixes.md": {
+    "mtime": 1776838793.7814252,
+    "ast_hash": "fc42f6793482dbf8952b348098fc9ff5",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-04-22-multi-agent-analytics-rich-content.md": {
+    "mtime": 1776847182.9044073,
+    "ast_hash": "e584cf4fc9db4bb2dc23fea599a42f9f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-16-inline-diff-overlay.md": {
+    "mtime": 1778909347.5418053,
+    "ast_hash": "e0d990b2378278b0b30a39f612b08b8e",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-13-phase3.md": {
+    "mtime": 1778611189.910238,
+    "ast_hash": "198f8e7e73b6cba8b886d13b01ce6e74",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-13-gap-fixes.md": {
+    "mtime": 1778666216.1142712,
+    "ast_hash": "d66d3e7d311a46575f69b0a8ec1e3b92",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-16-mcp-marketplace-auto-index.md": {
+    "mtime": 1778909217.576891,
+    "ast_hash": "07fecac0644b13640d48631a25d6f749",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-04-27-audit-fixes.md": {
+    "mtime": 1777287473.7071528,
+    "ast_hash": "e26bfeebe74a2b899d47c256d8385721",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-15-audit-gaps-a-b-c-d.md": {
+    "mtime": 1778853212.4002244,
+    "ast_hash": "58ccea31a37e8d516bdfcc5359fcb42d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-15-marketplace-headless.md": {
+    "mtime": 1778857130.3993971,
+    "ast_hash": "c536cfe80a6d565fbbe76d689c78a93c",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-15-closing-the-gaps.md": {
+    "mtime": 1778840263.0452363,
+    "ast_hash": "b95018e526b28526ae3f54ebf88192ce",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-12-phase2.md": {
+    "mtime": 1778608182.04337,
+    "ast_hash": "b04cce5240ae9cd4069cad50742d130a",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-18-sprint-n-agent-execution-console.md": {
+    "mtime": 1779114188.4341059,
+    "ast_hash": "f676264b156f48d139acf16668177f22",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-15-auto-context-injection.md": {
+    "mtime": 1778857092.5275693,
+    "ast_hash": "3b71c00d1a53cfdd83b209f78a1a3e76",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-18-sprint-p-visual-team-builder.md": {
+    "mtime": 1779114069.2111464,
+    "ast_hash": "f4e48444a9d2f401c14add1325658073",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-18-sprint-j-chat-ui-polish.md": {
+    "mtime": 1779114038.2560635,
+    "ast_hash": "cd7a5b0798e62de8ca33913915d77d60",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-18-sprint-l-mcp-protocol-completion.md": {
+    "mtime": 1779113947.7283583,
+    "ast_hash": "fdf3ddb4579308ecffa26d611b6c52ee",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-18-sprint-o-diff-terminal-ux.md": {
+    "mtime": 1779113980.3541486,
+    "ast_hash": "0ac4065e1826ed6e7c1265ad978d28f6",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-15-atomic-changeset.md": {
+    "mtime": 1778856485.463742,
+    "ast_hash": "02704eb65a04875c4a7ac9fc3861a06f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/plans/2026-05-14-agent-teams.md": {
+    "mtime": 1778773261.4815998,
+    "ast_hash": "133698a2f42aa6fa93ff6a891f69f44d",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/specs/2026-05-16-dynamic-agent-graphs.md": {
+    "mtime": 1778908233.9187002,
+    "ast_hash": "9e9adf7eee1feb6581e4778bf7995811",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/specs/2026-05-16-incremental-preact.md": {
+    "mtime": 1778908399.5686524,
+    "ast_hash": "755524b9cb41e035b78a370b050a2836",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/specs/2026-05-16-inline-diff-overlay.md": {
+    "mtime": 1778908137.447637,
+    "ast_hash": "43f6f61e41ce65f0b11a46d5098489b9",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/specs/2026-05-16-mcp-marketplace-auto-index.md": {
+    "mtime": 1778908059.7522593,
+    "ast_hash": "7404347e1ca32ced5bcb7920d0192427",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/superpowers/specs/2026-05-18-platform-roadmap.md": {
+    "mtime": 1779128158.36876,
+    "ast_hash": "c01ab45ed78e3618555136b75bbd1956",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/docs/devops-team/team-directory.md": {
+    "mtime": 1778952298.3082728,
+    "ast_hash": "c0dc43256c00628009bf8a05a5aa7152",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/config.yaml": {
+    "mtime": 1784247277.3625543,
+    "ast_hash": "9dfa42d9b92d1a1477a2101c5204c473",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/teams/devops-incident-response.yaml": {
+    "mtime": 1779202364.2090902,
+    "ast_hash": "9b5019ab3029166a49fd0f1001e451b5",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/teams/devops-standup.yaml": {
+    "mtime": 1779194237.4030106,
+    "ast_hash": "2b91c0f8649721ec352efedfed8196c0",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/teams/nginx-ui.yaml": {
+    "mtime": 1779201075.8240774,
+    "ast_hash": "6de7ec05e7765a34402eb82bb7089e3c",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/teams/platform-engineering-team.yaml": {
+    "mtime": 1779194245.710151,
+    "ast_hash": "553bacabf8ab933e7a15e39e54c8d2c9",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/teams/demo-mobile-cicd.yaml": {
+    "mtime": 1779202364.2139618,
+    "ast_hash": "51721d28d39e11ff979f1efbc360b8da",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/teams/devops-deployment-review.yaml": {
+    "mtime": 1779202364.2035973,
+    "ast_hash": "cf4a8765eaddc43bcbdba3f980931684",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/teams/devops-task-routing.yaml": {
+    "mtime": 1779202411.7580554,
+    "ast_hash": "445550f7a01e30ea4b52e85fb0a229d6",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/templates/teams/devops-platform.yaml": {
+    "mtime": 1778823024.7183392,
+    "ast_hash": "40bfe313431c50788457d5ec7fc8305f",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/templates/teams/dynamic-research.yaml": {
+    "mtime": 1778921981.3129823,
+    "ast_hash": "85e41c3dfb1880891f45abb124b9cabd",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/templates/teams/fullstack-feature.yaml": {
+    "mtime": 1778775368.9525154,
+    "ast_hash": "4fa30704a20b4bf76f0e6b453fc9753b",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/templates/teams/incident-response.yaml": {
+    "mtime": 1778775389.3050756,
+    "ast_hash": "b37d323e9f5fe128509a4f16666a80a1",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.champ/templates/teams/code-review.yaml": {
+    "mtime": 1778823002.9134061,
+    "ast_hash": "9b9159dc98165e8ea8baa2c85835ddf5",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/.github/workflows/ci.yml": {
+    "mtime": 1780994336.0635555,
+    "ast_hash": "062476cecdcb48259c87e365fadfc0ca",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/examples/config.vllm-basic.yaml": {
+    "mtime": 1775799233.453495,
+    "ast_hash": "ce4d7a326027db72bedf681bf93fc5ab",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/examples/config.llamacpp.yaml": {
+    "mtime": 1775799233.4536145,
+    "ast_hash": "d81942e04d2978f19c08c4da76d18926",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/examples/README.md": {
+    "mtime": 1775799233.4537163,
+    "ast_hash": "ab350fbd3813b560963c9fbc98bd7d8e",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/examples/config.cloud-fallback.yaml": {
+    "mtime": 1775799233.4538188,
+    "ast_hash": "db620c0f6dc8f6a5d2d8a66e91c24cb3",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/examples/config.vllm-multi.yaml": {
+    "mtime": 1775799233.4539285,
+    "ast_hash": "8c8e95eb5eb38647cdd9511938ad183e",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/examples/config.team-shared.yaml": {
+    "mtime": 1775799233.454063,
+    "ast_hash": "24ae99b2db4b8a22ba87b10e5b46e299",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/examples/config.ollama-basic.yaml": {
+    "mtime": 1775799233.45417,
+    "ast_hash": "50608bc16646580490a7c4673c0d2747",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/examples/config.ollama-dual-model.yaml": {
+    "mtime": 1775799233.4542618,
+    "ast_hash": "6245f39622568081daf92b23bc8c6438",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/media/icon.svg": {
+    "mtime": 1775802356.5780418,
+    "ast_hash": "9f31737adf7511c68ccff37cc5895f09",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/media/icon-marketplace.svg": {
+    "mtime": 1775802385.6280546,
+    "ast_hash": "931fc193028cd08ce3a5e5c65f3f9bfc",
+    "semantic_hash": ""
+  },
+  "/home/dk/Documents/git/vs-code-plugin/media/icon.png": {
+    "mtime": 1775459706.48278,
+    "ast_hash": "cf11327e01aaf31c3eb839dde4285f3e",
+    "semantic_hash": ""
+  }
+}

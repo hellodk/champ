@@ -3168,6 +3168,42 @@ export async function activate(
         });
         newProvider = rateLimited;
       }
+
+      // Probe connectivity for local providers (ollama, llamacpp, vllm).
+      // This surfaces connectivity errors during init, not on first chat message.
+      const probeLocalProvider = async (): Promise<void> => {
+        const providerName = newProvider.name.toLowerCase();
+        if (
+          !["ollama", "llamacpp", "vllm", "openai-compatible"].includes(
+            providerName,
+          )
+        )
+          return;
+
+        // Extract baseUrl from config
+        const providerConfig =
+          yamlConfig?.providers?.[
+            providerName as keyof typeof yamlConfig.providers
+          ];
+        const baseUrl = (providerConfig as any)?.baseUrl;
+        if (!baseUrl) return;
+
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3_000);
+          await fetch(`${baseUrl.replace(/\/$/, "")}/health`, {
+            signal: controller.signal,
+          }).catch(() => {});
+          clearTimeout(timeoutId);
+        } catch (err) {
+          throw new Error(
+            `Cannot reach ${providerName} at ${baseUrl} — check that it is running and accessible`,
+          );
+        }
+      };
+
+      await probeLocalProvider();
+
       // Apply mode and userRules from YAML if present.
       if (yamlConfig?.agent?.defaultMode) {
         agentController.setMode(yamlConfig.agent.defaultMode);
@@ -3607,22 +3643,49 @@ export async function activate(
   // sidebar icon appears instantly; the user can open it and see
   // "loading..." while the provider and sessions come online.
   //
-  // The entire init is wrapped in a 10-second timeout so that if any
+  // The entire init is wrapped in a 5-second timeout so that if any
   // step hangs (SecretStorage, file I/O, provider factory), the user
-  // sees an error with retry instead of infinite "loading...".
-  const INIT_TIMEOUT_MS = 10_000;
+  // sees an error quickly with retry instead of infinite "loading...".
+  const INIT_TIMEOUT_MS = 5_000;
+
+  // Helper: Race a promise against a timeout, return null if timeout.
+  const withTimeout = <T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    label: string,
+  ): Promise<T | null> =>
+    Promise.race([
+      promise.then((v) => v),
+      new Promise<null>((resolve) =>
+        setTimeout(() => {
+          console.warn(
+            `Champ: ${label} timed out after ${timeoutMs}ms, continuing without it`,
+          );
+          resolve(null);
+        }, timeoutMs),
+      ),
+    ]);
+
   void (async () => {
     try {
       await Promise.race([
         (async () => {
-          // 0. Await memory bank load so cross-session facts are available immediately.
+          // 0. Load memory banks with individual timeouts (don't block on hanging reads).
           if (memoryBank) {
-            await memoryBank.load();
-            broadcastMemoryBadge();
+            const result = await withTimeout(
+              memoryBank.load(),
+              2_000,
+              "memoryBank.load()",
+            );
+            if (result !== null) broadcastMemoryBadge();
           }
-          await globalMemoryBank.load();
+          await withTimeout(
+            globalMemoryBank.load(),
+            2_000,
+            "globalMemoryBank.load()",
+          );
 
-          // 1. Load provider (reads YAML, creates provider, auto-detects models).
+          // 1. Load provider (reads YAML, creates provider, auto-detects models, checks connectivity).
           await loadProvider();
         })(),
         new Promise<never>((_, reject) =>
