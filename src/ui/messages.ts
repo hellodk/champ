@@ -662,6 +662,11 @@ export interface ReloadMcpServerRequest {
   serverName: string;
 }
 
+/** User clicked the retry button after a provider initialization error. */
+export interface ReloadProviderRequest {
+  type: "reloadProvider";
+}
+
 export interface McpConfigSaveRequest {
   type: "mcpConfigSave";
   server: {
@@ -813,6 +818,7 @@ export type WebviewToExtensionMessage =
   | RenameSessionRequest
   | OpenGeneratedFileRequest
   | ReloadMcpServerRequest
+  | ReloadProviderRequest
   | McpConfigSaveRequest
   | RunMultiAgentRequest
   | RunTeamRequest
@@ -855,6 +861,12 @@ export function isCopyToClipboardRequest(
   msg: WebviewToExtensionMessage,
 ): msg is CopyToClipboardRequest {
   return msg.type === "copyToClipboard";
+}
+
+export function isReloadProviderRequest(
+  msg: WebviewToExtensionMessage,
+): msg is ReloadProviderRequest {
+  return msg.type === "reloadProvider";
 }
 
 // ---------------------------------------------------------------------------

@@ -3036,6 +3036,8 @@ export async function activate(
   };
 
   // ---- Provider loader (callable on demand) ---------------------------
+  /** Mutex: prevents concurrent loadProvider() calls from racing. */
+  let providerLoadInFlight: Promise<void> | null = null;
   /**
    * Try to (re)load the active provider. On success, hot-swaps it into
    * the agent controller, inline completion provider, and status bar.
@@ -3044,8 +3046,21 @@ export async function activate(
    *
    * Tries the YAML config path first, falling back to legacy
    * VS Code settings if no YAML config is present.
+   *
+   * Concurrent calls are deduplicated — the second caller receives
+   * the same promise as the first, preventing config/race corruption.
    */
   const loadProvider = async (): Promise<void> => {
+    if (providerLoadInFlight) return providerLoadInFlight;
+    providerLoadInFlight = loadProviderInner();
+    try {
+      await providerLoadInFlight;
+    } finally {
+      providerLoadInFlight = null;
+    }
+  };
+
+  const loadProviderInner = async (): Promise<void> => {
     setStatusLoading();
     // Preserve the last known model list during reload — don't wipe available[]
     // to empty, which causes the picker to appear blank for up to 5 seconds
@@ -3181,18 +3196,15 @@ export async function activate(
         sess?.controller.setAnalytics(sessionAnalytics!, "champ");
       });
       // Refresh cloud key status so the model picker reflects current key state.
-      cloudKeyStatus.set(
-        "claude",
-        !!(await context.secrets.get("champ.claude.apiKey")),
-      );
-      cloudKeyStatus.set(
-        "openai",
-        !!(await context.secrets.get("champ.openai.apiKey")),
-      );
-      cloudKeyStatus.set(
-        "gemini",
-        !!(await context.secrets.get("champ.gemini.apiKey")),
-      );
+      // Parallelize — 3 independent SecretStorage reads.
+      const [claudeKey, openaiKey, geminiKey] = await Promise.all([
+        context.secrets.get("champ.claude.apiKey"),
+        context.secrets.get("champ.openai.apiKey"),
+        context.secrets.get("champ.gemini.apiKey"),
+      ]);
+      cloudKeyStatus.set("claude", !!claudeKey);
+      cloudKeyStatus.set("openai", !!openaiKey);
+      cloudKeyStatus.set("gemini", !!geminiKey);
 
       inlineProvider.setProvider(newProvider);
       inlineProviderRef.current = newProvider;
@@ -3594,16 +3606,51 @@ export async function activate(
   // auto-detect) runs AFTER activate() returns. This means the Champ
   // sidebar icon appears instantly; the user can open it and see
   // "loading..." while the provider and sessions come online.
+  //
+  // The entire init is wrapped in a 10-second timeout so that if any
+  // step hangs (SecretStorage, file I/O, provider factory), the user
+  // sees an error with retry instead of infinite "loading...".
+  const INIT_TIMEOUT_MS = 10_000;
   void (async () => {
-    // 0. Await memory bank load so cross-session facts are available immediately.
-    if (memoryBank) {
-      await memoryBank.load();
-      broadcastMemoryBadge();
-    }
-    await globalMemoryBank.load();
+    try {
+      await Promise.race([
+        (async () => {
+          // 0. Await memory bank load so cross-session facts are available immediately.
+          if (memoryBank) {
+            await memoryBank.load();
+            broadcastMemoryBadge();
+          }
+          await globalMemoryBank.load();
 
-    // 1. Load provider (reads YAML, creates provider, auto-detects models).
-    await loadProvider();
+          // 1. Load provider (reads YAML, creates provider, auto-detects models).
+          await loadProvider();
+        })(),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `Provider initialization timed out after ${INIT_TIMEOUT_MS / 1000}s — check that your provider is reachable`,
+                ),
+              ),
+            INIT_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatusError(message);
+      chatViewProvider?.broadcastProviderStatus({
+        state: "error",
+        errorMessage: message,
+        available: [],
+      });
+      chatViewProvider?.postMessage({
+        type: "error",
+        message: `Champ failed to initialize: ${message}\n\nClick the error indicator in the header to retry, or open settings to configure a different provider.`,
+      });
+      console.error("Champ: background init failed:", err);
+    }
 
     // 2. First-run detection. Use cached config (loadProvider already read it).
     if (isFirstRunRequired(context.globalState) && !cachedYamlConfig) {
