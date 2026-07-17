@@ -46,7 +46,8 @@ const DISCOVERY_TIMEOUT_MS = 5_000; // 5s — allows remote LAN servers (was 2s,
 
 export class SmartRouter {
   private models: DiscoveredModel[] = [];
-  private staticModels: DiscoveredModel[] = [];
+  /** Static models keyed by `providerName:id` — dedup is inherent via Map. */
+  private staticModels = new Map<string, DiscoveredModel>();
   private providerMap = new Map<string, ProviderEntry>();
   private mode: "smart" | "manual" = "smart";
   private manualModelId: string | null = null;
@@ -91,7 +92,10 @@ export class SmartRouter {
    * ones and take the same routing logic. Call before discover().
    */
   registerStaticModels(models: DiscoveredModel[]): void {
-    this.staticModels = models;
+    this.staticModels.clear();
+    for (const m of models) {
+      this.staticModels.set(`${m.providerName}:${m.id}`, m);
+    }
     this.routeCache.clear();
   }
 
@@ -103,13 +107,9 @@ export class SmartRouter {
    * Never routes to config-fallback models (see select()).
    */
   appendFallbackModel(model: DiscoveredModel): void {
-    // Don't add if already exists (by provider + id) to avoid duplicates
-    // when the config-reload path fires repeatedly.
-    const exists = this.staticModels.some(
-      (m) => m.id === model.id && m.providerName === model.providerName,
-    );
-    if (!exists) {
-      this.staticModels = [...this.staticModels, model];
+    const key = `${model.providerName}:${model.id}`;
+    if (!this.staticModels.has(key)) {
+      this.staticModels.set(key, model);
       this.routeCache.clear();
     }
   }
@@ -141,30 +141,10 @@ export class SmartRouter {
             rawByProvider.set(name, models);
             // Emit a partial result immediately so the UI updates as each
             // provider responds — no need to wait for the slowest one.
-            const allRaw = Array.from(rawByProvider.values()).flat();
-            // discovered beats config-fallback in partial list too
-            const partialCandidates = [
-              ...allRaw,
-              ...this.staticModels.filter(
-                (m) => m.source !== "config-fallback",
-              ),
-              ...this.staticModels.filter(
-                (m) => m.source === "config-fallback",
-              ),
-            ];
-            const seen = new Set<string>();
-            const partial = partialCandidates.filter((m) => {
-              const key = `${m.providerName}:${m.id}`;
-              if (seen.has(key)) return false;
-              seen.add(key);
-              return true;
-            });
-            this.models = partial;
+            const merged = this.mergeModels(rawByProvider);
+            this.models = merged;
             this.discovered = true;
-            const sig = partial
-              .map((m) => `${m.providerName}:${m.id}`)
-              .sort()
-              .join("|");
+            const sig = this.modelSignature(merged);
             if (sig !== this.lastModelsSig) {
               this.lastModelsSig = sig;
               this.emit();
@@ -174,31 +154,14 @@ export class SmartRouter {
       );
       await Promise.allSettled(promises);
 
-      // Final dedup pass — discovered beats config-fallback when the same
-      // model appears in both (e.g. fallback registered before Ollama responded).
-      // Priority: discovered > static-cloud > config-fallback
-      const allRaw = Array.from(rawByProvider.values()).flat();
-      const allCandidates = [
-        ...allRaw,
-        ...this.staticModels.filter((m) => m.source !== "config-fallback"),
-        ...this.staticModels.filter((m) => m.source === "config-fallback"),
-      ];
-      const seen = new Set<string>();
-      const allModels = allCandidates.filter((m) => {
-        const key = `${m.providerName}:${m.id}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
+      // Final merge — single pass, no redundant dedup
+      const allModels = this.mergeModels(rawByProvider);
 
       const wasDiscovered = this.discovered;
       this.models = allModels;
       this.discovered = true;
 
-      const sig = allModels
-        .map((m) => `${m.providerName}:${m.id}`)
-        .sort()
-        .join("|");
+      const sig = this.modelSignature(allModels);
       // Always emit on first discovery (signals readiness); after that only
       // emit when the model list actually changed (prevents UI chatter).
       if (!wasDiscovered || sig !== this.lastModelsSig) {
@@ -220,6 +183,50 @@ export class SmartRouter {
         void this.discover();
       }
     }
+  }
+
+  /**
+   * Merge discovered + static models into a single deduplicated list.
+   * Priority: discovered > static-cloud > config-fallback.
+   * Uses a Map for O(1) dedup instead of array filtering.
+   */
+  private mergeModels(
+    rawByProvider: Map<string, DiscoveredModel[]>,
+  ): DiscoveredModel[] {
+    const merged = new Map<string, DiscoveredModel>();
+
+    // 1. Discovered models (highest priority)
+    for (const models of rawByProvider.values()) {
+      for (const m of models) {
+        merged.set(`${m.providerName}:${m.id}`, m);
+      }
+    }
+
+    // 2. Static cloud models (second priority)
+    for (const [key, m] of this.staticModels) {
+      if (m.source !== "config-fallback" && !merged.has(key)) {
+        merged.set(key, m);
+      }
+    }
+
+    // 3. Config-fallback models (lowest priority)
+    for (const [key, m] of this.staticModels) {
+      if (m.source === "config-fallback" && !merged.has(key)) {
+        merged.set(key, m);
+      }
+    }
+
+    return Array.from(merged.values());
+  }
+
+  /**
+   * Compute a stable signature for change detection.
+   */
+  private modelSignature(models: DiscoveredModel[]): string {
+    return models
+      .map((m) => `${m.providerName}:${m.id}`)
+      .sort()
+      .join("|");
   }
 
   /**

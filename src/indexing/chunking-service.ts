@@ -10,6 +10,26 @@
  *
  * For unsupported languages, it falls back to a sliding window chunker
  * that splits the file into overlapping blocks of fixed line count.
+ *
+ * ── Future: tree-sitter integration ──────────────────────────────────
+ * The regex-based extractor (extractTsJsChunks) has known limitations:
+ *   - Regex matches don't understand strings/comments at the AST level
+ *   - Arrow functions with complex type annotations can be missed
+ *   - Overloaded signatures and nested destructuring are not handled
+ *   - No language coverage beyond TS/JS
+ *
+ * To swap for tree-sitter:
+ *   1. Add `tree-sitter` + `tree-sitter-typescript` as optional deps
+ *      (try/catch import, fallback to regex if unavailable)
+ *   2. In extractTsJsChunks(), parse the file with tree-sitter, walk
+ *      function_declaration, class_declaration, arrow_function nodes
+ *   3. Use the same CodeChunk interface — just change the extraction logic
+ *   4. Extend SUPPORTED_EXTENSIONS to cover .py, .go, .rs, .java via
+ *      their respective tree-sitter grammars
+ *   5. Keep slidingWindowChunks() as the ultimate fallback
+ *
+ * This is a separate ticket — native deps add build complexity.
+ * ─────────────────────────────────────────────────────────────────────
  */
 
 export interface CodeChunk {

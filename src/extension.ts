@@ -62,8 +62,8 @@ import { remoteRunTerminalTool } from "./tools/remote-run-terminal";
 import { remoteEditFileTool } from "./tools/remote-edit-file";
 import { createCodebaseSearchTool } from "./tools/codebase-search";
 import { gitTool } from "./tools/git-tool";
-import { IndexingService } from "./indexing/indexing-service";
-import { MultiAgentRunner } from "./agent/multi-agent-runner";
+// Lazy-loaded: IndexingService, MultiAgentRunner (dynamic import() in handlers)
+import type { IndexingService } from "./indexing/indexing-service";
 import type { IWorkflowRunner } from "./agent/workflow-runner";
 import { AgentLoader } from "./agent/agent-loader";
 import {
@@ -92,7 +92,6 @@ import { TeamRunner, type PauseSignal } from "./agent/team-runner";
 import { TeamPanel } from "./ui/team-panel";
 import { TeamBuilderPanel } from "./ui/team-builder-panel";
 import { RulesEditorPanel } from "./ui/rules-editor-panel";
-import { TeamMarketplaceClient } from "./marketplace/team-marketplace-client";
 import {
   McpMarketplaceClient,
   buildMcpServerConfig,
@@ -513,19 +512,27 @@ export async function activate(
   smartRouter.onChange(() => {
     if (cachedYamlConfig?.indexing?.enabled !== false && smartRouter) {
       indexingService?.dispose();
-      indexingService = new IndexingService(
-        workspaceRoot,
-        smartRouter,
-        cachedYamlConfig ?? {},
-      );
-      // Trigger auto-index immediately after IndexingService is ready.
-      // triggerAutoIndex probes embedding provider reachability before calling initialize().
-      void triggerAutoIndex(
-        indexingService,
-        cachedYamlConfig ?? {},
-        context,
-        statusBarItem,
-        analyticsChannel,
+      // Lazy-load IndexingService to reduce activation time
+      void import("./indexing/indexing-service.js").then(
+        ({ IndexingService: IS }) => {
+          if (!smartRouter) return;
+          indexingService = new IS(
+            workspaceRoot,
+            smartRouter,
+            cachedYamlConfig ?? {},
+          );
+          // Trigger auto-index immediately after IndexingService is ready.
+          // triggerAutoIndex probes embedding provider reachability before calling initialize().
+          if (indexingService) {
+            void triggerAutoIndex(
+              indexingService,
+              cachedYamlConfig ?? {},
+              context,
+              statusBarItem,
+              analyticsChannel,
+            );
+          }
+        },
       );
     }
     if (!chatViewProvider) return;
@@ -2000,9 +2007,12 @@ export async function activate(
           .slice(2, 6)}`;
         const runName = userRequest.slice(0, 60);
 
+        // Lazy-load MultiAgentRunner to reduce activation time
+        const { MultiAgentRunner: MAR } =
+          await import("./agent/multi-agent-runner.js");
         const runner =
           persistentRunner ??
-          MultiAgentRunner.buildDefaultPipeline(
+          MAR.buildDefaultPipeline(
             provider,
             toolRegistry,
             workspaceRoot ?? "",
@@ -2393,6 +2403,9 @@ export async function activate(
         void vscode.window.showErrorMessage("Champ: No workspace folder open.");
         return;
       }
+      // Lazy-load TeamMarketplaceClient to reduce activation time
+      const { TeamMarketplaceClient } =
+        await import("./marketplace/team-marketplace-client.js");
       const client = new TeamMarketplaceClient();
       let entries: import("./marketplace/team-marketplace-client").MarketplaceEntry[] =
         [];
@@ -3360,7 +3373,9 @@ export async function activate(
       }
       // Rebuild the persistent multi-agent runner so custom agents get
       // the fresh provider on every config reload.
-      const baseRunner = MultiAgentRunner.buildDefaultPipeline(
+      const { MultiAgentRunner: MAR2 } =
+        await import("./agent/multi-agent-runner.js");
+      const baseRunner = MAR2.buildDefaultPipeline(
         newProvider,
         toolRegistry,
         workspaceRoot ?? "",
@@ -3422,9 +3437,12 @@ export async function activate(
       triggerManager.loadTriggers(
         cachedYamlConfig.triggers,
         async (agentName, filePath) => {
+          // Lazy-load MultiAgentRunner to reduce activation time
+          const { MultiAgentRunner: MAR3 } =
+            await import("./agent/multi-agent-runner.js");
           const runner =
             persistentRunner ??
-            MultiAgentRunner.buildDefaultPipeline(
+            MAR3.buildDefaultPipeline(
               inlineProviderRef.current,
               toolRegistry,
               workspaceRoot,
@@ -3432,7 +3450,9 @@ export async function activate(
           const rel = path.relative(workspaceRoot, filePath);
           await runner.run(`Process changed file: ${rel}`, {
             sequence: [agentName],
-            onProgress: (evt) => {
+            onProgress: (
+              evt: import("./agent/multi-agent-runner").MultiAgentProgressEvent,
+            ) => {
               if (evt.type === "agent_completed") {
                 void vscode.window.showInformationMessage(
                   `Champ trigger "${agentName}" on "${path.basename(filePath)}": done`,

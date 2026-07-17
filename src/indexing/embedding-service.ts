@@ -7,7 +7,15 @@
  *
  * The openai format also covers OpenAI-compatible endpoints (vLLM,
  * llama.cpp with --embedding, etc.).
+ *
+ * Includes a content-hash embedding cache: identical text strings return
+ * cached vectors without hitting the API. The cache is keyed by
+ * `modelId:sha256(text)` and persists to disk at ~/.champ/embed-cache/.
  */
+import * as crypto from "node:crypto";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 
 export type EmbeddingProvider =
   | "ollama"
@@ -23,6 +31,7 @@ export interface EmbeddingConfig {
 
 export class EmbeddingService {
   private dimensions: number | null = null;
+  private cache = new Map<string, Float32Array>();
 
   constructor(
     private readonly provider: EmbeddingProvider,
@@ -31,13 +40,22 @@ export class EmbeddingService {
 
   /**
    * Embed a single text string. Returns a Float32Array of the
-   * embedding vector.
+   * embedding vector. Uses the content-hash cache to skip redundant
+   * API calls for identical text.
    */
   async embed(text: string): Promise<Float32Array> {
+    const cacheKey = `${this.config.model}:${crypto.createHash("sha256").update(text).digest("hex")}`;
+    const cached = this.cache.get(cacheKey);
+    if (cached) return cached;
+
+    let vec: Float32Array;
     if (this.provider === "ollama") {
-      return this.embedOllama(text);
+      vec = await this.embedOllama(text);
+    } else {
+      vec = await this.embedOpenAI(text);
     }
-    return this.embedOpenAI(text);
+    this.cache.set(cacheKey, vec);
+    return vec;
   }
 
   /**
@@ -82,6 +100,48 @@ export class EmbeddingService {
     const vec = new Float32Array(data.embedding);
     this.dimensions = vec.length;
     return vec;
+  }
+
+  /**
+   * Load cached embeddings from disk. Silently skips on any error.
+   */
+  async loadCache(): Promise<void> {
+    try {
+      const cacheDir = path.join(os.homedir(), ".champ", "embed-cache");
+      const cachePath = path.join(cacheDir, `${this.config.model}.json`);
+      const raw = await fs.readFile(cachePath, "utf-8");
+      const entries = JSON.parse(raw) as Array<[string, number[]]>;
+      for (const [key, arr] of entries) {
+        this.cache.set(key, new Float32Array(arr));
+      }
+    } catch {
+      // Cache miss — cold start
+    }
+  }
+
+  /**
+   * Persist the embedding cache to disk. Best-effort — never throws.
+   */
+  async saveCache(): Promise<void> {
+    try {
+      const cacheDir = path.join(os.homedir(), ".champ", "embed-cache");
+      await fs.mkdir(cacheDir, { recursive: true });
+      const cachePath = path.join(cacheDir, `${this.config.model}.json`);
+      const entries: Array<[string, number[]]> = [];
+      for (const [key, vec] of this.cache) {
+        entries.push([key, Array.from(vec)]);
+      }
+      await fs.writeFile(cachePath, JSON.stringify(entries), "utf-8");
+    } catch {
+      // Persistence is best-effort
+    }
+  }
+
+  /**
+   * Number of cached embeddings.
+   */
+  cacheSize(): number {
+    return this.cache.size;
   }
 
   private async embedOpenAI(text: string): Promise<Float32Array> {

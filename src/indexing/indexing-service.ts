@@ -75,6 +75,8 @@ export class IndexingService {
       baseUrl,
       model: modelId,
     });
+    // Load the content-hash embedding cache to skip redundant API calls.
+    await this.embeddingService.loadCache();
     // Re-create the VectorStore now that we know the embedding model, so that
     // save/load operations can validate model ID consistency.
     this.vectorStore = new VectorStore(":memory:", modelId);
@@ -163,26 +165,39 @@ export class IndexingService {
     let filesIndexed = 0;
     let chunksIndexed = 0;
 
-    for (const filePath of files) {
-      try {
-        const content = fs.readFileSync(filePath, "utf8");
-        const indexed = await this.indexFile(filePath, content);
-        if (indexed > 0) {
-          filesIndexed++;
-          chunksIndexed += indexed;
+    // Parallel indexing with concurrency limit (no external dependency).
+    const CONCURRENCY = 6;
+    let idx = 0;
+    const next = async (): Promise<void> => {
+      while (idx < files.length) {
+        const i = idx++;
+        const filePath = files[i];
+        try {
+          const content = fs.readFileSync(filePath, "utf8");
+          const indexed = await this.indexFile(filePath, content);
+          if (indexed > 0) {
+            filesIndexed++;
+            chunksIndexed += indexed;
+          }
+        } catch {
+          // Skip unreadable files.
         }
-      } catch {
-        // Skip unreadable files.
       }
-    }
+    };
+    const workers = Array.from(
+      { length: Math.min(CONCURRENCY, files.length) },
+      () => next(),
+    );
+    await Promise.all(workers);
 
     console.log(
       `Champ: indexed ${filesIndexed} files, ${chunksIndexed} chunks`,
     );
 
-    // Persist index to disk so subsequent sessions skip re-embedding.
+    // Persist index + embedding cache to disk so subsequent sessions skip re-embedding.
     // Stored at ~/.champ/index/<workspace-hash>.idx
     void this.saveIndex();
+    void this.embeddingService?.saveCache();
 
     return {
       filesIndexed,
