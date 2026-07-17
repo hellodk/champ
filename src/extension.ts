@@ -3172,14 +3172,17 @@ export async function activate(
       // Probe connectivity for local providers (ollama, llamacpp, vllm).
       // This surfaces connectivity errors during init, not on first chat message.
       const probeLocalProvider = async (): Promise<void> => {
-        // Unwrap FallbackProvider to get the actual underlying provider.
-        let providerToProbe = newProvider;
-        if (
-          "providers" in newProvider &&
-          Array.isArray((newProvider as any).providers)
-        ) {
-          // FallbackProvider — probe the first provider in the chain
-          providerToProbe = (newProvider as any).providers[0];
+        // Unwrap all provider wrappers to get the actual underlying provider.
+        let providerToProbe: LLMProvider = newProvider;
+
+        // Unwrap RateLimitedProvider
+        if (providerToProbe instanceof RateLimitedProvider) {
+          providerToProbe = (providerToProbe as any).inner;
+        }
+
+        // Unwrap FallbackProvider to get the first provider in the chain
+        if (providerToProbe instanceof FallbackProvider) {
+          providerToProbe = (providerToProbe as any).providers[0];
         }
 
         const providerName = providerToProbe.name.toLowerCase();
