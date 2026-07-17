@@ -105,11 +105,12 @@ export class ToolCallingLoop {
 
       try {
         // Check response cache before calling the API (Fix 8)
+        // Use actual provider + model for proper cache separation
         const messagesJson = JSON.stringify(history);
         if (iteration === 0 && this.responseCache) {
           const cached = this.responseCache.get(
-            "tool-loop",
-            "default",
+            this.provider.name,
+            this.provider.config.model,
             messagesJson,
           );
           if (cached) {

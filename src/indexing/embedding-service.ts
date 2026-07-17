@@ -11,6 +11,9 @@
  * Includes a content-hash embedding cache: identical text strings return
  * cached vectors without hitting the API. The cache is keyed by
  * `modelId:sha256(text)` and persists to disk at ~/.champ/embed-cache/.
+ *
+ * Cache is LRU-evicted at 10K entries to prevent OOM on large workspaces.
+ * Disk format is binary (JSON header + raw Float32 bytes) for fast load.
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
@@ -29,8 +32,12 @@ export interface EmbeddingConfig {
   apiKey?: string;
 }
 
+/** Maximum cache entries before LRU eviction. */
+const MAX_CACHE_ENTRIES = 10_000;
+
 export class EmbeddingService {
   private dimensions: number | null = null;
+  /** LRU cache: most-recently-used at the end, evict from front. */
   private cache = new Map<string, Float32Array>();
 
   constructor(
@@ -46,7 +53,12 @@ export class EmbeddingService {
   async embed(text: string): Promise<Float32Array> {
     const cacheKey = `${this.config.model}:${crypto.createHash("sha256").update(text).digest("hex")}`;
     const cached = this.cache.get(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      // Move to end (most recently used) by re-inserting
+      this.cache.delete(cacheKey);
+      this.cache.set(cacheKey, cached);
+      return cached;
+    }
 
     let vec: Float32Array;
     if (this.provider === "ollama") {
@@ -54,6 +66,13 @@ export class EmbeddingService {
     } else {
       vec = await this.embedOpenAI(text);
     }
+
+    // LRU eviction: remove oldest entry when at capacity
+    if (this.cache.size >= MAX_CACHE_ENTRIES) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest !== undefined) this.cache.delete(oldest);
+    }
+
     this.cache.set(cacheKey, vec);
     return vec;
   }
@@ -104,14 +123,27 @@ export class EmbeddingService {
 
   /**
    * Load cached embeddings from disk. Silently skips on any error.
+   * Only loads entries whose vector dimension matches the current model.
+   * Tries binary format first, falls back to JSON for backward compat.
    */
   async loadCache(): Promise<void> {
     try {
       const cacheDir = path.join(os.homedir(), ".champ", "embed-cache");
-      const cachePath = path.join(cacheDir, `${this.config.model}.json`);
-      const raw = await fs.readFile(cachePath, "utf-8");
+      // Try binary format first (preferred)
+      const binPath = path.join(cacheDir, `${this.config.model}.bin`);
+      try {
+        await this.loadCacheBin(binPath);
+        return;
+      } catch {
+        // Fall through to JSON format
+      }
+      // Legacy JSON format
+      const jsonPath = path.join(cacheDir, `${this.config.model}.json`);
+      const raw = await fs.readFile(jsonPath, "utf-8");
       const entries = JSON.parse(raw) as Array<[string, number[]]>;
       for (const [key, arr] of entries) {
+        if (this.dimensions !== null && arr.length !== this.dimensions)
+          continue;
         this.cache.set(key, new Float32Array(arr));
       }
     } catch {
@@ -119,19 +151,75 @@ export class EmbeddingService {
     }
   }
 
+  /** Load from binary cache file. */
+  private async loadCacheBin(binPath: string): Promise<void> {
+    const buf = await fs.readFile(binPath);
+    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    let offset = 0;
+    const dim = view.getUint32(offset, true);
+    offset += 4;
+    const count = view.getUint32(offset, true);
+    offset += 4;
+    for (let i = 0; i < count; i++) {
+      const keyLen = view.getUint16(offset, true);
+      offset += 2;
+      const keyBytes = buf.slice(offset, offset + keyLen);
+      const key = new TextDecoder().decode(keyBytes);
+      offset += keyLen;
+      const vec = new Float32Array(dim);
+      for (let j = 0; j < dim; j++) {
+        vec[j] = view.getFloat32(offset, true);
+        offset += 4;
+      }
+      if (this.dimensions !== null && dim !== this.dimensions) continue;
+      this.cache.set(key, vec);
+    }
+  }
+
   /**
-   * Persist the embedding cache to disk. Best-effort — never throws.
+   * Persist the embedding cache to disk in binary format for fast load.
+   * Format: [dim:u32][count:u32]...[keyLen:u16][key bytes][vec:dim × f32]
+   * Best-effort — never throws.
    */
   async saveCache(): Promise<void> {
     try {
       const cacheDir = path.join(os.homedir(), ".champ", "embed-cache");
       await fs.mkdir(cacheDir, { recursive: true });
-      const cachePath = path.join(cacheDir, `${this.config.model}.json`);
-      const entries: Array<[string, number[]]> = [];
-      for (const [key, vec] of this.cache) {
-        entries.push([key, Array.from(vec)]);
+      const binPath = path.join(cacheDir, `${this.config.model}.bin`);
+      const dim = this.dimensions ?? 0;
+      if (dim === 0 || this.cache.size === 0) return;
+
+      const encoder = new TextEncoder();
+      // Calculate total buffer size
+      let totalBytes = 8; // header (dim u32 + count u32)
+      const keyBuffers: Array<{ buf: Uint8Array; key: string }> = [];
+      for (const key of this.cache.keys()) {
+        const kb = encoder.encode(key);
+        keyBuffers.push({ buf: kb, key });
+        totalBytes += 2 + kb.length + dim * 4; // keyLen u16 + key + vec
       }
-      await fs.writeFile(cachePath, JSON.stringify(entries), "utf-8");
+
+      const buf = Buffer.alloc(totalBytes);
+      const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+      let offset = 0;
+      view.setUint32(offset, dim, true);
+      offset += 4;
+      view.setUint32(offset, this.cache.size, true);
+      offset += 4;
+
+      for (const { buf: kb } of keyBuffers) {
+        view.setUint16(offset, kb.length, true);
+        offset += 2;
+        buf.set(kb, offset);
+        offset += kb.length;
+        const vec = this.cache.get(new TextDecoder().decode(kb))!;
+        for (let j = 0; j < dim; j++) {
+          view.setFloat32(offset, vec[j], true);
+          offset += 4;
+        }
+      }
+
+      await fs.writeFile(binPath, buf);
     } catch {
       // Persistence is best-effort
     }

@@ -69,6 +69,9 @@ export class VectorStore {
   private disposed = false;
   private hnswIndex: HnswIndex | null = null;
   private hnswDirty = true; // true when entries changed since last HNSW build
+  /** Monotonically increasing counter — incremented on every mutation.
+   *  Prevents label desync when an async build completes after further mutations. */
+  private hnswVersion = 0;
   private static hnswAvailable: boolean | null = null; // cached import result
 
   /**
@@ -95,7 +98,8 @@ export class VectorStore {
     if (VectorStore.hnswAvailable !== null) return VectorStore.hnswAvailable;
     try {
       // Dynamic import for optional dependency — no type declarations expected
-      await (Function('return import("hnswlib-node")')() as Promise<unknown>);
+      // CSP-safe: standard import(), no Function() constructor
+      await import("hnswlib-node");
       VectorStore.hnswAvailable = true;
     } catch {
       VectorStore.hnswAvailable = false;
@@ -110,6 +114,7 @@ export class VectorStore {
     if (this.disposed) throw new Error("VectorStore has been disposed");
     this.entries.set(chunkKey(entry), entry);
     this.hnswDirty = true;
+    this.hnswVersion++;
   }
 
   /**
@@ -123,6 +128,7 @@ export class VectorStore {
       }
     }
     this.hnswDirty = true;
+    this.hnswVersion++;
   }
 
   /**
@@ -185,13 +191,19 @@ export class VectorStore {
   /**
    * HNSW approximate nearest neighbor search — O(log n).
    * Builds the index lazily on first search after mutations.
+   * Uses version counter to detect if entries changed during async build.
    */
   private async searchHnsw(
     queryEmbedding: Float32Array,
     topK: number,
   ): Promise<VectorSearchResult[]> {
     if (this.hnswDirty || !this.hnswIndex) {
+      const versionBefore = this.hnswVersion;
       await this.buildHnswIndex();
+      // If entries changed during async build, index is stale — rebuild
+      if (this.hnswVersion !== versionBefore) {
+        await this.buildHnswIndex();
+      }
     }
 
     if (!this.hnswIndex) {
@@ -220,19 +232,12 @@ export class VectorStore {
 
   /**
    * Build or rebuild the HNSW index from current entries.
+   * CSP-safe: uses standard dynamic import(), not Function() constructor.
    */
   private async buildHnswIndex(): Promise<void> {
     try {
-      // Dynamic import for optional dependency
-      const hnswlib = await (Function(
-        'return import("hnswlib-node")',
-      )() as Promise<{
-        HNSWLib: new (opts: {
-          dimension: number;
-          maxElements: number;
-        }) => HnswIndex;
-      }>);
-      const HNSWLib = hnswlib.HNSWLib;
+      // Dynamic import for optional dependency — CSP-safe
+      const { HNSWLib } = await import("hnswlib-node");
       const dim = this.entries.values().next()?.value?.embedding.length ?? 0;
       if (dim === 0) return;
 

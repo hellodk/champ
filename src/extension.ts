@@ -125,6 +125,8 @@ let sessionAnalytics: AgentAnalytics | undefined;
 let analyticsChannel: vscode.OutputChannel | undefined;
 let saveActiveTimeout: ReturnType<typeof setTimeout> | null = null;
 let indexingService: IndexingService | undefined;
+/** Generation counter to prevent orphaned IndexingService from stale onChange callbacks. */
+let indexingGeneration = 0;
 let mcpRegistry: McpRegistry | undefined;
 let mcpClientManager: MCPClientManager | undefined;
 let persistentRunner: IWorkflowRunner | undefined;
@@ -512,9 +514,12 @@ export async function activate(
   smartRouter.onChange(() => {
     if (cachedYamlConfig?.indexing?.enabled !== false && smartRouter) {
       indexingService?.dispose();
+      const gen = ++indexingGeneration;
       // Lazy-load IndexingService to reduce activation time
       void import("./indexing/indexing-service.js").then(
         ({ IndexingService: IS }) => {
+          // Stale callback — a newer onChange already fired, skip
+          if (gen !== indexingGeneration) return;
           if (!smartRouter) return;
           indexingService = new IS(
             workspaceRoot,
