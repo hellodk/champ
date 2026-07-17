@@ -1255,66 +1255,7 @@
     }
   }
 
-  // Provider configuration modal — shown when provider initialization fails
-  const configModal = el('div', { class: 'config-modal' });
-  configModal.style.cssText = [
-    'position:fixed',
-    'top:0',
-    'left:0',
-    'right:0',
-    'bottom:0',
-    'background:rgba(0,0,0,0.5)',
-    'display:none',
-    'align-items:center',
-    'justify-content:center',
-    'z-index:10000',
-  ].join(';');
-
-  let configModalShownForError = false;
-
-  function showConfigModal() {
-    // Only show modal once per error state to prevent re-popping on updates
-    if (configModalShownForError) return;
-    configModalShownForError = true;
-
-    const modalContent = el('div');
-    modalContent.style.cssText = [
-      'background:var(--vscode-notifications-background)',
-      'border:1px solid var(--vscode-notifications-border)',
-      'border-radius:4px',
-      'padding:24px',
-      'max-width:450px',
-      'box-shadow:0 8px 24px rgba(0,0,0,0.4)',
-    ].join(';');
-
-    const closeBtn = el('button', { style: 'position:absolute;top:8px;right:8px;background:none;border:none;color:var(--vscode-foreground);cursor:pointer;font-size:20px;width:24px;height:24px;display:flex;align-items:center;justify-content:center' }, ['✕']);
-    const title = el('div', { style: 'font-weight:600;margin-bottom:12px;font-size:15px;color:var(--vscode-foreground)' }, ['Configure a Provider']);
-    const desc = el('div', { style: 'margin-bottom:20px;color:var(--vscode-foreground);font-size:13px;line-height:1.6' }, [
-      'No provider is currently configured or reachable. Click below to set up a provider (Ollama, Claude, OpenAI, Gemini, etc.).'
-    ]);
-    const btn = el('button', { style: 'width:100%;padding:10px 16px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:none;border-radius:3px;cursor:pointer;font-weight:500;font-size:13px' }, ['Open Provider Settings']);
-
-    const dismissModal = () => {
-      configModal.style.display = 'none';
-    };
-
-    closeBtn.addEventListener('click', dismissModal);
-    btn.addEventListener('click', () => {
-      dismissModal();
-      vscode.postMessage({ type: 'openSettingsRequest' });
-    });
-    configModal.addEventListener('click', (e) => {
-      if (e.target === configModal) dismissModal();
-    });
-
-    modalContent.append(closeBtn, title, desc, btn);
-    modalContent.style.position = 'relative';
-    configModal.innerHTML = '';
-    configModal.appendChild(modalContent);
-    configModal.style.display = 'flex';
-  }
-
-  root.append(header, tabBar, actionBar, mcpPanel, activityPanel, workflowStrip, settingsPanel, messagesWrapper, inputArea, configModal);
+  root.append(header, tabBar, actionBar, mcpPanel, activityPanel, workflowStrip, settingsPanel, messagesWrapper, inputArea);
 
   // -------------------------------------------------------------------
   // Provider status rendering — header indicator + model dropdown
@@ -1333,8 +1274,6 @@
     if (ps.state === 'loading') {
       headerSubtitle.textContent = 'loading…';
       headerSubtitle.classList.remove('error');
-      configModalShownForError = false;
-      configModal.style.display = 'none';
       // Remove retry button if present
       if (retryBtn) { retryBtn.remove(); retryBtn = null; }
       // Keep the chip showing the last known model name during reload
@@ -1348,8 +1287,18 @@
       headerSubtitle.classList.add('error');
       modelChip.textContent = '!';
       modelChip.style.display = '';
-      // Show configuration modal to guide user to set up a provider (only once per error)
-      showConfigModal();
+      // Add retry button if not already present
+      if (!retryBtn) {
+        retryBtn = el('button', { class: 'header-retry-btn', title: 'Retry provider connection' }, ['↻ retry']);
+        retryBtn.addEventListener('click', () => {
+          headerSubtitle.textContent = 'retrying…';
+          headerSubtitle.classList.remove('error');
+          retryBtn.remove();
+          retryBtn = null;
+          vscode.postMessage({ type: 'reloadProvider' });
+        });
+        headerLeft.appendChild(retryBtn);
+      }
     } else {
       const label =
         ps.providerName && ps.modelName
@@ -1357,8 +1306,6 @@
           : ps.providerName || 'ready';
       headerSubtitle.textContent = label;
       headerSubtitle.classList.remove('error');
-      configModalShownForError = false;
-      configModal.style.display = 'none';
       // Remove retry button if present
       if (retryBtn) { retryBtn.remove(); retryBtn = null; }
       // Update the header model chip label too.
