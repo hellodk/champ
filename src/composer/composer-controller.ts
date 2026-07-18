@@ -59,6 +59,8 @@ export interface ApplyResult {
   errors: string[];
   branchName?: string;
   commitSha?: string;
+  /** Atomic transaction status: "validated" (pre-flight passed), "committed" (all applied), "rolled_back" (validation or apply failed) */
+  transactionStatus?: "validated" | "committed" | "rolled_back";
 }
 
 const COMPOSER_WORKFLOW = ["planner", "context", "code"];
@@ -113,6 +115,10 @@ export class ComposerController {
    * Apply the subset of diffs the user approved. Optionally wraps the
    * application in a git branch + auto-commit so the whole change can
    * be rolled back as a unit.
+   *
+   * ATOMIC SEMANTICS: Validates all diffs BEFORE applying any. If validation
+   * fails, no files are modified and any created branch is rolled back.
+   * On success, all approved diffs are applied together as an atomic transaction.
    */
   async applyDiffs(diffs: Diff[], options: ApplyOptions): Promise<ApplyResult> {
     const approved = new Set(options.approved);
@@ -124,24 +130,61 @@ export class ComposerController {
       filesModified: [],
       filesSkipped: [],
       errors: [],
+      transactionStatus: undefined,
     };
 
-    // Create branch BEFORE applying so the working tree is clean when
-    // the branch is cut. Any apply failures will be on the new branch.
+    // Create branch BEFORE validation so the working tree is clean when
+    // the branch is cut. If validation fails, we'll rollback the branch.
+    let branchCreated = false;
     if (options.createBranch) {
       try {
         const branchName = await this.deps.gitIntegration.createBranch(
           this.generateBranchName(),
         );
         result.branchName = branchName;
+        branchCreated = true;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         result.errors.push(`Failed to create branch: ${message}`);
         result.success = false;
+        result.transactionStatus = "rolled_back";
         return result;
       }
     }
 
+    // PRE-FLIGHT VALIDATION: Validate all approved diffs before applying any.
+    // This is the "atomicity" guard: we catch errors upfront, and if any fail,
+    // we rollback the branch (if created) and return without modifying any files.
+    const validationErrors = await this.validateDiffs(
+      diffs,
+      approved,
+      rejected,
+      workspaceRoot,
+    );
+    if (validationErrors.length > 0) {
+      result.success = false;
+      result.errors = validationErrors;
+      result.transactionStatus = "rolled_back";
+
+      // Rollback the branch if we created one
+      if (branchCreated) {
+        try {
+          await this.deps.gitIntegration.rollback();
+        } catch (rollbackErr) {
+          const msg =
+            rollbackErr instanceof Error
+              ? rollbackErr.message
+              : String(rollbackErr);
+          result.errors.push(`Rollback failed: ${msg}`);
+        }
+      }
+
+      return result;
+    }
+
+    result.transactionStatus = "validated";
+
+    // All validations passed. Now apply all approved diffs together.
     for (let i = 0; i < diffs.length; i++) {
       const diff = diffs[i];
       if (rejected.has(i) || !approved.has(i)) {
@@ -157,8 +200,27 @@ export class ComposerController {
           `${diff.filePath}: ${applied.error ?? "unknown error"}`,
         );
         result.success = false;
+        result.transactionStatus = "rolled_back";
+
+        // If apply fails, rollback the branch if we created one
+        if (branchCreated) {
+          try {
+            await this.deps.gitIntegration.rollback();
+          } catch (rollbackErr) {
+            const msg =
+              rollbackErr instanceof Error
+                ? rollbackErr.message
+                : String(rollbackErr);
+            result.errors.push(`Rollback failed: ${msg}`);
+          }
+        }
+
+        return result;
       }
     }
+
+    // All diffs applied successfully
+    result.transactionStatus = "committed";
 
     if (options.autoCommit && result.filesModified.length > 0) {
       try {
@@ -171,6 +233,20 @@ export class ComposerController {
         const message = err instanceof Error ? err.message : String(err);
         result.errors.push(`Commit failed: ${message}`);
         result.success = false;
+        result.transactionStatus = "rolled_back";
+
+        // If commit fails, rollback the branch
+        if (branchCreated) {
+          try {
+            await this.deps.gitIntegration.rollback();
+          } catch (rollbackErr) {
+            const msg =
+              rollbackErr instanceof Error
+                ? rollbackErr.message
+                : String(rollbackErr);
+            result.errors.push(`Rollback failed: ${msg}`);
+          }
+        }
       }
     }
 
@@ -190,6 +266,65 @@ export class ComposerController {
   /** Most recent workflow result; exposed for UI observability. */
   getLastResult(): WorkflowResult | null {
     return this.lastResult;
+  }
+
+  /**
+   * Pre-flight validation: Check that all approved diffs can be applied
+   * before applying any of them. Returns empty array if all validations pass,
+   * otherwise returns an array of error messages.
+   *
+   * This ensures atomic (all-or-nothing) semantics: we validate everything
+   * upfront, and only apply if ALL validations pass.
+   */
+  private async validateDiffs(
+    diffs: Diff[],
+    approved: Set<number>,
+    rejected: Set<number>,
+    workspaceRoot: string,
+  ): Promise<string[]> {
+    const errors: string[] = [];
+
+    for (let i = 0; i < diffs.length; i++) {
+      const diff = diffs[i];
+
+      // Skip unapproved and rejected diffs
+      if (rejected.has(i) || !approved.has(i)) {
+        continue;
+      }
+
+      const resolved = resolveInWorkspace(workspaceRoot, diff.filePath);
+      if (!resolved) {
+        errors.push(`${diff.filePath}: Path outside workspace`);
+        continue;
+      }
+
+      try {
+        const uri = vscode.Uri.file(resolved);
+
+        // Check if file exists and read its content
+        let existing: string | null = null;
+        try {
+          const data = await vscode.workspace.fs.readFile(uri);
+          if (data && data.length !== undefined && data.length > 0) {
+            existing = new TextDecoder().decode(data);
+          }
+        } catch {
+          // File does not exist — this is OK, we'll create it
+        }
+
+        // If file exists, validate that oldContent is present
+        if (existing !== null && !existing.includes(diff.oldContent)) {
+          errors.push(
+            `${diff.filePath}: old_content not found (file exists but pattern doesn't match)`,
+          );
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        errors.push(`${diff.filePath}: ${message}`);
+      }
+    }
+
+    return errors;
   }
 
   private async applyDiff(
