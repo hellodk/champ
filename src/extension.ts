@@ -62,6 +62,7 @@ import { remoteRunTerminalTool } from "./tools/remote-run-terminal";
 import { remoteEditFileTool } from "./tools/remote-edit-file";
 import { createCodebaseSearchTool } from "./tools/codebase-search";
 import { gitTool } from "./tools/git-tool";
+import { createDelegateTaskTool } from "./tools/delegate-task";
 // Lazy-loaded: IndexingService, MultiAgentRunner (dynamic import() in handlers)
 import type { IndexingService } from "./indexing/indexing-service";
 import type { IWorkflowRunner } from "./agent/workflow-runner";
@@ -127,6 +128,12 @@ let saveActiveTimeout: ReturnType<typeof setTimeout> | null = null;
 let indexingService: IndexingService | undefined;
 /** Generation counter to prevent orphaned IndexingService from stale onChange callbacks. */
 let indexingGeneration = 0;
+/** Live reference to the agent controller, used by tools that delegate to sub-agents. */
+const agentControllerRef: {
+  current: import("./agent/agent-controller").AgentController | undefined;
+} = {
+  current: undefined,
+};
 let mcpRegistry: McpRegistry | undefined;
 let mcpClientManager: MCPClientManager | undefined;
 let persistentRunner: IWorkflowRunner | undefined;
@@ -207,6 +214,26 @@ export async function activate(
     createCodebaseSearchTool(() => indexingService ?? null),
   );
   toolRegistry.register(gitTool);
+  // delegate_task: spawn a scoped sub-agent via the live agent controller.
+  const delegateMemoryStore = new Map<string, unknown>();
+  const delegateMemory: import("./tools/delegate-task").SubAgentMemory = {
+    set: (k, v) => delegateMemoryStore.set(k, v),
+    get: (k) => delegateMemoryStore.get(k),
+    subscribe: async () => undefined,
+    hasChannel: () => false,
+  };
+  toolRegistry.register(
+    createDelegateTaskTool(
+      {
+        processMessage: (messages, options) =>
+          agentControllerRef.current!.processMessage(
+            messages as string,
+            options as never,
+          ),
+      },
+      delegateMemory,
+    ),
+  );
 
   // ---- Audit log middleware: intercept every tool call ----------------
   // Wrap toolRegistry.execute() so every tool invocation is logged to the
@@ -300,6 +327,7 @@ export async function activate(
     toolRegistry,
     workspaceRoot,
   );
+  agentControllerRef.current = agentController;
 
   // ---- Response cache (TTL-based, opt-in per config) ------------------
   // 5-minute TTL; shared across the session. Cleared on new conversation.

@@ -90,6 +90,41 @@ export class AdvancedCommandSandbox {
   }
 
   /**
+   * Check whether a command is allowed to execute.
+   * Combines allowlist-only mode, denylist patterns, and path validation.
+   * Drop-in compatible with CommandSandbox.check().
+   */
+  check(command: string): SandboxCheckResult {
+    const trimmed = command.trim();
+
+    if (this.config.allowlist.length > 0) {
+      const matched = this.config.allowlist.some((p) =>
+        new RegExp(p).test(trimmed),
+      );
+      if (!matched) {
+        return { allowed: false, reason: "command not in allowlist" };
+      }
+    }
+
+    for (const pattern of this.config.denylist) {
+      if (new RegExp(pattern).test(trimmed)) {
+        return { allowed: false, reason: "blocked by denylist" };
+      }
+    }
+
+    return this.validatePath(trimmed);
+  }
+
+  /**
+   * Whether the sandbox has explicit allowlist/denylist restrictions
+   * configured (vs. permissive default mode). When false, callers should
+   * skip advanced path validation to avoid blocking legitimate commands.
+   */
+  isRestrictedMode(): boolean {
+    return this.config.allowlist.length > 0 || this.config.denylist.length > 0;
+  }
+
+  /**
    * Get environment with restricted variables stripped.
    */
   getIsolatedEnv(env: Record<string, string>): Record<string, string> {
