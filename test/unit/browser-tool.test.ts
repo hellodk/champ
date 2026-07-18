@@ -21,7 +21,7 @@ describe("BrowserTool", () => {
       const definitions = tool.getToolDefinitions?.();
       expect(definitions).toBeDefined();
       const navigateTool = definitions?.find(
-        (t) => t.name === "browser_navigate"
+        (t) => t.name === "browser_navigate",
       );
       expect(navigateTool).toBeDefined();
       expect(navigateTool?.description.toLowerCase()).toContain("navigate");
@@ -63,7 +63,7 @@ describe("BrowserTool", () => {
     it("should have screenshot capability in tool definition", () => {
       const definitions = tool.getToolDefinitions?.();
       const screenshotTool = definitions?.find(
-        (t) => t.name === "browser_screenshot"
+        (t) => t.name === "browser_screenshot",
       );
       expect(screenshotTool).toBeDefined();
     });
@@ -78,7 +78,7 @@ describe("BrowserTool", () => {
     it("should include screenshot data in metadata", async () => {
       await tool.navigate("https://example.com", mockContext);
       const result = await tool.screenshot(mockContext);
-      expect(result.metadata?.screenshotBase64).toBeTruthy();
+      expect(result.metadata?.screenshot).toBeTruthy();
     });
   });
 
@@ -86,7 +86,7 @@ describe("BrowserTool", () => {
     it("should have getContent capability in tool definition", () => {
       const definitions = tool.getToolDefinitions?.();
       const contentTool = definitions?.find(
-        (t) => t.name === "browser_get_content"
+        (t) => t.name === "browser_get_content",
       );
       expect(contentTool).toBeDefined();
     });
@@ -122,7 +122,7 @@ describe("BrowserTool", () => {
           action: "navigate",
           url: "https://example.com",
         },
-        mockContext
+        mockContext,
       );
       expect(result.success).toBe(true);
     });
@@ -134,7 +134,7 @@ describe("BrowserTool", () => {
           action: "click",
           selector: "button",
         },
-        mockContext
+        mockContext,
       );
       expect(result.success).toBe(true);
     });
@@ -145,7 +145,7 @@ describe("BrowserTool", () => {
         {
           action: "screenshot",
         },
-        mockContext
+        mockContext,
       );
       expect(result.success).toBe(true);
     });

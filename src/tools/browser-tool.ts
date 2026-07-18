@@ -56,7 +56,10 @@ export class BrowserTool implements Tool {
   /**
    * Navigate to a given URL
    */
-  async navigate(url: string, context: ToolExecutionContext): Promise<ToolResult> {
+  async navigate(
+    url: string,
+    context: ToolExecutionContext,
+  ): Promise<ToolResult> {
     try {
       // Validate URL format
       try {
@@ -90,7 +93,10 @@ export class BrowserTool implements Tool {
   /**
    * Click an element on the page
    */
-  async click(selector: string, context: ToolExecutionContext): Promise<ToolResult> {
+  async click(
+    selector: string,
+    context: ToolExecutionContext,
+  ): Promise<ToolResult> {
     try {
       if (!this.session.isOpen) {
         return {
@@ -145,7 +151,7 @@ export class BrowserTool implements Tool {
         success: true,
         output: "Screenshot captured successfully",
         metadata: {
-          screenshotBase64: fakeBase64,
+          screenshot: fakeBase64,
         },
       };
     } catch (err) {
@@ -200,7 +206,7 @@ Content:
    */
   async execute(
     args: Record<string, unknown>,
-    context: ToolExecutionContext
+    context: ToolExecutionContext,
   ): Promise<ToolResult> {
     const action = args.action as string | undefined;
 

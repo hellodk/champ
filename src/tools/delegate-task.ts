@@ -118,7 +118,9 @@ class DelegateTaskToolImpl implements Tool {
     private readonly memory: SubAgentMemory,
   ) {}
 
-  getPreview(args: Record<string, unknown>): { type: "command"; content: string } | undefined {
+  getPreview(
+    args: Record<string, unknown>,
+  ): { type: "command"; content: string } | undefined {
     const task = args.task as string | undefined;
     const scope = args.scope as string | undefined;
     const model = args.model as string | undefined;
@@ -147,14 +149,15 @@ class DelegateTaskToolImpl implements Tool {
       };
     }
 
-    const scope = args.scope as string | undefined;
-    if (!scope || !["file", "directory", "workspace"].includes(scope)) {
+    const scopeRaw = args.scope as string | undefined;
+    if (!scopeRaw || !["file", "directory", "workspace"].includes(scopeRaw)) {
       return {
         success: false,
         output:
           'delegate_task: "scope" must be one of: "file", "directory", "workspace".',
       };
     }
+    const scope = scopeRaw as "file" | "directory" | "workspace";
 
     const model = args.model as string | undefined;
     const taskContext = args.context as Record<string, unknown> | undefined;
@@ -180,7 +183,9 @@ class DelegateTaskToolImpl implements Tool {
         `\n\nComplete this task efficiently and report your results.`;
 
       // Execute the subtask via the agent controller
-      context.reportProgress(`Sub-agent processing: ${task.substring(0, 50)}...`);
+      context.reportProgress(
+        `Sub-agent processing: ${task.substring(0, 50)}...`,
+      );
 
       const result = await this.agentController.processMessage(
         subagentMessage,
@@ -196,21 +201,17 @@ class DelegateTaskToolImpl implements Tool {
       );
 
       // Store sub-agent output in memory for potential parent agent reference
-      this.memory.set(
-        `subtask_${Date.now()}`,
-        {
-          task,
-          scope,
-          output: result.text,
-          model: model || "default",
-        },
-      );
+      this.memory.set(`subtask_${Date.now()}`, {
+        task,
+        scope,
+        output: result.text,
+        model: model || "default",
+      });
 
       return {
         success: true,
         output:
-          `Sub-agent completed task: ${task}\n\n` +
-          `Result:\n${result.text}`,
+          `Sub-agent completed task: ${task}\n\n` + `Result:\n${result.text}`,
         metadata: {
           filesModified: [], // Sub-agent results could indicate modified files
         },
@@ -227,7 +228,9 @@ class DelegateTaskToolImpl implements Tool {
     }
   }
 
-  private buildScopeInstructions(scope: "file" | "directory" | "workspace"): string {
+  private buildScopeInstructions(
+    scope: "file" | "directory" | "workspace",
+  ): string {
     switch (scope) {
       case "file":
         return (

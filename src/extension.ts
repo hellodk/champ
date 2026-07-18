@@ -285,7 +285,7 @@ export async function activate(
     : null;
 
   // Initialize checkpoint manager to load persisted checkpoints from disk
-  void checkpointManager?.initialize().catch((err) => {
+  void checkpointManager?.waitForLoad().catch((err: unknown) => {
     console.warn("[Champ] CheckpointManager initialization failed:", err);
   });
 

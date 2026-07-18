@@ -144,7 +144,9 @@ export class AdvancedCommandSandbox {
         // For absolute paths outside workspace, block
         if (
           targetPath.startsWith("/") &&
-          !this.config.allowedWorkspacePaths.some((p) => targetPath.startsWith(p))
+          !this.config.allowedWorkspacePaths.some((p) =>
+            targetPath.startsWith(p),
+          )
         ) {
           return {
             allowed: false,
@@ -202,7 +204,7 @@ export class AdvancedCommandSandbox {
    */
   async executeWithTimeout(
     command: string,
-    timeoutMs: number
+    timeoutMs: number,
   ): Promise<TimeoutResult> {
     return new Promise((resolve) => {
       const proc = spawn("bash", ["-c", command], {
@@ -299,7 +301,7 @@ export class AdvancedCommandSandbox {
     try {
       // Simple YAML parser for basic key-value structure
       const content = fs.readFileSync(filePath, "utf-8");
-      const config: Partial<SandboxConfig> = {};
+      const config: Record<string, unknown> = {};
 
       const lines = content.split("\n");
       let currentSection = "";
@@ -310,24 +312,22 @@ export class AdvancedCommandSandbox {
 
         if (trimmed.endsWith(":")) {
           currentSection = trimmed.slice(0, -1);
-          config[currentSection as keyof SandboxConfig] = [];
+          config[currentSection] = [];
         } else if (trimmed.startsWith("- ")) {
           const value = trimmed.slice(2);
           if (currentSection) {
-            const arr = config[currentSection as keyof SandboxConfig] as
-              | string[]
-              | undefined;
+            const arr = config[currentSection] as string[] | undefined;
             if (Array.isArray(arr)) {
               arr.push(value);
             }
           }
         } else if (trimmed.includes(":")) {
           const [key, value] = trimmed.split(":").map((s) => s.trim());
-          config[key as keyof SandboxConfig] = value as unknown;
+          config[key] = value;
         }
       }
 
-      return config;
+      return config as Partial<SandboxConfig>;
     } catch (err) {
       console.error("Failed to load YAML config:", err);
       return null;
@@ -340,7 +340,8 @@ export class AdvancedCommandSandbox {
   private formatAuditLogLine(log: CommandAuditLog): string {
     const timestamp = log.timestamp.toISOString();
     const approval = log.userApproved ? "APPROVED" : "PENDING";
-    const exitInfo = log.exitCode !== undefined ? ` [exit:${log.exitCode}]` : "";
+    const exitInfo =
+      log.exitCode !== undefined ? ` [exit:${log.exitCode}]` : "";
     const reason = log.reason ? ` - ${log.reason}` : "";
 
     return `[${timestamp}] [${log.status}] [${approval}] ${log.command}${exitInfo}${reason}`;
