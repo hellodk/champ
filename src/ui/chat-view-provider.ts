@@ -74,6 +74,7 @@ import {
   isEditUserMessage,
   isRegenerateResponseRequest,
   isSaveSettingsRequest,
+  isDiscoverModelsRequest,
   isCopyToClipboardRequest,
   isReloadProviderRequest,
   createSessionList,
@@ -159,6 +160,12 @@ export type SkillVariableResolver = (
   template: string,
   context: ReturnType<SkillContextProvider["build"]>,
 ) => string;
+
+function formatDiscoveredBytes(bytes: number): string {
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(0)} MB`;
+  return `${bytes} B`;
+}
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "champ.chatView";
@@ -447,6 +454,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           this.agent.truncateHistory(lastUserIdx);
           await this.handleUserMessage(lastUserText);
         }
+      } else if (isDiscoverModelsRequest(msg)) {
+        try {
+          const isOllama = msg.provider === "ollama";
+          const endpoint = isOllama
+            ? `${msg.baseUrl.replace(/\/$/, "")}/api/tags`
+            : `${msg.baseUrl.replace(/\/$/, "")}/v1/models`;
+          const resp = await fetch(endpoint, {
+            signal: AbortSignal.timeout(5000),
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const body = (await resp.json()) as Record<string, unknown>;
+          let models: Array<{ name: string; size?: string }>;
+          if (isOllama) {
+            const items =
+              (body.models as Array<{ name: string; size?: number }>) || [];
+            models = items.map((m) => ({
+              name: m.name,
+              size: m.size ? formatDiscoveredBytes(m.size) : undefined,
+            }));
+          } else {
+            const items = (body.data as Array<{ id: string }>) || [];
+            models = items.map((m) => ({ name: m.id }));
+          }
+          this.postMessage({ type: "discoveredModels", models });
+        } catch (err) {
+          this.postMessage({
+            type: "discoveredModels",
+            models: [],
+            error: err instanceof Error ? err.message : "Connection failed",
+          });
+        }
       } else if (isSaveSettingsRequest(msg)) {
         // Update provider and model in VS Code global settings, then reload.
         const config = vscode.workspace.getConfiguration("champ");
@@ -460,6 +498,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           msg.model,
           vscode.ConfigurationTarget.Global,
         );
+        if (msg.baseUrl) {
+          await config.update(
+            `${msg.provider}.baseUrl`,
+            msg.baseUrl,
+            vscode.ConfigurationTarget.Global,
+          );
+        }
         await vscode.commands.executeCommand("champ.reloadProvider");
       } else if (isCopyToClipboardRequest(msg)) {
         // navigator.clipboard is blocked in VS Code webviews — route through extension host
