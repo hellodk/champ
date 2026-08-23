@@ -8,6 +8,59 @@
 import type { Tool, ToolResult, ToolExecutionContext } from "./types";
 import type { ToolDefinition } from "../providers/types";
 
+/**
+ * Validate tool arguments against the declared JSON schema before execution
+ * (issue #106). Returns null when valid, or a human-readable reason that is
+ * fed back to the model so it can correct its call.
+ */
+export function validateToolArgs(tool: Tool, args: unknown): string | null {
+  const params = tool.parameters;
+  if (!params || typeof params !== "object") {
+    return null;
+  }
+  if (params.type !== "object") {
+    return null; // only object schemas are used by tools today
+  }
+  if (args === null || typeof args !== "object" || Array.isArray(args)) {
+    return "expected a JSON object of named arguments";
+  }
+  const record = args as Record<string, unknown>;
+  for (const req of params.required ?? []) {
+    if (!(req in record)) {
+      return `missing required argument "${req}"`;
+    }
+  }
+  for (const [key, value] of Object.entries(record)) {
+    const expected = params.properties?.[key]?.type;
+    if (!expected) {
+      continue; // unknown extra properties are tolerated
+    }
+    if (!jsonTypeMatches(expected, value)) {
+      return `argument "${key}" must be of type ${expected}`;
+    }
+  }
+  return null;
+}
+
+function jsonTypeMatches(expected: string, value: unknown): boolean {
+  switch (expected) {
+    case "string":
+      return typeof value === "string";
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "boolean":
+      return typeof value === "boolean";
+    case "object":
+      return (
+        typeof value === "object" && value !== null && !Array.isArray(value)
+      );
+    case "array":
+      return Array.isArray(value);
+    default:
+      return true; // unknown schema types are not enforced
+  }
+}
+
 export class ToolRegistry {
   private tools = new Map<string, Tool>();
 
@@ -51,6 +104,16 @@ export class ToolRegistry {
       return {
         success: false,
         output: `Unknown tool: ${name}`,
+      };
+    }
+
+    // Schema-validate BEFORE approval so the model gets fast, actionable
+    // feedback instead of a runtime failure inside the tool (issue #106).
+    const validationError = validateToolArgs(tool, args);
+    if (validationError) {
+      return {
+        success: false,
+        output: `Invalid arguments for tool "${name}": ${validationError}. Fix the arguments and call the tool again.`,
       };
     }
 

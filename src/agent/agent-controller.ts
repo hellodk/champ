@@ -31,6 +31,7 @@ import {
   parseToolCallsFromText,
   extractTextContent,
   extractPreToolText,
+  type MalformedToolCall,
 } from "../providers/prompt-based-tools";
 import { SecretScanner } from "../safety/secret-scanner";
 import { PiiScanner } from "../safety/pii-scanner";
@@ -744,11 +745,23 @@ export class AgentController {
         // response text, then emit a cleaned text delta to the UI so the
         // user sees prose without the XML noise.
         if (usePromptBased && assistantText) {
-          const parsed = parseToolCallsFromText(assistantText);
+          const malformedCalls: MalformedToolCall[] = [];
+          const parsed = parseToolCallsFromText(assistantText, (info) =>
+            malformedCalls.push(info),
+          );
           const promptToolStart = Date.now();
           for (const call of parsed) {
             pendingToolCalls.push(call);
             toolStartTimes.set(call.id, promptToolStart);
+          }
+          // Feed actionable correction back to the model instead of
+          // silently dropping the call (issue #106).
+          if (malformedCalls.length > 0) {
+            const note = `⚠️ Your tool call(s) had invalid JSON arguments and were not executed: ${malformedCalls
+              .map((m) => `${m.name} (${m.reason})`)
+              .join("; ")}. Re-emit with valid JSON inside <arguments>.`;
+            this.history.push({ role: "user", content: note });
+            this.emit({ type: "text", text: note });
           }
           const cleaned = extractPreToolText(assistantText);
           if (cleaned) {
