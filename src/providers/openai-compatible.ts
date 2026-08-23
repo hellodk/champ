@@ -18,6 +18,7 @@ import type {
   ModelInfo,
   ContentBlock,
 } from "./types";
+import { resilientFetch } from "./http-resilience";
 
 const DEFAULT_CONTEXT_WINDOW = 8192;
 
@@ -77,7 +78,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
     // n_ctx the server was started with.
     try {
       const base = (this.config.baseUrl ?? "").replace(/\/v1\/?$/, "");
-      const res = await fetch(`${base}/props`);
+      const res = await resilientFetch(`${base}/props`, undefined, {
+        timeoutMs: this.config.requestTimeoutMs,
+      });
       if (res.ok) {
         const data = (await res.json()) as {
           default_generation_settings?: { n_ctx?: number };
@@ -98,7 +101,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
     // Fallback: try /v1/models for OpenAI-compatible servers that
     // expose max_context_length in the model object.
     try {
-      const res = await fetch(this.joinUrl("/models"));
+      const res = await resilientFetch(this.joinUrl("/models"), undefined, {
+        timeoutMs: this.config.requestTimeoutMs,
+      });
       if (res.ok) {
         const data = (await res.json()) as {
           data?: Array<{ id: string; max_context_length?: number }>;
@@ -151,12 +156,18 @@ export class OpenAICompatibleProvider implements LLMProvider {
     };
 
     try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: this.buildHeaders(),
-        body: JSON.stringify(body),
-        signal: options?.abortSignal,
-      });
+      const response = await resilientFetch(
+        url,
+        {
+          method: "POST",
+          headers: this.buildHeaders(),
+          body: JSON.stringify(body),
+        },
+        {
+          signal: options?.abortSignal,
+          timeoutMs: this.config.requestTimeoutMs,
+        },
+      );
 
       if (!response.ok || !response.body) {
         let hint = "";
@@ -211,12 +222,18 @@ export class OpenAICompatibleProvider implements LLMProvider {
     };
 
     try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: this.buildHeaders(),
-        body: JSON.stringify(body),
-        signal: options?.abortSignal,
-      });
+      const response = await resilientFetch(
+        url,
+        {
+          method: "POST",
+          headers: this.buildHeaders(),
+          body: JSON.stringify(body),
+        },
+        {
+          signal: options?.abortSignal,
+          timeoutMs: this.config.requestTimeoutMs,
+        },
+      );
 
       // Some servers don't expose /v1/completions; fall back to /v1/chat
       // so the autocomplete still produces something.
@@ -255,7 +272,11 @@ export class OpenAICompatibleProvider implements LLMProvider {
       const headers: Record<string, string> = {};
       const apiKey = this.config.apiKey;
       if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
-      const res = await fetch(this.joinUrl("/models"), { headers });
+      const res = await resilientFetch(
+        this.joinUrl("/models"),
+        { headers },
+        { timeoutMs: this.config.requestTimeoutMs },
+      );
       if (!res.ok) return [];
       const data = (await res.json()) as {
         data?: Array<{ id: string }>;

@@ -146,6 +146,8 @@ export interface LLMProviderConfig {
   topP?: number;
   /** Additional headers to include on requests. */
   customHeaders?: Record<string, string>;
+  /** Per-request HTTP timeout in ms before first token. Default: 120000 (issue #104). */
+  requestTimeoutMs?: number;
 }
 
 /**

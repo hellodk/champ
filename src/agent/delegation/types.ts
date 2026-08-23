@@ -89,8 +89,14 @@ export interface SubAgent {
   /**
    * Execute the given task parameters.
    * Should return a result with { success, output, error? }.
+   *
+   * The optional signal is aborted when the attempt times out so
+   * cooperative implementations can stop long-running work (issue #104).
    */
-  execute(params: Record<string, unknown>): Promise<{
+  execute(
+    params: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<{
     success: boolean;
     output: string;
     error?: string;
