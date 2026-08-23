@@ -54,6 +54,8 @@ export interface ProviderConfig {
   model?: string;
   /** Self-hosted providers only. Sent as Authorization: Bearer <apiKey>. */
   apiKey?: string;
+  /** Opt-in to native OpenAI tool calling (openai-compatible spec servers). */
+  supportsTools?: boolean;
 }
 
 export interface AutocompleteConfig {
@@ -403,6 +405,15 @@ export class ConfigLoader {
               pushError(`providers.${name}.apiKey must be a non-empty string`);
             } else {
               pc.apiKey = c.apiKey;
+            }
+          }
+          if ("supportsTools" in c) {
+            // Opt-in to native OpenAI tool calling (openai-compatible spec
+            // servers). Meaningful for openai-compatible/llamacpp/vllm.
+            if (typeof c.supportsTools !== "boolean") {
+              pushError(`providers.${name}.supportsTools must be a boolean`);
+            } else {
+              pc.supportsTools = c.supportsTools;
             }
           }
           result.providers[name as ProviderName] = pc;

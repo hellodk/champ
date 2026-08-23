@@ -148,6 +148,13 @@ export interface LLMProviderConfig {
   customHeaders?: Record<string, string>;
   /** Per-request HTTP timeout in ms before first token. Default: 120000 (issue #104). */
   requestTimeoutMs?: number;
+  /**
+   * Opt-in to native OpenAI tool calling for openai-compatible servers.
+   * Default false — champ falls back to prompt-based XML tools. Set true
+   * when your server implements OpenAI-spec `tools` reliably (vLLM, omlx,
+   * llama.cpp server, LM Studio with a tool-capable model).
+   */
+  supportsTools?: boolean;
 }
 
 /**

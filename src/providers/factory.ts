@@ -149,6 +149,7 @@ export class ProviderFactory {
           apiKey:
             providerEntry.apiKey ??
             (await getKey("champ.llamacpp.apiKey", "LLAMACPP_API_KEY")),
+          supportsTools: providerEntry.supportsTools,
         });
       case "vllm":
         return new VLLMProvider({
@@ -158,6 +159,7 @@ export class ProviderFactory {
           apiKey:
             providerEntry.apiKey ??
             (await getKey("champ.vllm.apiKey", "VLLM_API_KEY")),
+          supportsTools: providerEntry.supportsTools,
         });
       case "openai-compatible":
         return new OpenAICompatibleProvider({
@@ -170,6 +172,7 @@ export class ProviderFactory {
               "champ.openaiCompatible.apiKey",
               "OPENAI_COMPATIBLE_API_KEY",
             )),
+          supportsTools: providerEntry.supportsTools,
         });
       default: {
         const _exhaustive: never = providerName as never;
