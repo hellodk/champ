@@ -31,6 +31,7 @@ import {
   parseToolCallsFromText,
   extractTextContent,
   extractPreToolText,
+  hasFabricatedNarration,
 } from "../providers/prompt-based-tools";
 import { SecretScanner } from "../safety/secret-scanner";
 import { PiiScanner } from "../safety/pii-scanner";
@@ -745,6 +746,37 @@ export class AgentController {
         // user sees prose without the XML noise.
         if (usePromptBased && assistantText) {
           const parsed = parseToolCallsFromText(assistantText);
+
+          // ── Hallucination guard (issue #101) ────────────────────────────
+          // If no tool calls were parsed but the text contains fabricated
+          // narration (e.g. "---Result of reading documentation:"), the
+          // model is narrating fake tool results without actually calling
+          // any tool. Issue a corrective user turn and continue the loop
+          // so the model gets a chance to emit a real <tool_call>.
+          if (
+            parsed.length === 0 &&
+            hasFabricatedNarration(assistantText) &&
+            iteration < maxIterations - 1
+          ) {
+            this.emit({
+              type: "text",
+              text: "\n*(Waiting for tool call…)*\n",
+            });
+            this.history.push({
+              role: "assistant",
+              content: assistantText,
+            });
+            this.history.push({
+              role: "user",
+              content:
+                "⚠️ You narrated a tool result without calling a tool. " +
+                "You MUST emit a <tool_call> XML block to actually run the tool. " +
+                "Do NOT describe results you haven't seen yet. " +
+                "Call the tool now.",
+            });
+            continue;
+          }
+
           const promptToolStart = Date.now();
           for (const call of parsed) {
             pendingToolCalls.push(call);
