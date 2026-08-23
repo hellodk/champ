@@ -1159,7 +1159,22 @@ export async function activate(
           try {
             await controller.processMessage(request.prompt, {
               abortSignal: abort.signal,
-              requestApproval: async () => true,
+              // yoloMode is the single kill-switch for destructive-tool
+              // prompts. Without it, approval-required tools are denied in
+              // the @champ participant — the sidebar chat view is where
+              // interactive approval happens (issue #105).
+              requestApproval: async (description) => {
+                const yolo = vscode.workspace
+                  .getConfiguration("champ")
+                  .get<boolean>("yoloMode", false);
+                if (yolo) {
+                  return true;
+                }
+                stream.markdown(
+                  `\n\n🔒 Approval required for: ${description} — run it from the Champ sidebar (or enable \`champ.yoloMode\`).\n`,
+                );
+                return false;
+              },
             });
           } catch (err) {
             stream.markdown(

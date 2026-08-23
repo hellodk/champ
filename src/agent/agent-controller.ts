@@ -823,7 +823,9 @@ export class AgentController {
                 done: false,
               });
             },
-            requestApproval: options.requestApproval ?? (async () => true),
+            // Deny-by-default: if no approval UI is wired, destructive tools
+            // must not run silently (issue #105).
+            requestApproval: options.requestApproval ?? (async () => false),
             editReviewTracker: this.editReviewTracker,
             stagedEdits,
             auditLog: this._auditLog,
@@ -924,18 +926,25 @@ export class AgentController {
         }
       }
 
-      // Flush all staged file edits to disk atomically now that the turn is done.
-      // This ensures edits across multiple files are applied together — no half-
-      // applied states — and later edits to the same file correctly compose.
+      // Flush all staged file edits to disk atomically now that the turn is
+      // done — but never on a cancelled turn (issue #105): discarding is the
+      // safe default when the user stopped the agent mid-edit.
       if (stagedEdits.size() > 0) {
-        const flushed = await stagedEdits.flush();
-        for (const change of flushed) {
-          if (this.editReviewTracker) {
-            this.editReviewTracker.record({
-              path: change.relativePath,
-              oldContent: change.oldContent,
-              newContent: change.newContent,
-            });
+        if (options.abortSignal?.aborted) {
+          this.emit({
+            type: "text",
+            text: `\n⏹ Cancelled — ${stagedEdits.size()} staged file edit(s) were discarded.`,
+          });
+        } else {
+          const flushed = await stagedEdits.flush();
+          for (const change of flushed) {
+            if (this.editReviewTracker) {
+              this.editReviewTracker.record({
+                path: change.relativePath,
+                oldContent: change.oldContent,
+                newContent: change.newContent,
+              });
+            }
           }
         }
       }

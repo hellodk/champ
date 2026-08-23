@@ -283,7 +283,10 @@ export class TeamAgent implements Agent {
           workspaceRoot,
           abortSignal: this.abortSignal ?? new AbortController().signal,
           reportProgress: () => {},
-          requestApproval: this.requestApprovalCallback ?? (async () => true),
+          // Deny-by-default: autonomous approval must be an EXPLICIT
+          // decision made by the runner (auto mode), never a silent
+          // fallback here (issue #105).
+          requestApproval: this.requestApprovalCallback ?? (async () => false),
         },
         this.metrics,
       );
