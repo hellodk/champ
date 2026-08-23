@@ -11,7 +11,7 @@ import type {
   ToolPreview,
 } from "./types";
 import type { ToolParameterSchema } from "../providers/types";
-import { chromium, type Browser, type Page } from "@playwright/test";
+import type { Browser, Page } from "@playwright/test";
 
 /**
  * Global browser instance shared across tool invocations within a session.
@@ -25,6 +25,7 @@ let page: Page | null = null;
  */
 async function ensureBrowser(): Promise<void> {
   if (!browser) {
+    const { chromium } = await import("@playwright/test");
     browser = await chromium.launch({ headless: true });
   }
   if (!page) {

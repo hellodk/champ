@@ -12,15 +12,26 @@ interface MemoryItem {
   pinned?: boolean;
 }
 
-const vscode =
-  typeof (window as unknown as { vscode?: unknown }).vscode !== "undefined"
-    ? (window as unknown as { vscode: { postMessage: (m: unknown) => void } })
-        .vscode
-    : (
-        window as unknown as {
-          acquireVsCodeApi?: () => { postMessage: (m: unknown) => void };
-        }
-      ).acquireVsCodeApi?.();
+// Resolved lazily, never at module scope: this module is evaluated as soon
+// as components.js loads, and acquireVsCodeApi() may only be called once
+// per webview. main.js has already acquired the handle and published it on
+// window.vscode by then, so acquiring here would throw and blank the view.
+// The standalone Memory panel loads components.js without main.js, so the
+// fallback below is the first and only acquisition in that context.
+function getVsCode(): { postMessage: (msg: unknown) => void } {
+  if (
+    typeof (window as unknown as { vscode?: unknown }).vscode !== "undefined"
+  ) {
+    return (
+      window as unknown as { vscode: { postMessage: (msg: unknown) => void } }
+    ).vscode;
+  }
+  return (
+    window as unknown as {
+      acquireVsCodeApi: () => { postMessage: (msg: unknown) => void };
+    }
+  ).acquireVsCodeApi();
+}
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, {
@@ -186,17 +197,17 @@ export function MemoryPanel(): JSX.Element {
   }, []);
 
   const handleDelete = (id: string) => {
-    vscode?.postMessage({ type: "memoryDelete", id });
+    getVsCode().postMessage({ type: "memoryDelete", id });
     setItems((prev) => prev.filter((m) => m.id !== id));
   };
 
   const handleTogglePin = (id: string, pinned: boolean) => {
-    vscode?.postMessage({ type: "memoryPin", id, pinned });
+    getVsCode().postMessage({ type: "memoryPin", id, pinned });
     setItems((prev) => prev.map((m) => (m.id === id ? { ...m, pinned } : m)));
   };
 
   const handleAdd = (text: string) => {
-    vscode?.postMessage({ type: "memoryAdd", text });
+    getVsCode().postMessage({ type: "memoryAdd", text });
   };
 
   const pinnedItems = items.filter((m) => m.pinned);

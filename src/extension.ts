@@ -940,6 +940,10 @@ export async function activate(
       );
     }
     broadcastMetrics();
+    // Reset status bar from spinning "thinking" back to ready after every turn.
+    if (statusBarItem && inlineProviderRef.current.name !== "not-configured") {
+      setStatusReady(inlineProviderRef.current);
+    }
     if (sessionAnalytics) {
       lastAnalyticsReport = sessionAnalytics.toReport();
     }
@@ -960,6 +964,10 @@ export async function activate(
   chatViewProvider.onStreamError((error) => {
     metrics?.recordFailure(error);
     broadcastMetrics();
+    // Reset status bar from spinning "thinking" back to ready on error too.
+    if (statusBarItem && inlineProviderRef.current.name !== "not-configured") {
+      setStatusReady(inlineProviderRef.current);
+    }
     saveActiveSession();
   });
   // When the webview resolves, re-broadcast all state that may have
@@ -1009,6 +1017,13 @@ export async function activate(
       chatViewProvider?.broadcastProviderStatus({
         state: "error",
         errorMessage: lastProviderError,
+        available: [],
+      });
+    } else {
+      // Provider is still loading (not-configured, no error yet).
+      // Broadcast loading so the header doesn't stay stuck.
+      chatViewProvider?.broadcastProviderStatus({
+        state: "loading",
         available: [],
       });
     }
