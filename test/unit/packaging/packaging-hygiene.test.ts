@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 
@@ -75,5 +75,29 @@ describe("packaging + repo hygiene (#102)", () => {
     // README.md and LICENSE must NOT appear as exclusion patterns
     expect(excluded.has("README.md")).toBe(false);
     expect(excluded.has("LICENSE")).toBe(false);
+  });
+
+  it("never value-imports playwright statically (activation crash guard)", () => {
+    // esbuild marks playwright-core external and published packages ship
+    // without node_modules. A static import becomes a top-level require
+    // and crashes activation ("Cannot find module 'playwright-core'").
+    // Type-only imports are erased at build time and are fine.
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const name of readdirSync(dir)) {
+        if (name === "__tests__" || name.endsWith(".test.ts")) continue;
+        const p = path.join(dir, name);
+        if (statSync(p).isDirectory()) {
+          walk(p);
+        } else if (p.endsWith(".ts")) {
+          const src = readFileSync(p, "utf8");
+          const re =
+            /^import\s+(?!type\b)[^;]*["'](@playwright\/test|playwright-core)["']/gm;
+          if (re.test(src)) offenders.push(path.relative(ROOT, p));
+        }
+      }
+    };
+    walk(path.join(ROOT, "src"));
+    expect(offenders).toEqual([]);
   });
 });

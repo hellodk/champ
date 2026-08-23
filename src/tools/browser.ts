@@ -12,7 +12,7 @@ import type {
 } from "./types";
 import type { ToolParameterSchema } from "../providers/types";
 import { validatePublicHttpUrl } from "../utils/url-guard";
-import { chromium, type Browser, type Page } from "@playwright/test";
+import type { Browser, Page } from "@playwright/test";
 
 /**
  * Global browser instance shared across tool invocations within a session.
@@ -23,9 +23,16 @@ let page: Page | null = null;
 
 /**
  * Ensures a browser instance is available.
+ *
+ * playwright-core is loaded via dynamic import INSIDE this function: a
+ * static import would require the module at activation time, but esbuild
+ * marks it external and published packages ship without node_modules —
+ * which crashed extension activation outright (see exthost log:
+ * "Cannot find module 'playwright-core'").
  */
 async function ensureBrowser(): Promise<void> {
   if (!browser) {
+    const { chromium } = await import("@playwright/test");
     browser = await chromium.launch({ headless: true });
   }
   if (!page) {
