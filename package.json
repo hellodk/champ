@@ -412,15 +412,15 @@
     ]
   },
   "scripts": {
-    "compile": "npm run check-types && node esbuild.mjs && node esbuild.webview.mjs --production && node scripts/copy-assets.mjs",
+    "compile": "pnpm run check-types && node esbuild.mjs && node esbuild.webview.mjs --production && node scripts/copy-assets.mjs",
     "build:webview": "node esbuild.webview.mjs --production && node scripts/copy-assets.mjs",
     "watch:webview": "node esbuild.webview.mjs --watch",
     "watch": "npm-run-all -p watch:*",
     "watch:extension": "node esbuild.mjs --watch",
     "watch:types": "tsc --noEmit --watch",
     "check-types": "tsc --noEmit",
-    "package": "npm run check-types && node esbuild.mjs --production",
-    "vscode:prepublish": "npm run package",
+    "package": "pnpm run check-types && node esbuild.mjs --production",
+    "vscode:prepublish": "pnpm run package",
     "test": "vitest run",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
