@@ -267,7 +267,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
    * Query the /v1/models endpoint for available models.
    * Works with vLLM, llama.cpp, and any OpenAI-compatible server.
    */
-  async listModels(): Promise<Array<{ id: string; name: string }>> {
+  async listModels(
+    signal?: AbortSignal,
+  ): Promise<Array<{ id: string; name: string }>> {
     try {
       const headers: Record<string, string> = {};
       const apiKey = this.config.apiKey;
@@ -275,7 +277,11 @@ export class OpenAICompatibleProvider implements LLMProvider {
       const res = await resilientFetch(
         this.joinUrl("/models"),
         { headers },
-        { timeoutMs: this.config.requestTimeoutMs },
+        {
+          signal,
+          timeoutMs: this.config.requestTimeoutMs ?? 30_000,
+          maxRetries: 0,
+        },
       );
       if (!res.ok) return [];
       const data = (await res.json()) as {

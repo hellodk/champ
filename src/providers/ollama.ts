@@ -348,12 +348,18 @@ export class OllamaProvider implements LLMProvider {
   /**
    * Query Ollama's /api/tags endpoint for all locally available models.
    */
-  async listModels(): Promise<Array<{ id: string; name: string }>> {
+  async listModels(
+    signal?: AbortSignal,
+  ): Promise<Array<{ id: string; name: string }>> {
     try {
       const res = await resilientFetch(
         `${this.config.baseUrl}/api/tags`,
         undefined,
-        { timeoutMs: this.config.requestTimeoutMs },
+        {
+          signal,
+          timeoutMs: this.config.requestTimeoutMs ?? 30_000,
+          maxRetries: 0,
+        },
       );
       if (!res.ok) return [];
       const data = (await res.json()) as {
