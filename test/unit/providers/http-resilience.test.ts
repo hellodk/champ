@@ -101,8 +101,11 @@ describe("resilientFetch (#104)", () => {
       { timeoutMs: 1_000, maxRetries: 0 },
       fetchImpl as unknown as typeof fetch,
     );
+    // Attach the rejection handler BEFORE timers fire so the rejection is
+    // never momentarily unhandled.
+    const assertion = expect(p).rejects.toThrow(/timed out|abort/i);
     await vi.runAllTimersAsync();
-    await expect(p).rejects.toThrow(/timed out|abort/i);
+    await assertion;
   });
 
   it("gives up after maxRetries and returns the last error response", async () => {
