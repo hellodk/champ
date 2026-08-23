@@ -119,16 +119,22 @@ export class VectorStore {
 
   /**
    * Delete all entries associated with a file path.
+   * @returns The number of entries removed.
    */
-  deleteByFile(filePath: string): void {
+  async deleteByFile(filePath: string): Promise<number> {
     if (this.disposed) throw new Error("VectorStore has been disposed");
+    let removed = 0;
     for (const [key, entry] of this.entries) {
       if (entry.filePath === filePath) {
         this.entries.delete(key);
+        removed++;
       }
     }
-    this.hnswDirty = true;
-    this.hnswVersion++;
+    if (removed > 0) {
+      this.hnswDirty = true;
+      this.hnswVersion++;
+    }
+    return removed;
   }
 
   /**

@@ -128,6 +128,59 @@ let saveActiveTimeout: ReturnType<typeof setTimeout> | null = null;
 let indexingService: IndexingService | undefined;
 /** Generation counter to prevent orphaned IndexingService from stale onChange callbacks. */
 let indexingGeneration = 0;
+/** The incremental file watcher only needs to be registered once per session. */
+let indexingFileWatcherRegistered = false;
+
+/**
+ * Watch the workspace for file changes and keep the semantic index fresh:
+ * created/changed text files are re-chunked + re-embedded incrementally,
+ * deleted files have their chunks removed. Events are debounced (500ms)
+ * so save bursts and formatting tools coalesce into one update per file.
+ * Registered once; reads the live `indexingService` so it survives router
+ * rediscovery recreating the service.
+ */
+function registerIndexingFileWatcher(
+  context: vscode.ExtensionContext,
+  root: string,
+  isIndexable: (filePath: string) => boolean,
+): void {
+  if (indexingFileWatcherRegistered) return;
+  indexingFileWatcherRegistered = true;
+
+  const pending = new Map<string, "reindex" | "delete">();
+  let flushTimer: ReturnType<typeof setTimeout> | undefined;
+  const flush = () => {
+    flushTimer = undefined;
+    const svc = indexingService;
+    if (!svc) return;
+    for (const [fsPath, op] of pending) {
+      pending.delete(fsPath);
+      try {
+        if (op === "delete") void svc.deleteByFile(fsPath);
+        else void svc.reindexFile(fsPath);
+      } catch {
+        // Index freshness is best-effort — never surface watcher errors.
+      }
+    }
+  };
+  const schedule = (fsPath: string, op: "reindex" | "delete") => {
+    // Last op wins — a create followed by a delete before flush nets delete.
+    pending.set(fsPath, op);
+    if (flushTimer) clearTimeout(flushTimer);
+    flushTimer = setTimeout(flush, 500);
+  };
+
+  const watcher = vscode.workspace.createFileSystemWatcher("**/*");
+  const track = (uri: vscode.Uri, op: "reindex" | "delete") => {
+    if (!uri.fsPath.startsWith(root)) return;
+    if (!isIndexable(uri.fsPath)) return;
+    schedule(uri.fsPath, op);
+  };
+  watcher.onDidCreate((uri) => track(uri, "reindex"));
+  watcher.onDidChange((uri) => track(uri, "reindex"));
+  watcher.onDidDelete((uri) => track(uri, "delete"));
+  context.subscriptions.push(watcher);
+}
 /** Live reference to the agent controller, used by tools that delegate to sub-agents. */
 const agentControllerRef: {
   current: import("./agent/agent-controller").AgentController | undefined;
@@ -550,7 +603,7 @@ export async function activate(
       const gen = ++indexingGeneration;
       // Lazy-load IndexingService to reduce activation time
       void import("./indexing/indexing-service.js").then(
-        ({ IndexingService: IS }) => {
+        ({ IndexingService: IS, isIndexableTextFile }) => {
           // Stale callback — a newer onChange already fired, skip
           if (gen !== indexingGeneration) return;
           if (!smartRouter) return;
@@ -569,6 +622,14 @@ export async function activate(
               statusBarItem,
               analyticsChannel,
             );
+            // Keep the index fresh incrementally as files change.
+            if (workspaceRoot) {
+              registerIndexingFileWatcher(
+                context,
+                workspaceRoot,
+                isIndexableTextFile,
+              );
+            }
           }
         },
       );
@@ -4024,6 +4085,7 @@ export async function activate(
   // ---- CI/CD local HTTP API server -------------------------------------
   const champServer = new ChampServer({
     version: context.extension.packageJSON.version as string,
+    metrics,
     onRunTeam: async (teamName, task) => {
       const teams = (await teamLoader?.loadAll()) ?? [];
       const team = teams.find((t) => t.name === teamName);
