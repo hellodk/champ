@@ -6,6 +6,9 @@ out/
 *.vsix
 .aidev/
 .champ/sessions/
+.champ/team-runs/
+.superpowers/
+graphify-out/
 test-reports/
 .DS_Store
 .env
