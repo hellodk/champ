@@ -1516,7 +1516,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   ${hljsCssUri ? `<link href="${hljsCssUri}" rel="stylesheet" />` : ""}
   <title>Champ Chat</title>
   <script nonce="${nonce}">window.__CHAMP_VERSION__="${this.extensionVersion}";</script>
-  ${hljsUri ? `<script nonce="${nonce}" src="${hljsUri}"></script>` : ""}
+  ${
+    hljsUri
+      ? `<script nonce="${nonce}">window.__CHAMP_HLJS_SRC__="${hljsUri}";</script>`
+      : `<script nonce="${nonce}">window.__CHAMP_HLJS_SRC__=null;</script>`
+  }
 </head>
 <body>
   <div id="app"></div>
