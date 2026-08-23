@@ -11,6 +11,7 @@ import type {
   ToolPreview,
 } from "./types";
 import type { ToolParameterSchema } from "../providers/types";
+import { validatePublicHttpUrl } from "../utils/url-guard";
 import { chromium, type Browser, type Page } from "@playwright/test";
 
 /**
@@ -55,18 +56,6 @@ export async function closeBrowser(): Promise<void> {
   }
   browser = null;
   page = null;
-}
-
-/**
- * Validates a URL string.
- */
-function isValidUrl(url: string): boolean {
-  try {
-    new URL(url);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -163,10 +152,11 @@ export const browserTool: Tool = {
       switch (action) {
         case "goto": {
           const url = String(args.url || "");
-          if (!isValidUrl(url)) {
+          const verdict = validatePublicHttpUrl(url);
+          if (!verdict.ok) {
             return {
               success: false,
-              output: `Invalid URL: ${url}. Must be a valid HTTP(S) URL.`,
+              output: `Invalid URL: ${url}. ${verdict.reason}`,
             };
           }
 

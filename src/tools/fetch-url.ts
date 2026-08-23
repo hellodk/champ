@@ -6,9 +6,9 @@
  * Markdown/JSON/plain-text is returned as-is. Output is capped at 20 KB.
  */
 import type { Tool, ToolResult, ToolExecutionContext } from "./types";
+import { validatePublicHttpUrl } from "../utils/url-guard";
 
 const MAX_BYTES = 20_000;
-const ALLOWED_PROTOCOLS = ["http:", "https:"];
 const TIMEOUT_MS = 15_000;
 
 /** Strip script/style blocks then all remaining HTML tags. */
@@ -48,35 +48,10 @@ export const fetchUrlTool: Tool = {
   ): Promise<ToolResult> {
     const url = args.url as string;
 
-    // Validate URL
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      return { success: false, output: `Error: Invalid URL "${url}"` };
-    }
-
-    if (!ALLOWED_PROTOCOLS.includes(parsed.protocol)) {
-      return {
-        success: false,
-        output: `Error: Only http:// and https:// URLs are allowed`,
-      };
-    }
-
-    // Block internal/private network addresses
-    const hostname = parsed.hostname;
-    if (
-      hostname === "localhost" ||
-      hostname.startsWith("127.") ||
-      hostname.startsWith("192.168.") ||
-      hostname.startsWith("10.") ||
-      hostname.startsWith("169.254.") ||
-      hostname.endsWith(".local")
-    ) {
-      return {
-        success: false,
-        output: `Error: Fetching internal/private network addresses is not allowed`,
-      };
+    // Shared SSRF guard: scheme, loopback, mDNS and private-range rules.
+    const verdict = validatePublicHttpUrl(url);
+    if (!verdict.ok) {
+      return { success: false, output: `Error: ${verdict.reason}` };
     }
 
     try {
