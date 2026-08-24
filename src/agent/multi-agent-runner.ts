@@ -67,6 +67,8 @@ export interface WorkflowOptions {
    * and then reviewer again.
    */
   retryFrom?: Record<string, string>;
+  /** Hard cap on total failed attempts across the whole run (issue #104). Default: 10. */
+  maxTotalRetries?: number;
   /** Optional initial context (passed as AgentInput.context). */
   context?: ContextChunk[];
   /** Abort signal to cancel the workflow mid-execution. */
@@ -131,6 +133,10 @@ export class AgentOrchestrator {
     // Tracks the number of attempts each agent has made so we can stop
     // retrying once maxRetries is reached.
     const attempts = new Map<string, number>();
+    // Global retry budget (issue #104): guarantees termination even when
+    // retryFrom or dynamic routing resets per-agent counters in cycles.
+    const maxTotalRetries = options.maxTotalRetries ?? 10;
+    let totalFailedAttempts = 0;
     let lastOutput: AgentOutput = {
       success: true,
       output: "Workflow initialized",
@@ -225,6 +231,18 @@ export class AgentOrchestrator {
       if (output.success) {
         i++;
         continue;
+      }
+
+      // Global retry budget check (issue #104) — before any branch/retry
+      // decision that could reset per-agent counters.
+      totalFailedAttempts++;
+      if (totalFailedAttempts > maxTotalRetries) {
+        return {
+          success: false,
+          output: `Retry budget exhausted (${maxTotalRetries} failed attempts across the workflow)`,
+          error: lastOutput.error,
+          executionLog,
+        };
       }
 
       // Agent failed. Decide whether to retry in place or branch back.
@@ -461,6 +479,8 @@ export interface MultiAgentRunOptions {
    * and then reviewer again.
    */
   retryFrom?: Record<string, string>;
+  /** Hard cap on total failed attempts across the whole run (issue #104). Default: 10. */
+  maxTotalRetries?: number;
 }
 
 const RUNNER_DEFAULT_MAX_RETRIES = 3;
@@ -519,6 +539,10 @@ export class MultiAgentRunner implements IWorkflowRunner {
     const memory = new SharedMemory();
     const executionLog: ExecutionLogEntry[] = [];
     const attempts = new Map<string, number>();
+    // Global retry budget (issue #104): guarantees termination even when
+    // retryFrom or dynamic routing resets per-agent counters in cycles.
+    const maxTotalRetries = options.maxTotalRetries ?? 10;
+    let totalFailedAttempts = 0;
     let lastOutput: AgentOutput = {
       success: true,
       output: "Workflow initialized",
@@ -624,6 +648,18 @@ export class MultiAgentRunner implements IWorkflowRunner {
       if (output.success) {
         i++;
         continue;
+      }
+
+      // Global retry budget check (issue #104) — before any branch/retry
+      // decision that could reset per-agent counters.
+      totalFailedAttempts++;
+      if (totalFailedAttempts > maxTotalRetries) {
+        return {
+          success: false,
+          output: `Retry budget exhausted (${maxTotalRetries} failed attempts across the workflow)`,
+          error: lastOutput.error,
+          executionLog,
+        };
       }
 
       // Agent failed. Decide whether to retry in place or branch back.

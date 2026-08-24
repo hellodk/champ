@@ -62,7 +62,12 @@ describe("DelegationManager", () => {
 
       expect(result.success).toBe(true);
       expect(result.agentId).toBe("agent-1");
-      expect(mockSubAgent1.execute).toHaveBeenCalledWith(task.params);
+      // execute receives the task params plus a cancellation signal
+      // (issue #104: cooperative abort on timeout).
+      expect(mockSubAgent1.execute).toHaveBeenCalledWith(
+        task.params,
+        expect.any(AbortSignal),
+      );
     });
 
     it("should route to alternative agent when first agent is at capacity", async () => {

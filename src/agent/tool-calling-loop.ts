@@ -102,6 +102,12 @@ export class ToolCallingLoop {
       let currentToolCallId: string | undefined;
       let currentToolName: string | undefined;
       let currentToolArgs = "";
+      // Malformed tool calls captured for corrective feedback (#106)
+      const malformedToolCalls: Array<{
+        id: string;
+        name: string;
+        reason: string;
+      }> = [];
 
       try {
         // Check response cache before calling the API (Fix 8)
@@ -159,7 +165,13 @@ export class ToolCallingLoop {
                   args: currentToolArgs ? JSON.parse(currentToolArgs) : {},
                 });
               } catch {
-                // Malformed args — skip this tool call
+                // Malformed args — record for corrective feedback instead
+                // of silently dropping (issue #106).
+                malformedToolCalls.push({
+                  id: currentToolCallId,
+                  name: currentToolName,
+                  reason: currentToolArgs.slice(0, 120),
+                });
               }
               currentToolCallId = undefined;
               currentToolName = undefined;
@@ -202,19 +214,53 @@ export class ToolCallingLoop {
         };
       }
 
-      // No tool calls — we're done
+      // No tool calls — we're done (unless some were malformed, in which
+      // case the model gets one corrective turn; bounded by MAX_ITERATIONS).
       if (pendingToolCalls.length === 0) {
+        if (malformedToolCalls.length > 0) {
+          history.push({
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `⚠️ Your tool call(s) ${malformedToolCalls
+                  .map((m) => m.name)
+                  .join(", ")} had invalid JSON arguments (${malformedToolCalls
+                  .map((m) => m.reason)
+                  .join("; ")}). Re-emit with valid JSON.`,
+              },
+            ],
+          });
+          continue;
+        }
         finalText = iterText;
-        // Cache the final response (Fix 8)
+        // Cache the final response under the SAME key shape used for
+        // lookups above (issue #106: key mismatch made entries unreadable).
         if (iteration === 0 && this.responseCache && iterText) {
           this.responseCache.set(
-            "tool-loop",
-            "default",
+            this.provider.name,
+            this.provider.config.model,
             JSON.stringify(messages),
             iterText,
           );
         }
         break;
+      }
+
+      // Surface malformed calls alongside any valid ones so the model can
+      // correct them on the next iteration.
+      if (malformedToolCalls.length > 0) {
+        history.push({
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `⚠️ Some tool call(s) had invalid JSON arguments and were not executed: ${malformedToolCalls
+                .map((m) => `${m.name} (${m.reason})`)
+                .join("; ")}. Re-emit those with valid JSON.`,
+            },
+          ],
+        });
       }
 
       // Execute tool calls

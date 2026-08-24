@@ -1659,18 +1659,85 @@
       body.classList.add('streaming-cursor');
     }
     if (body) {
-      // Buffer the raw markdown text and re-render on every delta.
-      // This is O(n) per delta but fine for typical message sizes.
+      // Buffer raw markdown text and render at most once per animation
+      // frame (#110): re-rendering full-message innerHTML per token is
+      // O(n²) across a response.
       const raw = (body.dataset.rawText || '') + text;
       body.dataset.rawText = raw;
-      body.innerHTML = renderMarkdown(raw);
-      body.querySelectorAll('code[data-lang]').forEach(applyHighlightToBlock);
-      if (userScrolledUp) {
-        scrollPill.removeAttribute('hidden');
-      } else {
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-      }
+      scheduleStreamRender(false);
     }
+  }
+
+  // --- Streaming render scheduler (#110) -------------------------------
+  let streamRenderQueued = false;
+
+  function scheduleStreamRender(isFinal) {
+    if (isFinal) {
+      // Final flush wins: cancel any queued frame so we render exactly once.
+      streamRenderQueued = false;
+      flushStreamRender(true);
+      return;
+    }
+    if (streamRenderQueued) return;
+    streamRenderQueued = true;
+    requestAnimationFrame(() => {
+      streamRenderQueued = false;
+      flushStreamRender(false);
+    });
+  }
+
+  function flushStreamRender(isFinal) {
+    const body = state.currentAssistantMessage
+      ? state.currentAssistantMessage.querySelector('.body')
+      : null;
+    if (!body) return;
+    const raw = body.dataset.rawText || '';
+    if (!raw && !isFinal) return;
+    body.innerHTML = renderMarkdown(raw);
+    // Highlight only on the final pass — mid-stream highlighting re-runs
+    // hljs over every block on every frame because innerHTML recreates the
+    // elements and defeats the data-highlighted guard.
+    if (isFinal) {
+      highlightPendingBlocks(body);
+    }
+    if (userScrolledUp) {
+      scrollPill.removeAttribute('hidden');
+    } else {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+  }
+
+  /**
+   * Lazy highlight.js loader (#110): the 1MB bundle is no longer parsed
+   * eagerly on every chat open. It loads on first need; highlights requested
+   * before it is ready are queued.
+   */
+  let hljsReady = typeof window.hljs !== 'undefined';
+  let hljsLoadStarted = false;
+  const hljsWaiters = [];
+
+  function ensureHljs(cb) {
+    if (hljsReady) { cb(); return; }
+    hljsWaiters.push(cb);
+    if (hljsLoadStarted) return;
+    hljsLoadStarted = true;
+    const src = window.__CHAMP_HLJS_SRC__;
+    if (!src) return; // no bundle available — leave code unhighlighted
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => {
+      hljsReady = true;
+      for (const w of hljsWaiters.splice(0)) w();
+    };
+    document.head.appendChild(s);
+  }
+
+  function highlightPendingBlocks(scopeEl) {
+    const blocks = scopeEl.querySelectorAll('code[data-lang]');
+    if (blocks.length === 0) return;
+    ensureHljs(() => {
+      blocks.forEach(applyHighlightToBlock);
+    });
   }
 
   /**
@@ -2223,10 +2290,12 @@
         setStreaming(true);
         break;
       case 'streamDelta':
+        // No per-delta DOM scans: rendering is rAF-batched inside
+        // appendStreamDelta and run buttons inject once at stream end (#110).
         appendStreamDelta(msg.text || '');
-        injectRunButtons();
         break;
       case 'streamEnd':
+        scheduleStreamRender(true);
         setStreaming(false);
         // Safety net: mark any tool cards still showing "Running..."
         // as completed (the result message may have been lost).

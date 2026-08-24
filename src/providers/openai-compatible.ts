@@ -18,6 +18,7 @@ import type {
   ModelInfo,
   ContentBlock,
 } from "./types";
+import { resilientFetch } from "./http-resilience";
 
 const DEFAULT_CONTEXT_WINDOW = 8192;
 
@@ -32,9 +33,10 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
   supportsToolUse(): boolean {
     // Many OpenAI-compatible servers claim tool support but implement it
-    // inconsistently. Default to false; callers that know their server
-    // supports tools can override by constructing with a custom config.
-    return false;
+    // inconsistently. Default to false; opt in per provider via
+    // `supportsTools: true` in .champ/config.yaml when your server emits
+    // spec-compliant tool_calls.
+    return this.config.supportsTools ?? false;
   }
 
   supportsStreaming(): boolean {
@@ -77,7 +79,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
     // n_ctx the server was started with.
     try {
       const base = (this.config.baseUrl ?? "").replace(/\/v1\/?$/, "");
-      const res = await fetch(`${base}/props`);
+      const res = await resilientFetch(`${base}/props`, undefined, {
+        timeoutMs: this.config.requestTimeoutMs,
+      });
       if (res.ok) {
         const data = (await res.json()) as {
           default_generation_settings?: { n_ctx?: number };
@@ -98,7 +102,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
     // Fallback: try /v1/models for OpenAI-compatible servers that
     // expose max_context_length in the model object.
     try {
-      const res = await fetch(this.joinUrl("/models"));
+      const res = await resilientFetch(this.joinUrl("/models"), undefined, {
+        timeoutMs: this.config.requestTimeoutMs,
+      });
       if (res.ok) {
         const data = (await res.json()) as {
           data?: Array<{ id: string; max_context_length?: number }>;
@@ -150,37 +156,69 @@ export class OpenAICompatibleProvider implements LLMProvider {
       })),
     };
 
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: this.buildHeaders(),
-        body: JSON.stringify(body),
-        signal: options?.abortSignal,
-      });
+    // One attempt = fetch + stream parse. Some servers (omlx behind a
+    // keepalive proxy) intermittently return 200 with zero SSE events;
+    // those get exactly one immediate retry.
+    const self = this;
+    const attempt = async function* (): AsyncIterable<StreamDelta> {
+      try {
+        const response = await resilientFetch(
+          url,
+          {
+            method: "POST",
+            headers: self.buildHeaders(),
+            body: JSON.stringify(body),
+          },
+          {
+            signal: options?.abortSignal,
+            timeoutMs: self.config.requestTimeoutMs,
+          },
+        );
 
-      if (!response.ok || !response.body) {
-        let hint = "";
-        if (response.status === 500) {
-          hint =
-            " — likely a context window overflow or the model crashed. Try 'New chat' to clear history.";
-        } else if (response.status === 400) {
-          hint = " — malformed request. Check the model name in your config.";
-        } else if (response.status === 404) {
-          hint = " — endpoint not found. Check the baseUrl in your config.";
+        if (!response.ok || !response.body) {
+          let hint = "";
+          if (response.status === 500) {
+            hint =
+              " — likely a context window overflow or the model crashed. Try 'New chat' to clear history.";
+          } else if (response.status === 400) {
+            hint = " — malformed request. Check the model name in your config.";
+          } else if (response.status === 404) {
+            hint =
+              " — endpoint not found. Does your baseUrl end with /v1 (e.g. http://host:8000/v1)?";
+          }
+          yield {
+            type: "error",
+            error: `Request failed: ${response.status} ${response.statusText}${hint}`,
+          };
+          yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
+          return;
         }
-        yield {
-          type: "error",
-          error: `Request failed: ${response.status} ${response.statusText}${hint}`,
-        };
-        yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
-        return;
-      }
 
-      yield* this.parseSseStream(response.body, options?.abortSignal);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      yield { type: "error", error: message };
-      yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
+        yield* self.parseSseStream(response.body, options?.abortSignal);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        yield { type: "error", error: message };
+        yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
+      }
+    }.bind(this);
+
+    const first: StreamDelta[] = [];
+    let visibleOutput = false;
+    for await (const delta of attempt()) {
+      first.push(delta);
+      if (
+        delta.type === "text" ||
+        delta.type === "tool_call_start" ||
+        delta.type === "error"
+      ) {
+        visibleOutput = true;
+      }
+    }
+    if (!visibleOutput && !options?.abortSignal?.aborted) {
+      // Blank response — retry once before giving up.
+      yield* attempt();
+    } else {
+      for (const delta of first) yield delta;
     }
   }
 
@@ -211,12 +249,18 @@ export class OpenAICompatibleProvider implements LLMProvider {
     };
 
     try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: this.buildHeaders(),
-        body: JSON.stringify(body),
-        signal: options?.abortSignal,
-      });
+      const response = await resilientFetch(
+        url,
+        {
+          method: "POST",
+          headers: this.buildHeaders(),
+          body: JSON.stringify(body),
+        },
+        {
+          signal: options?.abortSignal,
+          timeoutMs: this.config.requestTimeoutMs,
+        },
+      );
 
       // Some servers don't expose /v1/completions; fall back to /v1/chat
       // so the autocomplete still produces something.
@@ -250,12 +294,22 @@ export class OpenAICompatibleProvider implements LLMProvider {
    * Query the /v1/models endpoint for available models.
    * Works with vLLM, llama.cpp, and any OpenAI-compatible server.
    */
-  async listModels(): Promise<Array<{ id: string; name: string }>> {
+  async listModels(
+    signal?: AbortSignal,
+  ): Promise<Array<{ id: string; name: string }>> {
     try {
       const headers: Record<string, string> = {};
       const apiKey = this.config.apiKey;
       if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
-      const res = await fetch(this.joinUrl("/models"), { headers });
+      const res = await resilientFetch(
+        this.joinUrl("/models"),
+        { headers },
+        {
+          signal,
+          timeoutMs: this.config.requestTimeoutMs ?? 30_000,
+          maxRetries: 0,
+        },
+      );
       if (!res.ok) return [];
       const data = (await res.json()) as {
         data?: Array<{ id: string }>;
@@ -303,7 +357,12 @@ export class OpenAICompatibleProvider implements LLMProvider {
     let buffer = "";
     let inputTokens = 0;
     let outputTokens = 0;
+    // Tracks in-flight streamed tool calls: index -> {id, name}
+    const openToolCalls = new Map<number, { id: string; name: string }>();
     let done = false;
+    // Guards against servers that return 200 with an empty/truncated SSE
+    // body — that is a failure, not a valid blank completion.
+    let receivedAnyData = false;
 
     try {
       while (!done) {
@@ -331,11 +390,21 @@ export class OpenAICompatibleProvider implements LLMProvider {
               done = true;
               break;
             }
+            receivedAnyData = true;
             try {
               const json = JSON.parse(payload) as {
                 choices?: Array<{
                   // /v1/chat/completions shape:
-                  delta?: { content?: string };
+                  delta?: {
+                    content?: string;
+                    reasoning_content?: string;
+                    tool_calls?: Array<{
+                      index?: number;
+                      id?: string;
+                      type?: string;
+                      function?: { name?: string; arguments?: string };
+                    }>;
+                  };
                   // /v1/completions shape:
                   text?: string;
                   finish_reason?: string | null;
@@ -350,6 +419,70 @@ export class OpenAICompatibleProvider implements LLMProvider {
               if (text) {
                 yield { type: "text", text };
               }
+              // Reasoning models (Qwen3.x, DeepSeek-R1 on some servers)
+              // stream chain-of-thought via a dedicated field. Surface it
+              // as text — dropping it silently makes these models look
+              // like they answer with blank lines.
+              const reasoning = choice?.delta?.reasoning_content;
+              if (reasoning) {
+                yield { type: "text", text: reasoning };
+              }
+              // Native OpenAI tool-calling (delta.tool_calls). Arguments
+              // stream as fragments across chunks; emit start on first
+              // sight of a call, argument deltas after, end on finish.
+              const tcDeltas = choice?.delta?.tool_calls;
+              if (tcDeltas) {
+                for (const tc of tcDeltas) {
+                  const idx = tc.index ?? 0;
+                  const existing = openToolCalls.get(idx);
+                  if (!existing && tc.id) {
+                    let args: Record<string, unknown> = {};
+                    if (tc.function?.arguments) {
+                      try {
+                        args = JSON.parse(tc.function.arguments) as Record<
+                          string,
+                          unknown
+                        >;
+                      } catch {
+                        args = {};
+                      }
+                    }
+                    const call = {
+                      id: tc.id,
+                      name: tc.function?.name ?? "",
+                      arguments: args,
+                    };
+                    openToolCalls.set(idx, { id: tc.id, name: call.name });
+                    yield { type: "tool_call_start", toolCall: call };
+                    // If arguments arrived fully-formed in this chunk they
+                    // were parsed above; otherwise fragments follow.
+                    if (
+                      tc.function?.arguments &&
+                      Object.keys(args).length === 0
+                    ) {
+                      // unparseable non-empty args — surface as deltas so
+                      // downstream corrective feedback can engage.
+                      yield {
+                        type: "tool_call_delta",
+                        toolCallId: tc.id,
+                        argumentsDelta: tc.function.arguments,
+                      };
+                    }
+                  } else if (existing && tc.function?.arguments) {
+                    yield {
+                      type: "tool_call_delta",
+                      toolCallId: existing.id,
+                      argumentsDelta: tc.function.arguments,
+                    };
+                  }
+                }
+              }
+              if (choice?.finish_reason === "tool_calls") {
+                for (const [, tc] of openToolCalls) {
+                  yield { type: "tool_call_end", toolCallId: tc.id };
+                }
+                openToolCalls.clear();
+              }
               if (json.usage) {
                 inputTokens = json.usage.prompt_tokens ?? inputTokens;
                 outputTokens = json.usage.completion_tokens ?? outputTokens;
@@ -363,6 +496,14 @@ export class OpenAICompatibleProvider implements LLMProvider {
     } finally {
       await reader.cancel().catch(() => {});
       reader.releaseLock();
+    }
+
+    if (!receivedAnyData && !done) {
+      yield {
+        type: "error",
+        error:
+          "Empty or truncated response from server (200 without SSE data). The backend may be overloaded — try again.",
+      };
     }
 
     yield { type: "done", usage: { inputTokens, outputTokens } };

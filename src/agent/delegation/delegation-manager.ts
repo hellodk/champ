@@ -20,6 +20,9 @@ import type {
   DelegationManagerConfig,
 } from "./types";
 
+/** Bounded per-task log entries (issue #104). */
+const MAX_LOGS_PER_TASK = 200;
+
 export class DelegationManager {
   private agents = new Map<string, SubAgent>();
   private tasks = new Map<string, TaskStatus>();
@@ -157,16 +160,37 @@ export class DelegationManager {
         runningSet.add(task.id);
         this.runningTasks.set(agent.id, runningSet);
 
+        // Cooperative cancellation: cooperative SubAgents observe this
+        // signal and stop, so timed-out attempts don't run forever.
+        const attemptAbort = new AbortController();
         try {
-          const result = await Promise.race([
-            agent.execute(task.params),
-            this.createTimeout(task.timeoutMs ?? this.defaultTimeoutMs),
-          ]);
+          const timeout = this.createTimeout(
+            task.timeoutMs ?? this.defaultTimeoutMs,
+          );
+          let result: {
+            success: boolean;
+            output: string;
+            error?: string;
+          };
+          try {
+            result = await Promise.race([
+              agent.execute(task.params, attemptAbort.signal),
+              timeout.promise,
+            ]);
+          } finally {
+            timeout.cancel();
+          }
+          if (!result.success && /timeout/i.test(result.error ?? "")) {
+            attemptAbort.abort();
+          }
 
           // Remove task from running set
           runningSet.delete(task.id);
 
           if (!result.success) {
+            // If this failure came from the timeout race, make sure the
+            // zombie execution is told to stop before we possibly retry.
+            attemptAbort.abort();
             throw new Error(
               result.error ?? "Task execution failed without error message",
             );
@@ -193,6 +217,10 @@ export class DelegationManager {
             result.output,
           );
         } catch (error) {
+          // Tell the (possibly zombie) execution to stop before retrying —
+          // the timeout race rejection lands here (issue #104).
+          attemptAbort.abort();
+
           // Remove task from running set
           runningSet.delete(task.id);
 
@@ -334,10 +362,25 @@ export class DelegationManager {
     };
   }
 
-  private createTimeout(ms: number): Promise<never> {
-    return new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`Task timeout after ${ms}ms`)), ms);
+  private createTimeout(ms: number): {
+    promise: Promise<never>;
+    cancel: () => void;
+  } {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const promise = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`Task timeout after ${ms}ms`)),
+        ms,
+      );
     });
+    // Caller MUST cancel once the race settles, otherwise the timer keeps
+    // the event loop alive and fires into the void (issue #104).
+    return {
+      promise,
+      cancel: () => {
+        if (timer !== undefined) clearTimeout(timer);
+      },
+    };
   }
 
   private taskLog(
@@ -355,6 +398,10 @@ export class DelegationManager {
 
     const taskLogs = this.logs.get(taskId) || [];
     taskLogs.push(entry);
+    // Bounded per-task log (issue #104): keep the newest entries.
+    if (taskLogs.length > MAX_LOGS_PER_TASK) {
+      taskLogs.splice(0, taskLogs.length - MAX_LOGS_PER_TASK);
+    }
     this.logs.set(taskId, taskLogs);
   }
 }

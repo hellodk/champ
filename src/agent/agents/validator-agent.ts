@@ -8,6 +8,7 @@
 import type { Agent, AgentInput, AgentOutput, SharedMemory } from "./types";
 import type { ToolRegistry } from "../../tools/registry";
 import type { ToolExecutionContext } from "../../tools/types";
+import { pipelineValidationApproval } from "../../tools/pipeline-approval";
 
 export interface ValidatorConfig {
   /** Shell commands to run for validation. Default: lint + typecheck + test. */
@@ -42,8 +43,9 @@ export class ValidatorAgent implements Agent {
       workspaceRoot,
       abortSignal: new AbortController().signal,
       reportProgress: () => {},
-      // Validation commands run without user prompting.
-      requestApproval: async () => true,
+      // Validation commands run without user prompting — explicit named
+      // policy, see pipeline-approval.ts (issue #105).
+      requestApproval: pipelineValidationApproval,
     };
 
     const results: Array<{ name: string; success: boolean; output: string }> =

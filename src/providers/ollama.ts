@@ -17,6 +17,7 @@ import type {
   ContentBlock,
   ToolCall,
 } from "./types";
+import { resilientFetch } from "./http-resilience";
 
 const DEFAULT_BASE_URL = "http://localhost:11434";
 
@@ -150,11 +151,15 @@ export class OllamaProvider implements LLMProvider {
    */
   private async detectModelCapabilities(): Promise<void> {
     try {
-      const res = await fetch(`${this.config.baseUrl}/api/show`, {
-        method: "POST",
-        headers: this.buildHeaders(),
-        body: JSON.stringify({ name: this.config.model }),
-      });
+      const res = await resilientFetch(
+        `${this.config.baseUrl}/api/show`,
+        {
+          method: "POST",
+          headers: this.buildHeaders(),
+          body: JSON.stringify({ name: this.config.model }),
+        },
+        { timeoutMs: this.config.requestTimeoutMs },
+      );
       if (res.ok) {
         const data = (await res.json()) as {
           model_info?: Record<string, unknown>;
@@ -237,12 +242,18 @@ export class OllamaProvider implements LLMProvider {
     };
 
     try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: this.buildHeaders(),
-        body: JSON.stringify(body),
-        signal: options?.abortSignal,
-      });
+      const response = await resilientFetch(
+        url,
+        {
+          method: "POST",
+          headers: this.buildHeaders(),
+          body: JSON.stringify(body),
+        },
+        {
+          signal: options?.abortSignal,
+          timeoutMs: this.config.requestTimeoutMs,
+        },
+      );
 
       if (!response.ok) {
         let errorDetail = `${response.status} ${response.statusText}`;
@@ -294,12 +305,18 @@ export class OllamaProvider implements LLMProvider {
     };
 
     try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: this.buildHeaders(),
-        body: JSON.stringify(body),
-        signal: options?.abortSignal,
-      });
+      const response = await resilientFetch(
+        url,
+        {
+          method: "POST",
+          headers: this.buildHeaders(),
+          body: JSON.stringify(body),
+        },
+        {
+          signal: options?.abortSignal,
+          timeoutMs: this.config.requestTimeoutMs,
+        },
+      );
 
       if (!response.ok) {
         let errorDetail = `${response.status} ${response.statusText}`;
@@ -331,9 +348,19 @@ export class OllamaProvider implements LLMProvider {
   /**
    * Query Ollama's /api/tags endpoint for all locally available models.
    */
-  async listModels(): Promise<Array<{ id: string; name: string }>> {
+  async listModels(
+    signal?: AbortSignal,
+  ): Promise<Array<{ id: string; name: string }>> {
     try {
-      const res = await fetch(`${this.config.baseUrl}/api/tags`);
+      const res = await resilientFetch(
+        `${this.config.baseUrl}/api/tags`,
+        undefined,
+        {
+          signal,
+          timeoutMs: this.config.requestTimeoutMs ?? 30_000,
+          maxRetries: 0,
+        },
+      );
       if (!res.ok) return [];
       const data = (await res.json()) as {
         models?: Array<{ name: string }>;

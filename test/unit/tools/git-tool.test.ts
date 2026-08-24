@@ -10,11 +10,28 @@ import * as GitUtilsModule from "@/tools/git/git-utils";
 // Mock GitUtils
 vi.mock("@/tools/git/git-utils");
 
+// Hermetic: GitHubAPI uses global fetch against api.github.com. Without this
+// stub the suite makes real network calls and flakes under load.
+const fetchMock = vi
+  .fn()
+  .mockResolvedValue(
+    new Response(JSON.stringify({ message: "Bad credentials" }), {
+      status: 401,
+    }),
+  );
+vi.stubGlobal("fetch", fetchMock);
+
 describe("git-tool", () => {
   let context: ToolExecutionContext;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ message: "Bad credentials" }), {
+        status: 401,
+      }),
+    );
     context = {
       workspaceRoot: "/test-workspace",
       abortSignal: new AbortController().signal,

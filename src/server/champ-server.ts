@@ -4,6 +4,7 @@
  *
  * Endpoints:
  *   GET  /health            — server status and version
+ *   GET  /metrics           — Prometheus text exposition (requires collector)
  *   POST /run-team          — trigger a team run (returns runId)
  *   GET  /run/:runId        — get team run state
  *   GET  /run/:runId/stream — SSE stream of run state changes
@@ -19,6 +20,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import type { MetricsCollector } from "../observability/metrics-collector";
 
 export interface ChampServerOptions {
   port?: number;
@@ -27,6 +29,8 @@ export interface ChampServerOptions {
   onListRuns?: () => Promise<unknown[]>;
   onChat?: (message: string) => Promise<string>;
   version?: string;
+  /** Optional collector backing the GET /metrics exposition endpoint. */
+  metrics?: MetricsCollector;
 }
 
 export class ChampServer {
@@ -107,6 +111,32 @@ export class ChampServer {
           version: this.options.version ?? "unknown",
           port: this.port,
         });
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/metrics") {
+        const snapshot = this.options.metrics?.snapshot();
+        const body = snapshot
+          ? [
+              "# TYPE champ_requests_total counter",
+              `champ_requests_total ${snapshot.totals.requests}`,
+              "# TYPE champ_agent_steps_total counter",
+              `champ_agent_steps_total ${snapshot.totals.agentSteps}`,
+              "# TYPE champ_tool_calls_total counter",
+              `champ_tool_calls_total ${snapshot.totals.toolCalls}`,
+              "# TYPE champ_failures_total counter",
+              `champ_failures_total ${snapshot.totals.failures}`,
+              "# TYPE champ_completion_acceptances_total counter",
+              `champ_completion_acceptances_total ${snapshot.totals.completionAcceptances}`,
+              "",
+            ].join("\n")
+          : "# no collector\n";
+        res.writeHead(200, {
+          "Content-Type": "text/plain; version=0.0.4",
+          "Content-Length": Buffer.byteLength(body),
+          "X-Champ-Version": this.options.version ?? "unknown",
+        });
+        res.end(body);
         return;
       }
 

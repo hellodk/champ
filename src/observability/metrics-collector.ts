@@ -52,28 +52,68 @@ export interface Metrics {
   completionAcceptances: CompletionAcceptedLog[];
 }
 
+/** Cap on how many recent entries each buffer retains (oldest evicted). */
+export const METRICS_BUFFER_CAP = 1000;
+
+export interface MetricsTotals {
+  requests: number;
+  agentSteps: number;
+  toolCalls: number;
+  failures: number;
+  completionAcceptances: number;
+}
+
+export interface MetricsSnapshot {
+  totals: MetricsTotals;
+  recent: {
+    requests: RequestRecord[];
+    agentSteps: AgentStepLog[];
+    toolCalls: ToolCallLog[];
+    failures: string[];
+    completionAcceptances: CompletionAcceptedLog[];
+  };
+}
+
 export class MetricsCollector {
   private requests: RequestRecord[] = [];
   private agentSteps: AgentStepLog[] = [];
   private toolCalls: ToolCallLog[] = [];
   private failures: string[] = [];
   private completionAcceptances: CompletionAcceptedLog[] = [];
+  // Cumulative counters — survive buffer eviction so totals stay accurate
+  private requestCount = 0;
+  private agentStepCount = 0;
+  private toolCallCount = 0;
+  private failureCount = 0;
+  private completionAcceptanceCount = 0;
   private sessionStartTime = Date.now();
 
+  /** Push onto a bounded ring: evict oldest once past the cap. */
+  private pushBounded<T>(buffer: T[], item: T): void {
+    buffer.push(item);
+    if (buffer.length > METRICS_BUFFER_CAP) {
+      buffer.shift();
+    }
+  }
+
   recordRequest(record: RequestRecord): void {
-    this.requests.push(record);
+    this.pushBounded(this.requests, record);
+    this.requestCount++;
   }
 
   recordAgentStep(step: AgentStepLog): void {
-    this.agentSteps.push(step);
+    this.pushBounded(this.agentSteps, step);
+    this.agentStepCount++;
   }
 
   recordToolCall(log: ToolCallLog): void {
-    this.toolCalls.push(log);
+    this.pushBounded(this.toolCalls, log);
+    this.toolCallCount++;
   }
 
   recordFailure(message: string): void {
-    this.failures.push(message);
+    this.pushBounded(this.failures, message);
+    this.failureCount++;
   }
 
   /**
@@ -81,7 +121,35 @@ export class MetricsCollector {
    * Feeds back into SmartRouter's model quality signal over time.
    */
   recordCompletionAccepted(model: string, length: number): void {
-    this.completionAcceptances.push({ model, length, timestamp: Date.now() });
+    this.pushBounded(this.completionAcceptances, {
+      model,
+      length,
+      timestamp: Date.now(),
+    });
+    this.completionAcceptanceCount++;
+  }
+
+  /**
+   * Cumulative totals since last reset, plus bounded recent buffers.
+   * Totals remain accurate even after oldest entries are evicted.
+   */
+  snapshot(): MetricsSnapshot {
+    return {
+      totals: {
+        requests: this.requestCount,
+        agentSteps: this.agentStepCount,
+        toolCalls: this.toolCallCount,
+        failures: this.failureCount,
+        completionAcceptances: this.completionAcceptanceCount,
+      },
+      recent: {
+        requests: [...this.requests],
+        agentSteps: [...this.agentSteps],
+        toolCalls: [...this.toolCalls],
+        failures: [...this.failures],
+        completionAcceptances: [...this.completionAcceptances],
+      },
+    };
   }
 
   getMetrics(): Metrics {
@@ -96,7 +164,7 @@ export class MetricsCollector {
     const count = this.requests.length;
 
     return {
-      totalRequests: count,
+      totalRequests: this.requestCount,
       totalTokensIn: this.requests.reduce((sum, r) => sum + r.inputTokens, 0),
       totalTokensOut: this.requests.reduce((sum, r) => sum + r.outputTokens, 0),
       averageLatency: count > 0 ? totalLatency / count : 0,
@@ -104,7 +172,7 @@ export class MetricsCollector {
       agentSteps: [...this.agentSteps],
       toolCalls: [...this.toolCalls],
       failures: [...this.failures],
-      totalFailures: this.failures.length,
+      totalFailures: this.failureCount,
       sessionStartTime: this.sessionStartTime,
       completionAcceptances: [...this.completionAcceptances],
     };
@@ -116,6 +184,11 @@ export class MetricsCollector {
     this.toolCalls = [];
     this.failures = [];
     this.completionAcceptances = [];
+    this.requestCount = 0;
+    this.agentStepCount = 0;
+    this.toolCallCount = 0;
+    this.failureCount = 0;
+    this.completionAcceptanceCount = 0;
     this.sessionStartTime = Date.now();
   }
 

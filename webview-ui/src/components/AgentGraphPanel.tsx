@@ -6,7 +6,10 @@ import type {
   TeamAgentRunState,
   TeamAgentStatus,
 } from "../types";
-import { isValidMessage, type TeamBuilderLoadMessage } from "../../../src/ui/messages";
+import {
+  isValidMessage,
+  type TeamBuilderLoadMessage,
+} from "../../../src/ui/messages";
 
 export const teamStateSignal = signal<TeamRunState | null>(null);
 const isVisibleSignal = computed(() => teamStateSignal.value !== null);
@@ -22,6 +25,21 @@ const designTeamSignal = signal<{
 } | null>(null);
 type PanelMode = "live" | "design";
 const activePanelModeSignal = signal<PanelMode>("live");
+
+// Live-mode dependency map, populated from the same payload the live view
+// already consumes: the `teamRunSnapshot` message (bridged by main.js as a
+// `champ:teamUpdate` CustomEvent). Previously live mode filled this map with
+// empty arrays so EdgeLine components never rendered (#112).
+const liveDependsOnSignal = signal<Map<string, string[]>>(new Map());
+
+/** Agents in a run snapshot may carry their definition's dependsOn list. */
+type MaybeDepsAgent = TeamAgentRunState & { dependsOn?: string[] };
+
+function extractDependsOnMap(state: TeamRunState): Map<string, string[]> {
+  return new Map(
+    state.agents.map((a) => [a.id, (a as MaybeDepsAgent).dependsOn ?? []]),
+  );
+}
 
 function getVsCode(): { postMessage: (msg: unknown) => void } {
   if (
@@ -321,6 +339,7 @@ export function AgentGraphPanel(): JSX.Element | null {
       const msg = (e as CustomEvent<{ state: TeamRunState }>).detail;
       if (msg.state) {
         teamStateSignal.value = msg.state;
+        liveDependsOnSignal.value = extractDependsOnMap(msg.state);
       }
     };
 
@@ -470,10 +489,9 @@ export function AgentGraphPanel(): JSX.Element | null {
   // ── Live mode rendering (original code) ───────────────────────────────────
   const state = teamStateSignal.value!;
 
-  const dependsOnMap = new Map<string, string[]>();
-  for (const agent of state.agents) {
-    dependsOnMap.set(agent.id, []);
-  }
+  // Real dependencies from the team update payload; agents without a
+  // dependsOn entry resolve to [] via computeLayout's `?? []` fallback.
+  const dependsOnMap = liveDependsOnSignal.value;
 
   const positions = computeLayout(state.agents, dependsOnMap);
 

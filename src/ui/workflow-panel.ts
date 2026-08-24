@@ -15,10 +15,12 @@ export type PanelMessage =
 
 export class WorkflowPanel {
   private readonly panel: vscode.WebviewPanel;
+  private readonly extensionUri: vscode.Uri;
   private messageHandlers: Array<(msg: PanelMessage) => void> = [];
   private disposed = false;
 
   constructor(extensionUri: vscode.Uri) {
+    this.extensionUri = extensionUri;
     this.panel = vscode.window.createWebviewPanel(
       "champ.workflowPanel",
       "⚡ Agent Workflow",
@@ -58,13 +60,35 @@ export class WorkflowPanel {
     this.panel.dispose();
   }
 
+  private generateNonce(): string {
+    const { randomBytes } = require("crypto") as typeof import("crypto");
+    return randomBytes(32).toString("base64url");
+  }
+
   private renderHtml(): string {
-    // Generate a cryptographic nonce for CSP
-    const bytes = new Uint8Array(16);
-    for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
-    const nonce = Array.from(bytes)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+    // Cryptographic nonce — node crypto randomBytes, base64url (#112 parity
+    // with ChatViewProvider.getHtml; Math.random is not a CSP-grade nonce).
+    const nonce = this.generateNonce();
+
+    // Resolve the stylesheet from webview-ui/dist (copied there by
+    // scripts/copy-assets.mjs). The strict CSP below has no 'unsafe-inline',
+    // so styles must come from a linked webview resource. In tests the URI
+    // resolution may fail — the HTML still renders, just unstyled.
+    let cssUri = "";
+    try {
+      cssUri = this.panel.webview
+        .asWebviewUri(
+          vscode.Uri.joinPath(
+            this.extensionUri,
+            "webview-ui",
+            "dist",
+            "workflow.css",
+          ),
+        )
+        .toString();
+    } catch {
+      cssUri = "";
+    }
 
     const cspSource = this.panel.webview.cspSource ?? "vscode-resource:";
 
@@ -74,93 +98,8 @@ export class WorkflowPanel {
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; connect-src ${cspSource} https:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';"/>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);
-         color:var(--vscode-foreground);background:var(--vscode-editor-background);
-         height:100vh;display:flex;flex-direction:column;overflow:hidden}
-    #pipeline-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;
-                  background:var(--vscode-sideBar-background);
-                  border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0;flex-wrap:wrap}
-    #run-name{font-size:12px;font-weight:600;margin-right:4px}
-    #pip-steps{display:flex;gap:4px;flex:1;flex-wrap:wrap}
-    .step-pip{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;
-              border-radius:4px;font-size:11px}
-    .step-pip.running{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
-    .step-pip.completed{color:var(--vscode-testing-iconPassed,#73c991)}
-    .step-pip.failed{color:var(--vscode-testing-iconFailed,#f14c4c)}
-    .step-pip.pending{color:var(--vscode-descriptionForeground);opacity:.5}
-    .step-pip.awaiting-approval,.step-pip.skipped{color:var(--vscode-charts-orange,#f5a623)}
-    #mode-select{background:var(--vscode-dropdown-background);
-                 color:var(--vscode-dropdown-foreground);
-                 border:1px solid var(--vscode-dropdown-border);
-                 border-radius:4px;padding:3px 6px;font-size:11px;cursor:pointer}
-    #btn-stop{background:var(--vscode-inputValidation-errorBackground,#5a1d1d);
-              color:#fff;border:none;border-radius:4px;
-              padding:4px 10px;cursor:pointer;font-size:11px}
-    #btn-stop:hover{opacity:.85}
-    #main{display:flex;flex:1;overflow:hidden;min-height:0}
-    #step-list{width:200px;flex-shrink:0;overflow-y:auto;
-               border-right:1px solid var(--vscode-panel-border);padding:6px 4px}
-    .step-row{display:flex;align-items:center;gap:6px;padding:5px 8px;
-              border-radius:4px;cursor:pointer;margin-bottom:2px;font-size:11px}
-    .step-row:hover{background:var(--vscode-list-hoverBackground)}
-    .step-row.selected{background:var(--vscode-list-activeSelectionBackground);
-                       color:var(--vscode-list-activeSelectionForeground)}
-    .step-icon{width:14px;text-align:center;flex-shrink:0}
-    .step-name{flex:1}
-    .step-dur{font-size:10px;color:var(--vscode-descriptionForeground)}
-    #diff-pane{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
-    #diff-header{display:flex;align-items:center;gap:6px;padding:6px 10px;
-                 background:var(--vscode-sideBar-background);
-                 border-bottom:1px solid var(--vscode-panel-border);
-                 flex-shrink:0;flex-wrap:wrap}
-    #diff-pane-title{font-size:12px;font-weight:600;flex:1}
-    .btn-accept{background:#2d6a4f;color:#fff;border:none;border-radius:3px;
-                padding:3px 10px;cursor:pointer;font-size:11px}
-    .btn-accept:hover{opacity:.85}
-    .btn-reject{background:#6b2737;color:#fff;border:none;border-radius:3px;
-                padding:3px 10px;cursor:pointer;font-size:11px}
-    .btn-reject:hover{opacity:.85}
-    #file-list{overflow-y:auto;padding:2px 0;
-               border-bottom:1px solid var(--vscode-panel-border);
-               flex-shrink:0;max-height:110px}
-    .file-row{display:flex;align-items:center;gap:6px;
-              padding:4px 10px;cursor:pointer;font-size:11px}
-    .file-row:hover{background:var(--vscode-list-hoverBackground)}
-    .file-row.selected{background:var(--vscode-list-activeSelectionBackground)}
-    .file-status{width:12px;text-align:center;font-size:11px;flex-shrink:0}
-    .file-status.pending{color:var(--vscode-charts-orange,#f5a623)}
-    .file-status.accepted{color:var(--vscode-testing-iconPassed,#73c991)}
-    .file-status.rejected{color:var(--vscode-testing-iconFailed,#f14c4c)}
-    .file-path{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .file-actions{display:flex;gap:3px;flex-shrink:0}
-    .btn-sm-accept,.btn-sm-reject{border:none;border-radius:2px;
-                                   padding:1px 5px;cursor:pointer;font-size:10px}
-    .btn-sm-accept{background:#2d6a4f;color:#fff}
-    .btn-sm-reject{background:#6b2737;color:#fff}
-    #diff-content{flex:1;overflow-y:auto;padding:8px 10px;
-                  font-family:var(--vscode-editor-font-family,monospace);
-                  font-size:12px;line-height:1.5}
-    .diff-line{display:block;padding:1px 4px;white-space:pre-wrap;word-break:break-all}
-    .diff-line.add{background:rgba(45,106,79,.25);color:#73c991}
-    .diff-line.del{background:rgba(107,39,55,.25);color:#f88}
-    .diff-line.ctx{color:var(--vscode-descriptionForeground)}
-    #approval-bar{padding:8px 10px;background:rgba(245,166,35,.1);
-                  border-top:1px solid var(--vscode-charts-orange,#f5a623);
-                  display:none;align-items:center;gap:8px;flex-shrink:0}
-    #approval-bar.visible{display:flex}
-    #approval-msg{flex:1;font-size:11px;color:var(--vscode-charts-orange,#f5a623)}
-    .btn-approve{background:#2d6a4f;color:#fff;border:none;border-radius:3px;
-                 padding:4px 12px;cursor:pointer;font-size:11px}
-    .btn-skip-agent{background:#444;color:#fff;border:none;border-radius:3px;
-                    padding:4px 12px;cursor:pointer;font-size:11px}
-    .output-pre{font-size:11px;padding:8px;white-space:pre-wrap;word-break:break-all;
-                color:var(--vscode-foreground)}
-    #empty-hint{display:flex;align-items:center;justify-content:center;
-                height:100%;color:var(--vscode-descriptionForeground);font-size:12px}
-  </style>
+        content="default-src 'none'; connect-src ${cspSource}; style-src ${cspSource}; script-src 'nonce-${nonce}'; img-src ${cspSource} data:;"/>
+  ${cssUri ? `<link href="${cssUri}" rel="stylesheet" />` : ""}
 </head>
 <body>
   <div id="pipeline-bar">

@@ -12,11 +12,9 @@ import * as os from "os";
 describe("CheckpointManager", () => {
   let manager: CheckpointManager;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.clearAllMocks();
     manager = new CheckpointManager("/test-workspace");
-    // Initialize to load from disk (no-op for in-memory tests)
-    await manager.initialize();
   });
 
   it("should create a checkpoint before file modification", async () => {

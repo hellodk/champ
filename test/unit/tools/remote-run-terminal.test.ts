@@ -1,21 +1,57 @@
 /**
- * TDD: Tests for remote run_terminal_cmd tool (SSH execution).
- * Validates command execution over SSH, output capture, timeout, and sandboxing.
+ * Validates command execution over SSH, output capture, timeout, and
+ * sandboxing.
+ *
+ * The tool shells out through child_process.exec(`ssh ...`). These tests
+ * mock exec so nothing ever touches a real network — an sshd listening on
+ * localhost:22 previously made three of these tests hang until the vitest
+ * timeout on developer machines that run one.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { EventEmitter } from "events";
+
+const execMock = vi.fn();
+vi.mock("child_process", () => ({
+  exec: (...args: unknown[]) => execMock(...args),
+}));
+
 import { remoteRunTerminalTool } from "@/tools/remote-run-terminal";
 import type { ToolExecutionContext } from "@/tools/types";
 
-// Mock the SSH client
-vi.mock("ssh2-sftp-client");
+interface FakeChild {
+  stdout: EventEmitter;
+  stderr: EventEmitter;
+  kill: ReturnType<typeof vi.fn>;
+  on(event: string, cb: (...args: unknown[]) => void): void;
+  emit(event: string, ...args: unknown[]): boolean;
+}
+
+function makeFakeChild(): FakeChild {
+  const child = new EventEmitter() as unknown as FakeChild;
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.kill = vi.fn();
+  return child;
+}
+
+/** Install execMock to return `child` and capture its invocation. */
+function stubExec(child: FakeChild): { cmd: string; opts: unknown } {
+  const captured = { cmd: "", opts: undefined as unknown };
+  execMock.mockImplementation((cmd: string, opts: unknown) => {
+    captured.cmd = cmd;
+    captured.opts = opts;
+    return child;
+  });
+  return captured;
+}
 
 describe("remote run_terminal_cmd tool", () => {
   let context: ToolExecutionContext;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    execMock.mockReset();
     context = {
-      workspaceRoot: "/test-workspace",
+      workspaceRoot: "/test",
       abortSignal: new AbortController().signal,
       reportProgress: vi.fn(),
       requestApproval: vi.fn().mockResolvedValue(true),
@@ -50,17 +86,23 @@ describe("remote run_terminal_cmd tool", () => {
   });
 
   it("should parse valid SSH remote format (user@host:port)", async () => {
-    // This test checks that the tool accepts valid SSH remote formats
-    const result = await remoteRunTerminalTool.execute(
-      {
-        command: 'echo "test"',
-        remote: "user@localhost:22",
-      },
+    // Valid format proceeds past parsing to spawning the SSH process.
+    // The exec mock fails fast — no real network involved.
+    const child = makeFakeChild();
+    const captured = stubExec(child);
+
+    const p = remoteRunTerminalTool.execute(
+      { command: 'echo "test"', remote: "user@localhost:22" },
       context,
     );
+    // Let the tool attach its listeners, then settle the fake process.
+    await new Promise((r) => setImmediate(r));
+    child.emit("close", 0);
 
-    // Should fail during connection, not parsing
+    const result = await p;
+    expect(captured.cmd).toContain("ssh -p 22 user@localhost");
     expect(result.output).not.toContain("Invalid remote target format");
+    expect(result.output).toContain("Exit code: 0");
   });
 
   it("should block dangerous commands via sandbox on remote", async () => {
@@ -74,51 +116,74 @@ describe("remote run_terminal_cmd tool", () => {
 
     expect(result.success).toBe(false);
     expect(result.output).toContain("blocked");
+    expect(execMock).not.toHaveBeenCalled(); // never spawns anything
   });
 
   it("should respect timeout on remote execution", async () => {
-    const result = await remoteRunTerminalTool.execute(
-      {
-        command: "sleep 60",
-        remote: "user@localhost:22",
-        timeout: 1000,
-      },
+    const child = makeFakeChild();
+    const captured = stubExec(child);
+
+    const p = remoteRunTerminalTool.execute(
+      { command: "sleep 100", remote: "user@host:22", timeout: 50 },
       context,
     );
+    await new Promise((r) => setImmediate(r));
 
-    // Either timeout or connection error is acceptable
+    // The tool's own timer kills the child after timeoutMs...
+    await new Promise((r) => setTimeout(r, 90));
+    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+    expect(captured.opts).toMatchObject({ timeout: 50 });
+    // ...then the process close event settles the result.
+    child.emit("close", null, "SIGKILL");
+
+    const result = await p;
     expect(result.success).toBe(false);
+    expect(result.output).toContain("timed out");
   });
 
   it("should buffer output correctly", async () => {
-    // This verifies that streaming output is captured
-    const result = await remoteRunTerminalTool.execute(
-      {
-        command: 'echo "line1" && echo "line2"',
-        remote: "user@localhost:22",
-      },
+    const child = makeFakeChild();
+    stubExec(child);
+
+    const p = remoteRunTerminalTool.execute(
+      { command: "echo hello", remote: "user@host:22" },
       context,
     );
+    await new Promise((r) => setImmediate(r));
 
-    // Should either succeed or fail with connection error, not parsing error
-    expect(result.output).toBeDefined();
+    child.stdout.emit("data", Buffer.from("hello "));
+    child.stdout.emit("data", Buffer.from("world\n"));
+    child.stderr.emit("data", Buffer.from("a warning\n"));
+    child.emit("close", 0);
+
+    const result = await p;
+    expect(result.success).toBe(true);
+    expect(result.output).toContain("STDOUT:\nhello world");
+    expect(result.output).toContain("STDERR:\na warning");
+    expect(result.output).toContain("Exit code: 0");
   });
 
   it("should pass through abort signal", async () => {
     const controller = new AbortController();
-    context.abortSignal = controller.signal;
+    const abortContext: ToolExecutionContext = {
+      ...context,
+      abortSignal: controller.signal,
+    };
+    const child = makeFakeChild();
+    stubExec(child);
 
-    const promise = remoteRunTerminalTool.execute(
-      {
-        command: "sleep 60",
-        remote: "user@localhost:22",
-      },
-      context,
+    const p = remoteRunTerminalTool.execute(
+      { command: "long-task", remote: "user@host:22" },
+      abortContext,
     );
+    await new Promise((r) => setImmediate(r));
 
     controller.abort();
-    const result = await promise;
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
 
+    child.emit("close", null, "SIGTERM");
+    const result = await p;
     expect(result.success).toBe(false);
+    expect(result.output).toContain("signal SIGTERM");
   });
 });

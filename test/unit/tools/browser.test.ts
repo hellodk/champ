@@ -64,14 +64,15 @@ describe("browser tool", () => {
   });
 
   describe("goto action", () => {
-    it("should navigate to a URL", async () => {
+    it("should reject navigation to loopback addresses", async () => {
       const result = await browserTool.execute(
         { action: "goto", url: "http://localhost:3000" },
         context,
       );
 
-      expect(result.success).toBe(true);
-      expect(result.output).toContain("http://localhost:3000");
+      expect(result.success).toBe(false);
+      expect(result.output).toContain("Invalid URL");
+      expect(result.output).toMatch(/loopback|private|internal/i);
     });
 
     it("should fail with invalid URL", async () => {

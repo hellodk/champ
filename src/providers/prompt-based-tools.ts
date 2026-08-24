@@ -127,8 +127,30 @@ ${basePrompt}`;
  * Non-tool-call text is ignored; the caller is responsible for
  * rendering text content separately.
  */
-export function parseToolCallsFromText(text: string): ToolCall[] {
+/** Shape passed to the malformed-call callback (issue #106). */
+export interface MalformedToolCall {
+  name: string;
+  reason: string;
+}
+
+/**
+ * Parse `<tool_call>` XML and Qwen-style tool tokens out of model text.
+ *
+ * `onMalformed` (optional) is invoked for every tool call whose argument
+ * JSON failed to parse, so callers can feed an actionable correction back
+ * to the model instead of silently dropping the call (issue #106).
+ */
+export function parseToolCallsFromText(
+  text: string,
+  onMalformed?: (info: MalformedToolCall) => void,
+): ToolCall[] {
   const results: ToolCall[] = [];
+  const reportMalformed = (name: string, argsText: string): void => {
+    onMalformed?.({
+      name,
+      reason: `arguments are not valid JSON: ${argsText.slice(0, 120)}`,
+    });
+  };
 
   // Format 1: XML <tool_call> blocks.
   const xmlRegex =
@@ -141,6 +163,7 @@ export function parseToolCallsFromText(text: string): ToolCall[] {
     try {
       args = JSON.parse(argsText) as Record<string, unknown>;
     } catch {
+      reportMalformed(name, argsText);
       continue;
     }
     results.push({
@@ -161,6 +184,7 @@ export function parseToolCallsFromText(text: string): ToolCall[] {
     try {
       args = JSON.parse(argsText) as Record<string, unknown>;
     } catch {
+      reportMalformed(name, argsText);
       continue;
     }
     results.push({

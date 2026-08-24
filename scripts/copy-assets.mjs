@@ -22,6 +22,10 @@ cp(
   path.join(root, "webview-ui/static/main.css"),
   path.join(root, "webview-ui/dist/main.css"),
 );
+cp(
+  path.join(root, "webview-ui/static/workflow.css"),
+  path.join(root, "webview-ui/dist/workflow.css"),
+);
 
 // 2. VS Code codicons (from node_modules)
 cp(

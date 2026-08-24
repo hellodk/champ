@@ -554,7 +554,9 @@ export class SmartRouter {
     const baseUrl = (entry.baseUrl ?? "").replace(/\/+$/, "");
     if (!baseUrl) return results;
 
-    // Try provider's listModels if available.
+    // Try provider's listModels if available. The discovery AbortController
+    // is passed through so a hung/unreachable server is cancelled at the
+    // 5s deadline instead of stalling rescan for minutes (issue #104).
     if (
       "listModels" in entry.provider &&
       typeof (entry.provider as { listModels: () => Promise<unknown> })
@@ -563,9 +565,11 @@ export class SmartRouter {
       try {
         const models = await (
           entry.provider as {
-            listModels: () => Promise<Array<{ id: string; name: string }>>;
+            listModels: (
+              signal?: AbortSignal,
+            ) => Promise<Array<{ id: string; name: string }>>;
           }
-        ).listModels();
+        ).listModels(signal);
         for (const m of models) {
           // Classify by display name (better heuristics) but store by id
           const quantFromName = extractQuantFromName(m.name);

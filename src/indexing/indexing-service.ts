@@ -14,12 +14,51 @@ export interface IndexingStats {
   embeddingModel: string;
 }
 
+/** File extensions eligible for indexing (incremental watcher whitelist). */
+const TEXT_EXTS = new Set([
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".py",
+  ".go",
+  ".rs",
+  ".java",
+  ".kt",
+  ".swift",
+  ".rb",
+  ".php",
+  ".cs",
+  ".cpp",
+  ".c",
+  ".h",
+  ".yaml",
+  ".yml",
+  ".json",
+  ".toml",
+  ".md",
+  ".sh",
+  ".bash",
+  ".env",
+]);
+
+/** True when the file's extension is part of the indexable whitelist. */
+export function isIndexableTextFile(filePath: string): boolean {
+  return TEXT_EXTS.has(path.extname(filePath).toLowerCase());
+}
+
+/** Debounce window for persisting incremental index updates to disk. */
+const SAVE_DEBOUNCE_MS = 500;
+
 export class IndexingService {
   private embeddingService: EmbeddingService | null = null;
   private vectorStore: VectorStore;
   private chunkingService: ChunkingService;
   private embeddingModelId: string | null = null;
   private indexingPromise: Promise<IndexingStats | null> | null = null;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly workspaceRoot: string,
@@ -70,15 +109,38 @@ export class IndexingService {
     }
 
     this.embeddingModelId = modelId;
+    // Re-create the VectorStore now that we know the embedding model, so that
+    // save/load operations can validate model ID consistency.
+    this.vectorStore = new VectorStore(":memory:", modelId);
+
+    // Try to reuse a recently persisted index BEFORE any provider traffic so
+    // warm sessions cost zero embedding calls. Only attempted when indexing
+    // is enabled. Search still needs query embeddings afterwards, so a live
+    // EmbeddingService is kept — but the health probe and full rebuild are
+    // skipped entirely. If the provider is down, search degrades to [] via
+    // its own error handling.
+    if (this.config.indexing?.enabled !== false) {
+      const loaded = await this.tryLoadIndex();
+      if (loaded) {
+        this.embeddingService = new EmbeddingService(providerFormat, {
+          baseUrl,
+          model: modelId,
+        });
+        await this.embeddingService.loadCache();
+        return {
+          filesIndexed: 0,
+          chunksIndexed: this.vectorStore.size(),
+          embeddingModel: modelId,
+        };
+      }
+    }
+
     this.embeddingService = new EmbeddingService(providerFormat, {
       baseUrl,
       model: modelId,
     });
     // Load the content-hash embedding cache to skip redundant API calls.
     await this.embeddingService.loadCache();
-    // Re-create the VectorStore now that we know the embedding model, so that
-    // save/load operations can validate model ID consistency.
-    this.vectorStore = new VectorStore(":memory:", modelId);
 
     // Verify the model actually responds before indexing.
     try {
@@ -132,19 +194,37 @@ export class IndexingService {
 
   /**
    * Re-index a single file (call after saves to keep index fresh).
+   * Replaces all previous chunks for the file and schedules a debounced
+   * persist of the updated index.
    */
   async reindexFile(filePath: string): Promise<void> {
     if (!this.embeddingService) return;
     try {
-      this.vectorStore.deleteByFile(filePath);
+      await this.vectorStore.deleteByFile(filePath);
       const content = await fsp.readFile(filePath, "utf8");
-      await this.indexFile(filePath, content);
+      const chunks = await this.indexFile(filePath, content);
+      if (chunks > 0) this.scheduleSaveIndex();
     } catch {
       // Silently skip — file may have been deleted.
     }
   }
 
+  /**
+   * Remove every chunk belonging to a file (call on deletion).
+   * @returns The number of chunks removed.
+   */
+  async deleteByFile(filePath: string): Promise<number> {
+    if (!this.embeddingService) return 0;
+    const removed = await this.vectorStore.deleteByFile(filePath);
+    if (removed > 0) this.scheduleSaveIndex();
+    return removed;
+  }
+
   dispose(): void {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
     this.vectorStore.dispose();
   }
 
@@ -229,6 +309,18 @@ export class IndexingService {
   }
 
   /**
+   * Debounced persist of the index after incremental updates, so rapid
+   * bursts of file saves coalesce into a single disk write.
+   */
+  private scheduleSaveIndex(): void {
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      void this.saveIndex();
+    }, SAVE_DEBOUNCE_MS);
+  }
+
+  /**
    * Try to load a previously saved index from disk. Returns true if the
    * index was loaded successfully and indexing can be skipped.
    */
@@ -241,9 +333,7 @@ export class IndexingService {
       if (ageMs > 24 * 60 * 60 * 1000) return false;
       const loaded = await this.vectorStore.load(cachePath);
       if (loaded > 0) {
-        console.log(
-          `Champ: loaded ${loaded} chunks from disk index (skip re-embedding)`,
-        );
+        console.log(`Champ: loaded persisted index (${loaded} chunks)`);
         return true;
       }
     } catch {
@@ -290,34 +380,6 @@ export class IndexingService {
     ignorePatterns: string[],
   ): Promise<string[]> {
     const results: string[] = [];
-    const TEXT_EXTS = new Set([
-      ".ts",
-      ".tsx",
-      ".js",
-      ".jsx",
-      ".mjs",
-      ".cjs",
-      ".py",
-      ".go",
-      ".rs",
-      ".java",
-      ".kt",
-      ".swift",
-      ".rb",
-      ".php",
-      ".cs",
-      ".cpp",
-      ".c",
-      ".h",
-      ".yaml",
-      ".yml",
-      ".json",
-      ".toml",
-      ".md",
-      ".sh",
-      ".bash",
-      ".env",
-    ]);
 
     const walk = async (dir: string): Promise<void> => {
       let entries: import("fs").Dirent[];
@@ -338,10 +400,7 @@ export class IndexingService {
 
         if (entry.isDirectory()) {
           await walk(full);
-        } else if (
-          entry.isFile() &&
-          TEXT_EXTS.has(path.extname(name).toLowerCase())
-        ) {
+        } else if (entry.isFile() && isIndexableTextFile(full)) {
           results.push(full);
         }
       }

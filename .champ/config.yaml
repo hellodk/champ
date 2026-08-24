@@ -20,6 +20,11 @@ providers:
     baseUrl: http://192.168.1.24:21434/v1
     model: default
 
+  openai-compatible:
+    baseUrl: http://192.168.1.5:8000/v1
+    model: default
+    apiKey: dummy
+
   # vllm:
   #   baseUrl: http://localhost:8000/v1
   #   model: meta-llama/Llama-3.1-8B
