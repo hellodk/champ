@@ -183,7 +183,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
           } else if (response.status === 400) {
             hint = " — malformed request. Check the model name in your config.";
           } else if (response.status === 404) {
-            hint = " — endpoint not found. Check the baseUrl in your config.";
+            hint =
+              " — endpoint not found. Does your baseUrl end with /v1 (e.g. http://host:8000/v1)?";
           }
           yield {
             type: "error",
