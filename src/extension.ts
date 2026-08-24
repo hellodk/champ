@@ -38,6 +38,7 @@ import { MetricsCollector } from "./observability/metrics-collector";
 import { ChunkingService } from "./indexing/chunking-service";
 import { RepoMapBuilder } from "./indexing/repo-map-builder";
 import { ContextResolver } from "./agent/context-resolver";
+import { buildProbeUrl } from "./utils/probe-url";
 import {
   ConfigLoader,
   resolveLayered,
@@ -3400,15 +3401,16 @@ export async function activate(
         const baseUrl = (providerConfig as any)?.baseUrl;
         if (!baseUrl) return;
 
-        // Use provider-specific endpoints that actually exist
-        const endpoints: Record<string, string> = {
-          ollama: "/api/tags", // Lists available models
-          llamacpp: "/v1/models", // OpenAI-compatible endpoint
-          vllm: "/v1/models", // OpenAI-compatible endpoint
-          "openai-compatible": "/v1/models",
-        };
-        const endpoint = endpoints[providerName] || "/v1/models";
-        const url = `${baseUrl.replace(/\/$/, "")}${endpoint}`;
+        // Normalised URL (no double /v1) + auth from the YAML entry: the
+        // old probe sent no Authorization header, so any server requiring
+        // a key returned 401 and the provider was declared unreachable
+        // even though chat itself would have worked.
+        const url = buildProbeUrl(baseUrl, providerName);
+        const headers: Record<string, string> = {};
+        const probeKey = (providerConfig as any)?.apiKey;
+        if (probeKey) {
+          headers.Authorization = `Bearer ${probeKey}`;
+        }
 
         try {
           const controller = new AbortController();
@@ -3416,6 +3418,7 @@ export async function activate(
           const response = await fetch(url, {
             signal: controller.signal,
             method: "GET",
+            headers,
           });
           clearTimeout(timeoutId);
           if (!response.ok) {
@@ -3423,9 +3426,7 @@ export async function activate(
           }
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          throw new Error(
-            `Cannot reach ${providerName} at ${baseUrl} (tried ${endpoint}) — ${errMsg}`,
-          );
+          throw new Error(`Cannot reach ${providerName} at ${url} — ${errMsg}`);
         }
       };
 
