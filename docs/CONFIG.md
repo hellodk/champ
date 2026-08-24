@@ -229,3 +229,23 @@ The workspace file usually ends up in the repo. The user file is private and sho
 ## Disabling YAML config
 
 If you'd rather stick with `settings.json`, just don't create a `.champ/config.yaml`. The loader falls through to the legacy path automatically. Backward compatibility is permanent.
+
+## Single source of truth (`champ.configSource`)
+
+Four layers exist: workspace YAML > user YAML > VS Code settings > defaults.
+Under the default `auto` that precedence applies silently. To eliminate
+ambiguity, set **`champ.configSource`**:
+
+| Value            | Meaning                                        |
+|------------------|------------------------------------------------|
+| `auto` (default) | historical precedence, as above                |
+| `workspace-yaml` | ONLY `<repo>/.champ/config.yaml`               |
+| `user-yaml`      | ONLY `~/.champ/config.yaml`                    |
+| `settings`       | ONLY `champ.*` settings; all YAML ignored      |
+
+Ignored layers are logged at startup. If both YAML files exist under `auto`,
+Champ tells you which one wins (once per session).
+
+Inspect what is actually running with **Champ: Show Effective Config** — it
+prints the merged config plus a per-key origin table (which layer supplied
+each key). API keys always live in SecretStorage regardless of source.

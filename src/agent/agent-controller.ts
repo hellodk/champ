@@ -32,6 +32,7 @@ import {
   extractTextContent,
   extractPreToolText,
   hasFabricatedNarration,
+  type MalformedToolCall,
 } from "../providers/prompt-based-tools";
 import { SecretScanner } from "../safety/secret-scanner";
 import { PiiScanner } from "../safety/pii-scanner";
@@ -745,7 +746,10 @@ export class AgentController {
         // response text, then emit a cleaned text delta to the UI so the
         // user sees prose without the XML noise.
         if (usePromptBased && assistantText) {
-          const parsed = parseToolCallsFromText(assistantText);
+          const malformedCalls: MalformedToolCall[] = [];
+          const parsed = parseToolCallsFromText(assistantText, (info) =>
+            malformedCalls.push(info),
+          );
 
           // ── Hallucination guard (issue #101) ────────────────────────────
           // If no tool calls were parsed but the text contains fabricated
@@ -781,6 +785,15 @@ export class AgentController {
           for (const call of parsed) {
             pendingToolCalls.push(call);
             toolStartTimes.set(call.id, promptToolStart);
+          }
+          // Feed actionable correction back to the model instead of
+          // silently dropping the call (issue #106).
+          if (malformedCalls.length > 0) {
+            const note = `⚠️ Your tool call(s) had invalid JSON arguments and were not executed: ${malformedCalls
+              .map((m) => `${m.name} (${m.reason})`)
+              .join("; ")}. Re-emit with valid JSON inside <arguments>.`;
+            this.history.push({ role: "user", content: note });
+            this.emit({ type: "text", text: note });
           }
           const cleaned = extractPreToolText(assistantText);
           if (cleaned) {
@@ -855,7 +868,9 @@ export class AgentController {
                 done: false,
               });
             },
-            requestApproval: options.requestApproval ?? (async () => true),
+            // Deny-by-default: if no approval UI is wired, destructive tools
+            // must not run silently (issue #105).
+            requestApproval: options.requestApproval ?? (async () => false),
             editReviewTracker: this.editReviewTracker,
             stagedEdits,
             auditLog: this._auditLog,
@@ -956,18 +971,25 @@ export class AgentController {
         }
       }
 
-      // Flush all staged file edits to disk atomically now that the turn is done.
-      // This ensures edits across multiple files are applied together — no half-
-      // applied states — and later edits to the same file correctly compose.
+      // Flush all staged file edits to disk atomically now that the turn is
+      // done — but never on a cancelled turn (issue #105): discarding is the
+      // safe default when the user stopped the agent mid-edit.
       if (stagedEdits.size() > 0) {
-        const flushed = await stagedEdits.flush();
-        for (const change of flushed) {
-          if (this.editReviewTracker) {
-            this.editReviewTracker.record({
-              path: change.relativePath,
-              oldContent: change.oldContent,
-              newContent: change.newContent,
-            });
+        if (options.abortSignal?.aborted) {
+          this.emit({
+            type: "text",
+            text: `\n⏹ Cancelled — ${stagedEdits.size()} staged file edit(s) were discarded.`,
+          });
+        } else {
+          const flushed = await stagedEdits.flush();
+          for (const change of flushed) {
+            if (this.editReviewTracker) {
+              this.editReviewTracker.record({
+                path: change.relativePath,
+                oldContent: change.oldContent,
+                newContent: change.newContent,
+              });
+            }
           }
         }
       }

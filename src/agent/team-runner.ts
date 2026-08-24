@@ -455,15 +455,22 @@ export class TeamRunner {
                   },
                   scopedRegistry,
                   timeoutController.signal,
-                  // Pass approval callback — only for supervised/safe modes
-                  team.execution.mode !== "auto" && options.requestApproval
-                    ? (description, preview) =>
-                        options.requestApproval!(
-                          description,
-                          agentDef.id,
-                          preview,
-                        )
-                    : undefined,
+                  // Approval routing (issue #105):
+                  // - auto mode → explicitly autonomous, approve without
+                  //   prompting (documented team semantics)
+                  // - supervised/safe with a UI callback → prompt
+                  // - supervised/safe WITHOUT a UI callback → undefined,
+                  //   which TeamAgent resolves to deny-by-default
+                  team.execution.mode === "auto"
+                    ? async () => true
+                    : options.requestApproval
+                      ? (description, preview) =>
+                          options.requestApproval!(
+                            description,
+                            agentDef.id,
+                            preview,
+                          )
+                      : undefined,
                   options.auditLog,
                 );
 

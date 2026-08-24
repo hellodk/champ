@@ -5,6 +5,43 @@ All notable changes to Champ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.161] — 2026-07-18
+
+### Added
+
+- **Local Model dialogue** — guided 3-step wizard in the model picker for
+  configuring local/self-hosted models (#56).
+- **Browser automation tool** — `browser_tool` for navigate/click/screenshot
+  UI testing and automation (#70).
+- **Autonomous test-driven fix loop** — iterates test suite → analyze → fix →
+  re-run until green (#65).
+- **Sub-agent delegation tool** — `delegate_task` spawns a scoped sub-agent
+  (file / directory / workspace) via the live agent controller.
+- **Git-aware PR tool** — `git_tool` for autonomous pull-request creation (#60).
+- **Persistent checkpoints** — checkpoints now persist to disk and restore on
+  extension restart (#64).
+- **Atomic multi-file transactional edits** — all-or-nothing multi-file
+  edits with multi-root workspace config resolution (#61, #58).
+- **Advanced command sandboxing** — allowlist/denylist, path validation, and
+  audit logging as a defense-in-depth layer for terminal commands (#69).
+- **Provider init retry** — 10s init timeout with an inline "retry" button and
+  a `reloadProvider` command when provider initialization fails.
+
+### Fixed
+
+- Correct `CheckpointManager` initialization to use `waitForLoad()` instead of
+  the nonexistent `initialize()` method that crashed activation.
+- `browser_tool` result metadata uses the canonical `screenshot` field.
+- `delegate_task` scope argument narrowed to its valid union after validation.
+- Advanced sandbox YAML config parser typing.
+- Lazy-loaded `IndexingService` / `MultiAgentRunner` to reduce activation time
+  and prevent stale `onChange` callbacks (generation counter).
+
+### Performance
+
+- Parallel indexing, embedding cache, HNSW ANN vector store, and lazy module
+  imports (carried over from 1.6.160).
+
 ## [1.6.5] — 2026-04-27
 
 ### Added

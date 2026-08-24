@@ -1,12 +1,12 @@
 /**
- * GitUtils: Low-level git operations using shell commands.
+ * GitUtils: Low-level git operations.
  *
- * Provides a structured API for reading repository state:
- * - Current branch, commits, staged/unstaged changes
- * - Diffs for staged and unstaged changes
- * - Remote configuration (owner/repo for PR creation)
+ * SECURITY (issue #103): every invocation passes arguments as individual
+ * argv entries via execFileSync("git", [...]). No command string is ever
+ * composed, so LLM-controlled branch names, file paths and commit messages
+ * cannot break out through a shell (quotes, backticks, $() are inert).
  */
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 
 export interface Commit {
   hash: string;
@@ -21,6 +21,20 @@ export interface RemoteConfig {
   repo: string;
 }
 
+interface RunOptions {
+  maxBuffer?: number;
+}
+
+/** Run git with plain argv. Throws on non-zero exit like execSync did. */
+function run(cwd: string, args: string[], opts: RunOptions = {}): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+    ...(opts.maxBuffer ? { maxBuffer: opts.maxBuffer } : {}),
+  }) as string;
+}
+
 export class GitUtils {
   /**
    * Get the current git branch name.
@@ -29,11 +43,7 @@ export class GitUtils {
    */
   static async getCurrentBranch(workspaceRoot: string): Promise<string> {
     try {
-      const result = execSync("git rev-parse --abbrev-ref HEAD", {
-        cwd: workspaceRoot,
-        encoding: "utf-8",
-      }).trim();
-      return result;
+      return run(workspaceRoot, ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
     } catch (error) {
       throw new Error(
         `Failed to get current branch: ${error instanceof Error ? error.message : String(error)}`,
@@ -48,12 +58,13 @@ export class GitUtils {
    */
   static async getStagedChanges(workspaceRoot: string): Promise<string[]> {
     try {
-      const result = execSync("git diff --cached --name-only", {
-        cwd: workspaceRoot,
-        encoding: "utf-8",
-      }).trim();
+      const result = run(workspaceRoot, [
+        "diff",
+        "--cached",
+        "--name-only",
+      ]).trim();
       return result ? result.split("\n").filter((f) => f) : [];
-    } catch (error) {
+    } catch {
       return [];
     }
   }
@@ -65,12 +76,9 @@ export class GitUtils {
    */
   static async getUnstagedChanges(workspaceRoot: string): Promise<string[]> {
     try {
-      const result = execSync("git diff --name-only", {
-        cwd: workspaceRoot,
-        encoding: "utf-8",
-      }).trim();
+      const result = run(workspaceRoot, ["diff", "--name-only"]).trim();
       return result ? result.split("\n").filter((f) => f) : [];
-    } catch (error) {
+    } catch {
       return [];
     }
   }
@@ -82,12 +90,10 @@ export class GitUtils {
    */
   static async getStagedDiff(workspaceRoot: string): Promise<string> {
     try {
-      return execSync("git diff --cached", {
-        cwd: workspaceRoot,
-        encoding: "utf-8",
+      return run(workspaceRoot, ["diff", "--cached"], {
         maxBuffer: 10 * 1024 * 1024,
       });
-    } catch (error) {
+    } catch {
       return "";
     }
   }
@@ -99,12 +105,10 @@ export class GitUtils {
    */
   static async getUnstagedDiff(workspaceRoot: string): Promise<string> {
     try {
-      return execSync("git diff", {
-        cwd: workspaceRoot,
-        encoding: "utf-8",
+      return run(workspaceRoot, ["diff"], {
         maxBuffer: 10 * 1024 * 1024,
       });
-    } catch (error) {
+    } catch {
       return "";
     }
   }
@@ -120,13 +124,11 @@ export class GitUtils {
     baseBranch: string,
   ): Promise<Commit[]> {
     try {
-      const result = execSync(
-        `git log ${baseBranch}..HEAD --pretty=format:%H%n%s%n%an%n%ai%n---END---`,
-        {
-          cwd: workspaceRoot,
-          encoding: "utf-8",
-        },
-      ).trim();
+      const result = run(workspaceRoot, [
+        "log",
+        `${baseBranch}..HEAD`,
+        "--pretty=format:%H%n%s%n%an%n%ai%n---END---",
+      ]).trim();
 
       if (!result) {
         return [];
@@ -148,7 +150,7 @@ export class GitUtils {
       }
 
       return commits;
-    } catch (error) {
+    } catch {
       return [];
     }
   }
@@ -167,9 +169,7 @@ export class GitUtils {
       if (files.length === 0) {
         return false;
       }
-      execSync(`git add ${files.map((f) => `"${f}"`).join(" ")}`, {
-        cwd: workspaceRoot,
-      });
+      run(workspaceRoot, ["add", ...files]);
       return true;
     } catch (error) {
       throw new Error(
@@ -189,15 +189,8 @@ export class GitUtils {
     message: string,
   ): Promise<string> {
     try {
-      execSync(`git commit -m "${message.replace(/"/g, '\\"')}"`, {
-        cwd: workspaceRoot,
-      });
-      // Get the new commit hash
-      const hash = execSync("git rev-parse HEAD", {
-        cwd: workspaceRoot,
-        encoding: "utf-8",
-      }).trim();
-      return hash;
+      run(workspaceRoot, ["commit", "-m", message]);
+      return run(workspaceRoot, ["rev-parse", "HEAD"]).trim();
     } catch (error) {
       throw new Error(
         `Failed to create commit: ${error instanceof Error ? error.message : String(error)}`,
@@ -214,10 +207,11 @@ export class GitUtils {
     workspaceRoot: string,
   ): Promise<RemoteConfig | null> {
     try {
-      const url = execSync("git config --get remote.origin.url", {
-        cwd: workspaceRoot,
-        encoding: "utf-8",
-      }).trim();
+      const url = run(workspaceRoot, [
+        "config",
+        "--get",
+        "remote.origin.url",
+      ]).trim();
 
       if (!url) {
         return null;
@@ -240,7 +234,7 @@ export class GitUtils {
       }
 
       return { url, owner, repo };
-    } catch (error) {
+    } catch {
       return null;
     }
   }
@@ -252,12 +246,9 @@ export class GitUtils {
    */
   static async isGitRepository(workspaceRoot: string): Promise<boolean> {
     try {
-      execSync("git rev-parse --git-dir", {
-        cwd: workspaceRoot,
-        stdio: "pipe",
-      });
+      run(workspaceRoot, ["rev-parse", "--git-dir"]);
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }

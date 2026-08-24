@@ -4,12 +4,12 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GitUtils } from "@/tools/git/git-utils";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 
 vi.mock("child_process");
 
 describe("GitUtils", () => {
-  const mockExecSync = execSync as unknown as ReturnType<typeof vi.fn>;
+  const mockExecSync = execFileSync as unknown as ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.clearAllMocks();

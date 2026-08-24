@@ -2,7 +2,7 @@
   "name": "champ",
   "displayName": "Champ - AI Coding Agent",
   "description": "AI coding agent with local LLM support, multi-agent orchestration, and autonomous workflows",
-  "version": "1.6.169",
+  "version": "1.6.170",
   "publisher": "champ-oss",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -108,6 +108,11 @@
       {
         "command": "champ.about",
         "title": "Champ: About"
+      },
+      {
+        "command": "champ.showEffectiveConfig",
+        "title": "Champ: Show Effective Config",
+        "category": "Champ"
       },
       {
         "command": "champ.showHelp",
@@ -316,6 +321,12 @@
           "default": false,
           "markdownDescription": "Skip approval prompts for terminal commands and file edits. **Use with caution.**"
         },
+        "champ.configSource": {
+          "type": "string",
+          "enum": ["auto", "workspace-yaml", "user-yaml", "settings"],
+          "default": "auto",
+          "markdownDescription": "Single source of truth for Champ's LLM configuration.\n\n- **auto** — workspace `.champ/config.yaml` if present, else `~/.champ/config.yaml`, else these settings (historical precedence)\n- **workspace-yaml / user-yaml / settings** — use ONLY that source; others are ignored\n\nInspect the running result with **Champ: Show Effective Config**."
+        },
         "champ.autoFix.enabled": {
           "type": "boolean",
           "default": true,
@@ -412,15 +423,15 @@
     ]
   },
   "scripts": {
-    "compile": "npm run check-types && node esbuild.mjs && node esbuild.webview.mjs --production && node scripts/copy-assets.mjs",
+    "compile": "pnpm run check-types && node esbuild.mjs && node esbuild.webview.mjs --production && node scripts/copy-assets.mjs",
     "build:webview": "node esbuild.webview.mjs --production && node scripts/copy-assets.mjs",
     "watch:webview": "node esbuild.webview.mjs --watch",
     "watch": "npm-run-all -p watch:*",
     "watch:extension": "node esbuild.mjs --watch",
     "watch:types": "tsc --noEmit --watch",
     "check-types": "tsc --noEmit",
-    "package": "npm run check-types && node esbuild.mjs --production",
-    "vscode:prepublish": "npm run package",
+    "package": "pnpm run check-types && node esbuild.mjs --production",
+    "vscode:prepublish": "pnpm run package",
     "test": "vitest run",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",

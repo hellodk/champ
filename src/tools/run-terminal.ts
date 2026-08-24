@@ -9,12 +9,17 @@ import { spawn } from "child_process";
 import * as fs from "fs";
 import type { Tool, ToolResult, ToolExecutionContext } from "./types";
 import { CommandSandbox } from "../safety/command-sandbox";
+import { AdvancedCommandSandbox } from "../safety/advanced-command-sandbox";
 import { terminalOutputBuffer } from "../agent/terminal-output-buffer";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_BYTES = 15_000;
 
 const sandbox = new CommandSandbox();
+const advancedSandbox = new AdvancedCommandSandbox({
+  workspacePath: process.cwd(),
+  allowedWorkspacePaths: [process.cwd()],
+});
 
 export const runTerminalTool: Tool = {
   name: "run_terminal_cmd",
@@ -59,6 +64,19 @@ export const runTerminalTool: Tool = {
         success: false,
         output: `Command blocked by safety sandbox: ${check.reason}`,
       };
+    }
+
+    // Defense-in-depth: advanced sandbox enforces path/allowlist restrictions
+    // only when an explicit allowlist/denylist is configured, so it does not
+    // block legitimate commands in the default permissive mode.
+    if (advancedSandbox.isRestrictedMode()) {
+      const advCheck = advancedSandbox.check(command);
+      if (!advCheck.allowed) {
+        return {
+          success: false,
+          output: `Command blocked by advanced sandbox: ${advCheck.reason}`,
+        };
+      }
     }
 
     return new Promise<ToolResult>((resolve) => {

@@ -38,7 +38,11 @@ import { MetricsCollector } from "./observability/metrics-collector";
 import { ChunkingService } from "./indexing/chunking-service";
 import { RepoMapBuilder } from "./indexing/repo-map-builder";
 import { ContextResolver } from "./agent/context-resolver";
-import { ConfigLoader, type ChampConfig } from "./config/config-loader";
+import {
+  ConfigLoader,
+  resolveLayered,
+  type ChampConfig,
+} from "./config/config-loader";
 import { SkillRegistry } from "./skills/skill-registry";
 import { SkillLoader } from "./skills/skill-loader";
 import { VariableResolver } from "./skills/variable-resolver";
@@ -62,6 +66,7 @@ import { remoteRunTerminalTool } from "./tools/remote-run-terminal";
 import { remoteEditFileTool } from "./tools/remote-edit-file";
 import { createCodebaseSearchTool } from "./tools/codebase-search";
 import { gitTool } from "./tools/git-tool";
+import { createDelegateTaskTool } from "./tools/delegate-task";
 // Lazy-loaded: IndexingService, MultiAgentRunner (dynamic import() in handlers)
 import type { IndexingService } from "./indexing/indexing-service";
 import type { IWorkflowRunner } from "./agent/workflow-runner";
@@ -127,6 +132,65 @@ let saveActiveTimeout: ReturnType<typeof setTimeout> | null = null;
 let indexingService: IndexingService | undefined;
 /** Generation counter to prevent orphaned IndexingService from stale onChange callbacks. */
 let indexingGeneration = 0;
+/** The incremental file watcher only needs to be registered once per session. */
+let indexingFileWatcherRegistered = false;
+
+/**
+ * Watch the workspace for file changes and keep the semantic index fresh:
+ * created/changed text files are re-chunked + re-embedded incrementally,
+ * deleted files have their chunks removed. Events are debounced (500ms)
+ * so save bursts and formatting tools coalesce into one update per file.
+ * Registered once; reads the live `indexingService` so it survives router
+ * rediscovery recreating the service.
+ */
+function registerIndexingFileWatcher(
+  context: vscode.ExtensionContext,
+  root: string,
+  isIndexable: (filePath: string) => boolean,
+): void {
+  if (indexingFileWatcherRegistered) return;
+  indexingFileWatcherRegistered = true;
+
+  const pending = new Map<string, "reindex" | "delete">();
+  let flushTimer: ReturnType<typeof setTimeout> | undefined;
+  const flush = () => {
+    flushTimer = undefined;
+    const svc = indexingService;
+    if (!svc) return;
+    for (const [fsPath, op] of pending) {
+      pending.delete(fsPath);
+      try {
+        if (op === "delete") void svc.deleteByFile(fsPath);
+        else void svc.reindexFile(fsPath);
+      } catch {
+        // Index freshness is best-effort — never surface watcher errors.
+      }
+    }
+  };
+  const schedule = (fsPath: string, op: "reindex" | "delete") => {
+    // Last op wins — a create followed by a delete before flush nets delete.
+    pending.set(fsPath, op);
+    if (flushTimer) clearTimeout(flushTimer);
+    flushTimer = setTimeout(flush, 500);
+  };
+
+  const watcher = vscode.workspace.createFileSystemWatcher("**/*");
+  const track = (uri: vscode.Uri, op: "reindex" | "delete") => {
+    if (!uri.fsPath.startsWith(root)) return;
+    if (!isIndexable(uri.fsPath)) return;
+    schedule(uri.fsPath, op);
+  };
+  watcher.onDidCreate((uri) => track(uri, "reindex"));
+  watcher.onDidChange((uri) => track(uri, "reindex"));
+  watcher.onDidDelete((uri) => track(uri, "delete"));
+  context.subscriptions.push(watcher);
+}
+/** Live reference to the agent controller, used by tools that delegate to sub-agents. */
+const agentControllerRef: {
+  current: import("./agent/agent-controller").AgentController | undefined;
+} = {
+  current: undefined,
+};
 let mcpRegistry: McpRegistry | undefined;
 let mcpClientManager: MCPClientManager | undefined;
 let persistentRunner: IWorkflowRunner | undefined;
@@ -207,6 +271,26 @@ export async function activate(
     createCodebaseSearchTool(() => indexingService ?? null),
   );
   toolRegistry.register(gitTool);
+  // delegate_task: spawn a scoped sub-agent via the live agent controller.
+  const delegateMemoryStore = new Map<string, unknown>();
+  const delegateMemory: import("./tools/delegate-task").SubAgentMemory = {
+    set: (k, v) => delegateMemoryStore.set(k, v),
+    get: (k) => delegateMemoryStore.get(k),
+    subscribe: async () => undefined,
+    hasChannel: () => false,
+  };
+  toolRegistry.register(
+    createDelegateTaskTool(
+      {
+        processMessage: (messages, options) =>
+          agentControllerRef.current!.processMessage(
+            messages as string,
+            options as never,
+          ),
+      },
+      delegateMemory,
+    ),
+  );
 
   // ---- Audit log middleware: intercept every tool call ----------------
   // Wrap toolRegistry.execute() so every tool invocation is logged to the
@@ -284,6 +368,11 @@ export async function activate(
       )
     : null;
 
+  // Initialize checkpoint manager to load persisted checkpoints from disk
+  void checkpointManager?.waitForLoad().catch((err: unknown) => {
+    console.warn("[Champ] CheckpointManager initialization failed:", err);
+  });
+
   workflowStore = workspaceRoot ? new WorkflowStore(workspaceRoot) : undefined;
   teamRunStore = workspaceRoot ? new TeamRunStore(workspaceRoot) : undefined;
   teamLoader = workspaceRoot ? new TeamLoader(workspaceRoot) : undefined;
@@ -296,6 +385,7 @@ export async function activate(
     toolRegistry,
     workspaceRoot,
   );
+  agentControllerRef.current = agentController;
 
   // ---- Response cache (TTL-based, opt-in per config) ------------------
   // 5-minute TTL; shared across the session. Cleared on new conversation.
@@ -518,7 +608,7 @@ export async function activate(
       const gen = ++indexingGeneration;
       // Lazy-load IndexingService to reduce activation time
       void import("./indexing/indexing-service.js").then(
-        ({ IndexingService: IS }) => {
+        ({ IndexingService: IS, isIndexableTextFile }) => {
           // Stale callback — a newer onChange already fired, skip
           if (gen !== indexingGeneration) return;
           if (!smartRouter) return;
@@ -537,6 +627,14 @@ export async function activate(
               statusBarItem,
               analyticsChannel,
             );
+            // Keep the index fresh incrementally as files change.
+            if (workspaceRoot) {
+              registerIndexingFileWatcher(
+                context,
+                workspaceRoot,
+                isIndexableTextFile,
+              );
+            }
           }
         },
       );
@@ -1149,7 +1247,22 @@ export async function activate(
           try {
             await controller.processMessage(request.prompt, {
               abortSignal: abort.signal,
-              requestApproval: async () => true,
+              // yoloMode is the single kill-switch for destructive-tool
+              // prompts. Without it, approval-required tools are denied in
+              // the @champ participant — the sidebar chat view is where
+              // interactive approval happens (issue #105).
+              requestApproval: async (description) => {
+                const yolo = vscode.workspace
+                  .getConfiguration("champ")
+                  .get<boolean>("yoloMode", false);
+                if (yolo) {
+                  return true;
+                }
+                stream.markdown(
+                  `\n\n🔒 Approval required for: ${description} — run it from the Champ sidebar (or enable \`champ.yoloMode\`).\n`,
+                );
+                return false;
+              },
             });
           } catch (err) {
             stream.markdown(
@@ -1778,6 +1891,42 @@ export async function activate(
       void vscode.window.showInformationMessage(
         `Champ: cleaned up ${pruned} session(s) older than 30 days.`,
       );
+    }),
+    vscode.commands.registerCommand("champ.showEffectiveConfig", () => {
+      const channel = vscode.window.createOutputChannel("Champ Config");
+      channel.appendLine("Champ effective configuration (#115)");
+      if (!lastLayeredInfo) {
+        channel.appendLine(
+          "No YAML config active — VS Code settings (champ.*) are the source.",
+        );
+      } else {
+        const { result, workspacePath, userPath } = lastLayeredInfo;
+        channel.appendLine(`Source used : ${result.usedSource}`);
+        channel.appendLine(`  workspace : ${workspacePath ?? "(none)"}`);
+        channel.appendLine(`  user      : ${userPath}`);
+        if (result.ignoredSources.length > 0) {
+          channel.appendLine(
+            `Ignored     : ${result.ignoredSources.join(", ")} (champ.configSource)`,
+          );
+        }
+        channel.appendLine("");
+        channel.appendLine("Final merged config:");
+        channel.appendLine(
+          JSON.stringify(result.config, null, 2)
+            .split("\n")
+            .map((l) => "  " + l)
+            .join("\n"),
+        );
+        channel.appendLine("");
+        channel.appendLine("Per-key origin:");
+        for (const key of Object.keys(result.origins).sort()) {
+          channel.appendLine(`  ${key.padEnd(20)} ${result.origins[key]}`);
+        }
+      }
+      channel.appendLine(
+        `\nAPI keys live in SecretStorage ('Champ: Set API Key'), never here.`,
+      );
+      channel.show(true);
     }),
     vscode.commands.registerCommand("champ.rescanModels", () => {
       if (smartRouter) {
@@ -3009,6 +3158,14 @@ export async function activate(
    * Errors during YAML parsing are surfaced to the user but do not
    * crash activation.
    */
+  // Last layered-resolution outcome, for Show Effective Config (#115).
+  let lastLayeredInfo: {
+    result: import("./config/config-loader").LayeredResult;
+    workspacePath: string | null;
+    userPath: string;
+  } | null = null;
+  let conflictNoticeShown = false;
+
   const resolveConfig = async (): Promise<ChampConfig | null> => {
     const activeFolder = resolveActiveWorkspaceFolder();
     const workspacePath = activeFolder
@@ -3016,46 +3173,55 @@ export async function activate(
       : null;
     const userPath = path.join(os.homedir(), ".champ", "config.yaml");
 
-    let workspaceConfig: ChampConfig | null = null;
-    let userConfig: ChampConfig | null = null;
-
-    if (workspacePath) {
+    // Read raw bytes only — parse errors are attributed to their layer by
+    // resolveLayered so users learn WHICH file is broken (#115).
+    const readRaw = async (p: string | null): Promise<string | null> => {
+      if (!p) return null;
       try {
-        const data = await vscode.workspace.fs.readFile(
-          vscode.Uri.file(workspacePath),
+        return new TextDecoder().decode(
+          await vscode.workspace.fs.readFile(vscode.Uri.file(p)),
         );
-        workspaceConfig = ConfigLoader.parseYaml(
-          new TextDecoder().decode(data),
-        );
-      } catch (err) {
-        // File doesn't exist OR contains invalid YAML. Distinguish by
-        // checking the error message — fs.readFile throws with a
-        // FileSystemError code for missing files which we ignore.
-        if (err instanceof Error && /Invalid YAML/.test(err.message)) {
-          void vscode.window.showErrorMessage(
-            `Champ: ${workspacePath} has invalid YAML — ${err.message}`,
-          );
-        }
+      } catch {
+        return null; // missing file
       }
-    }
+    };
 
+    const source = vscode.workspace
+      .getConfiguration("champ")
+      .get<
+        "auto" | "workspace-yaml" | "user-yaml" | "settings"
+      >("configSource", "auto");
+
+    let result: import("./config/config-loader").LayeredResult;
     try {
-      const data = await vscode.workspace.fs.readFile(
-        vscode.Uri.file(userPath),
-      );
-      userConfig = ConfigLoader.parseYaml(new TextDecoder().decode(data));
+      result = resolveLayered({
+        workspaceText: await readRaw(workspacePath),
+        userText: await readRaw(userPath),
+        source,
+      });
     } catch (err) {
-      if (err instanceof Error && /Invalid YAML/.test(err.message)) {
-        void vscode.window.showErrorMessage(
-          `Champ: ${userPath} has invalid YAML — ${err.message}`,
-        );
-      }
+      void vscode.window.showErrorMessage(
+        `Champ: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
     }
 
-    if (!workspaceConfig && !userConfig) return null;
+    lastLayeredInfo = { result, workspacePath, userPath };
 
-    const merged = ConfigLoader.merge(userConfig ?? {}, workspaceConfig ?? {});
-    return ConfigLoader.withDefaults(ConfigLoader.substituteEnv(merged));
+    if (result.ignoredSources.length > 0) {
+      console.log(
+        `Champ config: ignoring ${result.ignoredSources.join(", ")} because configSource=${source}`,
+      );
+    }
+    if (result.conflict && !conflictNoticeShown) {
+      conflictNoticeShown = true;
+      void vscode.window.showInformationMessage(
+        `Champ: workspace .champ/config.yaml overrides ~/.champ/config.yaml. Set "champ.configSource" to pick one explicitly.`,
+      );
+    }
+
+    if (!result.config) return null;
+    return ConfigLoader.withDefaults(ConfigLoader.substituteEnv(result.config));
   };
 
   // ---- Provider loader (callable on demand) ---------------------------
@@ -3109,6 +3275,16 @@ export async function activate(
     try {
       yamlConfig = await resolveConfig();
       cachedYamlConfig = yamlConfig;
+      if (lastLayeredInfo?.result) {
+        const { result } = lastLayeredInfo;
+        const activeName = yamlConfig?.provider;
+        const activeModel = activeName
+          ? yamlConfig?.providers?.[activeName]?.model
+          : undefined;
+        console.log(
+          `Champ config: source=${result.usedSource} provider=${activeName ?? "(settings)"} model=${activeModel ?? "(settings)"}`,
+        );
+      }
       // Load project rules from .champ/rules/*.md
       const activeRulesFolder = resolveActiveWorkspaceFolder();
       if (activeRulesFolder) {
@@ -4092,6 +4268,7 @@ export async function activate(
   // ---- CI/CD local HTTP API server -------------------------------------
   const champServer = new ChampServer({
     version: context.extension.packageJSON.version as string,
+    metrics,
     onRunTeam: async (teamName, task) => {
       const teams = (await teamLoader?.loadAll()) ?? [];
       const team = teams.find((t) => t.name === teamName);

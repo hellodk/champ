@@ -11,6 +11,7 @@ import type {
   ToolPreview,
 } from "./types";
 import type { ToolParameterSchema } from "../providers/types";
+import { validatePublicHttpUrl } from "../utils/url-guard";
 import type { Browser, Page } from "@playwright/test";
 
 /**
@@ -22,6 +23,12 @@ let page: Page | null = null;
 
 /**
  * Ensures a browser instance is available.
+ *
+ * playwright-core is loaded via dynamic import INSIDE this function: a
+ * static import would require the module at activation time, but esbuild
+ * marks it external and published packages ship without node_modules —
+ * which crashed extension activation outright (see exthost log:
+ * "Cannot find module 'playwright-core'").
  */
 async function ensureBrowser(): Promise<void> {
   if (!browser) {
@@ -56,18 +63,6 @@ export async function closeBrowser(): Promise<void> {
   }
   browser = null;
   page = null;
-}
-
-/**
- * Validates a URL string.
- */
-function isValidUrl(url: string): boolean {
-  try {
-    new URL(url);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -164,10 +159,11 @@ export const browserTool: Tool = {
       switch (action) {
         case "goto": {
           const url = String(args.url || "");
-          if (!isValidUrl(url)) {
+          const verdict = validatePublicHttpUrl(url);
+          if (!verdict.ok) {
             return {
               success: false,
-              output: `Invalid URL: ${url}. Must be a valid HTTP(S) URL.`,
+              output: `Invalid URL: ${url}. ${verdict.reason}`,
             };
           }
 

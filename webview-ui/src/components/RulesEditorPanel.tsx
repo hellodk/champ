@@ -1,5 +1,6 @@
 // webview-ui/src/components/RulesEditorPanel.tsx
 import { signal } from "@preact/signals";
+import { useEffect } from "preact/hooks";
 import {
   isValidMessage,
   type RulesListMessage,
@@ -48,17 +49,27 @@ function getVsCode(): { postMessage: (msg: unknown) => void } {
 // Message listener
 // ---------------------------------------------------------------------------
 
-window.addEventListener("message", (e: MessageEvent) => {
-  if (!isValidMessage(e.data)) return; // drop malformed
-  const msg = e.data;
-  if (msg.type === "rulesList") {
-    rulesSignal.value = (msg as RulesListMessage).rules;
-  } else if (msg.type === "rulesListAck") {
-    rulesSignal.value = (msg as RulesListAckMessage).rules;
-    editingRuleSignal.value = null;
-    isNewRuleSignal.value = false;
-  }
-});
+// Registered inside the component's mount-scoped useEffect with cleanup —
+// a module-level registration here previously leaked one permanent listener
+// per panel re-creation (#112, same class as #9).
+function useRulesMessages(): void {
+  useEffect(() => {
+    const handleMessage = (e: MessageEvent): void => {
+      if (!isValidMessage(e.data)) return; // drop malformed
+      const msg = e.data;
+      if (msg.type === "rulesList") {
+        rulesSignal.value = (msg as RulesListMessage).rules;
+      } else if (msg.type === "rulesListAck") {
+        rulesSignal.value = (msg as RulesListAckMessage).rules;
+        editingRuleSignal.value = null;
+        isNewRuleSignal.value = false;
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
+}
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -189,6 +200,8 @@ function RuleTypeTag({ type }: { type: RuleEntry["type"] }): JSX.Element {
 // ---------------------------------------------------------------------------
 
 export function RulesEditorPanel(): JSX.Element {
+  useRulesMessages();
+
   function openNew(): void {
     editingRuleSignal.value = { name: "", content: "", type: "always" };
     isNewRuleSignal.value = true;
