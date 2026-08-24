@@ -38,7 +38,11 @@ import { MetricsCollector } from "./observability/metrics-collector";
 import { ChunkingService } from "./indexing/chunking-service";
 import { RepoMapBuilder } from "./indexing/repo-map-builder";
 import { ContextResolver } from "./agent/context-resolver";
-import { ConfigLoader, type ChampConfig } from "./config/config-loader";
+import {
+  ConfigLoader,
+  resolveLayered,
+  type ChampConfig,
+} from "./config/config-loader";
 import { SkillRegistry } from "./skills/skill-registry";
 import { SkillLoader } from "./skills/skill-loader";
 import { VariableResolver } from "./skills/variable-resolver";
@@ -1865,6 +1869,42 @@ export async function activate(
         `Champ: cleaned up ${pruned} session(s) older than 30 days.`,
       );
     }),
+    vscode.commands.registerCommand("champ.showEffectiveConfig", () => {
+      const channel = vscode.window.createOutputChannel("Champ Config");
+      channel.appendLine("Champ effective configuration (#115)");
+      if (!lastLayeredInfo) {
+        channel.appendLine(
+          "No YAML config active — VS Code settings (champ.*) are the source.",
+        );
+      } else {
+        const { result, workspacePath, userPath } = lastLayeredInfo;
+        channel.appendLine(`Source used : ${result.usedSource}`);
+        channel.appendLine(`  workspace : ${workspacePath ?? "(none)"}`);
+        channel.appendLine(`  user      : ${userPath}`);
+        if (result.ignoredSources.length > 0) {
+          channel.appendLine(
+            `Ignored     : ${result.ignoredSources.join(", ")} (champ.configSource)`,
+          );
+        }
+        channel.appendLine("");
+        channel.appendLine("Final merged config:");
+        channel.appendLine(
+          JSON.stringify(result.config, null, 2)
+            .split("\n")
+            .map((l) => "  " + l)
+            .join("\n"),
+        );
+        channel.appendLine("");
+        channel.appendLine("Per-key origin:");
+        for (const key of Object.keys(result.origins).sort()) {
+          channel.appendLine(`  ${key.padEnd(20)} ${result.origins[key]}`);
+        }
+      }
+      channel.appendLine(
+        `\nAPI keys live in SecretStorage ('Champ: Set API Key'), never here.`,
+      );
+      channel.show(true);
+    }),
     vscode.commands.registerCommand("champ.rescanModels", () => {
       if (smartRouter) {
         // Reset any open circuit breakers before rescanning so a previously
@@ -3095,6 +3135,14 @@ export async function activate(
    * Errors during YAML parsing are surfaced to the user but do not
    * crash activation.
    */
+  // Last layered-resolution outcome, for Show Effective Config (#115).
+  let lastLayeredInfo: {
+    result: import("./config/config-loader").LayeredResult;
+    workspacePath: string | null;
+    userPath: string;
+  } | null = null;
+  let conflictNoticeShown = false;
+
   const resolveConfig = async (): Promise<ChampConfig | null> => {
     const activeFolder = resolveActiveWorkspaceFolder();
     const workspacePath = activeFolder
@@ -3102,46 +3150,55 @@ export async function activate(
       : null;
     const userPath = path.join(os.homedir(), ".champ", "config.yaml");
 
-    let workspaceConfig: ChampConfig | null = null;
-    let userConfig: ChampConfig | null = null;
-
-    if (workspacePath) {
+    // Read raw bytes only — parse errors are attributed to their layer by
+    // resolveLayered so users learn WHICH file is broken (#115).
+    const readRaw = async (p: string | null): Promise<string | null> => {
+      if (!p) return null;
       try {
-        const data = await vscode.workspace.fs.readFile(
-          vscode.Uri.file(workspacePath),
+        return new TextDecoder().decode(
+          await vscode.workspace.fs.readFile(vscode.Uri.file(p)),
         );
-        workspaceConfig = ConfigLoader.parseYaml(
-          new TextDecoder().decode(data),
-        );
-      } catch (err) {
-        // File doesn't exist OR contains invalid YAML. Distinguish by
-        // checking the error message — fs.readFile throws with a
-        // FileSystemError code for missing files which we ignore.
-        if (err instanceof Error && /Invalid YAML/.test(err.message)) {
-          void vscode.window.showErrorMessage(
-            `Champ: ${workspacePath} has invalid YAML — ${err.message}`,
-          );
-        }
+      } catch {
+        return null; // missing file
       }
-    }
+    };
 
+    const source = vscode.workspace
+      .getConfiguration("champ")
+      .get<
+        "auto" | "workspace-yaml" | "user-yaml" | "settings"
+      >("configSource", "auto");
+
+    let result: import("./config/config-loader").LayeredResult;
     try {
-      const data = await vscode.workspace.fs.readFile(
-        vscode.Uri.file(userPath),
-      );
-      userConfig = ConfigLoader.parseYaml(new TextDecoder().decode(data));
+      result = resolveLayered({
+        workspaceText: await readRaw(workspacePath),
+        userText: await readRaw(userPath),
+        source,
+      });
     } catch (err) {
-      if (err instanceof Error && /Invalid YAML/.test(err.message)) {
-        void vscode.window.showErrorMessage(
-          `Champ: ${userPath} has invalid YAML — ${err.message}`,
-        );
-      }
+      void vscode.window.showErrorMessage(
+        `Champ: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
     }
 
-    if (!workspaceConfig && !userConfig) return null;
+    lastLayeredInfo = { result, workspacePath, userPath };
 
-    const merged = ConfigLoader.merge(userConfig ?? {}, workspaceConfig ?? {});
-    return ConfigLoader.withDefaults(ConfigLoader.substituteEnv(merged));
+    if (result.ignoredSources.length > 0) {
+      console.log(
+        `Champ config: ignoring ${result.ignoredSources.join(", ")} because configSource=${source}`,
+      );
+    }
+    if (result.conflict && !conflictNoticeShown) {
+      conflictNoticeShown = true;
+      void vscode.window.showInformationMessage(
+        `Champ: workspace .champ/config.yaml overrides ~/.champ/config.yaml. Set "champ.configSource" to pick one explicitly.`,
+      );
+    }
+
+    if (!result.config) return null;
+    return ConfigLoader.withDefaults(ConfigLoader.substituteEnv(result.config));
   };
 
   // ---- Provider loader (callable on demand) ---------------------------
@@ -3195,6 +3252,16 @@ export async function activate(
     try {
       yamlConfig = await resolveConfig();
       cachedYamlConfig = yamlConfig;
+      if (lastLayeredInfo?.result) {
+        const { result } = lastLayeredInfo;
+        const activeName = yamlConfig?.provider;
+        const activeModel = activeName
+          ? yamlConfig?.providers?.[activeName]?.model
+          : undefined;
+        console.log(
+          `Champ config: source=${result.usedSource} provider=${activeName ?? "(settings)"} model=${activeModel ?? "(settings)"}`,
+        );
+      }
       // Load project rules from .champ/rules/*.md
       const activeRulesFolder = resolveActiveWorkspaceFolder();
       if (activeRulesFolder) {

@@ -110,6 +110,11 @@
         "title": "Champ: About"
       },
       {
+        "command": "champ.showEffectiveConfig",
+        "title": "Champ: Show Effective Config",
+        "category": "Champ"
+      },
+      {
         "command": "champ.showHelp",
         "title": "Champ: Show User Guide"
       },
@@ -315,6 +320,12 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "Skip approval prompts for terminal commands and file edits. **Use with caution.**"
+        },
+        "champ.configSource": {
+          "type": "string",
+          "enum": ["auto", "workspace-yaml", "user-yaml", "settings"],
+          "default": "auto",
+          "markdownDescription": "Single source of truth for Champ's LLM configuration.\n\n- **auto** — workspace `.champ/config.yaml` if present, else `~/.champ/config.yaml`, else these settings (historical precedence)\n- **workspace-yaml / user-yaml / settings** — use ONLY that source; others are ignored\n\nInspect the running result with **Champ: Show Effective Config**."
         },
         "champ.autoFix.enabled": {
           "type": "boolean",

@@ -1331,3 +1331,148 @@ export class ConfigLoader {
     return { name, baseUrl: entry.baseUrl, model: entry.model };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Layered resolution with explicit single source (issue #115)
+// ---------------------------------------------------------------------------
+
+export type ConfigSource = "auto" | "workspace-yaml" | "user-yaml" | "settings";
+
+export type ConfigLayer =
+  | "workspace-yaml"
+  | "user-yaml"
+  | "settings"
+  | "default";
+
+export interface LayeredInput {
+  /** Raw text of <workspace>/.champ/config.yaml (null if absent). */
+  workspaceText?: string | null;
+  /** Raw text of ~/.champ/config.yaml (null if absent). */
+  userText?: string | null;
+  source: ConfigSource;
+}
+
+export interface LayeredResult {
+  /**
+   * Merged YAML config for the chosen layer, or null when the caller must
+   * fall back to VS Code settings.
+   */
+  config: ChampConfig | null;
+  usedSource: ConfigLayer;
+  /** Sources that were present but deliberately not consulted. */
+  ignoredSources: string[];
+  /** True under `auto` when both yaml layers existed (workspace won). */
+  conflict: boolean;
+  /** Origin of every top-level key in the final config. */
+  origins: Record<string, ConfigLayer>;
+}
+
+function mergeWithOrigins(
+  base: ChampConfig,
+  override: ChampConfig,
+  overrideLayer: ConfigLayer,
+  origins: Record<string, ConfigLayer>,
+): ChampConfig {
+  const out: Record<string, unknown> = { ...base };
+  for (const key of Object.keys(override)) {
+    out[key] = (override as Record<string, unknown>)[key];
+    origins[key] = overrideLayer;
+  }
+  return out as ChampConfig;
+}
+
+/**
+ * Resolve which single config source is active and produce the merged
+ * result plus per-key provenance. Pure: callers feed file contents.
+ *
+ * Precedence under `auto` (unchanged from historical behaviour):
+ *   workspace yaml > user yaml > settings (caller falls back when config=null)
+ */
+export function resolveLayered(input: LayeredInput): LayeredResult {
+  const ignoredSources: string[] = [];
+  let wsText = input.workspaceText ?? null;
+  let userText = input.userText ?? null;
+
+  if (input.source === "settings") {
+    if (wsText) ignoredSources.push("workspace-yaml");
+    if (userText) ignoredSources.push("user-yaml");
+    wsText = null;
+    userText = null;
+  } else if (input.source === "workspace-yaml") {
+    if (userText) ignoredSources.push("user-yaml");
+    userText = null;
+  } else if (input.source === "user-yaml") {
+    if (wsText) ignoredSources.push("workspace-yaml");
+    wsText = null;
+  }
+
+  const parse = (text: string | null): ChampConfig | null =>
+    text ? ConfigLoader.parseYaml(text) : null;
+
+  if (input.source === "workspace-yaml" && !wsText) {
+    throw new Error(
+      "Invalid YAML or missing file: workspace .champ/config.yaml not found but champ.configSource=workspace-yaml",
+    );
+  }
+  if (input.source === "user-yaml" && !userText) {
+    throw new Error(
+      "Invalid YAML or missing file: ~/.champ/config.yaml not found but champ.configSource=user-yaml",
+    );
+  }
+
+  const ws = parse(wsText);
+  const user = parse(userText);
+
+  if (!ws && !user) {
+    return {
+      config: null,
+      usedSource: "settings",
+      ignoredSources,
+      conflict: false,
+      origins: {},
+    };
+  }
+
+  const origins: Record<string, ConfigLayer> = {};
+  let config: ChampConfig = {};
+  let usedSource: ConfigLayer;
+
+  if (ws && user) {
+    config = mergeWithOrigins(config, user, "user-yaml", origins);
+    config = mergeWithOrigins(config, ws, "workspace-yaml", origins);
+    usedSource = input.source === "auto" ? "workspace-yaml" : input.source;
+  } else if (ws) {
+    config = mergeWithOrigins(config, ws, "workspace-yaml", origins);
+    usedSource = "workspace-yaml";
+  } else {
+    config = mergeWithOrigins(
+      config,
+      user as ChampConfig,
+      "user-yaml",
+      origins,
+    );
+    usedSource = "user-yaml";
+  }
+
+  // Defaults fill whatever no yaml layer supplied.
+  config = ConfigLoader.withDefaults(config);
+  for (const key of Object.keys(config)) {
+    if (!origins[key]) origins[key] = "default";
+  }
+  // Keys that were overridden keep their top-layer origin even after
+  // defaults merged — recompute is unnecessary since withDefaults only
+  // fills missing keys, but be explicit:
+  for (const key of Object.keys(origins)) {
+    if ((config as Record<string, unknown>)[key] === undefined) {
+      delete (config as Record<string, unknown>)[key];
+    }
+  }
+
+  return {
+    config,
+    usedSource,
+    ignoredSources,
+    conflict: Boolean(ws && user) && input.source === "auto",
+    origins,
+  };
+}
