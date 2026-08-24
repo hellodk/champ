@@ -327,6 +327,27 @@ export function extractTextContent(text: string): string {
     .trim();
 }
 
+/**
+ * Detects fabricated narration patterns where the model narrates fake tool
+ * results without emitting actual <tool_call> blocks. This happens when
+ * prompt-only models (no native tool calling) follow the narration style
+ * from the system prompt but forget (or refuse) to emit structured XML.
+ *
+ * Returns true if the text looks like a hallucinated narration with no
+ * actual tool call.
+ */
+export function hasFabricatedNarration(text: string): boolean {
+  const FABRICATION_PATTERNS = [
+    /^---+Result of .+:/m,
+    /^---+Results? of /m,
+    /^#{1,3}\s+Result of /m,
+    /^>\s+(?:Reading |Searching |Running |Looking up |Checking |Fetching )/m,
+    /Result of (?:reading|searching|running|looking up|checking|fetching|querying)/i,
+    /^---+Output of /m,
+  ];
+  return FABRICATION_PATTERNS.some((re) => re.test(text));
+}
+
 function escapeXml(s: string): string {
   return s
     .replace(/&/g, "&amp;")

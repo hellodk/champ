@@ -151,34 +151,32 @@ describe("native tool-call streaming", () => {
   it("parses accumulated arguments into toolCall.arguments on start when they arrive in one chunk", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockImplementation(async () =>
-          sseResponse([
-            {
-              choices: [
-                {
-                  index: 0,
-                  delta: {
-                    tool_calls: [
-                      {
-                        index: 0,
-                        id: "call_2",
-                        type: "function",
-                        function: {
-                          name: "read_file",
-                          arguments: '{"path":"src/x.ts"}',
-                        },
+      vi.fn().mockImplementation(async () =>
+        sseResponse([
+          {
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: "call_2",
+                      type: "function",
+                      function: {
+                        name: "read_file",
+                        arguments: '{"path":"src/x.ts"}',
                       },
-                    ],
-                  },
-                  finish_reason: null,
+                    },
+                  ],
                 },
-              ],
-            },
-            { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },
-          ]),
-        ),
+                finish_reason: null,
+              },
+            ],
+          },
+          { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },
+        ]),
+      ),
     );
     const p = makeProvider();
     let sawArgs: unknown;

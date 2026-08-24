@@ -28,7 +28,7 @@ describe("GitTool Integration Tests", () => {
     // Make some changes
     fs.appendFileSync(
       path.join(testRepoPath, "README.md"),
-      "\n## Features\n- Test feature\n"
+      "\n## Features\n- Test feature\n",
     );
   });
 

@@ -25,66 +25,66 @@ export const EMPTY_STATE_TITLES: Record<EmptyStateMode, string> = {
 export const EMPTY_STATE_PROMPTS: Record<EmptyStateMode, EmptyStatePrompt[]> = {
   agent: [
     {
-      icon: "🔍",
+      icon: "file-code",
       label: "Explain this file",
       text: "@Code Explain what this code does and how it works.",
     },
     {
-      icon: "🐛",
+      icon: "warning",
       label: "Find bugs",
       text: "Review @Files(src/) for bugs, edge cases, and improvements.",
     },
     {
-      icon: "✨",
+      icon: "plus",
       label: "Add a feature",
       text: "Add [describe feature] to the codebase with tests.",
     },
     {
-      icon: "📖",
+      icon: "library",
       label: "Understand codebase",
       text: "@Codebase How is authentication implemented in this project?",
     },
   ],
   ask: [
     {
-      icon: "❓",
+      icon: "info",
       label: "Explain a concept",
       text: "Explain how [concept] works in plain English.",
     },
     {
-      icon: "🔎",
+      icon: "search",
       label: "Find in codebase",
       text: "@Codebase Where is [feature] implemented?",
     },
     {
-      icon: "📜",
+      icon: "git-commit",
       label: "Summarize changes",
       text: "@Git Summarize the changes in the last 5 commits.",
     },
     {
-      icon: "🔗",
+      icon: "link-external",
       label: "Lookup docs",
       text: "@Web What are the best practices for [topic]?",
     },
   ],
   plan: [
     {
-      icon: "🗺️",
+      icon: "checklist",
       label: "Plan a feature",
       text: "Write a step-by-step implementation plan for [feature].",
     },
     {
-      icon: "♻️",
+      icon: "references",
       label: "Plan a refactor",
       text: "Plan how to refactor @Files(src/) to improve [concern].",
     },
     {
-      icon: "🧪",
+      icon: "beaker",
       label: "Plan test coverage",
       text: "Identify test gaps in @Files(src/) and plan how to fill them.",
     },
     {
-      icon: "🚀",
+      icon: "package",
       label: "Plan a release",
       text: "Create a release checklist for the next version of this project.",
     },

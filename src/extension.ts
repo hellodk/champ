@@ -379,6 +379,7 @@ export async function activate(
 
   const stubProvider = createStubProvider("not-configured");
   const inlineProviderRef: { current: LLMProvider } = { current: stubProvider };
+  let lastProviderError: string | null = null; // Cache provider load error for webview-ready re-broadcast
   const agentController = new AgentController(
     stubProvider,
     toolRegistry,
@@ -1037,6 +1038,10 @@ export async function activate(
       );
     }
     broadcastMetrics();
+    // Reset status bar from spinning "thinking" back to ready after every turn.
+    if (statusBarItem && inlineProviderRef.current.name !== "not-configured") {
+      setStatusReady(inlineProviderRef.current);
+    }
     if (sessionAnalytics) {
       lastAnalyticsReport = sessionAnalytics.toReport();
     }
@@ -1057,6 +1062,10 @@ export async function activate(
   chatViewProvider.onStreamError((error) => {
     metrics?.recordFailure(error);
     broadcastMetrics();
+    // Reset status bar from spinning "thinking" back to ready on error too.
+    if (statusBarItem && inlineProviderRef.current.name !== "not-configured") {
+      setStatusReady(inlineProviderRef.current);
+    }
     saveActiveSession();
   });
   // When the webview resolves, re-broadcast all state that may have
@@ -1100,6 +1109,20 @@ export async function activate(
         providerName: provider.name,
         modelName: provider.config.model,
         available,
+      });
+    } else if (provider.name === "not-configured" && lastProviderError) {
+      // Webview resolved after provider init failed. Broadcast the cached error.
+      chatViewProvider?.broadcastProviderStatus({
+        state: "error",
+        errorMessage: lastProviderError,
+        available: [],
+      });
+    } else {
+      // Provider is still loading (not-configured, no error yet).
+      // Broadcast loading so the header doesn't stay stuck.
+      chatViewProvider?.broadcastProviderStatus({
+        state: "loading",
+        available: [],
       });
     }
     broadcastSessionList();
@@ -3344,6 +3367,70 @@ export async function activate(
         });
         newProvider = rateLimited;
       }
+
+      // Probe connectivity for local providers (ollama, llamacpp, vllm).
+      // This surfaces connectivity errors during init, not on first chat message.
+      const probeLocalProvider = async (): Promise<void> => {
+        // Unwrap all provider wrappers to get the actual underlying provider.
+        let providerToProbe: LLMProvider = newProvider;
+
+        // Unwrap RateLimitedProvider
+        if (providerToProbe instanceof RateLimitedProvider) {
+          providerToProbe = (providerToProbe as any).inner;
+        }
+
+        // Unwrap FallbackProvider to get the first provider in the chain
+        if (providerToProbe instanceof FallbackProvider) {
+          providerToProbe = (providerToProbe as any).providers[0];
+        }
+
+        const providerName = providerToProbe.name.toLowerCase();
+        if (
+          !["ollama", "llamacpp", "vllm", "openai-compatible"].includes(
+            providerName,
+          )
+        )
+          return;
+
+        // Extract baseUrl from config using the actual underlying provider name
+        const providerConfig =
+          yamlConfig?.providers?.[
+            providerName as keyof typeof yamlConfig.providers
+          ];
+        const baseUrl = (providerConfig as any)?.baseUrl;
+        if (!baseUrl) return;
+
+        // Use provider-specific endpoints that actually exist
+        const endpoints: Record<string, string> = {
+          ollama: "/api/tags", // Lists available models
+          llamacpp: "/v1/models", // OpenAI-compatible endpoint
+          vllm: "/v1/models", // OpenAI-compatible endpoint
+          "openai-compatible": "/v1/models",
+        };
+        const endpoint = endpoints[providerName] || "/v1/models";
+        const url = `${baseUrl.replace(/\/$/, "")}${endpoint}`;
+
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3_000);
+          const response = await fetch(url, {
+            signal: controller.signal,
+            method: "GET",
+          });
+          clearTimeout(timeoutId);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          throw new Error(
+            `Cannot reach ${providerName} at ${baseUrl} (tried ${endpoint}) — ${errMsg}`,
+          );
+        }
+      };
+
+      await probeLocalProvider();
+
       // Apply mode and userRules from YAML if present.
       if (yamlConfig?.agent?.defaultMode) {
         agentController.setMode(yamlConfig.agent.defaultMode);
@@ -3384,6 +3471,7 @@ export async function activate(
 
       inlineProvider.setProvider(newProvider);
       inlineProviderRef.current = newProvider;
+      lastProviderError = null; // Clear cached error on successful load
       // If YAML configures a separate autocomplete provider or model, wire it.
       if (
         yamlConfig?.autocomplete?.provider &&
@@ -3590,6 +3678,7 @@ export async function activate(
       persistentRunner = baseRunner;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      lastProviderError = message; // Cache for onWebviewReady re-broadcast if webview isn't ready yet
       setStatusError(message);
       chatViewProvider?.broadcastProviderStatus({
         state: "error",
@@ -3783,22 +3872,49 @@ export async function activate(
   // sidebar icon appears instantly; the user can open it and see
   // "loading..." while the provider and sessions come online.
   //
-  // The entire init is wrapped in a 10-second timeout so that if any
+  // The entire init is wrapped in a 5-second timeout so that if any
   // step hangs (SecretStorage, file I/O, provider factory), the user
-  // sees an error with retry instead of infinite "loading...".
-  const INIT_TIMEOUT_MS = 10_000;
+  // sees an error quickly with retry instead of infinite "loading...".
+  const INIT_TIMEOUT_MS = 5_000;
+
+  // Helper: Race a promise against a timeout, return null if timeout.
+  const withTimeout = <T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    label: string,
+  ): Promise<T | null> =>
+    Promise.race([
+      promise.then((v) => v),
+      new Promise<null>((resolve) =>
+        setTimeout(() => {
+          console.warn(
+            `Champ: ${label} timed out after ${timeoutMs}ms, continuing without it`,
+          );
+          resolve(null);
+        }, timeoutMs),
+      ),
+    ]);
+
   void (async () => {
     try {
       await Promise.race([
         (async () => {
-          // 0. Await memory bank load so cross-session facts are available immediately.
+          // 0. Load memory banks with individual timeouts (don't block on hanging reads).
           if (memoryBank) {
-            await memoryBank.load();
-            broadcastMemoryBadge();
+            const result = await withTimeout(
+              memoryBank.load(),
+              2_000,
+              "memoryBank.load()",
+            );
+            if (result !== null) broadcastMemoryBadge();
           }
-          await globalMemoryBank.load();
+          await withTimeout(
+            globalMemoryBank.load(),
+            2_000,
+            "globalMemoryBank.load()",
+          );
 
-          // 1. Load provider (reads YAML, creates provider, auto-detects models).
+          // 1. Load provider (reads YAML, creates provider, auto-detects models, checks connectivity).
           await loadProvider();
         })(),
         new Promise<never>((_, reject) =>

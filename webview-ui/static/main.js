@@ -26,7 +26,12 @@
   'use strict';
 
   // VS Code webview API handle — globally available via window.
+  // acquireVsCodeApi() may only be called ONCE per webview. components.js
+  // loads immediately after this file, so it must find the handle here
+  // rather than acquiring its own — a second call throws and takes the
+  // whole components bundle down, leaving the webview blank.
   const vscode = acquireVsCodeApi();
+  window.vscode = vscode;
 
   const state = {
     mode: 'agent',
@@ -570,22 +575,22 @@
 
   const EMPTY_STATE_PROMPTS = {
     agent: [
-      { icon: '🔍', label: 'Explain this file',  text: '@Code Explain what this code does and how it works.' },
-      { icon: '🐛', label: 'Find bugs',           text: 'Review @Files(src/) for bugs, edge cases, and improvements.' },
-      { icon: '✨', label: 'Add a feature',       text: 'Add [describe feature] to the codebase with tests.' },
-      { icon: '📖', label: 'Understand codebase', text: '@Codebase How is authentication implemented in this project?' },
+      { icon: 'file-code',      label: 'Explain this file',  text: '@Code Explain what this code does and how it works.' },
+      { icon: 'warning',        label: 'Find bugs',           text: 'Review @Files(src/) for bugs, edge cases, and improvements.' },
+      { icon: 'plus',           label: 'Add a feature',       text: 'Add [describe feature] to the codebase with tests.' },
+      { icon: 'library',        label: 'Understand codebase', text: '@Codebase How is authentication implemented in this project?' },
     ],
     ask: [
-      { icon: '❓', label: 'Explain a concept',  text: 'Explain how [concept] works in plain English.' },
-      { icon: '🔎', label: 'Find in codebase',   text: '@Codebase Where is [feature] implemented?' },
-      { icon: '📜', label: 'Summarize changes',  text: '@Git Summarize the changes in the last 5 commits.' },
-      { icon: '🔗', label: 'Lookup docs',        text: '@Web What are the best practices for [topic]?' },
+      { icon: 'info',           label: 'Explain a concept',  text: 'Explain how [concept] works in plain English.' },
+      { icon: 'search',         label: 'Find in codebase',   text: '@Codebase Where is [feature] implemented?' },
+      { icon: 'git-commit',     label: 'Summarize changes',  text: '@Git Summarize the changes in the last 5 commits.' },
+      { icon: 'link-external',  label: 'Lookup docs',        text: '@Web What are the best practices for [topic]?' },
     ],
     plan: [
-      { icon: '🗺️', label: 'Plan a feature',     text: 'Write a step-by-step implementation plan for [feature].' },
-      { icon: '♻️', label: 'Plan a refactor',    text: 'Plan how to refactor @Files(src/) to improve [concern].' },
-      { icon: '🧪', label: 'Plan test coverage', text: 'Identify test gaps in @Files(src/) and plan how to fill them.' },
-      { icon: '🚀', label: 'Plan a release',     text: 'Create a release checklist for the next version of this project.' },
+      { icon: 'checklist',      label: 'Plan a feature',     text: 'Write a step-by-step implementation plan for [feature].' },
+      { icon: 'references',     label: 'Plan a refactor',    text: 'Plan how to refactor @Files(src/) to improve [concern].' },
+      { icon: 'beaker',         label: 'Plan test coverage', text: 'Identify test gaps in @Files(src/) and plan how to fill them.' },
+      { icon: 'package',        label: 'Plan a release',     text: 'Create a release checklist for the next version of this project.' },
     ],
   };
 
@@ -2134,7 +2139,7 @@
     const grid = el('div', { class: 'empty-state-grid' });
     for (const p of prompts) {
       const btn = el('button', { class: 'empty-state-prompt' });
-      btn.append(el('span', { class: 'empty-state-icon' }, [p.icon]), el('span', {}, [p.label]));
+      btn.append(el('span', { class: 'empty-state-icon' }, [el('i', { class: `codicon codicon-${p.icon}` })]), el('span', {}, [p.label]));
       btn.addEventListener('click', () => {
         textarea.value = p.text;
         textarea.dispatchEvent(new Event('input'));

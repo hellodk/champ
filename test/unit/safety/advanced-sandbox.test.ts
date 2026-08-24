@@ -153,10 +153,7 @@ describe("AdvancedCommandSandbox", () => {
         userApproved: true,
       });
 
-      const content = fs.readFileSync(
-        path.join(tempDir, "audit.log"),
-        "utf-8"
-      );
+      const content = fs.readFileSync(path.join(tempDir, "audit.log"), "utf-8");
       expect(content).toContain("2026-07-16");
       expect(content).toContain("git status");
       expect(content).toContain("ALLOW");
@@ -188,7 +185,7 @@ describe("AdvancedCommandSandbox", () => {
 
       const result = await timeoutSandbox.executeWithTimeout(
         'echo "test"',
-        5000
+        5000,
       );
       expect(result.timedOut).toBe(false);
     });
@@ -218,7 +215,7 @@ denylist:
   - sudo
 restrictedEnvVars:
   - SECRET
-`
+`,
       );
 
       const loaded = AdvancedCommandSandbox.loadConfigFromYaml(configPath);
