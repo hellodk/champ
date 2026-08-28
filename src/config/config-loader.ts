@@ -1419,13 +1419,9 @@ export class ConfigLoader {
 // Layered resolution with explicit single source (issue #115)
 // ---------------------------------------------------------------------------
 
-export type ConfigSource = "auto" | "workspace-yaml" | "user-yaml" | "settings";
+export type ConfigSource = "auto" | "workspace-yaml" | "user-yaml";
 
-export type ConfigLayer =
-  | "workspace-yaml"
-  | "user-yaml"
-  | "settings"
-  | "default";
+export type ConfigLayer = "workspace-yaml" | "user-yaml" | "default";
 
 export interface LayeredInput {
   /** Raw text of <workspace>/.champ/config.yaml (null if absent). */
@@ -1476,12 +1472,7 @@ export function resolveLayered(input: LayeredInput): LayeredResult {
   let wsText = input.workspaceText ?? null;
   let userText = input.userText ?? null;
 
-  if (input.source === "settings") {
-    if (wsText) ignoredSources.push("workspace-yaml");
-    if (userText) ignoredSources.push("user-yaml");
-    wsText = null;
-    userText = null;
-  } else if (input.source === "workspace-yaml") {
+  if (input.source === "workspace-yaml") {
     if (userText) ignoredSources.push("user-yaml");
     userText = null;
   } else if (input.source === "user-yaml") {
@@ -1494,12 +1485,12 @@ export function resolveLayered(input: LayeredInput): LayeredResult {
 
   if (input.source === "workspace-yaml" && !wsText) {
     throw new Error(
-      "Invalid YAML or missing file: workspace .champ/config.yaml not found but champ.configSource=workspace-yaml",
+      "Invalid YAML or missing file: workspace .champ/config.yaml not found but source=workspace-yaml",
     );
   }
   if (input.source === "user-yaml" && !userText) {
     throw new Error(
-      "Invalid YAML or missing file: ~/.champ/config.yaml not found but champ.configSource=user-yaml",
+      "Invalid YAML or missing file: ~/.champ/config.yaml not found but source=user-yaml",
     );
   }
 
@@ -1509,7 +1500,7 @@ export function resolveLayered(input: LayeredInput): LayeredResult {
   if (!ws && !user) {
     return {
       config: null,
-      usedSource: "settings",
+      usedSource: "default",
       ignoredSources,
       conflict: false,
       origins: {},
