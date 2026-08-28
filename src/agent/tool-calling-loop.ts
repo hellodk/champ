@@ -131,6 +131,8 @@ export class ToolCallingLoop {
         const stream = this.provider.chat(history, {
           tools: toolDefs.length > 0 ? toolDefs : undefined,
           abortSignal: this.context.abortSignal,
+          // Deterministic decode profile for tool turns (ticket #120).
+          taskHint: "toolcall",
         });
 
         for await (const delta of stream) {

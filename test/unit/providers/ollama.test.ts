@@ -433,3 +433,88 @@ describe("context window detection is awaited before trimForContext", () => {
     expect(chatBody.messages.length).toBeLessThan(50);
   });
 });
+
+describe("served context window truth (#119)", () => {
+  let provider: OllamaProvider;
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    provider = new OllamaProvider({
+      provider: "ollama",
+      model: "small-model",
+      baseUrl: "http://localhost:11434",
+      maxTokens: 2048,
+      temperature: 0.7,
+    });
+  });
+
+  const runChat = async () => {
+    const deltas: unknown[] = [];
+    for await (const d of provider.chat([{ role: "user", content: "hi" }])) {
+      deltas.push(d);
+    }
+    return deltas;
+  };
+
+  it("prefers the runtime num_ctx parameter over model_info context_length", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          model_info: { "llama.context_length": 8192 },
+          parameters: 'stop "<|start_header_id|>"\nnum_ctx 2048',
+          modelfile: "FROM llama3.1\nnum_ctx 32768",
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        body: createMockStream([
+          { message: { content: "ok" }, done: false },
+          {
+            message: { content: "" },
+            done: true,
+            prompt_eval_count: 1,
+            eval_count: 1,
+          },
+        ]),
+      });
+    await runChat();
+    // parameters num_ctx (2048) wins over modelfile (32768) and model_info (8192)
+    expect(provider.modelInfo().contextWindow).toBe(2048);
+  });
+
+  it("caps the effective window with the config contextWindow", async () => {
+    const capped = new OllamaProvider({
+      provider: "ollama",
+      model: "small-model",
+      baseUrl: "http://localhost:11434",
+      maxTokens: 2048,
+      temperature: 0.7,
+      contextWindow: 4096,
+    });
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          model_info: { "llama.context_length": 65536 },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        body: createMockStream([
+          { message: { content: "ok" }, done: false },
+          {
+            message: { content: "" },
+            done: true,
+            prompt_eval_count: 1,
+            eval_count: 1,
+          },
+        ]),
+      });
+    const deltas: unknown[] = [];
+    for await (const d of capped.chat([{ role: "user", content: "hi" }])) {
+      deltas.push(d);
+    }
+    expect(capped.modelInfo().contextWindow).toBe(4096);
+  });
+});

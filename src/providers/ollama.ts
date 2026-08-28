@@ -18,6 +18,11 @@ import type {
   ToolCall,
 } from "./types";
 import { resilientFetch } from "./http-resilience";
+import {
+  extractNumCtxFromParameters,
+  resolveEffectiveContextWindow,
+} from "@/config/context-window";
+import { mergeEffectiveDecode } from "@/config/decode-profile";
 
 const DEFAULT_BASE_URL = "http://localhost:11434";
 
@@ -165,20 +170,32 @@ export class OllamaProvider implements LLMProvider {
           model_info?: Record<string, unknown>;
           capabilities?: string[];
           parameters?: string;
+          modelfile?: string;
         };
 
         // Parse context window — key prefix varies: llama.context_length, qwen2.context_length, etc.
+        let modelInfoContextLength: number | undefined;
         if (data.model_info) {
           for (const [key, value] of Object.entries(data.model_info)) {
             if (key.endsWith(".context_length") && typeof value === "number") {
-              this.detectedContextWindow = value;
-              console.log(
-                `Champ: detected Ollama context window ${value} from /api/show (${key})`,
-              );
+              modelInfoContextLength = value;
               break;
             }
           }
         }
+
+        // Runtime num_ctx (parameters/modelfile) overrides model_info: it is
+        // the window the server actually runs with (ticket #119).
+        this.detectedContextWindow = resolveEffectiveContextWindow({
+          numCtxParam: extractNumCtxFromParameters(data.parameters),
+          numCtxModelfile: extractNumCtxFromParameters(data.modelfile),
+          modelInfoContextLength,
+          capWindow: this.config.contextWindow,
+          fallback: 8192,
+        });
+        console.log(
+          `Champ: detected Ollama context window ${this.detectedContextWindow} from /api/show`,
+        );
 
         // Parse tool support from capabilities (Ollama v0.4+)
         if (Array.isArray(data.capabilities)) {
@@ -195,7 +212,10 @@ export class OllamaProvider implements LLMProvider {
 
     // Ensure context window is set (may be null if API didn't provide it)
     if (this.detectedContextWindow === null) {
-      this.detectedContextWindow = 8192;
+      this.detectedContextWindow = resolveEffectiveContextWindow({
+        capWindow: this.config.contextWindow,
+        fallback: 8192,
+      });
     }
     // detectedToolSupport stays null if API didn't report capabilities → fallback used
   }
@@ -221,13 +241,26 @@ export class OllamaProvider implements LLMProvider {
     this.inThinkingBlock = false;
 
     const url = `${this.config.baseUrl}/api/chat`;
+    const dec = mergeEffectiveDecode({
+      explicit: options,
+      configOptions: this.config.options,
+      taskHint: options?.taskHint,
+      base: { temperature: this.config.temperature },
+    });
     const body = {
       model: this.config.model,
       messages: this.convertMessages(messages),
       stream: true,
       options: {
-        temperature: options?.temperature ?? this.config.temperature,
-        top_p: options?.topP ?? this.config.topP,
+        ...(dec.temperature !== undefined && { temperature: dec.temperature }),
+        ...(dec.topP !== undefined && { top_p: dec.topP }),
+        ...(dec.topK !== undefined && { top_k: dec.topK }),
+        ...(dec.minP !== undefined && { min_p: dec.minP }),
+        ...(dec.repeatPenalty !== undefined && {
+          repeat_penalty: dec.repeatPenalty,
+        }),
+        ...(dec.seed !== undefined && { seed: dec.seed }),
+        ...(dec.stop !== undefined && { stop: dec.stop }),
         num_predict: options?.maxTokens ?? this.config.maxTokens,
       },
       tools: options?.tools?.map((t) => ({
@@ -293,14 +326,24 @@ export class OllamaProvider implements LLMProvider {
     }
 
     const url = `${this.config.baseUrl}/api/generate`;
+    const dec = mergeEffectiveDecode({
+      explicit: options,
+      configOptions: this.config.options,
+      taskHint: options?.taskHint,
+      base: { temperature: this.config.temperature },
+    });
     const body = {
       model: this.config.model,
       prompt,
       stream: true,
       options: {
-        temperature: options?.temperature ?? this.config.temperature,
+        ...(dec.temperature !== undefined && { temperature: dec.temperature }),
+        ...(dec.topP !== undefined && { top_p: dec.topP }),
+        ...(dec.topK !== undefined && { top_k: dec.topK }),
+        ...(dec.minP !== undefined && { min_p: dec.minP }),
+        ...(dec.seed !== undefined && { seed: dec.seed }),
+        ...(dec.stop !== undefined && { stop: dec.stop }),
         num_predict: options?.maxTokens ?? this.config.maxTokens,
-        stop: options?.stop,
       },
     };
 
