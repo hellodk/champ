@@ -262,6 +262,9 @@ export class OllamaProvider implements LLMProvider {
         ...(dec.seed !== undefined && { seed: dec.seed }),
         ...(dec.stop !== undefined && { stop: dec.stop }),
         num_predict: options?.maxTokens ?? this.config.maxTokens,
+        // KV/prompt-cache persistence (#121): keep the processed prompt
+        // across turns instead of recomputing the full prefix each request.
+        ...(this.config.cachePrompt && { cache_prompt: true }),
       },
       tools: options?.tools?.map((t) => ({
         type: "function",
@@ -271,7 +274,13 @@ export class OllamaProvider implements LLMProvider {
           parameters: t.parameters,
         },
       })),
-      ...(options?.jsonFormat && { format: "json" }),
+      // Structured output (#121): explicit request-level jsonFormat or the
+      // provider-config structuredOutput opt-in. Never constrains tool-call
+      // turns — the XML tool prompt needs free text.
+      ...((options?.jsonFormat ||
+        (this.config.structuredOutput && options?.taskHint !== "toolcall")) && {
+        format: "json",
+      }),
     };
 
     try {

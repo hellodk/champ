@@ -171,6 +171,13 @@ export class OpenAICompatibleProvider implements LLMProvider {
           parameters: t.parameters,
         },
       })),
+      // Structured output (#121): provider-config structuredOutput opt-in
+      // pins JSON-object mode. Never constrains tool-call turns — the XML
+      // tool prompt needs free text.
+      ...(this.config.structuredOutput &&
+        options?.taskHint !== "toolcall" && {
+          response_format: { type: "json_object" },
+        }),
     };
 
     // One attempt = fetch + stream parse. Some servers (omlx behind a

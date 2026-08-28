@@ -5,7 +5,7 @@
  * (many small local models), we inject tool definitions into the system
  * prompt as XML and parse the model's text output for <tool_call> blocks.
  */
-import type { ToolDefinition, ToolCall } from "./types";
+import type { ToolDefinition, ToolCall, LLMMessage } from "./types";
 
 /**
  * Injects tool definitions into a system prompt using an XML format that
@@ -131,6 +131,25 @@ ${basePrompt}`;
 export interface MalformedToolCall {
   name: string;
   reason: string;
+}
+
+/**
+ * Trailing seed appended to prompt-based tool-continuation turns (#121).
+ *
+ * After the model finishes a tool call and we come back around, the model is
+ * asked to continue from an assistant message seeded with the XML opener for
+ * its next `<tool_call>`. Small local models that would normally narrate
+ * ("Let me check that file…") instead begin inside the XML format, producing
+ * deterministic, parseable output without a narration round-trip.
+ *
+ * The backend continues generating after this seed, so an assistant message
+ * of exactly this content (no closing tags) is appended to the request.
+ */
+export const TOOL_CALL_START_PREFIX = "<tool_call>\n<name>";
+
+/** Builds the trailing assistant seed message appended to continuation turns. */
+export function buildPrefillAssistantMessage(): LLMMessage {
+  return { role: "assistant", content: TOOL_CALL_START_PREFIX };
 }
 
 /**

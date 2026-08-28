@@ -38,6 +38,14 @@ export class ProviderFactory {
     const providerName = config.provider ?? "claude";
     const providerEntry = config.providers?.[providerName] ?? {};
 
+    // Shared config members threaded into every provider's baseConfig (#121).
+    const baseExtras: Partial<Omit<LLMProviderConfig, "provider" | "model">> = {
+      contextWindow: providerEntry.contextWindow,
+      options: providerEntry.options,
+      structuredOutput: providerEntry.structuredOutput,
+      cachePrompt: providerEntry.cachePrompt,
+    };
+
     // Helper: try SecretStorage first, then environment variable.
     const getKey = async (
       secretKey: string,
@@ -51,37 +59,25 @@ export class ProviderFactory {
     switch (providerName) {
       case "claude":
         return new ClaudeProvider({
-          ...this.baseConfig("claude", {
-            contextWindow: providerEntry.contextWindow,
-            options: providerEntry.options,
-          }),
+          ...this.baseConfig("claude", baseExtras),
           model: providerEntry.model ?? "claude-sonnet-4-20250514",
           apiKey: await getKey("champ.claude.apiKey", "ANTHROPIC_API_KEY"),
         });
       case "openai":
         return new OpenAIProvider({
-          ...this.baseConfig("openai", {
-            contextWindow: providerEntry.contextWindow,
-            options: providerEntry.options,
-          }),
+          ...this.baseConfig("openai", baseExtras),
           model: providerEntry.model ?? "gpt-4o",
           apiKey: await getKey("champ.openai.apiKey", "OPENAI_API_KEY"),
         });
       case "gemini":
         return new GeminiProvider({
-          ...this.baseConfig("gemini", {
-            contextWindow: providerEntry.contextWindow,
-            options: providerEntry.options,
-          }),
+          ...this.baseConfig("gemini", baseExtras),
           model: providerEntry.model ?? "gemini-2.0-flash",
           apiKey: await getKey("champ.gemini.apiKey", "GEMINI_API_KEY"),
         });
       case "ollama":
         return new OllamaProvider({
-          ...this.baseConfig("ollama", {
-            contextWindow: providerEntry.contextWindow,
-            options: providerEntry.options,
-          }),
+          ...this.baseConfig("ollama", baseExtras),
           model: providerEntry.model ?? "llama3.1",
           baseUrl: providerEntry.baseUrl ?? "http://localhost:11434",
           // apiKey from YAML (operator-issued) takes precedence over SecretStorage
@@ -91,10 +87,7 @@ export class ProviderFactory {
         });
       case "llamacpp":
         return new LlamaCppProvider({
-          ...this.baseConfig("llamacpp", {
-            contextWindow: providerEntry.contextWindow,
-            options: providerEntry.options,
-          }),
+          ...this.baseConfig("llamacpp", baseExtras),
           model: providerEntry.model ?? "default",
           baseUrl: providerEntry.baseUrl ?? "http://localhost:8080/v1",
           apiKey:
@@ -104,10 +97,7 @@ export class ProviderFactory {
         });
       case "vllm":
         return new VLLMProvider({
-          ...this.baseConfig("vllm", {
-            contextWindow: providerEntry.contextWindow,
-            options: providerEntry.options,
-          }),
+          ...this.baseConfig("vllm", baseExtras),
           model: providerEntry.model ?? "",
           baseUrl: providerEntry.baseUrl ?? "http://localhost:8000/v1",
           apiKey:
@@ -117,10 +107,7 @@ export class ProviderFactory {
         });
       case "openai-compatible":
         return new OpenAICompatibleProvider({
-          ...this.baseConfig("openai-compatible", {
-            contextWindow: providerEntry.contextWindow,
-            options: providerEntry.options,
-          }),
+          ...this.baseConfig("openai-compatible", baseExtras),
           model: providerEntry.model ?? "default",
           baseUrl: providerEntry.baseUrl ?? "",
           apiKey:

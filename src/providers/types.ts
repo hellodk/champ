@@ -167,6 +167,19 @@ export interface LLMProviderConfig {
    * llama.cpp server, LM Studio with a tool-capable model).
    */
   supportsTools?: boolean;
+  /**
+   * Opt-in to JSON-constrained generation on chat requests (#121). When set,
+   * the provider pins its backend's structured-output field
+   * (`response_format: {type:"json_object"}` / `format: "json"`). Never
+   * applied on tool-call turns — the XML tool prompt needs free text.
+   */
+  structuredOutput?: boolean;
+  /**
+   * Ask the backend to keep the prompt/KV cache warm between turns (#121).
+   * ollama: `options.cache_prompt: true`. Improves latency for long system
+   * prompts with little first-token cost.
+   */
+  cachePrompt?: boolean;
 }
 
 /**

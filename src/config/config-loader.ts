@@ -56,6 +56,10 @@ export interface ProviderConfig {
   apiKey?: string;
   /** Opt-in to native OpenAI tool calling (openai-compatible spec servers). */
   supportsTools?: boolean;
+  /** Opt-in to JSON-constrained generation on chat requests (#121). */
+  structuredOutput?: boolean;
+  /** Ask the backend to keep its prompt/KV cache warm (#121). */
+  cachePrompt?: boolean;
   /**
    * Cap the effective context window for this provider (tokens). Never raise
    * above what config pins, even if the runtime advertises more. Ticket #119.
@@ -431,6 +435,23 @@ export class ConfigLoader {
               pushError(`providers.${name}.supportsTools must be a boolean`);
             } else {
               pc.supportsTools = c.supportsTools;
+            }
+          }
+          if ("structuredOutput" in c) {
+            // Opt-in to JSON-constrained generation (#121). Rejected on
+            // tool-call turns; the XML tool prompt needs free text.
+            if (typeof c.structuredOutput !== "boolean") {
+              pushError(`providers.${name}.structuredOutput must be a boolean`);
+            } else {
+              pc.structuredOutput = c.structuredOutput;
+            }
+          }
+          if ("cachePrompt" in c) {
+            // Ask the backend to keep its prompt/KV cache warm (#121).
+            if (typeof c.cachePrompt !== "boolean") {
+              pushError(`providers.${name}.cachePrompt must be a boolean`);
+            } else {
+              pc.cachePrompt = c.cachePrompt;
             }
           }
           if ("contextWindow" in c) {
