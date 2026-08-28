@@ -146,6 +146,12 @@ export interface LLMProviderConfig {
   topP?: number;
   /** Additional headers to include on requests. */
   customHeaders?: Record<string, string>;
+  /**
+   * Cap the effective context window (tokens). When set, the provider never
+   * uses more than this window even if the runtime advertises a larger one
+   * (e.g. num_ctx override). Ticket #119.
+   */
+  contextWindow?: number;
   /** Per-request HTTP timeout in ms before first token. Default: 120000 (issue #104). */
   requestTimeoutMs?: number;
   /**

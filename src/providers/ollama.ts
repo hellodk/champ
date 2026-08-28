@@ -18,6 +18,10 @@ import type {
   ToolCall,
 } from "./types";
 import { resilientFetch } from "./http-resilience";
+import {
+  extractNumCtxFromParameters,
+  resolveEffectiveContextWindow,
+} from "@/config/context-window";
 
 const DEFAULT_BASE_URL = "http://localhost:11434";
 
@@ -165,20 +169,32 @@ export class OllamaProvider implements LLMProvider {
           model_info?: Record<string, unknown>;
           capabilities?: string[];
           parameters?: string;
+          modelfile?: string;
         };
 
         // Parse context window — key prefix varies: llama.context_length, qwen2.context_length, etc.
+        let modelInfoContextLength: number | undefined;
         if (data.model_info) {
           for (const [key, value] of Object.entries(data.model_info)) {
             if (key.endsWith(".context_length") && typeof value === "number") {
-              this.detectedContextWindow = value;
-              console.log(
-                `Champ: detected Ollama context window ${value} from /api/show (${key})`,
-              );
+              modelInfoContextLength = value;
               break;
             }
           }
         }
+
+        // Runtime num_ctx (parameters/modelfile) overrides model_info: it is
+        // the window the server actually runs with (ticket #119).
+        this.detectedContextWindow = resolveEffectiveContextWindow({
+          numCtxParam: extractNumCtxFromParameters(data.parameters),
+          numCtxModelfile: extractNumCtxFromParameters(data.modelfile),
+          modelInfoContextLength,
+          capWindow: this.config.contextWindow,
+          fallback: 8192,
+        });
+        console.log(
+          `Champ: detected Ollama context window ${this.detectedContextWindow} from /api/show`,
+        );
 
         // Parse tool support from capabilities (Ollama v0.4+)
         if (Array.isArray(data.capabilities)) {
@@ -195,7 +211,10 @@ export class OllamaProvider implements LLMProvider {
 
     // Ensure context window is set (may be null if API didn't provide it)
     if (this.detectedContextWindow === null) {
-      this.detectedContextWindow = 8192;
+      this.detectedContextWindow = resolveEffectiveContextWindow({
+        capWindow: this.config.contextWindow,
+        fallback: 8192,
+      });
     }
     // detectedToolSupport stays null if API didn't report capabilities → fallback used
   }

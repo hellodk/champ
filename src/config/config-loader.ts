@@ -56,6 +56,11 @@ export interface ProviderConfig {
   apiKey?: string;
   /** Opt-in to native OpenAI tool calling (openai-compatible spec servers). */
   supportsTools?: boolean;
+  /**
+   * Cap the effective context window for this provider (tokens). Never raise
+   * above what config pins, even if the runtime advertises more. Ticket #119.
+   */
+  contextWindow?: number;
 }
 
 export interface AutocompleteConfig {
