@@ -955,4 +955,70 @@ describe("ChatViewProvider", () => {
       expect(msg.activeSessionId).toBe("s1");
     });
   });
+
+  describe("save settings to YAML instead of VS Code settings (#123)", () => {
+    it("persists provider/model/baseUrl to .champ/config.yaml on saveSettings", async () => {
+      const vscode = await import("vscode");
+      const ws = (
+        vscode as unknown as {
+          workspace: {
+            fs: {
+              writeFile: ReturnType<typeof vi.fn>;
+              readFile: ReturnType<typeof vi.fn>;
+            };
+          };
+        }
+      ).workspace;
+      const writeFile = ws.fs.writeFile as ReturnType<typeof vi.fn>;
+      writeFile.mockClear();
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({
+        type: "saveSettings",
+        provider: "openai-compatible",
+        model: "some-model",
+        baseUrl: "http://192.168.1.5:8000/v1",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(writeFile).toHaveBeenCalled();
+      const [uri, bytes] = writeFile.mock.calls[0] as [unknown, Uint8Array];
+      expect(String((uri as { fsPath: string }).fsPath)).toContain(
+        ".champ/config.yaml",
+      );
+      const text = new TextDecoder().decode(bytes);
+      expect(text).toContain("provider: openai-compatible");
+      expect(text).toContain("baseUrl: http://192.168.1.5:8000/v1");
+      expect(text).toContain("model: some-model");
+    });
+
+    it("does not call config.update for provider/model/baseUrl on saveSettings", async () => {
+      const vscode = await import("vscode");
+      const cfg = vscode.workspace.getConfiguration("champ") as {
+        update: ReturnType<typeof vi.fn>;
+      };
+      cfg.update.mockClear();
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({
+        type: "saveSettings",
+        provider: "ollama",
+        model: "llama3.1",
+        baseUrl: "http://localhost:11434",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const updates = cfg.update.mock.calls
+        .map((c) => String(c[0]))
+        .filter(
+          (k) =>
+            k === "provider" || k.endsWith(".model") || k.endsWith(".baseUrl"),
+        );
+      expect(updates).toEqual([]);
+    });
+  });
 });

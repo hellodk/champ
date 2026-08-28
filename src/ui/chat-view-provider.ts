@@ -10,7 +10,9 @@
  */
 import * as vscode from "vscode";
 import * as path from "path";
+import * as os from "os";
 import { execFile } from "child_process";
+import { upsertProviderInYaml } from "../config/yaml-writer";
 import {
   type AgentController,
   PromptInjectionError,
@@ -486,25 +488,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           });
         }
       } else if (isSaveSettingsRequest(msg)) {
-        // Update provider and model in VS Code global settings, then reload.
-        const config = vscode.workspace.getConfiguration("champ");
-        await config.update(
-          "provider",
+        // Persist provider/model/baseUrl into .champ/config.yaml (the YAML-only
+        // config source since #118), then reload. The legacy champ.* VS Code
+        // settings were removed from package.json, so writing them here throws
+        // "not a registered configuration" (#123).
+        await this.persistProviderSettings(
           msg.provider,
-          vscode.ConfigurationTarget.Global,
-        );
-        await config.update(
-          `${msg.provider}.model`,
           msg.model,
-          vscode.ConfigurationTarget.Global,
+          msg.baseUrl,
         );
-        if (msg.baseUrl) {
-          await config.update(
-            `${msg.provider}.baseUrl`,
-            msg.baseUrl,
-            vscode.ConfigurationTarget.Global,
-          );
-        }
         await vscode.commands.executeCommand("champ.reloadProvider");
       } else if (isCopyToClipboardRequest(msg)) {
         // navigator.clipboard is blocked in VS Code webviews — route through extension host
@@ -816,6 +808,48 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       type: "memoryBadge",
       count: this.memoryBank.getAll().length,
     } as never);
+  }
+
+  /**
+   * Persist a provider selection (from the in-webview settings overlay or
+   * Add-Model dialogue) into .champ/config.yaml (#123). The YAML file is
+   * the single config source since #118; the legacy champ.* VS Code
+   * settings no longer exist. Targets the workspace .champ/config.yaml,
+   * falling back to ~/.champ/config.yaml when no workspace is open.
+   */
+  private async persistProviderSettings(
+    providerId: string,
+    model: string,
+    baseUrl?: string,
+  ): Promise<void> {
+    const root =
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir();
+    const dirUri = vscode.Uri.file(path.join(root, ".champ"));
+    const fileUri = vscode.Uri.file(path.join(root, ".champ", "config.yaml"));
+
+    let previousText: string | null = null;
+    try {
+      previousText = new TextDecoder().decode(
+        await vscode.workspace.fs.readFile(fileUri),
+      );
+    } catch {
+      previousText = null; // no file yet
+    }
+
+    const { yaml: updated } = upsertProviderInYaml(
+      previousText,
+      { providerId, baseUrl, model },
+      { setActive: true },
+    );
+    try {
+      await vscode.workspace.fs.createDirectory(dirUri);
+    } catch {
+      // already exists
+    }
+    await vscode.workspace.fs.writeFile(
+      fileUri,
+      new TextEncoder().encode(updated),
+    );
   }
 
   /**
