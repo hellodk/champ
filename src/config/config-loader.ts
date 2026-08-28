@@ -61,6 +61,18 @@ export interface ProviderConfig {
    * above what config pins, even if the runtime advertises more. Ticket #119.
    */
   contextWindow?: number;
+  /** Per-provider decode overrides (ticket #120). Overrides win over the task profile. */
+  options?: {
+    temperature?: number;
+    topP?: number;
+    topK?: number;
+    minP?: number;
+    repeatPenalty?: number;
+    presencePenalty?: number;
+    frequencyPenalty?: number;
+    seed?: number;
+    stop?: string[];
+  };
 }
 
 export interface AutocompleteConfig {
@@ -419,6 +431,72 @@ export class ConfigLoader {
               pushError(`providers.${name}.supportsTools must be a boolean`);
             } else {
               pc.supportsTools = c.supportsTools;
+            }
+          }
+          if ("contextWindow" in c) {
+            const cw = c as Record<string, unknown>;
+            if (
+              typeof cw.contextWindow !== "number" ||
+              cw.contextWindow <= 0 ||
+              !Number.isInteger(cw.contextWindow)
+            ) {
+              pushError(
+                `providers.${name}.contextWindow must be a positive integer`,
+              );
+            } else {
+              pc.contextWindow = cw.contextWindow as number;
+            }
+          }
+          if ("options" in c) {
+            const opt = c as { options?: unknown };
+            if (typeof opt.options !== "object" || opt.options === null) {
+              pushError(`providers.${name}.options must be an object`);
+            } else {
+              const o = opt.options as Record<string, unknown>;
+              const out: NonNullable<ProviderConfig["options"]> = {};
+              const numField = (
+                key: keyof typeof out,
+                min: number,
+                max: number,
+                hint?: string,
+              ): void => {
+                if (key in o) {
+                  if (
+                    typeof o[key as string] !== "number" ||
+                    (o[key as string] as number) < min ||
+                    (o[key as string] as number) > max
+                  ) {
+                    pushError(
+                      `providers.${name}.options.${String(key)} must be a number${
+                        hint ? ` ${hint}` : ""
+                      }`,
+                    );
+                    return;
+                  }
+                  out[key] = o[key as string] as never;
+                }
+              };
+              numField("temperature", 0, 2);
+              numField("topP", 0, 1);
+              numField("topK", 0, Number.MAX_SAFE_INTEGER);
+              numField("minP", 0, 1);
+              numField("repeatPenalty", 0, Number.MAX_SAFE_INTEGER);
+              numField("presencePenalty", -2, 2);
+              numField("frequencyPenalty", -2, 2);
+              numField("seed", 0, Number.MAX_SAFE_INTEGER);
+              if ("stop" in o) {
+                if (
+                  !Array.isArray(o.stop) ||
+                  o.stop.some((s) => typeof s !== "string")
+                ) {
+                  pushError(
+                    `providers.${name}.options.stop must be an array of strings`,
+                  );
+                } else {
+                  out.stop = o.stop as string[];
+                }
+              }
+              pc.options = out;
             }
           }
           result.providers[name as ProviderName] = pc;

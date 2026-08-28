@@ -117,6 +117,7 @@ export class ProviderFactory {
         return new ClaudeProvider({
           ...this.baseConfig("claude", {
             contextWindow: providerEntry.contextWindow,
+            options: providerEntry.options,
           }),
           model: providerEntry.model ?? "claude-sonnet-4-20250514",
           apiKey: await getKey("champ.claude.apiKey", "ANTHROPIC_API_KEY"),
@@ -125,6 +126,7 @@ export class ProviderFactory {
         return new OpenAIProvider({
           ...this.baseConfig("openai", {
             contextWindow: providerEntry.contextWindow,
+            options: providerEntry.options,
           }),
           model: providerEntry.model ?? "gpt-4o",
           apiKey: await getKey("champ.openai.apiKey", "OPENAI_API_KEY"),
@@ -133,6 +135,7 @@ export class ProviderFactory {
         return new GeminiProvider({
           ...this.baseConfig("gemini", {
             contextWindow: providerEntry.contextWindow,
+            options: providerEntry.options,
           }),
           model: providerEntry.model ?? "gemini-2.0-flash",
           apiKey: await getKey("champ.gemini.apiKey", "GEMINI_API_KEY"),
@@ -141,6 +144,7 @@ export class ProviderFactory {
         return new OllamaProvider({
           ...this.baseConfig("ollama", {
             contextWindow: providerEntry.contextWindow,
+            options: providerEntry.options,
           }),
           model: providerEntry.model ?? "llama3.1",
           baseUrl: providerEntry.baseUrl ?? "http://localhost:11434",
@@ -153,6 +157,7 @@ export class ProviderFactory {
         return new LlamaCppProvider({
           ...this.baseConfig("llamacpp", {
             contextWindow: providerEntry.contextWindow,
+            options: providerEntry.options,
           }),
           model: providerEntry.model ?? "default",
           baseUrl: providerEntry.baseUrl ?? "http://localhost:8080/v1",
@@ -165,6 +170,7 @@ export class ProviderFactory {
         return new VLLMProvider({
           ...this.baseConfig("vllm", {
             contextWindow: providerEntry.contextWindow,
+            options: providerEntry.options,
           }),
           model: providerEntry.model ?? "",
           baseUrl: providerEntry.baseUrl ?? "http://localhost:8000/v1",
@@ -177,6 +183,7 @@ export class ProviderFactory {
         return new OpenAICompatibleProvider({
           ...this.baseConfig("openai-compatible", {
             contextWindow: providerEntry.contextWindow,
+            options: providerEntry.options,
           }),
           model: providerEntry.model ?? "default",
           baseUrl: providerEntry.baseUrl ?? "",

@@ -19,6 +19,7 @@ import type {
   ContentBlock,
 } from "./types";
 import { resilientFetch } from "./http-resilience";
+import { mergeEffectiveDecode } from "@/config/decode-profile";
 
 const DEFAULT_CONTEXT_WINDOW = 8192;
 
@@ -138,13 +139,29 @@ export class OpenAICompatibleProvider implements LLMProvider {
     }
 
     const url = this.joinUrl("/chat/completions");
-    const body = {
+    const dec = mergeEffectiveDecode({
+      explicit: options,
+      configOptions: this.config.options,
+      taskHint: options?.taskHint,
+      base: { temperature: this.config.temperature },
+    });
+    const body: Record<string, unknown> = {
       model: this.config.model,
       messages: this.convertMessages(messages),
       stream: true,
       stream_options: { include_usage: true },
-      temperature: options?.temperature ?? this.config.temperature,
-      top_p: options?.topP ?? this.config.topP,
+      ...(dec.temperature !== undefined && { temperature: dec.temperature }),
+      ...(dec.topP !== undefined && { top_p: dec.topP }),
+      ...(dec.topK !== undefined && { top_k: dec.topK }),
+      ...(dec.minP !== undefined && { min_p: dec.minP }),
+      ...(dec.presencePenalty !== undefined && {
+        presence_penalty: dec.presencePenalty,
+      }),
+      ...(dec.frequencyPenalty !== undefined && {
+        frequency_penalty: dec.frequencyPenalty,
+      }),
+      ...(dec.seed !== undefined && { seed: dec.seed }),
+      ...(dec.stop !== undefined && { stop: dec.stop }),
       max_tokens: options?.maxTokens ?? this.config.maxTokens,
       tools: options?.tools?.map((t) => ({
         type: "function",
@@ -239,13 +256,28 @@ export class OpenAICompatibleProvider implements LLMProvider {
     // sends the prompt verbatim, which is what FIM-aware completion
     // models expect.
     const url = this.joinUrl("/completions");
-    const body = {
+    const dec = mergeEffectiveDecode({
+      explicit: options,
+      configOptions: this.config.options,
+      taskHint: options?.taskHint,
+      base: { temperature: this.config.temperature },
+    });
+    const body: Record<string, unknown> = {
       model: this.config.model,
       prompt,
       stream: true,
-      temperature: options?.temperature ?? this.config.temperature,
+      ...(dec.temperature !== undefined && { temperature: dec.temperature }),
+      ...(dec.topP !== undefined && { top_p: dec.topP }),
+      ...(dec.topK !== undefined && { top_k: dec.topK }),
+      ...(dec.seed !== undefined && { seed: dec.seed }),
+      ...(dec.presencePenalty !== undefined && {
+        presence_penalty: dec.presencePenalty,
+      }),
+      ...(dec.frequencyPenalty !== undefined && {
+        frequency_penalty: dec.frequencyPenalty,
+      }),
+      ...(dec.stop !== undefined && { stop: dec.stop }),
       max_tokens: options?.maxTokens ?? this.config.maxTokens,
-      stop: options?.stop,
     };
 
     try {

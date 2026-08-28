@@ -22,6 +22,7 @@ import {
   extractNumCtxFromParameters,
   resolveEffectiveContextWindow,
 } from "@/config/context-window";
+import { mergeEffectiveDecode } from "@/config/decode-profile";
 
 const DEFAULT_BASE_URL = "http://localhost:11434";
 
@@ -240,13 +241,26 @@ export class OllamaProvider implements LLMProvider {
     this.inThinkingBlock = false;
 
     const url = `${this.config.baseUrl}/api/chat`;
+    const dec = mergeEffectiveDecode({
+      explicit: options,
+      configOptions: this.config.options,
+      taskHint: options?.taskHint,
+      base: { temperature: this.config.temperature },
+    });
     const body = {
       model: this.config.model,
       messages: this.convertMessages(messages),
       stream: true,
       options: {
-        temperature: options?.temperature ?? this.config.temperature,
-        top_p: options?.topP ?? this.config.topP,
+        ...(dec.temperature !== undefined && { temperature: dec.temperature }),
+        ...(dec.topP !== undefined && { top_p: dec.topP }),
+        ...(dec.topK !== undefined && { top_k: dec.topK }),
+        ...(dec.minP !== undefined && { min_p: dec.minP }),
+        ...(dec.repeatPenalty !== undefined && {
+          repeat_penalty: dec.repeatPenalty,
+        }),
+        ...(dec.seed !== undefined && { seed: dec.seed }),
+        ...(dec.stop !== undefined && { stop: dec.stop }),
         num_predict: options?.maxTokens ?? this.config.maxTokens,
       },
       tools: options?.tools?.map((t) => ({
@@ -312,14 +326,24 @@ export class OllamaProvider implements LLMProvider {
     }
 
     const url = `${this.config.baseUrl}/api/generate`;
+    const dec = mergeEffectiveDecode({
+      explicit: options,
+      configOptions: this.config.options,
+      taskHint: options?.taskHint,
+      base: { temperature: this.config.temperature },
+    });
     const body = {
       model: this.config.model,
       prompt,
       stream: true,
       options: {
-        temperature: options?.temperature ?? this.config.temperature,
+        ...(dec.temperature !== undefined && { temperature: dec.temperature }),
+        ...(dec.topP !== undefined && { top_p: dec.topP }),
+        ...(dec.topK !== undefined && { top_k: dec.topK }),
+        ...(dec.minP !== undefined && { min_p: dec.minP }),
+        ...(dec.seed !== undefined && { seed: dec.seed }),
+        ...(dec.stop !== undefined && { stop: dec.stop }),
         num_predict: options?.maxTokens ?? this.config.maxTokens,
-        stop: options?.stop,
       },
     };
 

@@ -674,6 +674,7 @@ export class AgentController {
           // Native tool defs only when the provider says it supports them.
           tools: usePromptBased ? undefined : allTools,
           abortSignal: options.abortSignal,
+          taskHint: "coding",
         });
 
         let errorOccurred = false;
