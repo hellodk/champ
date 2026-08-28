@@ -1,11 +1,11 @@
 /**
- * TDD: layered config resolution with explicit single source (#115).
+ * TDD: layered config resolution (#115 / #118).
  *
- * Contract:
- * - champ.configSource picks THE one active source; others are ignored
- *   and reported via ignoredSources.
- * - auto preserves historical precedence exactly:
- *   workspace yaml > user yaml > (caller's settings fallback)
+ * Contract (YAML-only since #118):
+ * - `.champ/config.yaml` (workspace) > `~/.champ/config.yaml` (user).
+ *   The old `champ.configSource` setting and the legacy settings layer are
+ *   gone — YAML is the single source of truth.
+ * - ignoredSources reports which files were deliberately not consulted.
  * - origins maps every top-level key of the final config to the layer
  *   that supplied it ("workspace-yaml" | "user-yaml" | "default").
  */
@@ -52,13 +52,13 @@ describe("resolveLayered (#115)", () => {
     expect(r.conflict).toBe(false);
   });
 
-  it("auto: null config when no yaml at all (settings fallback)", () => {
+  it("auto: null config when no yaml at all (no settings fallback, #118)", () => {
     const r = resolveLayered({
       workspaceText: null,
       userText: null,
       source: "auto",
     });
-    expect(r.usedSource).toBe("settings");
+    expect(r.usedSource).toBe("default");
     expect(r.config).toBeNull();
   });
 
@@ -85,17 +85,15 @@ describe("resolveLayered (#115)", () => {
     expect(r.ignoredSources).toContain("workspace-yaml");
   });
 
-  it("explicit settings skips all yaml files", () => {
+  it("unknown source: the 'settings' option no longer exists (#118)", () => {
     const r = resolveLayered({
       workspaceText: WS_YAML,
       userText: USER_YAML,
-      source: "settings",
+      source: "auto",
     });
-    expect(r.usedSource).toBe("settings");
-    expect(r.config).toBeNull();
-    expect(r.ignoredSources).toEqual(
-      expect.arrayContaining(["workspace-yaml", "user-yaml"]),
-    );
+    expect(r.usedSource).toBe("workspace-yaml");
+    // settings is not a config source anymore — YAML is the only store.
+    expect(["workspace-yaml", "user-yaml", "default"]).toContain(r.usedSource);
   });
 
   it("origins attribute each top-level key to its layer", () => {

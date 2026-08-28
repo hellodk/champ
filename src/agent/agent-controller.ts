@@ -32,6 +32,8 @@ import {
   extractTextContent,
   extractPreToolText,
   hasFabricatedNarration,
+  TOOL_CALL_START_PREFIX,
+  buildPrefillAssistantMessage,
   type MalformedToolCall,
 } from "../providers/prompt-based-tools";
 import { SecretScanner } from "../safety/secret-scanner";
@@ -554,6 +556,13 @@ export class AgentController {
         if (options.abortSignal?.aborted) break;
         iterationRan = true;
 
+        // Assistant-prefill (#121): on prompt-based continuation turns (there
+        // is at least one tool registered and we have already run at least one
+        // iteration), a trailing assistant seed makes the model begin its next
+        // output inside the <tool_call> XML format instead of narrating.
+        const prefillNeeded =
+          usePromptBased && iteration > 0 && allTools.length > 0;
+
         // Emit iteration start event so the UI can display live progress.
         this.emitIterationStart(
           iteration,
@@ -670,11 +679,28 @@ export class AgentController {
           break;
         }
 
-        const stream = activeProvider.chat(messagesToSend, {
+        // Append the assistant-prefill seed on continuation turns (#121).
+        // Kept as a separate list so `messagesToSend` (the cache key) stays
+        // stable. Iteration 0 is never prefilled, so cache behaviour is
+        // unchanged; continuation turns are never cached anyway.
+        const requestMessages = prefillNeeded
+          ? [...messagesToSend, buildPrefillAssistantMessage()]
+          : messagesToSend;
+
+        const stream = activeProvider.chat(requestMessages, {
           // Native tool defs only when the provider says it supports them.
           tools: usePromptBased ? undefined : allTools,
           abortSignal: options.abortSignal,
+          taskHint: "coding",
         });
+
+        // The backend continues from the seed we appended, so the buffered
+        // assistant text must start there too — otherwise the streamed output
+        // is just the tail of the tag and the assembled tool call would be
+        // missing its opener.
+        if (prefillNeeded) {
+          assistantText = TOOL_CALL_START_PREFIX;
+        }
 
         let errorOccurred = false;
         for await (const delta of stream) {
@@ -750,6 +776,21 @@ export class AgentController {
           const parsed = parseToolCallsFromText(assistantText, (info) =>
             malformedCalls.push(info),
           );
+
+          // Assistant-prefill answered with prose (#121): if the seeded
+          // continuation turn produced a plain text reply instead of a
+          // complete tool call, drop the dangling seed so it never leaks
+          // into history or the UI. The parse above already ran on the
+          // seeded text, so this only fires when no call was completed —
+          // the seed is pure noise at that point.
+          if (
+            prefillNeeded &&
+            parsed.length === 0 &&
+            malformedCalls.length === 0 &&
+            assistantText.startsWith(TOOL_CALL_START_PREFIX)
+          ) {
+            assistantText = assistantText.slice(TOOL_CALL_START_PREFIX.length);
+          }
 
           // ── Hallucination guard (issue #101) ────────────────────────────
           // If no tool calls were parsed but the text contains fabricated

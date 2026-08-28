@@ -178,6 +178,11 @@
         "title": "Champ: Resume Team Run"
       },
       {
+        "command": "champ.configureProvider",
+        "title": "Champ: Configure Provider",
+        "category": "Champ"
+      },
+      {
         "command": "champ.openTeamBuilder",
         "title": "Champ: Open Team Builder"
       },
@@ -252,80 +257,10 @@
     "configuration": {
       "title": "Champ",
       "properties": {
-        "champ.provider": {
-          "type": "string",
-          "default": "claude",
-          "enum": [
-            "claude",
-            "openai",
-            "gemini",
-            "ollama",
-            "llamacpp",
-            "vllm",
-            "openai-compatible"
-          ],
-          "markdownDescription": "Active LLM provider. Edit **`.champ/config.yaml`** for full control (YAML overrides these settings)."
-        },
-        "champ.claude.model": {
-          "type": "string",
-          "default": "claude-sonnet-4-20250514",
-          "markdownDescription": "Claude model ID. API key is stored securely — run **Champ: Set API Key** to configure it."
-        },
-        "champ.openai.model": {
-          "type": "string",
-          "default": "gpt-4o",
-          "markdownDescription": "OpenAI model ID. API key is stored securely — run **Champ: Set API Key** to configure it."
-        },
-        "champ.gemini.model": {
-          "type": "string",
-          "default": "gemini-2.0-flash",
-          "markdownDescription": "Gemini model ID. API key is stored securely — run **Champ: Set API Key** to configure it."
-        },
-        "champ.ollama.baseUrl": {
-          "type": "string",
-          "default": "http://localhost:11434",
-          "markdownDescription": "Ollama server base URL. Default is local; set to a remote address if Ollama runs on another machine."
-        },
-        "champ.ollama.model": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Ollama model tag. Must match an installed model — run `ollama pull <model>` to install."
-        },
-        "champ.llamacpp.baseUrl": {
-          "type": "string",
-          "default": "http://localhost:8080/v1",
-          "markdownDescription": "llama.cpp server base URL **including `/v1`** (e.g. `http://localhost:8080/v1`). Set the model via `.champ/config.yaml`."
-        },
-        "champ.vllm.baseUrl": {
-          "type": "string",
-          "default": "http://localhost:8000/v1",
-          "markdownDescription": "vLLM server base URL **including `/v1`** (e.g. `http://localhost:8000/v1`). Set the model via `.champ/config.yaml`."
-        },
-        "champ.vllm.apiKey": {
-          "type": "string",
-          "markdownDescription": "vLLM API key (if your server requires authentication). Store securely via **Champ: Set API Key** command."
-        },
-        "champ.openaiCompatible.baseUrl": {
-          "type": "string",
-          "markdownDescription": "Base URL for an OpenAI-compatible server **including `/v1`**."
-        },
-        "champ.openaiCompatible.model": {
-          "type": "string"
-        },
-        "champ.openaiCompatible.apiKey": {
-          "type": "string",
-          "markdownDescription": "API key for the OpenAI-compatible server. Store securely via **Champ: Set API Key** command."
-        },
         "champ.yoloMode": {
           "type": "boolean",
           "default": false,
           "markdownDescription": "Skip approval prompts for terminal commands and file edits. **Use with caution.**"
-        },
-        "champ.configSource": {
-          "type": "string",
-          "enum": ["auto", "workspace-yaml", "user-yaml", "settings"],
-          "default": "auto",
-          "markdownDescription": "Single source of truth for Champ's LLM configuration.\n\n- **auto** — workspace `.champ/config.yaml` if present, else `~/.champ/config.yaml`, else these settings (historical precedence)\n- **workspace-yaml / user-yaml / settings** — use ONLY that source; others are ignored\n\nInspect the running result with **Champ: Show Effective Config**."
         },
         "champ.autoFix.enabled": {
           "type": "boolean",

@@ -124,6 +124,77 @@ providers:
 `;
       expect(() => ConfigLoader.parseYaml(yaml)).toThrow(/apikey/i);
     });
+
+    it("rejects options.temperature out of range (#120)", () => {
+      const yaml = `
+provider: ollama
+providers:
+  ollama:
+    model: llama3.1
+    options:
+      temperature: 2.5
+`;
+      expect(() => ConfigLoader.parseYaml(yaml)).toThrow(/temperature/i);
+    });
+
+    it("rejects options.topP out of range (#120)", () => {
+      const yaml = `
+provider: ollama
+providers:
+  ollama:
+    options:
+      topP: 1.5
+`;
+      expect(() => ConfigLoader.parseYaml(yaml)).toThrow(/topp/i);
+    });
+
+    it("rejects a non-string stop entry (#120)", () => {
+      const yaml = `
+provider: ollama
+providers:
+  ollama:
+    options:
+      stop: [END, 42]
+`;
+      expect(() => ConfigLoader.parseYaml(yaml)).toThrow(/stop/i);
+    });
+
+    it("accepts a valid options block (#120)", () => {
+      const yaml = `
+provider: ollama
+providers:
+  ollama:
+    options:
+      temperature: 0.25
+      topP: 0.95
+      seed: 42
+      stop: ["</s>"]
+`;
+      const config = ConfigLoader.parseYaml(yaml);
+      expect(config.providers?.ollama?.options?.temperature).toBe(0.25);
+      expect(config.providers?.ollama?.options?.seed).toBe(42);
+    });
+
+    it("accepts contextWindow as a positive integer (#119)", () => {
+      const yaml = `
+provider: ollama
+providers:
+  ollama:
+    contextWindow: 16384
+`;
+      const config = ConfigLoader.parseYaml(yaml);
+      expect(config.providers?.ollama?.contextWindow).toBe(16384);
+    });
+
+    it("rejects a non-integer contextWindow (#119)", () => {
+      const yaml = `
+provider: ollama
+providers:
+  ollama:
+    contextWindow: 16.5
+`;
+      expect(() => ConfigLoader.parseYaml(yaml)).toThrow(/contextwindow/i);
+    });
   });
 
   describe("merge", () => {

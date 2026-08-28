@@ -146,6 +146,18 @@ export interface LLMProviderConfig {
   topP?: number;
   /** Additional headers to include on requests. */
   customHeaders?: Record<string, string>;
+  /**
+   * Cap the effective context window (tokens). When set, the provider never
+   * uses more than this window even if the runtime advertises a larger one
+   * (e.g. num_ctx override). Ticket #119.
+   */
+  contextWindow?: number;
+  /**
+   * Per-provider decode overrides from the YAML `options:` block (ticket
+   * #120). Explicit per-request options win over these; these win over the
+   * task decode profile.
+   */
+  options?: DecodeParams;
   /** Per-request HTTP timeout in ms before first token. Default: 120000 (issue #104). */
   requestTimeoutMs?: number;
   /**
@@ -155,7 +167,44 @@ export interface LLMProviderConfig {
    * llama.cpp server, LM Studio with a tool-capable model).
    */
   supportsTools?: boolean;
+  /**
+   * Opt-in to JSON-constrained generation on chat requests (#121). When set,
+   * the provider pins its backend's structured-output field
+   * (`response_format: {type:"json_object"}` / `format: "json"`). Never
+   * applied on tool-call turns — the XML tool prompt needs free text.
+   */
+  structuredOutput?: boolean;
+  /**
+   * Ask the backend to keep the prompt/KV cache warm between turns (#121).
+   * ollama: `options.cache_prompt: true`. Improves latency for long system
+   * prompts with little first-token cost.
+   */
+  cachePrompt?: boolean;
 }
+
+/**
+ * Decode parameters shared by chat and completion requests (ticket #120).
+ * Each provider maps these onto its native body field names.
+ */
+export interface DecodeParams {
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  minP?: number;
+  repeatPenalty?: number;
+  presencePenalty?: number;
+  frequencyPenalty?: number;
+  seed?: number;
+  stop?: string[];
+}
+
+/** Task class used to pick the default decode profile (ticket #120). */
+export type TaskHint =
+  | "coding"
+  | "chat"
+  | "completion"
+  | "toolcall"
+  | "embedding";
 
 /**
  * Runtime options for a single chat request.
@@ -166,6 +215,15 @@ export interface ChatOptions {
   temperature?: number;
   maxTokens?: number;
   topP?: number;
+  topK?: number;
+  minP?: number;
+  repeatPenalty?: number;
+  presencePenalty?: number;
+  frequencyPenalty?: number;
+  seed?: number;
+  stop?: string[];
+  /** Task class for picking the default decode profile (ticket #120). */
+  taskHint?: TaskHint;
   /** When true, instruct the provider to output valid JSON only. Supported by Ollama and some OpenAI-compatible providers. */
   jsonFormat?: boolean;
 }
@@ -177,7 +235,14 @@ export interface CompleteOptions {
   abortSignal?: AbortSignal;
   temperature?: number;
   maxTokens?: number;
+  topP?: number;
+  topK?: number;
+  seed?: number;
+  presencePenalty?: number;
+  frequencyPenalty?: number;
   stop?: string[];
+  /** Task class for picking the default decode profile (ticket #120). */
+  taskHint?: TaskHint;
 }
 
 /**

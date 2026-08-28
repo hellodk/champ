@@ -39,6 +39,9 @@ import { ChunkingService } from "./indexing/chunking-service";
 import { RepoMapBuilder } from "./indexing/repo-map-builder";
 import { ContextResolver } from "./agent/context-resolver";
 import { buildProbeUrl } from "./utils/probe-url";
+import { resilientFetch } from "./providers/http-resilience";
+import { runWizard } from "./config/setup-wizard";
+import { upsertProviderInYaml } from "./config/yaml-writer";
 import {
   ConfigLoader,
   resolveLayered,
@@ -1591,6 +1594,175 @@ export async function activate(
         "Champ: created .champ/config.yaml. Edit it and save to apply.",
       );
     }),
+    // Guided provider setup wizard (#118). Collects provider → endpoint →
+    // (401? API key) → live model discovery and merges the result into the
+    // effective YAML config, then hot-reloads the provider.
+    vscode.commands.registerCommand("champ.configureProvider", async () => {
+      const wizardProviders: {
+        id: import("./config/config-loader").ProviderName;
+        cloud: boolean;
+      }[] = [
+        { id: "claude", cloud: true },
+        { id: "openai", cloud: true },
+        { id: "gemini", cloud: true },
+        { id: "ollama", cloud: false },
+        { id: "llamacpp", cloud: false },
+        { id: "vllm", cloud: false },
+        { id: "openai-compatible", cloud: false },
+      ];
+
+      const SECRET_KEY: Record<string, string> = {
+        claude: "champ.claude.apiKey",
+        openai: "champ.openai.apiKey",
+        gemini: "champ.gemini.apiKey",
+        vllm: "champ.vllm.apiKey",
+        "openai-compatible": "champ.openaiCompatible.apiKey",
+      };
+
+      const DEFAULT_BASE_URL: Record<string, string> = {
+        claude: "https://api.anthropic.com/v1",
+        openai: "https://api.openai.com/v1",
+        gemini: "https://generativelanguage.googleapis.com/v1beta",
+        ollama: "http://localhost:11434",
+        llamacpp: "http://localhost:8080/v1",
+        vllm: "http://localhost:8000/v1",
+      };
+
+      const listModels = async (
+        providerId: string,
+        baseUrl: string,
+      ): Promise<string[]> => {
+        try {
+          if (providerId === "ollama") {
+            const res = await resilientFetch(
+              `${baseUrl.replace(/\/+$/, "")}/api/tags`,
+              {},
+              { timeoutMs: 8000, maxRetries: 0 },
+            );
+            if (!res.ok) return [];
+            const data = (await res.json()) as {
+              models?: Array<{ model?: string; name?: string }>;
+            };
+            return (data.models ?? [])
+              .map((m) => m.model ?? m.name ?? "")
+              .filter(Boolean);
+          }
+          const res = await resilientFetch(
+            buildProbeUrl(baseUrl, providerId),
+            {},
+            { timeoutMs: 8000, maxRetries: 0 },
+          );
+          if (!res.ok) return [];
+          const data = (await res.json()) as {
+            data?: Array<{ id: string }>;
+          };
+          return (data.data ?? []).map((m) => m.id).filter(Boolean);
+        } catch {
+          return [];
+        }
+      };
+
+      const outcome = await runWizard({
+        providers: wizardProviders,
+        pickProvider: async (options) => {
+          const picked = await vscode.window.showQuickPick(
+            options.map((p) => ({
+              label: p.id,
+              description: p.cloud ? "cloud API" : "self-hosted",
+            })),
+            { placeHolder: "Choose a provider to configure" },
+          );
+          return picked?.label;
+        },
+        inputBaseUrl: async (providerId) => {
+          const value = await vscode.window.showInputBox({
+            prompt: `Base URL for ${providerId}`,
+            value: DEFAULT_BASE_URL[providerId] ?? "",
+            ignoreFocusOut: true,
+          });
+          return value?.trim() || undefined;
+        },
+        probeEndpoint: async (providerId, baseUrl) => {
+          if (CLOUD_PROVIDERS.has(providerId)) {
+            // Deterministic decision: cloud without a stored key behaves as
+            // 401 so the wizard captures the key; cloud with a key is "ready".
+            const hasKey = await context.secrets.get(SECRET_KEY[providerId]);
+            return hasKey ? { status: 200 } : { status: 401 };
+          }
+          try {
+            const res = await resilientFetch(
+              buildProbeUrl(baseUrl, providerId),
+              {},
+              { timeoutMs: 6000, maxRetries: 1 },
+            );
+            return { status: res.status };
+          } catch {
+            return { status: undefined, ok: false };
+          }
+        },
+        hasStoredApiKey: async (providerId) =>
+          Boolean(await context.secrets.get(SECRET_KEY[providerId] ?? "")),
+        promptForApiKey: async (providerId) => {
+          const key = await vscode.window.showInputBox({
+            prompt: `${providerId} requires an API key. Paste it now (stored in VS Code's secure secret store):`,
+            password: true,
+            ignoreFocusOut: true,
+          });
+          return key?.trim() || undefined;
+        },
+        storeKey: async (providerId, apiKey) => {
+          await context.secrets.store(SECRET_KEY[providerId], apiKey);
+        },
+        fetchModels: listModels,
+        pickModel: async (models) => {
+          const picked = await vscode.window.showQuickPick(models, {
+            placeHolder: "Choose a model",
+            ignoreFocusOut: true,
+          });
+          return picked ?? undefined;
+        },
+      });
+
+      if (outcome.status === "cancelled") return;
+
+      const activeFolder = resolveActiveWorkspaceFolder() ?? workspaceRoot;
+      const targetDirUri = vscode.Uri.file(
+        path.join(activeFolder ?? os.homedir(), ".champ"),
+      );
+      const targetUri = vscode.Uri.file(
+        path.join(targetDirUri.fsPath, "config.yaml"),
+      );
+      let previousText: string | null = null;
+      try {
+        previousText = new TextDecoder().decode(
+          await vscode.workspace.fs.readFile(targetUri),
+        );
+      } catch {
+        previousText = null; // no file yet
+      }
+      const { yaml: updated } = upsertProviderInYaml(
+        previousText,
+        {
+          providerId: outcome.providerId,
+          baseUrl: outcome.baseUrl,
+          model: outcome.model,
+        },
+        { setActive: true },
+      );
+      try {
+        await vscode.workspace.fs.createDirectory(targetDirUri);
+      } catch {
+        // already exists
+      }
+      await vscode.workspace.fs.writeFile(
+        targetUri,
+        new TextEncoder().encode(updated),
+      );
+      await loadProvider();
+      void vscode.window.showInformationMessage(
+        `Champ: ${outcome.providerId} configured and active.`,
+      );
+    }),
     vscode.commands.registerCommand("champ.about", () => {
       const version = context.extension.packageJSON.version as string;
       const provider = inlineProviderRef.current;
@@ -1907,7 +2079,7 @@ export async function activate(
         channel.appendLine(`  user      : ${userPath}`);
         if (result.ignoredSources.length > 0) {
           channel.appendLine(
-            `Ignored     : ${result.ignoredSources.join(", ")} (champ.configSource)`,
+            `Ignored     : ${result.ignoredSources.join(", ")} (workspace > user)`,
           );
         }
         channel.appendLine("");
@@ -3146,18 +3318,17 @@ export async function activate(
     }),
   );
 
-  // ---- Config loader (YAML + VS Code settings fallback) -------------
+  // ---- Config loader (YAML-only since #118) -----------------------
   /**
    * Resolve the effective ChampConfig from (in order of precedence):
    *   1. <workspace>/.champ/config.yaml
    *   2. ~/.champ/config.yaml
-   *   3. VS Code champ.* settings (legacy backward-compat)
-   *   4. built-in defaults
+   *   3. built-in defaults
    *
    * Returns null when no source has a usable config — the loader path
-   * is then skipped and the caller falls back to createFromConfig().
-   * Errors during YAML parsing are surfaced to the user but do not
-   * crash activation.
+   * is then skipped and loadProvider surfaces the "run Champ: Configure
+   * Provider" hint. Errors during YAML parsing are surfaced to the user
+   * but do not crash activation.
    */
   // Last layered-resolution outcome, for Show Effective Config (#115).
   let lastLayeredInfo: {
@@ -3187,18 +3358,14 @@ export async function activate(
       }
     };
 
-    const source = vscode.workspace
-      .getConfiguration("champ")
-      .get<
-        "auto" | "workspace-yaml" | "user-yaml" | "settings"
-      >("configSource", "auto");
-
+    // YAML is the only source of truth since #118: favour the workspace
+    // .champ/config.yaml, then ~/.champ/config.yaml.
     let result: import("./config/config-loader").LayeredResult;
     try {
       result = resolveLayered({
         workspaceText: await readRaw(workspacePath),
         userText: await readRaw(userPath),
-        source,
+        source: "auto",
       });
     } catch (err) {
       void vscode.window.showErrorMessage(
@@ -3211,13 +3378,13 @@ export async function activate(
 
     if (result.ignoredSources.length > 0) {
       console.log(
-        `Champ config: ignoring ${result.ignoredSources.join(", ")} because configSource=${source}`,
+        `Champ config: ignoring ${result.ignoredSources.join(", ")} (auto precedence)`,
       );
     }
     if (result.conflict && !conflictNoticeShown) {
       conflictNoticeShown = true;
       void vscode.window.showInformationMessage(
-        `Champ: workspace .champ/config.yaml overrides ~/.champ/config.yaml. Set "champ.configSource" to pick one explicitly.`,
+        `Champ: workspace .champ/config.yaml overrides ~/.champ/config.yaml.`,
       );
     }
 
@@ -3234,8 +3401,9 @@ export async function activate(
    * On failure, leaves the stub in place and surfaces the error in the
    * chat panel + status bar.
    *
-   * Tries the YAML config path first, falling back to legacy
-   * VS Code settings if no YAML config is present.
+   * YAML config (.champ/config.yaml, then ~/.champ/config.yaml) is
+   * the only source since #118. If none is present, surfaces the
+   * "Run Champ: Configure Provider" hint.
    *
    * Concurrent calls are deduplicated — the second caller receives
    * the same promise as the first, preventing config/race corruption.
@@ -3283,7 +3451,7 @@ export async function activate(
           ? yamlConfig?.providers?.[activeName]?.model
           : undefined;
         console.log(
-          `Champ config: source=${result.usedSource} provider=${activeName ?? "(settings)"} model=${activeModel ?? "(settings)"}`,
+          `Champ config: source=${result.usedSource} provider=${activeName ?? "(none)"} model=${activeModel ?? "(none)"}`,
         );
       }
       // Load project rules from .champ/rules/*.md
@@ -3315,10 +3483,11 @@ export async function activate(
       });
       const rawProvider = yamlConfig
         ? await factory.createFromChampConfig(yamlConfig, context.secrets)
-        : await factory.createFromConfig(
-            vscode.workspace.getConfiguration("champ"),
-            context.secrets,
-          );
+        : (() => {
+            throw new Error(
+              "No Champ configuration found. Run 'Champ: Configure Provider' or create .champ/config.yaml.",
+            );
+          })();
       // Wrap primary provider in a CircuitBreaker so repeated failures stop
       // hammering a known-bad endpoint.
       const wrappedPrimary = new CircuitBreaker(rawProvider);

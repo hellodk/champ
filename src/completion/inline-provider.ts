@@ -192,6 +192,7 @@ export class ChampInlineCompletionProvider {
         temperature: 0.2,
         maxTokens: 256,
         stop: DEFAULT_STOP,
+        taskHint: "completion",
       })) {
         if (controller.signal.aborted) return [];
 

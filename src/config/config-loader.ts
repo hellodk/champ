@@ -56,6 +56,27 @@ export interface ProviderConfig {
   apiKey?: string;
   /** Opt-in to native OpenAI tool calling (openai-compatible spec servers). */
   supportsTools?: boolean;
+  /** Opt-in to JSON-constrained generation on chat requests (#121). */
+  structuredOutput?: boolean;
+  /** Ask the backend to keep its prompt/KV cache warm (#121). */
+  cachePrompt?: boolean;
+  /**
+   * Cap the effective context window for this provider (tokens). Never raise
+   * above what config pins, even if the runtime advertises more. Ticket #119.
+   */
+  contextWindow?: number;
+  /** Per-provider decode overrides (ticket #120). Overrides win over the task profile. */
+  options?: {
+    temperature?: number;
+    topP?: number;
+    topK?: number;
+    minP?: number;
+    repeatPenalty?: number;
+    presencePenalty?: number;
+    frequencyPenalty?: number;
+    seed?: number;
+    stop?: string[];
+  };
 }
 
 export interface AutocompleteConfig {
@@ -414,6 +435,89 @@ export class ConfigLoader {
               pushError(`providers.${name}.supportsTools must be a boolean`);
             } else {
               pc.supportsTools = c.supportsTools;
+            }
+          }
+          if ("structuredOutput" in c) {
+            // Opt-in to JSON-constrained generation (#121). Rejected on
+            // tool-call turns; the XML tool prompt needs free text.
+            if (typeof c.structuredOutput !== "boolean") {
+              pushError(`providers.${name}.structuredOutput must be a boolean`);
+            } else {
+              pc.structuredOutput = c.structuredOutput;
+            }
+          }
+          if ("cachePrompt" in c) {
+            // Ask the backend to keep its prompt/KV cache warm (#121).
+            if (typeof c.cachePrompt !== "boolean") {
+              pushError(`providers.${name}.cachePrompt must be a boolean`);
+            } else {
+              pc.cachePrompt = c.cachePrompt;
+            }
+          }
+          if ("contextWindow" in c) {
+            const cw = c as Record<string, unknown>;
+            if (
+              typeof cw.contextWindow !== "number" ||
+              cw.contextWindow <= 0 ||
+              !Number.isInteger(cw.contextWindow)
+            ) {
+              pushError(
+                `providers.${name}.contextWindow must be a positive integer`,
+              );
+            } else {
+              pc.contextWindow = cw.contextWindow as number;
+            }
+          }
+          if ("options" in c) {
+            const opt = c as { options?: unknown };
+            if (typeof opt.options !== "object" || opt.options === null) {
+              pushError(`providers.${name}.options must be an object`);
+            } else {
+              const o = opt.options as Record<string, unknown>;
+              const out: NonNullable<ProviderConfig["options"]> = {};
+              const numField = (
+                key: keyof typeof out,
+                min: number,
+                max: number,
+                hint?: string,
+              ): void => {
+                if (key in o) {
+                  if (
+                    typeof o[key as string] !== "number" ||
+                    (o[key as string] as number) < min ||
+                    (o[key as string] as number) > max
+                  ) {
+                    pushError(
+                      `providers.${name}.options.${String(key)} must be a number${
+                        hint ? ` ${hint}` : ""
+                      }`,
+                    );
+                    return;
+                  }
+                  out[key] = o[key as string] as never;
+                }
+              };
+              numField("temperature", 0, 2);
+              numField("topP", 0, 1);
+              numField("topK", 0, Number.MAX_SAFE_INTEGER);
+              numField("minP", 0, 1);
+              numField("repeatPenalty", 0, Number.MAX_SAFE_INTEGER);
+              numField("presencePenalty", -2, 2);
+              numField("frequencyPenalty", -2, 2);
+              numField("seed", 0, Number.MAX_SAFE_INTEGER);
+              if ("stop" in o) {
+                if (
+                  !Array.isArray(o.stop) ||
+                  o.stop.some((s) => typeof s !== "string")
+                ) {
+                  pushError(
+                    `providers.${name}.options.stop must be an array of strings`,
+                  );
+                } else {
+                  out.stop = o.stop as string[];
+                }
+              }
+              pc.options = out;
             }
           }
           result.providers[name as ProviderName] = pc;
@@ -1336,13 +1440,9 @@ export class ConfigLoader {
 // Layered resolution with explicit single source (issue #115)
 // ---------------------------------------------------------------------------
 
-export type ConfigSource = "auto" | "workspace-yaml" | "user-yaml" | "settings";
+export type ConfigSource = "auto" | "workspace-yaml" | "user-yaml";
 
-export type ConfigLayer =
-  | "workspace-yaml"
-  | "user-yaml"
-  | "settings"
-  | "default";
+export type ConfigLayer = "workspace-yaml" | "user-yaml" | "default";
 
 export interface LayeredInput {
   /** Raw text of <workspace>/.champ/config.yaml (null if absent). */
@@ -1393,12 +1493,7 @@ export function resolveLayered(input: LayeredInput): LayeredResult {
   let wsText = input.workspaceText ?? null;
   let userText = input.userText ?? null;
 
-  if (input.source === "settings") {
-    if (wsText) ignoredSources.push("workspace-yaml");
-    if (userText) ignoredSources.push("user-yaml");
-    wsText = null;
-    userText = null;
-  } else if (input.source === "workspace-yaml") {
+  if (input.source === "workspace-yaml") {
     if (userText) ignoredSources.push("user-yaml");
     userText = null;
   } else if (input.source === "user-yaml") {
@@ -1411,12 +1506,12 @@ export function resolveLayered(input: LayeredInput): LayeredResult {
 
   if (input.source === "workspace-yaml" && !wsText) {
     throw new Error(
-      "Invalid YAML or missing file: workspace .champ/config.yaml not found but champ.configSource=workspace-yaml",
+      "Invalid YAML or missing file: workspace .champ/config.yaml not found but source=workspace-yaml",
     );
   }
   if (input.source === "user-yaml" && !userText) {
     throw new Error(
-      "Invalid YAML or missing file: ~/.champ/config.yaml not found but champ.configSource=user-yaml",
+      "Invalid YAML or missing file: ~/.champ/config.yaml not found but source=user-yaml",
     );
   }
 
@@ -1426,7 +1521,7 @@ export function resolveLayered(input: LayeredInput): LayeredResult {
   if (!ws && !user) {
     return {
       config: null,
-      usedSource: "settings",
+      usedSource: "default",
       ignoredSources,
       conflict: false,
       origins: {},
