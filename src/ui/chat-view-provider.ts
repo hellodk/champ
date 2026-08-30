@@ -836,18 +836,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   /**
    * Persist a provider selection (from the in-webview settings overlay or
-   * Add-Model dialogue) into .champ/config.yaml (#123). The YAML file is
-   * the single config source since #118; the legacy champ.* VS Code
-   * settings no longer exist. Targets the workspace .champ/config.yaml,
-   * falling back to ~/.champ/config.yaml when no workspace is open.
+   * Add-Model dialogue) into ~/.champ/config.yaml (#123/#126). The YAML file
+   * is the single config source since #118; the legacy champ.* VS Code
+   * settings no longer exist. Since #126 the config lives only at the
+   * user level — never the workspace.
    */
   private async persistProviderSettings(
     providerId: string,
     model: string,
     baseUrl?: string,
   ): Promise<void> {
-    const root =
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir();
+    const root = os.homedir();
     const dirUri = vscode.Uri.file(path.join(root, ".champ"));
     const fileUri = vscode.Uri.file(path.join(root, ".champ", "config.yaml"));
 
