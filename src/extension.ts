@@ -1579,15 +1579,8 @@ export async function activate(
       );
     }),
     vscode.commands.registerCommand("champ.generateConfig", async () => {
-      const activeFolder = resolveActiveWorkspaceFolder() ?? workspaceRoot;
-      if (!activeFolder) {
-        void vscode.window.showErrorMessage(
-          "Champ: open a workspace folder before generating a config file.",
-        );
-        return;
-      }
       const targetUri = vscode.Uri.file(
-        path.join(activeFolder, ".champ", "config.yaml"),
+        path.join(os.homedir(), ".champ", "config.yaml"),
       );
       // If file exists, just open it (don't prompt to overwrite).
       try {
@@ -1601,7 +1594,7 @@ export async function activate(
       const template = generateDefaultConfigYaml();
       try {
         await vscode.workspace.fs.createDirectory(
-          vscode.Uri.file(path.join(activeFolder, ".champ")),
+          vscode.Uri.file(path.join(os.homedir(), ".champ")),
         );
       } catch {
         // Directory may already exist.
@@ -1613,7 +1606,7 @@ export async function activate(
       const doc = await vscode.workspace.openTextDocument(targetUri);
       await vscode.window.showTextDocument(doc);
       void vscode.window.showInformationMessage(
-        "Champ: created .champ/config.yaml. Edit it and save to apply.",
+        "Champ: created ~/.champ/config.yaml. Edit it and save to apply.",
       );
     }),
     // Guided provider setup wizard (#118). Collects provider → endpoint →
@@ -1747,10 +1740,7 @@ export async function activate(
 
       if (outcome.status === "cancelled") return;
 
-      const activeFolder = resolveActiveWorkspaceFolder() ?? workspaceRoot;
-      const targetDirUri = vscode.Uri.file(
-        path.join(activeFolder ?? os.homedir(), ".champ"),
-      );
+      const targetDirUri = vscode.Uri.file(path.join(os.homedir(), ".champ"));
       const targetUri = vscode.Uri.file(
         path.join(targetDirUri.fsPath, "config.yaml"),
       );
@@ -1865,18 +1855,11 @@ export async function activate(
             );
           }
         }
-        // Surgically rewrite the workspace YAML's top-level
-        // `provider:` line. Comments and the rest of the file are
-        // preserved. The file watcher fires loadProvider() which
-        // broadcasts a fresh providerStatus to the chat view.
-        const activeFolder = resolveActiveWorkspaceFolder() ?? workspaceRoot;
-        if (!activeFolder) {
-          void vscode.window.showErrorMessage(
-            "Champ: cannot switch model without an open workspace.",
-          );
-          return;
-        }
-        const yamlPath = path.join(activeFolder, ".champ", "config.yaml");
+        // Surgically rewrite ~/.champ/config.yaml's top-level `provider:`
+        // line. Comments and the rest of the file are preserved. The file
+        // watcher fires loadProvider() which broadcasts a fresh
+        // providerStatus to the chat view.
+        const yamlPath = path.join(os.homedir(), ".champ", "config.yaml");
         const yamlUri = vscode.Uri.file(yamlPath);
         let text: string;
         let configExisted = true;
@@ -1890,7 +1873,7 @@ export async function activate(
           const template = generateDefaultConfigYaml();
           try {
             await vscode.workspace.fs.createDirectory(
-              vscode.Uri.file(path.join(activeFolder, ".champ")),
+              vscode.Uri.file(path.join(os.homedir(), ".champ")),
             );
           } catch {
             /* dir already exists */
@@ -1937,16 +1920,9 @@ export async function activate(
           );
           return;
         }
-        const activeFolder = resolveActiveWorkspaceFolder() ?? workspaceRoot;
-        if (!activeFolder) {
-          void vscode.window.showErrorMessage(
-            "Champ: open a workspace folder before creating a config file.",
-          );
-          return;
-        }
-        const targetDir = vscode.Uri.file(path.join(activeFolder, ".champ"));
+        const targetDir = vscode.Uri.file(path.join(os.homedir(), ".champ"));
         const targetUri = vscode.Uri.file(
-          path.join(activeFolder, ".champ", "config.yaml"),
+          path.join(os.homedir(), ".champ", "config.yaml"),
         );
         try {
           await vscode.workspace.fs.createDirectory(targetDir);
@@ -1960,7 +1936,7 @@ export async function activate(
         const doc = await vscode.workspace.openTextDocument(targetUri);
         await vscode.window.showTextDocument(doc);
         void vscode.window.showInformationMessage(
-          `Champ: created .champ/config.yaml from "${template.label}". Edit and save to customize.`,
+          `Champ: created ~/.champ/config.yaml from "${template.label}". Edit and save to customize.`,
         );
         void context.globalState.update(FIRST_RUN_COMPLETE_KEY, true);
         // The file watcher fires loadProvider() automatically.
@@ -2095,15 +2071,9 @@ export async function activate(
           "No YAML config active — VS Code settings (champ.*) are the source.",
         );
       } else {
-        const { result, workspacePath, userPath } = lastLayeredInfo;
+        const { result, userPath } = lastLayeredInfo;
         channel.appendLine(`Source used : ${result.usedSource}`);
-        channel.appendLine(`  workspace : ${workspacePath ?? "(none)"}`);
         channel.appendLine(`  user      : ${userPath}`);
-        if (result.ignoredSources.length > 0) {
-          channel.appendLine(
-            `Ignored     : ${result.ignoredSources.join(", ")} (workspace > user)`,
-          );
-        }
         channel.appendLine("");
         channel.appendLine("Final merged config:");
         channel.appendLine(
@@ -2183,14 +2153,7 @@ export async function activate(
         },
         action: "add" | "delete",
       ) => {
-        const activeMcpFolder = resolveActiveWorkspaceFolder() ?? workspaceRoot;
-        if (!activeMcpFolder) {
-          void vscode.window.showErrorMessage(
-            "Champ: open a workspace to configure MCP servers.",
-          );
-          return;
-        }
-        const configPath = path.join(activeMcpFolder, ".champ", "config.yaml");
+        const configPath = path.join(os.homedir(), ".champ", "config.yaml");
         let rawConfig = "";
         try {
           rawConfig = new TextDecoder().decode(
@@ -2288,20 +2251,7 @@ export async function activate(
 
             const newServer = buildMcpServerConfig(entry, resolvedEnv);
 
-            const activeMcpInstallFolder =
-              resolveActiveWorkspaceFolder() ?? workspaceRoot;
-            if (!activeMcpInstallFolder) {
-              void vscode.window.showErrorMessage(
-                "Champ: open a workspace to install MCP servers.",
-              );
-              return;
-            }
-
-            const configPath = path.join(
-              activeMcpInstallFolder,
-              ".champ",
-              "config.yaml",
-            );
+            const configPath = path.join(os.homedir(), ".champ", "config.yaml");
             let rawConfig = "";
             try {
               rawConfig = new TextDecoder().decode(
@@ -3340,55 +3290,38 @@ export async function activate(
     }),
   );
 
-  // ---- Config loader (YAML-only since #118) -----------------------
+  // ---- Config loader (YAML-only since #118; single user config since #126) -
   /**
-   * Resolve the effective ChampConfig from (in order of precedence):
-   *   1. <workspace>/.champ/config.yaml
-   *   2. ~/.champ/config.yaml
-   *   3. built-in defaults
+   * Resolve the effective ChampConfig from `~/.champ/config.yaml`. This is
+   * the single source of configuration — no workspace-level file is read.
    *
-   * Returns null when no source has a usable config — the loader path
-   * is then skipped and loadProvider surfaces the "run Champ: Configure
-   * Provider" hint. Errors during YAML parsing are surfaced to the user
-   * but do not crash activation.
+   * Returns null when no usable config exists — the loader path is then
+   * skipped and loadProvider surfaces the "run Champ: Configure Provider"
+   * hint. Errors during YAML parsing are surfaced to the user but do not
+   * crash activation.
    */
-  // Last layered-resolution outcome, for Show Effective Config (#115).
+  // Last resolution outcome, for Show Effective Config (#115).
   let lastLayeredInfo: {
     result: import("./config/config-loader").LayeredResult;
-    workspacePath: string | null;
     userPath: string;
   } | null = null;
-  let conflictNoticeShown = false;
 
   const resolveConfig = async (): Promise<ChampConfig | null> => {
-    const activeFolder = resolveActiveWorkspaceFolder();
-    const workspacePath = activeFolder
-      ? path.join(activeFolder, ".champ", "config.yaml")
-      : null;
     const userPath = path.join(os.homedir(), ".champ", "config.yaml");
 
-    // Read raw bytes only — parse errors are attributed to their layer by
-    // resolveLayered so users learn WHICH file is broken (#115).
-    const readRaw = async (p: string | null): Promise<string | null> => {
-      if (!p) return null;
-      try {
-        return new TextDecoder().decode(
-          await vscode.workspace.fs.readFile(vscode.Uri.file(p)),
-        );
-      } catch {
-        return null; // missing file
-      }
-    };
+    // Read raw bytes only — parse errors are surfaced to the user.
+    let raw: string | null;
+    try {
+      raw = new TextDecoder().decode(
+        await vscode.workspace.fs.readFile(vscode.Uri.file(userPath)),
+      );
+    } catch {
+      return null; // missing file — no config yet
+    }
 
-    // YAML is the only source of truth since #118: favour the workspace
-    // .champ/config.yaml, then ~/.champ/config.yaml.
     let result: import("./config/config-loader").LayeredResult;
     try {
-      result = resolveLayered({
-        workspaceText: await readRaw(workspacePath),
-        userText: await readRaw(userPath),
-        source: "auto",
-      });
+      result = resolveLayered({ userText: raw, source: "auto" });
     } catch (err) {
       void vscode.window.showErrorMessage(
         `Champ: ${err instanceof Error ? err.message : String(err)}`,
@@ -3396,19 +3329,7 @@ export async function activate(
       return null;
     }
 
-    lastLayeredInfo = { result, workspacePath, userPath };
-
-    if (result.ignoredSources.length > 0) {
-      console.log(
-        `Champ config: ignoring ${result.ignoredSources.join(", ")} (auto precedence)`,
-      );
-    }
-    if (result.conflict && !conflictNoticeShown) {
-      conflictNoticeShown = true;
-      void vscode.window.showInformationMessage(
-        `Champ: workspace .champ/config.yaml overrides ~/.champ/config.yaml.`,
-      );
-    }
+    lastLayeredInfo = { result, userPath };
 
     if (!result.config) return null;
     return ConfigLoader.withDefaults(ConfigLoader.substituteEnv(result.config));
@@ -3507,7 +3428,7 @@ export async function activate(
         ? await factory.createFromChampConfig(yamlConfig, context.secrets)
         : (() => {
             throw new Error(
-              "No Champ configuration found. Run 'Champ: Configure Provider' or create .champ/config.yaml.",
+              "No Champ configuration found. Run 'Champ: Configure Provider' or create ~/.champ/config.yaml.",
             );
           })();
       // Wrap primary provider in a CircuitBreaker so repeated failures stop
@@ -3879,7 +3800,7 @@ export async function activate(
       });
       chatViewProvider?.postMessage({
         type: "error",
-        message: `Champ provider not ready: ${message}\n\nOpen settings (gear icon in the status bar) to configure the active provider, or create a .champ/config.yaml file.`,
+        message: `Champ provider not ready: ${message}\n\nOpen settings (gear icon in the status bar) to configure the active provider, or create a ~/.champ/config.yaml file.`,
       });
       console.error("Champ: provider load failed:", err);
     }
@@ -3903,7 +3824,7 @@ export async function activate(
               `Available agents: ${[...registeredAgentNames].join(", ")}`,
           );
           void vscode.window.showWarningMessage(
-            `Champ: trigger "${trigger.name}" references unknown agent "${trigger.run}". Check your .champ/config.yaml.`,
+            `Champ: trigger "${trigger.name}" references unknown agent "${trigger.run}". Check your ~/.champ/config.yaml.`,
           );
         }
       }
@@ -4261,15 +4182,12 @@ export async function activate(
     }),
   );
 
-  // Watch .champ/config.yaml in every open workspace folder and in ~/.champ/
-  // for live reload. Created, changed, or deleted — any triggers a provider reload.
+  // Watch ~/.champ/config.yaml for live reload. Created, changed, or
+  // deleted — any triggers a provider reload. Since #126, config comes only
+  // from the user-level file, so no workspace folder is watched.
   {
     const yamlWatchers: vscode.FileSystemWatcher[] = [];
-    const watchedRoots = [
-      ...(vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ??
-        (workspaceRoot ? [workspaceRoot] : [])),
-      os.homedir(),
-    ];
+    const watchedRoots = [os.homedir()];
     let configReloadTimer: ReturnType<typeof setTimeout> | undefined;
     const debouncedReload = () => {
       if (configReloadTimer) clearTimeout(configReloadTimer);

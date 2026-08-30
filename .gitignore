@@ -7,6 +7,8 @@ out/
 .aidev/
 .champ/sessions/
 .champ/team-runs/
+# Config lives only in ~/.champ/config.yaml (#126) — never commit a workspace copy.
+.champ/config.yaml
 .superpowers/
 graphify-out/
 test-reports/
