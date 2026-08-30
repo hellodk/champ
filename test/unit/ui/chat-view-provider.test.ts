@@ -955,4 +955,148 @@ describe("ChatViewProvider", () => {
       expect(msg.activeSessionId).toBe("s1");
     });
   });
+
+  describe("save settings to YAML instead of VS Code settings (#123)", () => {
+    it("persists provider/model/baseUrl to .champ/config.yaml on saveSettings", async () => {
+      const vscode = await import("vscode");
+      const ws = (
+        vscode as unknown as {
+          workspace: {
+            fs: {
+              writeFile: ReturnType<typeof vi.fn>;
+              readFile: ReturnType<typeof vi.fn>;
+            };
+          };
+        }
+      ).workspace;
+      const writeFile = ws.fs.writeFile as ReturnType<typeof vi.fn>;
+      writeFile.mockClear();
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({
+        type: "saveSettings",
+        provider: "openai-compatible",
+        model: "some-model",
+        baseUrl: "http://192.168.1.5:8000/v1",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(writeFile).toHaveBeenCalled();
+      const [uri, bytes] = writeFile.mock.calls[0] as [unknown, Uint8Array];
+      expect(String((uri as { fsPath: string }).fsPath)).toContain(
+        ".champ/config.yaml",
+      );
+      const text = new TextDecoder().decode(bytes);
+      expect(text).toContain("provider: openai-compatible");
+      expect(text).toContain("baseUrl: http://192.168.1.5:8000/v1");
+      expect(text).toContain("model: some-model");
+    });
+
+    it("does not call config.update for provider/model/baseUrl on saveSettings", async () => {
+      const vscode = await import("vscode");
+      const cfg = vscode.workspace.getConfiguration("champ") as {
+        update: ReturnType<typeof vi.fn>;
+      };
+      cfg.update.mockClear();
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({
+        type: "saveSettings",
+        provider: "ollama",
+        model: "llama3.1",
+        baseUrl: "http://localhost:11434",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const updates = cfg.update.mock.calls
+        .map((c) => String(c[0]))
+        .filter(
+          (k) =>
+            k === "provider" || k.endsWith(".model") || k.endsWith(".baseUrl"),
+        );
+      expect(updates).toEqual([]);
+    });
+  });
+
+  describe("model discovery attaches the provider apiKey (#123)", () => {
+    it("sends an Authorization Bearer header on the /v1/models probe", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: [{ id: "mlx-community--Qwen3-1.7B-4bit" }],
+        }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      // Attach a key resolver so a known provider key is sent.
+      (
+        provider as unknown as {
+          setApiKeyResolver: (
+            cb: (id: string) => Promise<string | undefined>,
+          ) => void;
+        }
+      ).setApiKeyResolver(() => Promise.resolve("dummy"));
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({
+        type: "discoverModels",
+        provider: "openai-compatible",
+        baseUrl: "http://192.168.1.5:8000",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const [url, init] = fetchMock.mock.calls[0] as [
+        string,
+        { headers?: Record<string, string> },
+      ];
+      expect(url).toContain("/v1/models");
+      expect(init.headers?.Authorization).toBe("Bearer dummy");
+
+      const posts = postMessage.mock.calls.filter(
+        (args) => (args[0] as { type: string }).type === "discoveredModels",
+      );
+      expect(posts).toHaveLength(1);
+      const msg = posts[0][0] as { models: Array<{ name: string }> };
+      expect(msg.models[0].name).toBe("mlx-community--Qwen3-1.7B-4bit");
+    });
+
+    it("declares the endpoint as '0 models' when no key is attached and the server 401s", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({
+        type: "discoverModels",
+        provider: "openai-compatible",
+        baseUrl: "http://192.168.1.5:8000",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const posts = postMessage.mock.calls.filter(
+        (args) => (args[0] as { type: string }).type === "discoveredModels",
+      );
+      expect(posts).toHaveLength(1);
+      const msg = posts[0][0] as {
+        models: Array<{ name: string }>;
+        error?: string;
+      };
+      expect(msg.models).toEqual([]);
+      expect(msg.error).toContain("401");
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+  });
 });
