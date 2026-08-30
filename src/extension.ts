@@ -47,6 +47,7 @@ import {
   resolveLayered,
   type ChampConfig,
 } from "./config/config-loader";
+import { ConfigWatcher } from "./config/config-watcher";
 import { SkillRegistry } from "./skills/skill-registry";
 import { SkillLoader } from "./skills/skill-loader";
 import { VariableResolver } from "./skills/variable-resolver";
@@ -4182,30 +4183,54 @@ export async function activate(
     }),
   );
 
-  // Watch ~/.champ/config.yaml for live reload. Created, changed, or
-  // deleted — any triggers a provider reload. Since #126, config comes only
-  // from the user-level file, so no workspace folder is watched.
+  // Watch ~/.champ/config.yaml for live reload. Since #126 config comes only
+  // from the user-level file. Issue #129: FileSystemWatcher rooted at the
+  // home dir is unreliable for out-of-workspace files on Linux, so the
+  // native watcher is the fast path and a mtime poller is the reliable
+  // fallback — either signal triggers the same debounced loadProvider().
   {
-    const yamlWatchers: vscode.FileSystemWatcher[] = [];
-    const watchedRoots = [os.homedir()];
-    let configReloadTimer: ReturnType<typeof setTimeout> | undefined;
-    const debouncedReload = () => {
-      if (configReloadTimer) clearTimeout(configReloadTimer);
-      configReloadTimer = setTimeout(() => {
-        configReloadTimer = undefined;
-        void loadProvider();
-      }, 300);
-    };
-    for (const root of watchedRoots) {
-      const w = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(root, ".champ/config.yaml"),
-      );
-      w.onDidChange(debouncedReload);
-      w.onDidCreate(debouncedReload);
-      w.onDidDelete(debouncedReload);
-      yamlWatchers.push(w);
-    }
-    context.subscriptions.push(...yamlWatchers);
+    const configPath = path.join(os.homedir(), ".champ", "config.yaml");
+    const watcher = new ConfigWatcher({
+      path: configPath,
+      onChange: () => void loadProvider(),
+      now: () => Date.now(),
+      setIntervalFn: (cb, ms) => {
+        const id = setInterval(cb, ms);
+        context.subscriptions.push({
+          dispose: () => clearInterval(id),
+        });
+        return id;
+      },
+      clearIntervalFn: (id) => clearInterval(id),
+      setTimeoutFn: (cb, ms) => {
+        const id = setTimeout(cb, ms);
+        context.subscriptions.push({
+          dispose: () => clearTimeout(id),
+        });
+        return id;
+      },
+      clearTimeoutFn: (id) => clearTimeout(id),
+      stat: async (p) => {
+        try {
+          const st = await vscode.workspace.fs.stat(vscode.Uri.file(p));
+          return { mtimeMs: st.mtime };
+        } catch {
+          return null;
+        }
+      },
+    });
+    context.subscriptions.push({ dispose: () => watcher.dispose() });
+
+    // Fast path: native watcher for in-VS-Code / same-machine edits.
+    const native = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(os.homedir(), ".champ/config.yaml"),
+    );
+    native.onDidChange(() => watcher.signalChanged());
+    native.onDidCreate(() => watcher.signalChanged());
+    native.onDidDelete(() => watcher.signalChanged());
+    context.subscriptions.push(native);
+
+    watcher.start();
   }
 
   // ---- Team Builder and Rules Editor commands -------------------------
