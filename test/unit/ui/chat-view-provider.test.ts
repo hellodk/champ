@@ -1021,4 +1021,82 @@ describe("ChatViewProvider", () => {
       expect(updates).toEqual([]);
     });
   });
+
+  describe("model discovery attaches the provider apiKey (#123)", () => {
+    it("sends an Authorization Bearer header on the /v1/models probe", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: [{ id: "mlx-community--Qwen3-1.7B-4bit" }],
+        }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      // Attach a key resolver so a known provider key is sent.
+      (
+        provider as unknown as {
+          setApiKeyResolver: (
+            cb: (id: string) => Promise<string | undefined>,
+          ) => void;
+        }
+      ).setApiKeyResolver(() => Promise.resolve("dummy"));
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({
+        type: "discoverModels",
+        provider: "openai-compatible",
+        baseUrl: "http://192.168.1.5:8000",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const [url, init] = fetchMock.mock.calls[0] as [
+        string,
+        { headers?: Record<string, string> },
+      ];
+      expect(url).toContain("/v1/models");
+      expect(init.headers?.Authorization).toBe("Bearer dummy");
+
+      const posts = postMessage.mock.calls.filter(
+        (args) => (args[0] as { type: string }).type === "discoveredModels",
+      );
+      expect(posts).toHaveLength(1);
+      const msg = posts[0][0] as { models: Array<{ name: string }> };
+      expect(msg.models[0].name).toBe("mlx-community--Qwen3-1.7B-4bit");
+    });
+
+    it("declares the endpoint as '0 models' when no key is attached and the server 401s", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+      view.fireMessage({
+        type: "discoverModels",
+        provider: "openai-compatible",
+        baseUrl: "http://192.168.1.5:8000",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const posts = postMessage.mock.calls.filter(
+        (args) => (args[0] as { type: string }).type === "discoveredModels",
+      );
+      expect(posts).toHaveLength(1);
+      const msg = posts[0][0] as {
+        models: Array<{ name: string }>;
+        error?: string;
+      };
+      expect(msg.models).toEqual([]);
+      expect(msg.error).toContain("401");
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+  });
 });

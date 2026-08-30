@@ -969,6 +969,28 @@ export async function activate(
     },
     (template, ctx) => VariableResolver.resolve(template, ctx),
   );
+  // Resolve a provider's apiKey for the model-discovery probe (YAML config,
+  // then SecretStorage/env fallback). Key-required endpoints (MLX,
+  // openai-compatible, vLLM) would otherwise return 401 -> "0 models found".
+  chatViewProvider.setApiKeyResolver(async (providerId) => {
+    const cfg = await resolveConfig();
+    const entry = (
+      cfg?.providers as Record<string, { apiKey?: string }> | undefined
+    )?.[providerId];
+    if (entry?.apiKey) return entry.apiKey;
+    const secretKeys: Record<string, string> = {
+      claude: "champ.claude.apiKey",
+      openai: "champ.openai.apiKey",
+      gemini: "champ.gemini.apiKey",
+      "openai-compatible": "champ.openaiCompatible.apiKey",
+      vllm: "champ.vllm.apiKey",
+    };
+    const secretKey = secretKeys[providerId];
+    if (secretKey) {
+      return (await context.secrets.get(secretKey)) || undefined;
+    }
+    return undefined;
+  });
   // Auto-label sessions + Smart Router model selection.
   chatViewProvider.onUserMessage((text) => {
     const active = agentManager?.getActive();

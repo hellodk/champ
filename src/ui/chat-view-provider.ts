@@ -179,6 +179,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private skillRegistry: ChatSkillRegistry | undefined;
   private skillContextProvider: SkillContextProvider | undefined;
   private skillVariableResolver: SkillVariableResolver | undefined;
+  private apiKeyResolver:
+    | ((providerId: string) => Promise<string | undefined>)
+    | undefined;
   private userMessageCallback: ((text: string) => void) | undefined;
   private webviewReadyCallback: (() => void) | undefined;
   private streamCompletedCallback:
@@ -249,6 +252,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
    */
   setContextResolver(resolver: ChatContextResolver): void {
     this.contextResolver = resolver;
+  }
+
+  /**
+   * Attach a resolver that yields the apiKey for a provider id (from YAML
+   * config / SecretStorage). Used by the model-discovery probe so
+   * key-required endpoints (e.g. MLX/OpenAI-compatible) return models
+   * instead of a 401 -> "0 models found" (#123).
+   */
+  setApiKeyResolver(
+    resolver: (providerId: string) => Promise<string | undefined>,
+  ): void {
+    this.apiKeyResolver = resolver;
   }
 
   /**
@@ -462,8 +477,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           const endpoint = isOllama
             ? `${msg.baseUrl.replace(/\/$/, "")}/api/tags`
             : `${msg.baseUrl.replace(/\/$/, "")}/v1/models`;
+          // Key-required endpoints (MLX/OpenAI-compatible, vLLM) return 401
+          // without a Bearer key — attach the provider's stored key so the
+          // probe returns models instead of "0 models found" (#123).
+          const headers: Record<string, string> = {};
+          if (!isOllama && this.apiKeyResolver) {
+            const key = await this.apiKeyResolver(msg.provider);
+            if (key) headers.Authorization = `Bearer ${key}`;
+          }
           const resp = await fetch(endpoint, {
             signal: AbortSignal.timeout(5000),
+            headers,
           });
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const body = (await resp.json()) as Record<string, unknown>;
