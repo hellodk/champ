@@ -673,15 +673,30 @@
   const bottomBar = el('div', { class: 'bottom-bar' });
 
   // Mode picker — styled popup replacing native <select>.
-  const modeIcons = { agent: '⚙', ask: '💬', manual: '🛡', plan: '📋', composer: '🎼' };
-  const modeDescs = {
-    agent:    '🔴 Autonomous — reads & edits files, runs commands',
-    ask:      '🟢 Read-only — answers questions, never edits files',
-    manual:   '🟡 Step-by-step — asks approval before every action',
-    plan:     '🟡 Plan only — researches and proposes, no file changes',
-    composer: '🔴 Multi-file — edits multiple files with diff review',
+  // Standard VS Code codicons (not emoji) so they match the theme's icon font.
+  const modeIcons = {
+    agent: 'circuit-board',
+    ask: 'comment-discussion',
+    manual: 'shield',
+    plan: 'list-unordered',
+    composer: 'multiple-windows',
   };
-  const modePickerBtn = el('button', { class: 'mode-picker-btn' }, [`${modeIcons[state.mode] || '⚙'} ${state.mode.charAt(0).toUpperCase() + state.mode.slice(1)} ▾`]);
+  const modeDescs = {
+    agent:    'Autonomous — reads & edits files, runs commands',
+    ask:      'Read-only — answers questions, never edits files',
+    manual:   'Step-by-step — asks approval before every action',
+    plan:     'Plan only — researches and proposes, no file changes',
+    composer: 'Multi-file — edits multiple files with diff review',
+  };
+  /** Label for a mode: codicon glyph + capitalized name + caret. */
+  function modeLabel(m) {
+    const span = el('span', { class: 'mode-btn-label' });
+    span.append(codicon(modeIcons[m] || 'circuit-board'));
+    span.append(document.createTextNode(` ${m.charAt(0).toUpperCase() + m.slice(1)} ▾`));
+    return span;
+  }
+  const modePickerBtn = el('button', { class: 'mode-picker-btn' });
+  modePickerBtn.append(modeLabel(state.mode));
   const modePickerPopup = el('div', { class: 'mode-picker-popup', hidden: 'true' });
   modePickerBtn.addEventListener('click', (ev) => {
     ev.stopPropagation();
@@ -693,7 +708,7 @@
         modeTooltipShown = true;
         sessionStorage.setItem('champ-mode-tip', 'true');
         const tip = el('div', { class: 'mode-tip' }, [
-          '🟢 Ask = read-only safe   🟡 Plan/Manual = supervised   🔴 Agent/Composer = edits files'
+          'Ask = read-only safe   Plan/Manual = supervised   Agent/Composer = edits files'
         ]);
         modePickerPopup.insertBefore(tip, modePickerPopup.firstChild);
       }
@@ -709,7 +724,8 @@
     modePickerPopup.innerHTML = '';
     for (const m of ['agent', 'ask', 'manual', 'plan', 'composer']) {
       const row = el('div', { class: `mode-row${m === state.mode ? ' active' : ''}` });
-      const icon = el('span', { class: 'mode-icon' }, [modeIcons[m] || '']);
+      const icon = el('span', { class: 'mode-icon' });
+      icon.append(codicon(modeIcons[m] || 'circuit-board'));
       const textCol = el('div', { class: 'mode-text' });
       const nameEl = el('span', { class: 'mode-name' }, [m.charAt(0).toUpperCase() + m.slice(1)]);
       const descEl = el('span', { class: 'mode-desc' }, [modeDescs[m] || '']);
@@ -723,7 +739,8 @@
       row.addEventListener('click', () => {
         state.mode = m;
         vscode.postMessage({ type: 'setMode', mode: m });
-        modePickerBtn.textContent = `${modeIcons[m]} ${m.charAt(0).toUpperCase() + m.slice(1)} ▾`;
+        modePickerBtn.textContent = '';
+        modePickerBtn.append(modeLabel(m));
         modePickerPopup.setAttribute('hidden', 'true');
         if (state.messages.length === 0) renderEmptyState();
       });
