@@ -5,6 +5,26 @@ All notable changes to Champ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] — 2026-08-30
+
+### Changed
+
+- **Single source of config** — all configuration now comes from
+  `~/.champ/config.yaml` only. Workspace-local `.champ/config.yaml` is no
+  longer read, written, or watched, so config can't branch per-repo or leak
+  keys into committed projects (#126).
+- **Standard codicons in the mode picker** — replaced emoji icons with VS
+  Code's built-in codicons (agent, ask, manual, plan, composer) (#125).
+
+### Fixed
+
+- **Provider discovery auth** — the model-discovery probe now sends the
+  configured API key, so self-hosted endpoints that require auth return
+  their models correctly (#123).
+- **Config persistence** — provider/model selections from the settings
+  overlay and Add-Model dialogue are saved into `~/.champ/config.yaml`
+  instead of VS Code settings (#123).
+
 ## [1.6.161] — 2026-07-18
 
 ### Added
