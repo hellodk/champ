@@ -5,6 +5,14 @@ All notable changes to Champ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.1] — 2026-08-31
+
+### Fixed
+
+- **Config hot-reload** — changes to `~/.champ/config.yaml` are now picked up
+  without a window restart. A file watcher reloads the config live and applies
+  it to running sessions (#129, #130).
+
 ## [1.8.0] — 2026-08-30
 
 ### Changed
