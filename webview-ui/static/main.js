@@ -39,6 +39,14 @@
     streaming: false,
     streamingHasText: false,
     currentAssistantMessage: /** @type {HTMLElement|null} */ (null),
+    /** Reasoning content accumulated for the current assistant response. */
+    reasoningContent: '',
+    /** True while the model is emitting chain-of-thought. */
+    isThinking: false,
+    /** True once any reasoning has been emitted this stream. */
+    hasThinking: false,
+    /** Reference to the current collapsible thinking block element (if any). */
+    thinkingBlock: /** @type {HTMLElement|null} */ (null),
     /** Messages typed while a response is in-flight; sent in order after stream ends. */
     messageQueue: /** @type {string[]} */ ([]),
     /** Sent message history for up/down arrow navigation (terminal-style). */
@@ -1690,6 +1698,76 @@
     }
   }
 
+  // --- Reasoning / chain-of-thought ("Thinking") UI ---------------------
+  // Reasoning from any reasoning-capable model renders in a collapsible
+  // section above the final answer. It is NEVER mixed with the answer body.
+  // The section is created lazily on the first reasoning delta; it is
+  // collapsed by default and expandable by clicking the header.
+
+  function ensureThinkingBlock() {
+    if (state.thinkingBlock && state.thinkingBlock.isConnected) return state.thinkingBlock;
+    const msg = state.currentAssistantMessage;
+    if (!msg) return null;
+    const block = el('div', { class: 'thinking-block collapsed' });
+    const header = el('div', { class: 'thinking-header', tabindex: '0', 'aria-expanded': 'false', role: 'button' });
+    const icon = el('span', { class: 'thinking-icon', textContent: '🧠' });
+    const label = el('span', { class: 'thinking-label', textContent: 'Thinking…' });
+    const chevron = el('span', { class: 'thinking-chevron' });
+    header.append(icon, label, chevron);
+    const body = el('div', { class: 'thinking-body' });
+    body.dataset.rawText = '';
+    block.append(header, body);
+    header.addEventListener('click', () => toggleThinkingBlock(block, header));
+    header.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleThinkingBlock(block, header);
+      }
+    });
+    // Insert the thinking block ABOVE the assistant answer body.
+    const bodyEl = msg.querySelector('.body');
+    if (bodyEl) msg.insertBefore(block, bodyEl);
+    else msg.prepend(block);
+    state.thinkingBlock = block;
+    return block;
+  }
+
+  function toggleThinkingBlock(block, header) {
+    const collapsed = block.classList.toggle('collapsed');
+    if (header) header.setAttribute('aria-expanded', String(!collapsed));
+  }
+
+  function appendThinking(text) {
+    if (!state.currentAssistantMessage) {
+      state.currentAssistantMessage = appendMessage('assistant', '');
+    }
+    const block = ensureThinkingBlock();
+    if (!block) return;
+    state.isThinking = true;
+    state.hasThinking = true;
+    // The real reasoning text replaces the waiting dots on the answer body.
+    const body = state.currentAssistantMessage.querySelector('.body');
+    if (body && body.classList.contains('thinking')) {
+      body.classList.remove('thinking');
+      if (state.streamingHasText) body.classList.add('streaming-cursor');
+    }
+    const tb = block.querySelector('.thinking-body');
+    tb.dataset.rawText = (tb.dataset.rawText || '') + text;
+    // Reasoning renders as plain text with preserved whitespace — no markdown
+    // re-interpretation of intermediate chain-of-thought.
+    tb.textContent = tb.dataset.rawText;
+    if (!userScrolledUp) {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+  }
+
+  function finalizeThinkingBlock() {
+    if (state.hasThinking) {
+      const label = state.thinkingBlock ? state.thinkingBlock.querySelector('.thinking-label') : null;
+      if (label) label.textContent = 'Thinking';
+    }
+  }
+
   // --- Streaming render scheduler (#110) -------------------------------
   let streamRenderQueued = false;
 
@@ -2305,11 +2383,20 @@
         if (msg.userText) appendMessage('user', msg.userText);
         state.currentAssistantMessage = appendMessage('assistant', '');
         state.streamingHasText = false;
+        // Reset reasoning state for the new response.
+        state.reasoningContent = '';
+        state.isThinking = false;
+        state.hasThinking = false;
+        state.thinkingBlock = null;
         {
           const startBody = state.currentAssistantMessage.querySelector('.body');
           if (startBody) startBody.classList.add('thinking');
         }
         setStreaming(true);
+        break;
+      case 'thinkingDelta':
+        state.reasoningContent += msg.text || '';
+        appendThinking(msg.text || '');
         break;
       case 'streamDelta':
         // No per-delta DOM scans: rendering is rAF-batched inside
@@ -2318,6 +2405,7 @@
         break;
       case 'streamEnd':
         scheduleStreamRender(true);
+        finalizeThinkingBlock();
         setStreaming(false);
         // Safety net: mark any tool cards still showing "Running..."
         // as completed (the result message may have been lost).

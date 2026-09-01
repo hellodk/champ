@@ -84,6 +84,7 @@ export interface ToolDefinition {
  */
 export type StreamDelta =
   | { type: "text"; text: string }
+  | { type: "reasoning"; text: string }
   | { type: "tool_call_start"; toolCall: ToolCall }
   | { type: "tool_call_delta"; toolCallId: string; argumentsDelta: string }
   | {

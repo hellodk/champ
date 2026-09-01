@@ -35,6 +35,12 @@ export interface StreamDeltaMessage {
   text: string;
 }
 
+/** Reasoning/chain-of-thought delta, rendered in a collapsible Thinking section. */
+export interface ThinkingDeltaMessage {
+  type: "thinkingDelta";
+  text: string;
+}
+
 /** Sent before a multi-agent workflow to put the UI into streaming mode. */
 export interface StreamStartMessage {
   type: "streamStart";
@@ -487,6 +493,7 @@ export interface TerminalOutputChunkMessage {
 export type ExtensionToWebviewMessage =
   | StreamStartMessage
   | StreamDeltaMessage
+  | ThinkingDeltaMessage
   | StreamEndMessage
   | ToolCallStartMessage
   | ToolCallResultMessage
@@ -877,6 +884,10 @@ export function isReloadProviderRequest(
 
 export function createStreamDelta(text: string): StreamDeltaMessage {
   return { type: "streamDelta", text };
+}
+
+export function createThinkingDelta(text: string): ThinkingDeltaMessage {
+  return { type: "thinkingDelta", text };
 }
 
 export function createStreamEnd(usage?: {

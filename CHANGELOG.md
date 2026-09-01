@@ -5,6 +5,21 @@ All notable changes to Champ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] — 2026-09-01
+
+### Added
+
+- **Thinking / chain-of-thought UI** — reasoning emitted by any reasoning-capable
+  model now renders in a collapsible `🧠 Thinking` section above the final answer
+  instead of leaking into the response body. The section shows `Thinking…` while
+  streaming and `Thinking` when complete, and is collapsed by default with a
+  clickable header to expand.
+- **Generic reasoning support** — reads `reasoning_content`, `reasoning`, or
+  `reasoning_text` streaming fields (`src/providers/openai-compatible.ts`) and
+  routes inline `<thinking>…</thinking>` tags from content deltas
+  (`src/providers/thinking-tag-router.ts`) into the Thinking UI, split safely
+  across chunk boundaries.
+
 ## [1.8.1] — 2026-08-31
 
 ### Fixed

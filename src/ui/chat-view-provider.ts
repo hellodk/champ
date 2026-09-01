@@ -21,6 +21,7 @@ import { terminalOutputBuffer } from "../agent/terminal-output-buffer";
 import {
   createStreamDelta,
   createStreamEnd,
+  createThinkingDelta,
   createToolCallStart,
   createToolCallResult,
   createError,
@@ -93,6 +94,7 @@ import {
   type EditRecord,
 } from "../agent/edit-review-tracker";
 import type { StreamDelta, ContentBlock } from "../providers/types";
+import { ThinkingTagRouter } from "../providers/thinking-tag-router";
 
 /**
  * Minimal interface that ChatViewProvider needs from a context resolver.
@@ -210,6 +212,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
    */
   private pendingApprovals = new Map<string, (approved: boolean) => void>();
   private readonly editTracker = new EditReviewTracker();
+  /**
+   * Routes `<thinking>...</thinking>` tags that some providers stream inline
+   * inside ordinary content deltas. Stateful per response — reset at the
+   * start of each stream.
+   */
+  private thinkingTagRouter = new ThinkingTagRouter();
   private diffOverlayController:
     | import("./diff-overlay-controller").DiffOverlayController
     | null = null;
@@ -1075,6 +1083,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // Wire the agent's stream events to the webview for live rendering.
     // Dispose the prior listener first so we don't leak subscriptions.
     this.streamListenerDispose?.();
+    this.thinkingTagRouter = new ThinkingTagRouter();
     this.streamListenerDispose = this.agent.onStreamDelta(
       (delta: StreamDelta) => {
         this.forwardStreamDelta(delta);
@@ -1341,12 +1350,26 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     switch (delta.type) {
       case "text":
         if (delta.text) {
-          // Strip any Qwen/DeepSeek special tokens that leaked through.
-          const cleaned = delta.text
-            .replace(/<｜[^｜]*｜>/g, "")
-            .replace(/```json\s*\{[\s\S]*?\}\s*```/g, "");
-          const trimmed = cleaned.trim();
-          if (trimmed) this.postMessage(createStreamDelta(trimmed));
+          // Some reasoning models stream `<thinking>...</thinking>` tags inline
+          // inside normal content rather than via a dedicated reasoning field.
+          // Route those tags into the Thinking UI instead of the answer body.
+          const routed = this.thinkingTagRouter.push(delta.text);
+          if (routed.reasoning) {
+            this.postMessage(createThinkingDelta(routed.reasoning));
+          }
+          if (routed.answer) {
+            // Strip any Qwen/DeepSeek special tokens that leaked through.
+            const cleaned = routed.answer
+              .replace(/<｜[^｜]*｜>/g, "")
+              .replace(/```json\s*\{[\s\S]*?\}\s*```/g, "");
+            const trimmed = cleaned.trim();
+            if (trimmed) this.postMessage(createStreamDelta(trimmed));
+          }
+        }
+        break;
+      case "reasoning":
+        if (delta.text) {
+          this.postMessage(createThinkingDelta(delta.text));
         }
         break;
       case "tool_call_start":
@@ -1381,6 +1404,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         );
         break;
       case "done": {
+        // Flush any trailing in-progress <thinking> block at end of stream.
+        const flushed = this.thinkingTagRouter.end();
+        if (flushed.reasoning) {
+          this.postMessage(createThinkingDelta(flushed.reasoning));
+        }
+        if (flushed.answer) {
+          const cleaned = flushed.answer
+            .replace(/<｜[^｜]*｜>/g, "")
+            .replace(/```json\s*\{[\s\S]*?\}\s*```/g, "");
+          const trimmed = cleaned.trim();
+          if (trimmed) this.postMessage(createStreamDelta(trimmed));
+        }
         this.postMessage(createStreamEnd(delta.usage));
         // flush() collects accumulated edit records without clearing them;
         // call it once here and pass the result through. Use reset() to clear.

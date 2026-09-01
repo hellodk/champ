@@ -437,6 +437,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
                   delta?: {
                     content?: string;
                     reasoning_content?: string;
+                    reasoning?: string;
+                    reasoning_text?: string;
                     tool_calls?: Array<{
                       index?: number;
                       id?: string;
@@ -458,13 +460,19 @@ export class OpenAICompatibleProvider implements LLMProvider {
               if (text) {
                 yield { type: "text", text };
               }
-              // Reasoning models (Qwen3.x, DeepSeek-R1 on some servers)
-              // stream chain-of-thought via a dedicated field. Surface it
-              // as text — dropping it silently makes these models look
-              // like they answer with blank lines.
-              const reasoning = choice?.delta?.reasoning_content;
+              // Reasoning models (Qwen3.x, DeepSeek-R1, etc.) emit
+              // chain-of-thought via a dedicated streaming field. The exact
+              // field name varies by server: reasoning_content (OpenAI-adjacent
+              // servers), reasoning (some vLLM/vLLM forks), reasoning_text
+              // (DeepSeek-style). We emit a dedicated "reasoning" StreamDelta so
+              // the webview can render it in a collapsible Thinking section
+              // instead of leaking it into the final answer.
+              const reasoning =
+                choice?.delta?.reasoning_content ??
+                choice?.delta?.reasoning ??
+                choice?.delta?.reasoning_text;
               if (reasoning) {
-                yield { type: "text", text: reasoning };
+                yield { type: "reasoning", text: reasoning };
               }
               // Native OpenAI tool-calling (delta.tool_calls). Arguments
               // stream as fragments across chunks; emit start on first
