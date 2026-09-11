@@ -139,6 +139,35 @@ describe("ChatViewProvider", () => {
     expect(streamDeltaPosts.length).toBeGreaterThan(0);
   });
 
+  it("posts streamEnd when the stream errors (issue #132)", async () => {
+    // Capture the stream listener so we can simulate deltas.
+    let deltaListener: ((delta: unknown) => void) | null = null;
+    (agent.onStreamDelta as ReturnType<typeof vi.fn>).mockImplementation(
+      (listener: (delta: unknown) => void) => {
+        deltaListener = listener;
+        return () => {};
+      },
+    );
+
+    const view = createMockWebviewView(postMessage);
+    provider.resolveWebviewView(view as never, {} as never, {} as never);
+
+    view.fireMessage({ type: "userMessage", text: "Hi" });
+    // Let the handler register its stream listener before firing.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    deltaListener?.({ type: "error", error: "boom" });
+
+    const postedTypes = postMessage.mock.calls.map(
+      (args) => (args[0] as { type: string }).type,
+    );
+    // The error must be surfaced...
+    expect(postedTypes).toContain("error");
+    // ...and the webview must still be told to stop streaming so the
+    // infinite cursor animation is cleared.
+    expect(postedTypes).toContain("streamEnd");
+  });
+
   describe("@-symbol resolution", () => {
     it("should resolve @Files references and append them to the user message", async () => {
       const resolverParse = vi
@@ -1100,6 +1129,109 @@ describe("ChatViewProvider", () => {
 
     afterEach(() => {
       vi.unstubAllGlobals();
+    });
+  });
+
+  describe("diagnostic logging (issue #133)", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    function versionedProvider(version: string): ChatViewProvider {
+      return new ChatViewProvider(
+        {
+          fsPath: "/ext",
+          scheme: "file",
+          path: "/ext",
+          toString: () => "/ext",
+        } as never,
+        agent,
+        version,
+      );
+    }
+
+    it("injects the extension version into the webview HTML", () => {
+      const p = versionedProvider("2.0.1");
+      const view = createMockWebviewView(postMessage);
+      p.resolveWebviewView(view as never, {} as never, {} as never);
+      expect(view.webview.html).toContain('window.__CHAMP_VERSION__="2.0.1"');
+    });
+
+    it("logs the empty injected version at webview build time", () => {
+      const spy = vi.spyOn(console, "log");
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+      expect(spy).toHaveBeenCalledWith(
+        expect.stringContaining("[champ] webview version=(empty)"),
+      );
+    });
+
+    it("logs the injected version value at webview build time", () => {
+      const spy = vi.spyOn(console, "log");
+      const p = versionedProvider("2.0.1");
+      const view = createMockWebviewView(postMessage);
+      p.resolveWebviewView(view as never, {} as never, {} as never);
+      expect(spy).toHaveBeenCalledWith(
+        expect.stringContaining("[champ] webview version=2.0.1"),
+      );
+    });
+
+    it("logs activation with version and host on construction", () => {
+      const spy = vi.spyOn(console, "log");
+      const p = versionedProvider("2.0.1");
+      expect(spy).toHaveBeenCalledWith(
+        expect.stringContaining("[champ] activated v2.0.1 (host="),
+      );
+      void p;
+    });
+
+    it("logs stream start when a user message begins", async () => {
+      const spy = vi.spyOn(console, "log");
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+      view.fireMessage({ type: "userMessage", text: "Hello" });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(spy).toHaveBeenCalledWith(
+        expect.stringContaining("[champ] stream start"),
+      );
+    });
+
+    it("logs stream end (done) when the agent completes", async () => {
+      const spy = vi.spyOn(console, "log");
+      let deltaListener: ((delta: unknown) => void) | null = null;
+      (agent.onStreamDelta as ReturnType<typeof vi.fn>).mockImplementation(
+        (listener: (delta: unknown) => void) => {
+          deltaListener = listener;
+          return () => {};
+        },
+      );
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+      view.fireMessage({ type: "userMessage", text: "Hi" });
+      await new Promise((resolve) => setImmediate(resolve));
+      deltaListener?.({ type: "done", usage: undefined });
+      expect(spy).toHaveBeenCalledWith(
+        expect.stringContaining("[champ] stream end (done)"),
+      );
+    });
+
+    it("logs stream end with the error when an error delta arrives", async () => {
+      const spy = vi.spyOn(console, "log");
+      let deltaListener: ((delta: unknown) => void) | null = null;
+      (agent.onStreamDelta as ReturnType<typeof vi.fn>).mockImplementation(
+        (listener: (delta: unknown) => void) => {
+          deltaListener = listener;
+          return () => {};
+        },
+      );
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+      view.fireMessage({ type: "userMessage", text: "Hi" });
+      await new Promise((resolve) => setImmediate(resolve));
+      deltaListener?.({ type: "error", error: "boom" });
+      expect(spy).toHaveBeenCalledWith(
+        expect.stringContaining("[champ] stream end (error=boom)"),
+      );
     });
   });
 });

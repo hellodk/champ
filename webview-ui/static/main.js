@@ -1550,6 +1550,11 @@
   function setStreaming(streaming) {
     state.streaming = streaming;
     updatePrimaryBtn();
+    if (streaming) {
+      armStreamingWatchdog();
+    } else {
+      clearStreamingWatchdog();
+    }
     if (!streaming && state.currentAssistantMessage) {
       const body = state.currentAssistantMessage.querySelector('.body');
       if (body) {
@@ -1567,6 +1572,32 @@
         textarea.value = next;
         sendCurrentInput();
       }, 50);
+    }
+  }
+
+  // --- Stale-stream watchdog (#132) -----------------------------------
+  // iOS / remote VS Code can lose the streamEnd message (or the host can
+  // abort a request without ever delivering it). If streaming stays active
+  // with no deltas past the deadline, force-exit streaming mode so the
+  // blinking cursor cannot run forever.
+  const STREAM_WATCHDOG_MS = 180000; // 3 minutes without any delta
+  let streamWatchdogTimer = null;
+
+  function armStreamingWatchdog() {
+    clearStreamingWatchdog();
+    streamWatchdogTimer = setTimeout(() => {
+      streamWatchdogTimer = null;
+      if (state.streaming) {
+        console.warn('[champ] stream watchdog fired: no deltas for ' + (STREAM_WATCHDOG_MS / 1000) + 's — forcing streaming off');
+        setStreaming(false);
+      }
+    }, STREAM_WATCHDOG_MS);
+  }
+
+  function clearStreamingWatchdog() {
+    if (streamWatchdogTimer) {
+      clearTimeout(streamWatchdogTimer);
+      streamWatchdogTimer = null;
     }
   }
 
@@ -1676,6 +1707,7 @@
   }
 
   function appendStreamDelta(text) {
+    armStreamingWatchdog();
     if (!state.currentAssistantMessage) {
       state.currentAssistantMessage = appendMessage('assistant', '');
       const b = state.currentAssistantMessage.querySelector('.body');
@@ -1738,6 +1770,7 @@
   }
 
   function appendThinking(text) {
+    armStreamingWatchdog();
     if (!state.currentAssistantMessage) {
       state.currentAssistantMessage = appendMessage('assistant', '');
     }
@@ -2404,9 +2437,16 @@
         appendStreamDelta(msg.text || '');
         break;
       case 'streamEnd':
-        scheduleStreamRender(true);
-        finalizeThinkingBlock();
+        // Exit streaming mode FIRST: even if the render/finalize steps
+        // below throw (markdown parse, code highlighting, thinking block),
+        // the blinking cursor must still be cleared (#132).
         setStreaming(false);
+        try {
+          scheduleStreamRender(true);
+          finalizeThinkingBlock();
+        } catch (err) {
+          console.error('[champ] streamEnd finalize threw:', err);
+        }
         // Safety net: mark any tool cards still showing "Running..."
         // as completed (the result message may have been lost).
         for (const card of messagesContainer.querySelectorAll('.tool-card')) {
@@ -2419,7 +2459,11 @@
           }
         }
         // Phase 1: inject copy buttons on all code blocks now that streaming is done.
-        injectRunButtons();
+        try {
+          injectRunButtons();
+        } catch (err) {
+          console.error('[champ] injectRunButtons threw:', err);
+        }
         // Phase 1: inject regenerate button and follow-up suggestions.
         if (lastAssistantMsg) {
           const body = lastAssistantMsg.querySelector('.body');
@@ -2461,6 +2505,13 @@
         break;
       case 'error':
         showError(msg.message);
+        // Belt-and-suspenders for #132: a request that errored must not
+        // leave the streaming cursor blinking. The host now also sends
+        // streamEnd on error, but an old host or a lost message is
+        // covered here too.
+        if (state.streaming) {
+          setStreaming(false);
+        }
         break;
       case 'modeChanged':
         state.mode = msg.mode;

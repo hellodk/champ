@@ -226,7 +226,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private readonly extensionUri: vscode.Uri,
     private agent: AgentController,
     private readonly extensionVersion: string = "",
-  ) {}
+  ) {
+    console.log(
+      `[champ] activated v${extensionVersion || "(unknown)"} (host=${os.hostname()})`,
+    );
+  }
 
   /**
    * Hot-swap the agent controller reference. Called by extension.ts
@@ -346,6 +350,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     };
 
     webviewView.webview.html = this.renderHtml(webviewView.webview);
+
+    console.log(
+      `[champ] webview version=${this.extensionVersion || "(empty)"}`,
+    );
 
     webviewView.webview.onDidReceiveMessage(
       (msg: WebviewToExtensionMessage) => {
@@ -1093,6 +1101,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // Attach the edit tracker so file edits are captured for diff review.
     this.agent.setEditReviewTracker(this.editTracker);
 
+    console.log("[champ] stream start");
     try {
       await this.agent.processMessage(enrichedContent, {
         abortSignal: controller.signal,
@@ -1113,10 +1122,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.streamErrorCallback?.(
           `injection_blocked:${err.guardResult.category ?? "unknown"}`,
         );
+        console.log(
+          `[champ] stream end (error=injection_blocked:${err.guardResult.category ?? "unknown"})`,
+        );
       } else {
         const message = err instanceof Error ? err.message : String(err);
         this.postMessage(createError(message));
         this.streamErrorCallback?.(message);
+        console.log(`[champ] stream end (error=${message})`);
       }
     } finally {
       if (this.activeAbortController === controller) {
@@ -1404,6 +1417,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         );
         break;
       case "done": {
+        console.log("[champ] stream end (done)");
         // Flush any trailing in-progress <thinking> block at end of stream.
         const flushed = this.thinkingTagRouter.end();
         if (flushed.reasoning) {
@@ -1441,8 +1455,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
       case "error":
         if (delta.error) {
+          console.log(`[champ] stream end (error=${delta.error})`);
           this.postMessage(createError(delta.error));
           this.streamErrorCallback?.(delta.error);
+          // A mid-stream error must still end the stream on the webview:
+          // otherwise it stays in "streaming" mode and the cursor blinks
+          // forever (#132).
+          this.postMessage(createStreamEnd());
         }
         break;
       default:

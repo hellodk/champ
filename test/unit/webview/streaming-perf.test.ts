@@ -70,3 +70,50 @@ describe("lazy highlight.js (#110)", () => {
     expect(MAIN_JS).toContain("document.createElement('script')");
   });
 });
+
+describe("stale-stream watchdog (#132)", () => {
+  it("streamEnd clears streaming BEFORE the render/finalize steps", () => {
+    const start = MAIN_JS.indexOf("case 'streamEnd':");
+    const caseBody = MAIN_JS.slice(
+      start,
+      MAIN_JS.indexOf("case 'streamEnd'") + 1200,
+    );
+    // Defensive ordering: the cursor must not depend on render/hljs/thinking
+    // not throwing. setStreaming(false) runs first.
+    expect(caseBody.indexOf("setStreaming(false);")).toBeLessThan(
+      caseBody.indexOf("scheduleStreamRender(true)"),
+    );
+  });
+
+  it("the error message path force-exits streaming as a safety net", () => {
+    const start = MAIN_JS.indexOf("case 'error':");
+    const caseBody = MAIN_JS.slice(
+      start,
+      MAIN_JS.indexOf("case 'modeChanged':"),
+    );
+    expect(caseBody).toContain("setStreaming(false)");
+  });
+
+  it("arms a watchdog on stream start and resets it on deltas", () => {
+    expect(MAIN_JS).toContain("STREAM_WATCHDOG_MS");
+    expect(MAIN_JS).toContain("function armStreamingWatchdog");
+    expect(MAIN_JS).toContain("function clearStreamingWatchdog");
+    // Streaming deltas re-arm the timer so a live stream never false-fires.
+    expect(
+      MAIN_JS.slice(
+        MAIN_JS.indexOf("function appendStreamDelta"),
+        MAIN_JS.indexOf("function scheduleStreamRender"),
+      ),
+    ).toContain("armStreamingWatchdog()");
+  });
+
+  it("setStreaming(false) always clears the watchdog timer", () => {
+    const fn = MAIN_JS.slice(
+      MAIN_JS.indexOf("function setStreaming("),
+      MAIN_JS.indexOf("function appendMessage"),
+    );
+    expect(fn).toContain("armStreamingWatchdog()");
+    expect(fn).toContain("clearStreamingWatchdog()");
+    expect(fn).toContain("setTimeout");
+  });
+});
