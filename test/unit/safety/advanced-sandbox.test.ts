@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 import {
   AdvancedCommandSandbox,
   SandboxConfig,
@@ -290,6 +291,38 @@ restrictedEnvVars:
       sandbox.recordApproval("npm test", true);
       sandbox.clearApprovalCache();
       expect(sandbox.isApprovalCached("npm test")).toBeNull();
+    });
+  });
+
+  describe("audit log default path (#134)", () => {
+    it("defaults to an absolute path under os.homedir(), not relative .champ", () => {
+      const s = new AdvancedCommandSandbox({
+        workspacePath: tempDir,
+        allowedWorkspacePaths: [tempDir],
+      });
+
+      expect(s.auditLogPath.startsWith(os.homedir())).toBe(true);
+      expect(s.auditLogPath.includes(".champ")).toBe(true);
+    });
+
+    it("does not throw when the audit log dir cannot be created", () => {
+      const blocker = path.join(tempDir, "blocker-file");
+      fs.writeFileSync(blocker, "x");
+      const badPath = path.join(blocker, "inner", "audit.log");
+
+      const s = new AdvancedCommandSandbox({
+        auditLogPath: badPath,
+        workspacePath: tempDir,
+        allowedWorkspacePaths: [tempDir],
+      });
+
+      expect(() =>
+        s.logCommandExecutionSync({
+          command: "git status",
+          status: "ALLOW",
+          timestamp: new Date(),
+        }),
+      ).not.toThrow();
     });
   });
 });

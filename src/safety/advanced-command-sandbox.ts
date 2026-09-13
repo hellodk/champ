@@ -10,6 +10,7 @@
  */
 
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import { spawn } from "child_process";
 
@@ -68,7 +69,8 @@ export class AdvancedCommandSandbox {
 
   constructor(config: SandboxConfig) {
     this.config = {
-      auditLogPath: config.auditLogPath || ".champ/audit.log",
+      auditLogPath:
+        config.auditLogPath || path.join(os.homedir(), ".champ", "audit.log"),
       workspacePath: config.workspacePath,
       enableAuditLog: config.enableAuditLog ?? true,
       restrictedEnvVars: config.restrictedEnvVars ?? [
@@ -85,8 +87,13 @@ export class AdvancedCommandSandbox {
       denylist: config.denylist ?? [],
       allowedMCPServers: config.allowedMCPServers ?? [],
     };
+  }
 
-    this.ensureAuditLogDir();
+  /**
+   * Effective audit log path (absolutized against os.homedir() by default).
+   */
+  get auditLogPath(): string {
+    return this.config.auditLogPath;
   }
 
   /**
@@ -201,6 +208,7 @@ export class AdvancedCommandSandbox {
     this.auditLogs.push(log);
 
     if (this.config.enableAuditLog) {
+      this.ensureAuditLogDir();
       const logLine = this.formatAuditLogLine(log);
       return new Promise((resolve, reject) => {
         fs.appendFile(this.config.auditLogPath, logLine + "\n", (err) => {
@@ -218,6 +226,7 @@ export class AdvancedCommandSandbox {
     this.auditLogs.push(log);
 
     if (this.config.enableAuditLog) {
+      this.ensureAuditLogDir();
       const logLine = this.formatAuditLogLine(log);
       try {
         fs.appendFileSync(this.config.auditLogPath, logLine + "\n");
@@ -384,9 +393,14 @@ export class AdvancedCommandSandbox {
 
   private ensureAuditLogDir(): void {
     if (this.config.enableAuditLog) {
-      const dir = path.dirname(this.config.auditLogPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+      try {
+        const dir = path.dirname(this.config.auditLogPath);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+      } catch {
+        // Audit logging is best-effort: an unwritable audit dir must never
+        // prevent extension activation (#134).
       }
     }
   }
