@@ -3,13 +3,13 @@
 # Usage:
 #   scripts/champ                         # interactive menu
 #   scripts/champ build                   # compile + package VSIX
-#   scripts/champ install                 # build + install into VS Code
+#   scripts/champ install                 # install latest GitHub release
+#   scripts/champ install build           # build current checkout + install
 #   scripts/champ release                 # build + push + create GitHub release
 #   scripts/champ watch                   # dev watch (extension + webview)
 #   scripts/champ test [unit|int|e2e|all] # run tests
 #   scripts/champ test report             # print test report summary
 #   scripts/champ lint                    # eslint + type-check
-#   scripts/champ clean                   # remove dist/, *.vsix older than current
 #   scripts/champ version                 # print current version
 set -euo pipefail
 
@@ -27,6 +27,19 @@ _require_cmds() {
   for cmd in "$@"; do
     command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: '$cmd' not found in PATH" >&2; exit 1; }
   done
+}
+
+# Latest release tag via the GitHub API (gh → jq). `gh` is authenticated in
+# this environment; fall back so it also works where gh is unauthenticated.
+_latest_version() {
+  gh api repos/hellodk/champ/releases/latest -q .tag_name 2>/dev/null \
+    || jq -r .tag_name <(curl -fsSL https://api.github.com/repos/hellodk/champ/releases/latest)
+}
+
+# Run `code` without the DEP0169 url.parse() deprecation spam that VS Code's
+# own CLI emits when install output passes through it.
+_code() {
+  NODE_OPTIONS=--no-deprecation code "$@"
 }
 
 _section() { echo ""; echo "── $* ──────────────────────────────────────"; }
@@ -50,17 +63,33 @@ cmd_build() {
 }
 
 cmd_install() {
+  local mode="${1:-latest}"
   _require_cmds code
-  cmd_build
-  _section "install"
+
   local ver vsix
-  ver=$(_version)
-  vsix="${ROOT}/champ-${ver}.vsix"
-  if [[ ! -f "$vsix" ]]; then
-    echo "ERROR: VSIX not found: $vsix" >&2
-    exit 1
+  if [[ "$mode" == "build" ]]; then
+    _require_cmds node npm npx
+    _section "build from source"
+    cmd_build
+    ver=$(_version)
+    vsix="${ROOT}/champ-${ver}.vsix"
+    _ok "installing local build ${vsix##*/}"
+  else
+    _require_cmds curl jq gh
+    ver=$(_latest_version)
+    vsix="${ver}-champ.vsix"
+    local asset_url asset_name
+    asset_url=$(gh release view "$ver" --json assets -q '.assets[0].url' 2>/dev/null \
+      || curl -fsSL "https://api.github.com/repos/hellodk/champ/releases/latest" | jq -r '.assets[0].browser_download_url')
+    asset_name=$(basename "$asset_url")
+    _section "download ${asset_name} (${ver})"
+    curl -fL "$asset_url" -o "/tmp/${vsix}"
+    vsix="/tmp/${vsix}"
+    _ok "installing ${asset_name}"
   fi
-  code --install-extension "$vsix"
+
+  _code --install-extension "$vsix" --force
+  rm -f "/tmp/${ver}-champ.vsix"
   _ok "installed champ ${ver}"
 }
 
@@ -84,9 +113,16 @@ cmd_release() {
   _ok "master pushed"
 
   _section "create GitHub release ${tag}"
-  # Build release notes from recent PRs since last tag
-  local prev_tag
-  prev_tag=$(git tag --sort=-version:refname | grep '^v' | head -1 || echo "")
+  # Nearest reachable tag behind HEAD (never the tag being created) drives the notes range.
+  local prev_tag=""
+  local t d
+  while read -r t; do
+    [[ -z "$t" ]] && continue
+    d=$(git rev-list --count "${t}..HEAD" 2>/dev/null || echo "")
+    [[ "$d" == "0" ]] && continue
+    prev_tag="$t"
+    break
+  done < <(git tag --sort=-creatordate | grep '^v')
 
   local notes
   if [[ -n "$prev_tag" ]]; then
@@ -191,24 +227,6 @@ cmd_lint() {
   _ok "ESLint OK"
 }
 
-cmd_clean() {
-  local ver
-  ver=$(_version)
-  _section "clean dist/"
-  rm -rf dist/
-  _ok "removed dist/"
-  _section "remove old VSIX files"
-  local removed=0
-  for f in "${ROOT}"/champ-*.vsix; do
-    [[ -f "$f" ]] || continue
-    [[ "$f" == "${ROOT}/champ-${ver}.vsix" ]] && continue
-    rm -f "$f"
-    echo "  removed $(basename "$f")"
-    ((removed++)) || true
-  done
-  [[ $removed -eq 0 ]] && echo "  (nothing to remove)"
-}
-
 # ── interactive menu ──────────────────────────────────────────────────────────
 
 _menu() {
@@ -218,28 +236,28 @@ _menu() {
   echo "  Champ VS Code Extension — v${ver}"
   echo ""
   echo "  1) build     — compile + package VSIX"
-  echo "  2) install   — build + install into VS Code"
+  echo "  2) install   — install latest GitHub release"
   echo "  3) release   — build + push + create GitHub release"
   echo "  4) watch     — dev watch mode"
   echo "  5) test      — run unit tests"
   echo "  6) test all  — unit + integration tests"
   echo "  7) report    — print test-reports/ summary"
   echo "  8) lint      — type-check + ESLint"
-  echo "  9) clean     — remove dist/ and old VSIX files"
+  echo "  9) install build — build current checkout + install"
   echo "  0) version   — print version"
   echo "  q) quit"
   echo ""
   read -rp "  Choice: " pick
   case "$pick" in
     1) cmd_build ;;
-    2) cmd_install ;;
+    2) cmd_install latest ;;
     3) cmd_release ;;
     4) cmd_watch ;;
     5) cmd_test unit ;;
     6) cmd_test all ;;
     7) cmd_test_report ;;
     8) cmd_lint ;;
-    9) cmd_clean ;;
+    9) cmd_install build ;;
     0) cmd_version ;;
     q|Q) exit 0 ;;
     *) echo "  Unknown choice." >&2 ;;
@@ -255,15 +273,14 @@ fi
 
 case "$1" in
   build)           cmd_build ;;
-  install)         cmd_install ;;
+  install)         shift; cmd_install "${1:-latest}" ;;
   release)         cmd_release ;;
   watch)           cmd_watch ;;
   test)            shift; cmd_test "${1:-unit}" ;;
   lint)            cmd_lint ;;
-  clean)           cmd_clean ;;
   version|-v|--version) cmd_version ;;
   help|-h|--help)
-    grep '^# ' "$0" | sed 's/^# //' | head -15
+    grep '^#   ' "$0" | sed 's/^# //' | head -15
     ;;
   *)
     echo "Unknown command: $1  (run 'scripts/champ help')" >&2
