@@ -1,0 +1,226 @@
+/**
+ * Argument parsing for the headless `champ` CLI (issue #136).
+ *
+ * Pure and dependency-free: mode detection (one-shot / REPL / stdin-pipe) is
+ * decided here from argv plus whether stdin is a TTY, so it can be unit-tested
+ * without spawning the binary.
+ */
+
+/** How the CLI should run: one task, an interactive session, or piped input. */
+export type CliMode = "oneshot" | "repl" | "stdin";
+
+export interface CliFlags {
+  help: boolean;
+  version: boolean;
+  /** Auto-approve destructive tools instead of prompting the user. */
+  yes: boolean;
+  /** Force the interactive session even when stdin is not a terminal. */
+  repl: boolean;
+  /** Workspace root the agent operates in. */
+  cwd: string;
+  /** Overrides for the active provider block in config.yaml. */
+  provider?: string;
+  model?: string;
+  baseUrl?: string;
+  apiKey?: string;
+  /** Maximum tool-calling iterations per user message. */
+  maxIterations?: number;
+}
+
+export interface CliOptions {
+  mode: CliMode;
+  /** The instruction to run. Always set for `oneshot`/`stdin`. */
+  task?: string;
+  flags: CliFlags;
+}
+
+export type CliParseResult =
+  | { kind: "help" }
+  | { kind: "version" }
+  | { kind: "error"; message: string }
+  | { kind: "run"; options: CliOptions };
+
+export interface ParseCliArgsEnv {
+  /** True when stdin is a terminal (the user can answer prompts). */
+  stdinIsTTY: boolean;
+  /** Default workspace root when `--cwd` is absent. */
+  cwd?: string;
+}
+
+export const USAGE = `champ — headless Champ agent CLI
+
+Usage:
+  champ "<task>"          Run a single task and exit
+  champ                   Interactive REPL (when stdin is a terminal)
+  champ --repl            Force the REPL (also with piped input, for scripting)
+  champ -                 Read the task from stdin
+  echo "<t>" | champ      Same as above (piped stdin)
+
+Options:
+  -h, --help              Show this help
+  -v, --version           Print the version
+  -y, --yes               Auto-approve destructive tools
+  -r, --repl              Force the interactive REPL
+      --cwd <dir>         Workspace root (default: current directory)
+      --provider <name>   Override the provider configured in config.yaml
+      --base-url <url>    Override the provider base URL
+      --model <name>      Override the model
+      --api-key <key>     Override the API key
+      --max-iter <n>      Maximum tool-call iterations per message
+
+Configuration is read from ~/.champ/config.yaml (or CHAMP_CONFIG).
+Interactive runs prompt before destructive tools; non-interactive runs
+(--yes, or piped stdin) approve them automatically.
+`;
+
+/** Flags that take a separate value argument. */
+const VALUE_FLAGS: Record<string, keyof CliFlags> = {
+  "--cwd": "cwd",
+  "--provider": "provider",
+  "--model": "model",
+  "--base-url": "baseUrl",
+  "--api-key": "apiKey",
+  "--max-iter": "maxIterations",
+};
+
+function error(message: string): CliParseResult {
+  return { kind: "error", message: `${message}\n\n${USAGE}` };
+}
+
+/**
+ * Parse CLI arguments into a run mode plus flags.
+ *
+ * Positional arguments are joined into a single task, so both
+ * `champ "fix the tests"` and `champ fix the tests` work.
+ */
+export function parseCliArgs(
+  argv: string[],
+  env: ParseCliArgsEnv,
+): CliParseResult {
+  const flags: CliFlags = {
+    help: false,
+    version: false,
+    yes: false,
+    repl: false,
+    cwd: env.cwd ?? process.cwd(),
+  };
+  const positionals: string[] = [];
+  let explicitStdin = false;
+  let endOfFlags = false;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+
+    if (endOfFlags) {
+      positionals.push(arg);
+      continue;
+    }
+    if (arg === "--") {
+      endOfFlags = true;
+      continue;
+    }
+
+    if (arg === "--help" || arg === "-h") {
+      flags.help = true;
+      continue;
+    }
+    if (arg === "--version" || arg === "-v") {
+      flags.version = true;
+      continue;
+    }
+    if (arg === "--yes" || arg === "-y") {
+      flags.yes = true;
+      continue;
+    }
+    if (arg === "--repl" || arg === "-r") {
+      flags.repl = true;
+      continue;
+    }
+
+    // `champ -` reads the task from stdin explicitly.
+    if (arg === "-") {
+      explicitStdin = true;
+      continue;
+    }
+
+    // Support `--flag=value` as well as `--flag value`.
+    let name = arg;
+    let inlineValue: string | undefined;
+    if (arg.startsWith("--")) {
+      const eq = arg.indexOf("=");
+      if (eq !== -1) {
+        name = arg.slice(0, eq);
+        inlineValue = arg.slice(eq + 1);
+      }
+    }
+
+    const valueKey = VALUE_FLAGS[name];
+    if (valueKey) {
+      const value = inlineValue ?? argv[++i];
+      if (value === undefined) {
+        return error(`Missing value for ${name}`);
+      }
+      if (valueKey === "maxIterations") {
+        const parsed = Number(value);
+        if (!Number.isInteger(parsed) || parsed <= 0) {
+          return error(`--max-iter must be a positive integer, got "${value}"`);
+        }
+        flags.maxIterations = parsed;
+        continue;
+      }
+      switch (valueKey) {
+        case "cwd":
+          flags.cwd = value;
+          break;
+        case "provider":
+          flags.provider = value;
+          break;
+        case "model":
+          flags.model = value;
+          break;
+        case "baseUrl":
+          flags.baseUrl = value;
+          break;
+        case "apiKey":
+          flags.apiKey = value;
+          break;
+        default:
+          // Boolean flags never appear in VALUE_FLAGS.
+          break;
+      }
+      continue;
+    }
+
+    if (name.startsWith("-") && name.length > 1) {
+      return error(`Unknown option: ${name}`);
+    }
+
+    positionals.push(arg);
+  }
+
+  if (flags.help) return { kind: "help" };
+  if (flags.version) return { kind: "version" };
+
+  // Mode precedence: --repl forces an interactive session (a task makes the
+  // combination ambiguous, so it is rejected); otherwise an explicit task
+  // wins, then explicit `-`, then a non-terminal stdin means piped input,
+  // otherwise an interactive REPL.
+  if (flags.repl && (positionals.length > 0 || explicitStdin)) {
+    return error("cannot combine --repl with a task");
+  }
+
+  let mode: CliMode;
+  let task: string | undefined;
+  if (flags.repl) {
+    mode = "repl";
+  } else if (positionals.length > 0) {
+    mode = "oneshot";
+    task = positionals.join(" ");
+  } else if (explicitStdin || !env.stdinIsTTY) {
+    mode = "stdin";
+  } else {
+    mode = "repl";
+  }
+
+  return { kind: "run", options: { mode, task, flags } };
+}

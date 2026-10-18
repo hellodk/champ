@@ -37,6 +37,9 @@
     "onChatParticipant:champ.default"
   ],
   "main": "./dist/extension.js",
+  "bin": {
+    "champ": "dist/cli.js"
+  },
   "contributes": {
     "chatParticipants": [
       {

@@ -36,6 +36,8 @@ package-lock.json
 **/*.ts
 **/*.map
 dist/scripts/**
+# Headless CLI is installed via `bin`, not shipped in the VS Code package.
+dist/cli.js
 !dist/extension.js
 !webview-ui/dist/**
 !media/icon.png

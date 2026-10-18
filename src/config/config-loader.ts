@@ -257,7 +257,7 @@ export interface ChampConfig {
   ssh?: SSHConfig;
 }
 
-const VALID_PROVIDERS: ProviderName[] = [
+export const VALID_PROVIDERS: ProviderName[] = [
   "claude",
   "openai",
   "gemini",
@@ -266,6 +266,11 @@ const VALID_PROVIDERS: ProviderName[] = [
   "vllm",
   "openai-compatible",
 ];
+
+/** True when `value` names a provider the factory knows how to construct. */
+export function isProviderName(value: string): value is ProviderName {
+  return (VALID_PROVIDERS as readonly string[]).includes(value);
+}
 
 /** Providers where apiKey is allowed in YAML (operator-issued keys, not cloud credentials). */
 const SELF_HOSTED_PROVIDERS: ProviderName[] = [
