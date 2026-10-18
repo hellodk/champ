@@ -6,12 +6,20 @@
  *   champ              interactive REPL (when stdin is a terminal)
  *   champ --repl       REPL forced on (scripting; works with piped stdin)
  *   champ -            task read from stdin (also `echo "<t>" | champ`)
+ *   champ --sessions   list stored sessions for the workspace, then exit
  *
  * Everything agent-side is reused unchanged: AgentController, providers,
  * ToolRegistry, safety and config. Only the tool layer is swapped for the
  * VSCode-free one in ./tools/headless, so this bundle must never import
  * `vscode` (the esbuild entry is built without `--external:vscode`, so a
  * stray import fails the build instead of at runtime).
+ *
+ * Sessions (issue #72, ./session/session-log.ts): `--session <id>` opts a run
+ * into an append-only JSONL log under <workspace>/.champ/sessions, resuming
+ * when the log exists; the REPL always keeps one. A resume replays the log
+ * bounded at its newest checkpoint, so pre-checkpoint turns are never re-sent
+ * — and, because the checkpoint stores any summary it was given, never
+ * re-summarised either.
  *
  * Configuration comes from ~/.champ/config.yaml — the same single source the
  * extension uses since #126 — overridable with the CHAMP_CONFIG env var for
@@ -35,7 +43,9 @@ import {
 import { ProviderFactory, type SecretReader } from "./providers/factory";
 import { AgentController } from "./agent/agent-controller";
 import { createHeadlessToolRegistry } from "./tools/headless";
-import type { StreamDelta, TokenUsage } from "./providers/types";
+import { SessionLog, type SessionReplay } from "./session/session-log";
+import { newSessionId } from "./session/ids";
+import type { LLMMessage, StreamDelta, TokenUsage } from "./providers/types";
 
 export const EXIT_OK = 0;
 export const EXIT_FAILURE = 1;
@@ -200,12 +210,19 @@ interface TurnOptions {
   requestApproval: (description: string) => Promise<boolean>;
   maxIterations?: number;
   onDone: (info: { tools: number; usage: TokenUsage }) => void;
+  /** Persist whatever the turn added to the session log, if any. */
+  onTurnEnd?: () => Promise<void>;
 }
 
 /** Shared per-turn options for an interactive session (REPL). */
 interface SessionOptions {
-  requestApproval: (description: string) => Promise<boolean>;
   maxIterations?: number;
+  /** Session log backing the REPL (null when persistence is off). */
+  log: SessionLog | null;
+  /** Workspace the session belongs to — used by `/sessions`. */
+  workspace: string;
+  /** Persist the turn's new messages to the session log. */
+  onTurnEnd: () => Promise<void>;
 }
 
 interface TurnOutcome {
@@ -274,6 +291,16 @@ async function runTurn(
   } finally {
     activeAbort = null;
     dispose();
+    if (options.onTurnEnd) {
+      // A failure to persist must not fail the turn that just succeeded, but
+      // it must be visible: the history is in memory only until it lands.
+      try {
+        await options.onTurnEnd();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`[champ] session save failed: ${message}\n`);
+      }
+    }
   }
 }
 
@@ -282,6 +309,78 @@ function printSummary(info: { tools: number; usage: TokenUsage }): void {
   process.stderr.write(
     `[champ] tools=${info.tools} tokens in=${info.usage.inputTokens} out=${info.usage.outputTokens}\n`,
   );
+}
+
+/**
+ * History to install when resuming a session. Messages before the newest
+ * checkpoint stay on disk; what that checkpoint recorded about them — its
+ * summary, or failing that how many were elided — is injected as a system
+ * message, which SystemPromptBuilder merges into the system prompt. Nothing is
+ * re-summarised here: replay is pure log reading.
+ */
+function resumedHistory(replay: SessionReplay): LLMMessage[] {
+  const checkpoint = replay.checkpoint;
+  let context: string | undefined;
+  if (checkpoint) {
+    const detail =
+      checkpoint.summary !== undefined
+        ? `Summary of earlier context: ${checkpoint.summary}`
+        : `Earlier messages are not in context${
+            replay.elided > 0 ? ` (${replay.elided} elided)` : ""
+          }; ask the user if you need that context.`;
+    context = `This session resumes at checkpoint "${checkpoint.label}". ${detail}`;
+  }
+  return context === undefined
+    ? [...replay.messages]
+    : [{ role: "system", content: context }, ...replay.messages];
+}
+
+/**
+ * Per-turn persistence: append whatever the controller added to its history
+ * since the last save. The counter starts at the current history length, so
+ * resumed messages (already on disk) and the injected resume context (never
+ * written) are not recorded twice.
+ */
+function createSessionRecorder(
+  controller: AgentController,
+  log: SessionLog | null,
+): () => Promise<void> {
+  let persisted = controller.getHistory().length;
+  return async (): Promise<void> => {
+    if (!log) return;
+    const history = controller.getHistory();
+    if (history.length < persisted) {
+      // The history was reset mid-session; trust the new tail.
+      persisted = history.length;
+    }
+    const fresh = history.slice(persisted);
+    if (fresh.length > 0) await log.appendMessages(fresh);
+    persisted = history.length;
+  };
+}
+
+/** Listing shown by `--sessions` and the REPL `/sessions` command. */
+async function sessionsReport(workspace: string): Promise<string> {
+  const dir = SessionLog.dirFor(workspace);
+  const sessions = await SessionLog.list(workspace);
+  if (sessions.length === 0) return `no sessions in ${dir}\n`;
+
+  const rows = sessions.map((session) => {
+    const last = new Date(session.lastActivityAt).toISOString();
+    const model = session.meta.model ? `  model=${session.meta.model}` : "";
+    return `${session.meta.id}  messages=${session.messages}  checkpoints=${session.checkpoints}  last=${last}${model}`;
+  });
+  return `sessions in ${dir}\n${rows.join("\n")}\n`;
+}
+
+/** One-glance description of the current session, for `/session`. */
+function sessionInfo(log: SessionLog | null): string {
+  if (!log) return "no session for this run";
+  const replay = log.replay();
+  const checkpoint = replay.checkpoint
+    ? `, checkpoint "${replay.checkpoint.label}" at ${replay.checkpoint.upTo} messages`
+    : ", no checkpoint";
+  return `${log.id} — ${replay.recorded} messages${checkpoint}\n  ${log.path}`;
 }
 
 /**
@@ -354,9 +453,57 @@ async function runRepl(
       rl.prompt();
       continue;
     }
-    if (trimmed === "/exit" || trimmed === "/quit" || trimmed === "/q") break;
-    if (trimmed === "/help") {
-      process.stderr.write(`${USAGE}\n`);
+
+    // Session and meta commands never reach the model.
+    if (trimmed.startsWith("/")) {
+      const [command, ...rest] = trimmed.split(/\s+/);
+      if (command === "/exit" || command === "/quit" || command === "/q") {
+        break;
+      }
+
+      switch (command) {
+        case "/help":
+          process.stderr.write(`${USAGE}`);
+          break;
+        case "/session":
+          process.stderr.write(`[champ] ${sessionInfo(opts.log)}\n`);
+          break;
+        case "/sessions":
+          process.stderr.write(await sessionsReport(opts.workspace));
+          break;
+        case "/checkpoint": {
+          if (!opts.log) {
+            process.stderr.write("[champ] no session for this run\n");
+            break;
+          }
+          const checkpoint = await opts.log.markCheckpoint({
+            label: rest.join(" ") || undefined,
+          });
+          process.stderr.write(
+            `[champ] checkpoint "${checkpoint.label}" at ${checkpoint.upTo} messages — earlier context is elided on resume\n`,
+          );
+          break;
+        }
+        case "/compact": {
+          const checkpoint = opts.log?.checkpoint;
+          if (!opts.log || !checkpoint) {
+            process.stderr.write(
+              "[champ] nothing to compact — record a /checkpoint first\n",
+            );
+            break;
+          }
+          await opts.log.compact();
+          process.stderr.write(
+            `[champ] compacted ${opts.log.id} to checkpoint "${checkpoint.label}"\n`,
+          );
+          break;
+        }
+        default:
+          process.stderr.write(
+            `[champ] unknown command ${command} — /help for the list\n`,
+          );
+          break;
+      }
       rl.prompt();
       continue;
     }
@@ -366,6 +513,7 @@ async function runRepl(
     const outcome = await runTurn(controller, trimmed, {
       maxIterations: opts.maxIterations,
       requestApproval: (description) => askOn(rl, description),
+      onTurnEnd: opts.onTurnEnd,
       onDone: printSummary,
     });
 
@@ -397,6 +545,11 @@ async function main(): Promise<number> {
   if (parsed.kind === "error") {
     process.stderr.write(`champ: ${parsed.message}\n`);
     return EXIT_USAGE;
+  }
+  if (parsed.kind === "sessions") {
+    // Read-only query: no provider, no session, nothing to run.
+    process.stdout.write(await sessionsReport(path.resolve(parsed.cwd)));
+    return EXIT_OK;
   }
 
   const { mode, task: taskFromArgv, flags } = parsed.options;
@@ -432,12 +585,57 @@ async function main(): Promise<number> {
     );
   }
 
+  const workspace = path.resolve(flags.cwd);
   const controller = new AgentController(
     provider,
     createHeadlessToolRegistry(),
-    path.resolve(flags.cwd),
+    workspace,
   );
   controller.setMode(config.agent?.defaultMode ?? "agent");
+
+  // ── Session persistence ───────────────────────────────────────────────
+  // `--session <id>` opts a run into the append-only session log, resuming
+  // when the log exists. The REPL always keeps one: the user is in it.
+  let sessionLog: SessionLog | null = null;
+  try {
+    if (flags.session) {
+      sessionLog =
+        (await SessionLog.open(workspace, flags.session)) ??
+        (await SessionLog.create(workspace, {
+          id: flags.session,
+          model: provider.config.model,
+          mode: controller.getMode(),
+        }));
+    } else if (mode === "repl") {
+      sessionLog = await SessionLog.create(workspace, {
+        id: newSessionId(),
+        model: provider.config.model,
+        mode: controller.getMode(),
+      });
+    }
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
+  }
+
+  let onTurnEnd: () => Promise<void> = async () => {};
+  if (sessionLog) {
+    const replay = sessionLog.replay();
+    if (flags.session && replay.recorded > 0) {
+      controller.setHistory(resumedHistory(replay));
+      const elided = replay.elided > 0 ? `, ${replay.elided} elided` : "";
+      const at = replay.checkpoint
+        ? ` at checkpoint "${replay.checkpoint.label}"`
+        : "";
+      process.stderr.write(
+        `[champ] resumed session ${sessionLog.id}: ${replay.messages.length} messages in context${elided}${at}\n`,
+      );
+    } else {
+      process.stderr.write(
+        `[champ] session ${sessionLog.id} — resume with --session ${sessionLog.id}\n`,
+      );
+    }
+    onTurnEnd = createSessionRecorder(controller, sessionLog);
+  }
 
   const onSigint = () => {
     if (activeAbort && !activeAbort.signal.aborted) activeAbort.abort();
@@ -466,13 +664,19 @@ async function main(): Promise<number> {
     if (mode === "repl") {
       code = await runRepl(
         controller,
-        { requestApproval, maxIterations: flags.maxIterations },
+        {
+          maxIterations: flags.maxIterations,
+          log: sessionLog,
+          workspace,
+          onTurnEnd,
+        },
         `Champ ${cliVersion()} — model ${provider.config.model ?? "?"}. /help for commands.`,
       );
     } else {
       const outcome = await runTurn(controller, task!, {
         requestApproval,
         maxIterations: flags.maxIterations,
+        onTurnEnd,
         onDone: printSummary,
       });
       if (outcome.aborted) code = EXIT_ABORTED;

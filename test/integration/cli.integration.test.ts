@@ -210,6 +210,160 @@ describe("champ CLI — one-shot agent turn (dist/cli.js)", () => {
   );
 });
 
+describe("champ CLI — persistent sessions (--session, issue #72)", () => {
+  it(
+    "resumes a stored session and sends its history back to the model",
+    async () => {
+      const s = await scenario((_body, index) => [
+        frames.text(`reply ${index}`),
+        frames.finish("stop"),
+        frames.usage(100, 5),
+        frames.done,
+      ]);
+
+      try {
+        const logFile = path.join(
+          s.ws,
+          ".champ",
+          "sessions",
+          "sess-demo.jsonl",
+        );
+
+        const first = await s.run([
+          "--session",
+          "sess-demo",
+          "--yes",
+          "remember the word pineapple",
+        ]);
+        expect(first.timedOut).toBe(false);
+        expect(first.code).toBe(0);
+        expect(first.stderr).toContain("session sess-demo");
+        expect(fs.existsSync(logFile)).toBe(true);
+
+        const records = fs
+          .readFileSync(logFile, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as { kind: string });
+        expect(records[0].kind).toBe("header");
+        expect(records.some((record) => record.kind === "messages")).toBe(true);
+
+        const second = await s.run([
+          "--session",
+          "sess-demo",
+          "--yes",
+          "what word did I ask you to remember?",
+        ]);
+        expect(second.code).toBe(0);
+        expect(second.stderr).toContain("resumed session sess-demo");
+
+        // The second request carries the first run's turn, and the new one.
+        const request = s.mock.requests[1] as {
+          messages: Array<{ role: string; content: unknown }>;
+        };
+        const wire = JSON.stringify(request.messages);
+        expect(wire).toContain("remember the word pineapple");
+        expect(wire).toContain("reply 0");
+        expect(wire).toContain("what word did I ask you to remember?");
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "bounds a resumed session at the newest checkpoint (/checkpoint, /compact)",
+    async () => {
+      const s = await scenario(() => [
+        frames.text("ok"),
+        frames.finish("stop"),
+        frames.usage(50, 3),
+        frames.done,
+      ]);
+
+      try {
+        const repl = await s.run(["--repl"], {
+          dialog: [
+            { match: "champ> ", stream: "stdout", send: "first turn\n" },
+            {
+              match: "champ> ",
+              stream: "stdout",
+              send: "/checkpoint milestone\n",
+            },
+            { match: "champ> ", stream: "stdout", send: "second turn\n" },
+            { match: "champ> ", stream: "stdout", send: "/compact\n" },
+            { match: "champ> ", stream: "stdout", send: "/exit\n" },
+          ],
+        });
+
+        expect(repl.timedOut).toBe(false);
+        expect(repl.code).toBe(0);
+        expect(repl.stderr).toContain('checkpoint "milestone" at 2 messages');
+        expect(repl.stderr).toContain("compacted sess-");
+
+        const id = repl.stderr.match(/session (sess-[0-9a-f-]+)/)?.[1];
+        expect(id).toBeDefined();
+
+        // Compaction left exactly the header, the checkpoint and the
+        // post-checkpoint turn on disk.
+        const logFile = path.join(s.ws, ".champ", "sessions", `${id}.jsonl`);
+        const records = fs
+          .readFileSync(logFile, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as { kind: string; upTo?: number });
+        expect(records.map((record) => record.kind)).toEqual([
+          "header",
+          "checkpoint",
+          "messages",
+        ]);
+        expect(records[1].upTo).toBe(0);
+
+        const resumed = await s.run([
+          "--session",
+          id!,
+          "--yes",
+          "what did we discuss?",
+        ]);
+        expect(resumed.code).toBe(0);
+        expect(repl.stderr).toContain("compact");
+        expect(resumed.stderr).toContain(`resumed session ${id}`);
+        expect(resumed.stderr).toContain('checkpoint "milestone"');
+
+        // Context is bounded: the pre-checkpoint turn is gone, the newer one
+        // is not, and the injected note says where the boundary is.
+        const request = s.mock.requests[s.mock.requests.length - 1] as {
+          messages: Array<{ role: string; content: unknown }>;
+        };
+        const wire = JSON.stringify(request.messages);
+        expect(wire).not.toContain("first turn");
+        expect(wire).toContain("second turn");
+        expect(wire).toContain("resumes at checkpoint");
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "rejects an invalid session id before touching the network",
+    async () => {
+      const s = await scenario(() => [frames.done]);
+      try {
+        const result = await s.run(["--session", "../escape", "task"]);
+        expect(result.code).toBe(2);
+        expect(result.stderr).toContain("invalid session id");
+        expect(s.mock.requests).toHaveLength(0);
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+});
+
 describe("champ CLI — interactive REPL (--repl)", () => {
   it(
     "streams a turn, prompts for approval, then exits on /exit",

@@ -1,10 +1,13 @@
 /**
  * Argument parsing for the headless `champ` CLI (issue #136).
  *
- * Pure and dependency-free: mode detection (one-shot / REPL / stdin-pipe) is
- * decided here from argv plus whether stdin is a TTY, so it can be unit-tested
- * without spawning the binary.
+ * Pure with respect to VS Code and the filesystem: mode detection (one-shot /
+ * REPL / stdin-pipe / session listing) is decided here from argv plus whether
+ * stdin is a TTY, so it can be unit-tested without spawning the binary.
+ * Session ids are validated here too (issue #72) so a traversal attempt is a
+ * usage error, not a filesystem call.
  */
+import { isValidSessionId } from "../session/ids";
 
 /** How the CLI should run: one task, an interactive session, or piped input. */
 export type CliMode = "oneshot" | "repl" | "stdin";
@@ -16,8 +19,12 @@ export interface CliFlags {
   yes: boolean;
   /** Force the interactive session even when stdin is not a terminal. */
   repl: boolean;
+  /** List stored sessions for the workspace instead of running a task. */
+  listSessions: boolean;
   /** Workspace root the agent operates in. */
   cwd: string;
+  /** Stored session to resume (created when it does not exist). */
+  session?: string;
   /** Overrides for the active provider block in config.yaml. */
   provider?: string;
   model?: string;
@@ -37,6 +44,7 @@ export interface CliOptions {
 export type CliParseResult =
   | { kind: "help" }
   | { kind: "version" }
+  | { kind: "sessions"; cwd: string }
   | { kind: "error"; message: string }
   | { kind: "run"; options: CliOptions };
 
@@ -55,6 +63,7 @@ Usage:
   champ --repl            Force the REPL (also with piped input, for scripting)
   champ -                 Read the task from stdin
   echo "<t>" | champ      Same as above (piped stdin)
+  champ --sessions        List stored sessions for the workspace
 
 Options:
   -h, --help              Show this help
@@ -67,6 +76,12 @@ Options:
       --model <name>      Override the model
       --api-key <key>     Override the API key
       --max-iter <n>      Maximum tool-call iterations per message
+      --session <id>      Resume a stored session (created when it is new)
+
+Sessions are append-only JSONL logs in <workspace>/.champ/sessions. The REPL
+keeps one automatically; --session does the same for one-shot runs. Resuming
+replays the log bounded at the newest checkpoint, without re-summarising.
+REPL commands: /session, /sessions, /checkpoint [label], /help, /exit.
 
 Configuration is read from ~/.champ/config.yaml (or CHAMP_CONFIG).
 Interactive runs prompt before destructive tools; non-interactive runs
@@ -81,6 +96,7 @@ const VALUE_FLAGS: Record<string, keyof CliFlags> = {
   "--base-url": "baseUrl",
   "--api-key": "apiKey",
   "--max-iter": "maxIterations",
+  "--session": "session",
 };
 
 function error(message: string): CliParseResult {
@@ -102,6 +118,7 @@ export function parseCliArgs(
     version: false,
     yes: false,
     repl: false,
+    listSessions: false,
     cwd: env.cwd ?? process.cwd(),
   };
   const positionals: string[] = [];
@@ -134,6 +151,10 @@ export function parseCliArgs(
     }
     if (arg === "--repl" || arg === "-r") {
       flags.repl = true;
+      continue;
+    }
+    if (arg === "--sessions") {
+      flags.listSessions = true;
       continue;
     }
 
@@ -184,6 +205,14 @@ export function parseCliArgs(
         case "apiKey":
           flags.apiKey = value;
           break;
+        case "session":
+          if (!isValidSessionId(value)) {
+            return error(
+              `invalid session id "${value}" — use letters, digits, dot, dash or underscore`,
+            );
+          }
+          flags.session = value;
+          break;
         default:
           // Boolean flags never appear in VALUE_FLAGS.
           break;
@@ -200,6 +229,18 @@ export function parseCliArgs(
 
   if (flags.help) return { kind: "help" };
   if (flags.version) return { kind: "version" };
+
+  // Listing sessions is a read-only query about a workspace: it cannot be
+  // combined with work, and it needs neither a provider nor a session.
+  if (flags.listSessions) {
+    if (positionals.length > 0 || explicitStdin) {
+      return error("cannot combine --sessions with a task");
+    }
+    if (flags.repl) {
+      return error("cannot combine --sessions with --repl");
+    }
+    return { kind: "sessions", cwd: flags.cwd };
+  }
 
   // Mode precedence: --repl forces an interactive session (a task makes the
   // combination ambiguous, so it is rejected); otherwise an explicit task

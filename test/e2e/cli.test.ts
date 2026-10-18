@@ -100,6 +100,46 @@ describe("champ CLI — end to end", () => {
     TIMEOUT,
   );
 
+  it(
+    "lists stored sessions without needing a provider (--sessions)",
+    async () => {
+      const ws = makeWorkspace("cli-e2e-sessions");
+      workspaces.push(ws);
+
+      // No config at all: listing is a read-only workspace query.
+      const empty = await runCli(["--sessions"], { cwd: ws });
+      expect(empty.timedOut).toBe(false);
+      expect(empty.code).toBe(0);
+      expect(empty.stdout).toContain("no sessions in");
+      expect(empty.stdout).toContain(".champ/sessions");
+
+      const mock = await startMockOpenAI(() => [
+        frames.text("noted"),
+        frames.finish("stop"),
+        frames.usage(90, 4),
+        frames.done,
+      ]);
+      try {
+        const configPath = writeChampConfig(ws, { baseUrl: mock.baseUrl });
+        const run = await runCli(["--session", "sess-e2e", "hello"], {
+          cwd: ws,
+          configPath,
+        });
+        expect(run.code).toBe(0);
+        expect(run.stderr).toContain("session sess-e2e");
+
+        const listed = await runCli(["--sessions"], { cwd: ws });
+        expect(listed.code).toBe(0);
+        expect(listed.stdout).toContain("sess-e2e");
+        expect(listed.stdout).toContain("messages=");
+        expect(listed.stdout).toContain("checkpoints=0");
+      } finally {
+        await mock.close();
+      }
+    },
+    TIMEOUT,
+  );
+
   it("ships as an executable, vscode-free bin artifact", () => {
     const artifact = path.join(ROOT, "dist", "cli.js");
     const source = fs.readFileSync(artifact, "utf8");

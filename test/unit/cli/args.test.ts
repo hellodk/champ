@@ -42,6 +42,8 @@ describe("cli arg parser — informational flags", () => {
   it("copies the usage text for error reporting", () => {
     expect(USAGE).toContain('champ "<task>"');
     expect(USAGE).toContain("--max-iter");
+    expect(USAGE).toContain("--session <id>");
+    expect(USAGE).toContain("--sessions");
     expect(USAGE).toContain("Interactive REPL");
   });
 });
@@ -188,6 +190,59 @@ describe("cli arg parser — errors", () => {
   });
 });
 
+describe("cli arg parser — sessions (issue #72)", () => {
+  it("parses --session with a separate value", () => {
+    const opts = run(parse(["--session", "sess-abc", "task"]));
+    expect(opts.flags.session).toBe("sess-abc");
+    expect(opts.mode).toBe("oneshot");
+    expect(opts.task).toBe("task");
+  });
+
+  it("parses --session=value form", () => {
+    expect(run(parse(["--session=sess-1.2_x", "--repl"])).flags.session).toBe(
+      "sess-1.2_x",
+    );
+  });
+
+  it("rejects ids that could escape the sessions directory", () => {
+    for (const bad of ["../etc/passwd", "a/b", "..", ".", ""]) {
+      expect(
+        parse(["--session", bad, "task"]),
+        `id ${JSON.stringify(bad)}`,
+      ).toMatchObject({
+        kind: "error",
+        message: expect.stringContaining("invalid session id"),
+      });
+    }
+  });
+
+  it("returns a sessions result for --sessions", () => {
+    expect(parse(["--sessions"])).toMatchObject({ kind: "sessions" });
+    expect(parse(["--sessions", "--cwd", "/elsewhere"])).toMatchObject({
+      kind: "sessions",
+      cwd: "/elsewhere",
+    });
+  });
+
+  it("rejects --sessions combined with work or --repl", () => {
+    expect(parse(["--sessions", "task"])).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("cannot combine --sessions with a task"),
+    });
+    expect(parse(["--sessions", "-"])).toMatchObject({ kind: "error" });
+    expect(parse(["--sessions", "--repl"])).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("cannot combine --sessions with --repl"),
+    });
+  });
+
+  it("leaves sessions off for ordinary runs", () => {
+    const opts = run(parse(["task"]));
+    expect(opts.flags.session).toBeUndefined();
+    expect(opts.flags.listSessions).toBe(false);
+  });
+});
+
 describe("cli entry — no vscode on the CLI path (issue #136)", () => {
   it("never imports the vscode API", () => {
     const sources = [
@@ -196,6 +251,8 @@ describe("cli entry — no vscode on the CLI path (issue #136)", () => {
       "src/tools/headless/index.ts",
       "src/tools/headless/fs-tools.ts",
       "src/providers/factory.ts",
+      "src/session/session-log.ts",
+      "src/session/ids.ts",
     ];
     const forbidden =
       /from\s+["']vscode["']|require\(["']vscode["']\)|import\(["']vscode["']\)/;
