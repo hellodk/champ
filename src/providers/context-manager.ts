@@ -9,12 +9,52 @@
 import type { LLMMessage, LLMProvider, ContentBlock } from "./types";
 
 const DEFAULT_RESERVED_FOR_OUTPUT = 4096;
+const PER_MESSAGE_OVERHEAD = 4;
+
+/**
+ * Provider-reported ground truth for a message prefix (#137).
+ *
+ * `promptTokens` is the exact token count the provider charged for the first
+ * `messageCount` messages. `fingerprint` is a cheap structural signature (role
+ * + content length — no tokenization) used to verify that the prefix is still
+ * the same before trusting the measurement.
+ */
+export interface UsageAnchor {
+  promptTokens: number;
+  messageCount: number;
+  fingerprint: string;
+}
 
 export class ContextWindowManager {
+  private anchor: UsageAnchor | null = null;
+
   constructor(
     private readonly provider: LLMProvider,
     private readonly reservedForOutput?: number,
   ) {}
+
+  /**
+   * Record the provider-reported prompt token count for `messages`.
+   *
+   * This is the authoritative count for the prefix the provider actually saw.
+   * Subsequent `estimateTokens` calls that extend this same prefix reuse the
+   * measured value and only tokenize the appended tail. No-ops on a
+   * non-positive count (e.g. providers that omit usage), leaving the manager on
+   * the deterministic full-estimate fallback.
+   */
+  recordUsage(messages: LLMMessage[], promptTokens: number): void {
+    if (!Number.isFinite(promptTokens) || promptTokens <= 0) return;
+    this.anchor = {
+      promptTokens,
+      messageCount: messages.length,
+      fingerprint: this.fingerprint(messages, messages.length),
+    };
+  }
+
+  /** Drop the measured anchor and return to full estimation. */
+  clearUsage(): void {
+    this.anchor = null;
+  }
 
   /**
    * Returns the token budget available for input messages.
@@ -36,15 +76,67 @@ export class ContextWindowManager {
 
   /**
    * Estimates the total tokens in a message list.
+   *
+   * When a provider measurement exists and `messages` still begins with the
+   * exact prefix it covered, the measured count is used for that prefix and
+   * only the appended tail is tokenized. Otherwise the whole list is estimated.
    */
   estimateTokens(messages: LLMMessage[]): number {
+    const anchor = this.anchor;
+    if (
+      anchor &&
+      messages.length >= anchor.messageCount &&
+      this.fingerprint(messages, anchor.messageCount) === anchor.fingerprint
+    ) {
+      return (
+        anchor.promptTokens + this.estimateRange(messages, anchor.messageCount)
+      );
+    }
+    return this.estimateRange(messages, 0);
+  }
+
+  /**
+   * Estimate tokens for `messages` from `from` onward, using the provider's
+   * tokenizer plus a fixed per-message overhead for role markers/formatting.
+   */
+  private estimateRange(messages: LLMMessage[], from: number): number {
     let total = 0;
-    for (const msg of messages) {
-      total += this.provider.countTokens(this.flattenContent(msg.content));
-      // Add a small overhead per message for role markers and formatting.
-      total += 4;
+    for (let i = from; i < messages.length; i++) {
+      total += this.provider.countTokens(
+        this.flattenContent(messages[i].content),
+      );
+      total += PER_MESSAGE_OVERHEAD;
     }
     return total;
+  }
+
+  /**
+   * Cheap structural signature over the first `count` messages: role plus a
+   * content-length measure. Deliberately avoids `countTokens` so the anchor
+   * check never re-tokenizes the prefix. Assumes earlier messages are immutable
+   * within a controller turn (history is append-only until compaction).
+   */
+  private fingerprint(messages: LLMMessage[], count: number): string {
+    const end = Math.min(count, messages.length);
+    let sig = "";
+    for (let i = 0; i < end; i++) {
+      sig += `${messages[i].role}:${this.contentLength(messages[i].content)}|`;
+    }
+    return sig;
+  }
+
+  /** Length used only for anchoring — never for token estimation. */
+  private contentLength(content: string | ContentBlock[]): number {
+    if (typeof content === "string") return content.length;
+    let length = 0;
+    for (const block of content) {
+      if (block.type === "text") length += block.text.length;
+      else if (block.type === "tool_result") length += block.content.length;
+      else if (block.type === "tool_use")
+        length += block.name.length + JSON.stringify(block.input).length;
+      else length += block.imageData.length;
+    }
+    return length;
   }
 
   /**

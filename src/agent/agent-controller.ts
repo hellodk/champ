@@ -734,6 +734,12 @@ export class AgentController {
           } else if (delta.type === "done") {
             totalInputTokens += delta.usage.inputTokens;
             totalOutputTokens += delta.usage.outputTokens;
+            // Anchor future estimates on the provider's authoritative prompt
+            // token count for this prefix (#137). The prefill seed (prompt-based
+            // continuation only) is a constant small delta, so recording against
+            // `messagesToSend` keeps the measured prefix aligned with the next
+            // turn's history while staying conservative.
+            contextManager.recordUsage(messagesToSend, delta.usage.inputTokens);
             this.emit(delta);
             break;
           } else if (delta.type === "error") {
