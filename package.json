@@ -360,6 +360,8 @@
   "scripts": {
     "compile": "pnpm run check-types && node esbuild.mjs && node esbuild.webview.mjs --production && node scripts/copy-assets.mjs",
     "build:webview": "node esbuild.webview.mjs --production && node scripts/copy-assets.mjs",
+    "build:bench": "esbuild scripts/bench-agent.ts --bundle --platform=node --format=cjs --outfile=dist/scripts/bench-agent.js",
+    "bench": "pnpm run build:bench && node dist/scripts/bench-agent.js",
     "watch:webview": "node esbuild.webview.mjs --watch",
     "watch": "npm-run-all -p watch:*",
     "watch:extension": "node esbuild.mjs --watch",

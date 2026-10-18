@@ -35,6 +35,7 @@ vitest.integration.config.ts
 package-lock.json
 **/*.ts
 **/*.map
+dist/scripts/**
 !dist/extension.js
 !webview-ui/dist/**
 !media/icon.png
