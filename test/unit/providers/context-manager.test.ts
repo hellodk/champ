@@ -802,3 +802,75 @@ describe("ContextWindowManager — prompt-based pairs (review 2b)", () => {
     expect(hasResult).toBe(hasCall);
   });
 });
+
+/**
+ * Second review pass: the prompt-based shape was detected by "starts with
+ * `<tool_result` and contains a closing tag", so a user turn that merely talked
+ * about the tag was treated as a tool result — and the clamp then rewrote the
+ * user's own words. Only the exact wrapper is a tool result now.
+ */
+describe("ContextWindowManager — user text vs tool result (review 2)", () => {
+  const BUDGET = 2000;
+
+  it("does not clamp a user message that only mentions <tool_result>", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const manager = new ContextWindowManager(charProvider(4000));
+    const messages: LLMMessage[] = [
+      { role: "system", content: "You are Champ." },
+      {
+        role: "user",
+        content: `<tool_result>The user is discussing this tag.</tool_result>\n${"y".repeat(100_000)}`,
+      },
+    ];
+
+    const result = manager.fitMessages(messages);
+
+    expect(result).toEqual(messages);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("still over budget"),
+    );
+    warn.mockRestore();
+  });
+
+  it("does not glue a user turn that mentions <tool_result> onto a tool call", () => {
+    const groups = atomicGroups([
+      { role: "user", content: "read a.ts" },
+      {
+        role: "assistant",
+        content: "reading",
+        toolCalls: [{ id: "c1", name: "read_file", arguments: {} }],
+      },
+      {
+        role: "user",
+        content:
+          "<tool_result>The docs say this tag means a result.</tool_result>",
+      },
+    ]);
+
+    expect(groups).toHaveLength(3);
+  });
+
+  it("still treats the real wrapper as a tool result", () => {
+    const manager = new ContextWindowManager(charProvider(4000));
+    const messages: LLMMessage[] = [
+      { role: "system", content: "You are Champ." },
+      {
+        role: "assistant",
+        content: "reading",
+        toolCalls: [{ id: "c1", name: "read_file", arguments: {} }],
+      },
+      {
+        role: "user",
+        content: `<tool_result tool="read_file" status="success">\n${"z".repeat(100_000)}\n</tool_result>`,
+      },
+    ];
+
+    const result = manager.fitMessages(messages);
+
+    expect(manager.estimateTokens(result)).toBeLessThanOrEqual(BUDGET);
+    const content = result[2].content as string;
+    expect(content.startsWith('<tool_result tool="read_file"')).toBe(true);
+    expect(content.endsWith("</tool_result>")).toBe(true);
+    expect(content).toContain("chars elided");
+  });
+});

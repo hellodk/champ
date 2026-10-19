@@ -64,14 +64,25 @@ function toolUseIds(message: LLMMessage): string[] {
 }
 
 /**
+ * The wire shape `AgentController.formatToolResultForPromptBased` writes: a
+ * user message holding `<tool_result tool="read_file" status="success">`, the
+ * tool output, and a closing tag. Both attributes are required so that user
+ * prose merely mentioning the tag is not mistaken for a tool result (and
+ * clamped away).
+ */
+const PROMPT_TOOL_RESULT =
+  /^<tool_result tool="[^"]*" status="(?:success|error)">\n[\s\S]*<\/tool_result>$/;
+
+/**
  * True for the prompt-based wire shape, where a tool result is a plain user
  * message wrapping `<tool_result …>…</tool_result>` (see
  * `AgentController.formatToolResultForPromptBased`).
  */
-function isPromptToolResult(content: string): boolean {
-  const trimmed = content.trimStart();
+function isPromptToolResult(message: LLMMessage): boolean {
   return (
-    trimmed.startsWith("<tool_result") && trimmed.includes("</tool_result>")
+    message.role === "user" &&
+    typeof message.content === "string" &&
+    PROMPT_TOOL_RESULT.test(message.content.trim())
   );
 }
 
@@ -84,17 +95,12 @@ function isToolResult(message: LLMMessage): boolean {
   ) {
     return true;
   }
-  return (
-    typeof message.content === "string" && isPromptToolResult(message.content)
-  );
+  return typeof message.content === "string" && isPromptToolResult(message);
 }
 
 /** True when a message's string content is a clampable tool result. */
 function isClampableToolText(message: LLMMessage): boolean {
-  return (
-    message.role === "tool" ||
-    (typeof message.content === "string" && isPromptToolResult(message.content))
-  );
+  return message.role === "tool" || isPromptToolResult(message);
 }
 
 /** One tool result that `capToolResultsInMessages` is allowed to shrink. */
