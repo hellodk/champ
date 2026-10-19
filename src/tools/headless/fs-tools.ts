@@ -210,7 +210,20 @@ export const headlessReadFileTool: Tool = {
           // emits at most DEFAULT_READ_MAX_LINES lines anyway, so a huge file
           // would only cost memory (see external review 4b).
           content = await readPrefix(resolved, MAX_READ_FILE_BYTES);
-          sizeNote = `\n\n[${relativePath}: file is ${stat.size} bytes; showing the first ${MAX_READ_FILE_BYTES}]`;
+          const linesRead = content.split("\n").length;
+          const startLine = args.startLine as number | undefined;
+          if (typeof startLine === "number" && startLine > linesRead) {
+            // Saying "success" here would hand the model an empty result and
+            // let it conclude the range is empty.
+            return {
+              success: false,
+              output:
+                `Requested startLine ${startLine} is past the read limit for "${relativePath}": ` +
+                `the file is ${stat.size} bytes and only the first ${MAX_READ_FILE_BYTES} bytes ` +
+                `(${linesRead} lines) are read. Use grep_search to find what you need.`,
+            };
+          }
+          sizeNote = `\n\n[${relativePath}: file is ${stat.size} bytes; showing the first ${linesRead} line${linesRead === 1 ? "" : "s"}]`;
         } else {
           content = await fsp.readFile(resolved, "utf-8");
         }

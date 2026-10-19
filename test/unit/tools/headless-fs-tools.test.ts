@@ -190,7 +190,41 @@ describe("headless read_file", () => {
     expect(res.success).toBe(true);
     expect(res.output).toContain("HEAD_MARKER");
     expect(res.output).not.toContain("TAIL_MARKER");
-    expect(res.output).toContain("showing the first 2000000");
+    expect(res.output).toContain("showing the first 1 line]");
+  });
+
+  it("fails loudly when the requested range is past the read limit (review 2)", async () => {
+    // Multi-line so the prefix covers a countable number of lines.
+    write(
+      "huge-lines.txt",
+      Array.from({ length: 400_000 }, (_, i) => `line ${i + 1}`).join("\n"),
+    );
+
+    const res = await headlessReadFileTool.execute(
+      { path: "huge-lines.txt", startLine: 399_000 },
+      context,
+    );
+
+    expect(res.success).toBe(false);
+    expect(res.output).toContain("past the read limit");
+    expect(res.output).toContain("huge-lines.txt");
+    expect(res.output).toContain("grep_search");
+  });
+
+  it("still serves a range inside the read prefix of a huge file (review 2)", async () => {
+    write(
+      "huge-lines.txt",
+      Array.from({ length: 400_000 }, (_, i) => `line ${i + 1}`).join("\n"),
+    );
+
+    const res = await headlessReadFileTool.execute(
+      { path: "huge-lines.txt", startLine: 2, endLine: 3 },
+      context,
+    );
+
+    expect(res.success).toBe(true);
+    expect(res.output).toContain("2: line 2");
+    expect(res.output).toContain("3: line 3");
   });
 
   it("rejects path traversal", async () => {
