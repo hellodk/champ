@@ -677,6 +677,75 @@ describe("ContextWindowManager — over-budget minimal set (review 1)", () => {
 });
 
 /**
+ * Second review pass: the first clamp only shrank the single largest result
+ * per pass, so a message holding several blocks (its per-message budget
+ * exceeded every block) or a history of many results (the 12-pass cap) still
+ * went out over budget. The clamp must converge on the whole set.
+ */
+describe("ContextWindowManager — clamp convergence (review 2)", () => {
+  const BUDGET = 2000;
+
+  it("clamps every block of a single message holding many tool results", () => {
+    const manager = new ContextWindowManager(charProvider(4000));
+    const block = "0".repeat(3900);
+    const messages: LLMMessage[] = [
+      { role: "system", content: "You are Champ." },
+      {
+        role: "assistant",
+        content: "reading",
+        toolCalls: [{ id: "c1", name: "read_file", arguments: {} }],
+      },
+      {
+        role: "tool",
+        content: Array.from({ length: 10 }, (_, index) => ({
+          type: "tool_result" as const,
+          toolUseId: `c${index}`,
+          content: block,
+        })),
+      },
+    ];
+
+    const result = manager.fitMessages(messages);
+
+    expect(manager.estimateTokens(result)).toBeLessThanOrEqual(BUDGET);
+    const blocks = (result[2].content as { content: string }[]).map(
+      (entry) => entry.content,
+    );
+    expect(blocks).toHaveLength(10);
+    for (const content of blocks) {
+      expect(content).toContain("chars elided");
+      expect(content.length).toBeLessThan(block.length);
+    }
+  });
+
+  it("clamps a long run of separate tool results instead of giving up", () => {
+    const manager = new ContextWindowManager(charProvider(4000));
+    // Consecutive tool results are one atomic group, so the newest group alone
+    // is ~20 000 tokens: every result has to shrink, not just the first twelve.
+    const messages: LLMMessage[] = [
+      { role: "system", content: "You are Champ." },
+      ...Array.from({ length: 20 }, (_, index) => ({
+        role: "tool" as const,
+        content: [
+          {
+            type: "tool_result" as const,
+            toolUseId: `c${index}`,
+            content: "0".repeat(4000),
+          },
+        ],
+        toolCallId: `c${index}`,
+      })),
+    ];
+
+    const result = manager.fitMessages(messages);
+
+    expect(manager.estimateTokens(result)).toBeLessThanOrEqual(BUDGET);
+    expect(result).toHaveLength(messages.length);
+    expect(JSON.stringify(result)).toContain("chars elided");
+  });
+});
+
+/**
  * External review (2026-10-19, finding 2b): prompt-based providers answer a
  * tool call with a plain user message wrapping `<tool_result …>`. Grouping
  * must see that shape too, or the drop boundary splits the exchange and the

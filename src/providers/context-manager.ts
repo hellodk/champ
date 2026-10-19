@@ -97,39 +97,87 @@ function isClampableToolText(message: LLMMessage): boolean {
   );
 }
 
-/** Tool-result characters that can be clamped in one message. */
-function clampableChars(message: LLMMessage): number {
-  if (typeof message.content === "string") {
-    return isClampableToolText(message) ? message.content.length : 0;
-  }
-  let total = 0;
-  for (const block of message.content) {
-    if (block.type === "tool_result") total += block.content.length;
-  }
-  return total;
+/** One tool result that `capToolResultsInMessages` is allowed to shrink. */
+interface ClampableChunk {
+  /** Index of the message holding it. */
+  message: number;
+  /** Index of the block inside the message, or -1 for string content. */
+  block: number;
+  chars: number;
 }
 
-/** Copy of `message` with every tool result clamped to `maxChars`. */
-function clampMessageToolResults(
-  message: LLMMessage,
-  maxChars: number,
-): LLMMessage {
-  if (typeof message.content === "string") {
-    // Head and tail are kept, so the `<tool_result …>` / `</tool_result>`
-    // wrapper survives and the content stays recognisable.
+/**
+ * Every clampable tool result in `messages`, one entry per block: a message
+ * holding ten results contributes ten chunks, so the clamp can shrink each of
+ * them instead of treating the message as a single indivisible body.
+ */
+function clampableChunks(messages: LLMMessage[]): ClampableChunk[] {
+  const chunks: ClampableChunk[] = [];
+  messages.forEach((message, index) => {
+    if (typeof message.content === "string") {
+      if (isClampableToolText(message)) {
+        chunks.push({
+          message: index,
+          block: -1,
+          chars: message.content.length,
+        });
+      }
+      return;
+    }
+    message.content.forEach((block, blockIndex) => {
+      if (block.type === "tool_result") {
+        chunks.push({
+          message: index,
+          block: blockIndex,
+          chars: block.content.length,
+        });
+      }
+    });
+  });
+  return chunks;
+}
+
+/**
+ * Copy of `messages` with every chunk clamped to `chars * scale`, never below
+ * `MIN_TOOL_RESULT_CHARS`, so the shrinkage is shared out proportionally.
+ *
+ * Head and tail are kept by `truncateToolOutput`, so the `<tool_result …>` /
+ * `</tool_result>` wrapper a prompt-based result carries survives.
+ */
+function clampChunks(
+  messages: LLMMessage[],
+  chunks: ClampableChunk[],
+  scale: number,
+): LLMMessage[] {
+  const plan = new Map<number, Map<number, number>>();
+  for (const chunk of chunks) {
+    const perBlock = plan.get(chunk.message) ?? new Map<number, number>();
+    perBlock.set(
+      chunk.block,
+      Math.max(MIN_TOOL_RESULT_CHARS, Math.floor(chunk.chars * scale)),
+    );
+    plan.set(chunk.message, perBlock);
+  }
+
+  return messages.map((message, index) => {
+    const perBlock = plan.get(index);
+    if (!perBlock) return message;
+    if (typeof message.content === "string") {
+      const target = perBlock.get(-1);
+      return target === undefined
+        ? message
+        : { ...message, content: truncateToolOutput(message.content, target) };
+    }
     return {
       ...message,
-      content: truncateToolOutput(message.content, maxChars),
+      content: message.content.map((content, blockIndex) => {
+        const target = perBlock.get(blockIndex);
+        return content.type === "tool_result" && target !== undefined
+          ? { ...content, content: truncateToolOutput(content.content, target) }
+          : content;
+      }),
     };
-  }
-  return {
-    ...message,
-    content: message.content.map((block) =>
-      block.type === "tool_result"
-        ? { ...block, content: truncateToolOutput(block.content, maxChars) }
-        : block,
-    ),
-  };
+  });
 }
 
 /**
@@ -448,31 +496,22 @@ export class ContextWindowManager {
     budget: number,
   ): LLMMessage[] {
     let current = messages;
-    for (let pass = 0; pass < 12; pass += 1) {
+    let previousChars = Number.POSITIVE_INFINITY;
+    for (;;) {
       const over = this.estimateTokens(current) - budget;
       if (over <= 0) return current;
 
-      // Clamp the message holding the most tool-result characters first, so
-      // the fewest messages are touched.
-      let target = -1;
-      let chars = 0;
-      current.forEach((message, index) => {
-        const length = clampableChars(message);
-        if (length > chars) {
-          chars = length;
-          target = index;
-        }
-      });
-      if (target < 0) break;
+      // Every clampable result shrinks by the same ratio, so the pass cannot
+      // stall on a message holding several blocks (a shared per-message budget
+      // larger than a block would leave that block untouched) and a history of
+      // many results converges in a couple of passes.
+      const chunks = clampableChunks(current);
+      const chars = chunks.reduce((total, chunk) => total + chunk.chars, 0);
+      if (chars === 0 || chars >= previousChars) break;
 
-      const want = Math.max(
-        MIN_TOOL_RESULT_CHARS,
-        chars - over * CHARS_PER_TOKEN,
-      );
-      if (want >= chars) break;
-      current = current.map((message, index) =>
-        index === target ? clampMessageToolResults(message, want) : message,
-      );
+      const keep = Math.max(0, chars - over * CHARS_PER_TOKEN);
+      current = clampChunks(current, chunks, keep / chars);
+      previousChars = chars;
     }
 
     if (this.estimateTokens(current) > budget) {
