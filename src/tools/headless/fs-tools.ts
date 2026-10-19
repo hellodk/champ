@@ -31,6 +31,13 @@ import type {
 import { resolveInWorkspace } from "../../utils/workspace-path";
 import { formatNumberedLines } from "../../utils/line-numbering";
 import {
+  MAX_READ_FILE_BYTES,
+  countLines,
+  prefixReadNote,
+  prefixReadRangeError,
+  readFilePrefix,
+} from "../../utils/bounded-read";
+import {
   buildEditPreview,
   findFuzzyMatch,
   formatNotFoundError,
@@ -67,31 +74,8 @@ const MAX_GREP_RESULTS = 100;
 const MAX_GREP_BYTES = 20_000;
 /** Files larger than this are skipped by grep. */
 const MAX_GREP_FILE_BYTES = 2_000_000;
-/**
- * Files larger than this are read as a bounded prefix by `read_file`: the
- * formatter only emits `DEFAULT_READ_MAX_LINES` lines, so reading a
- * multi-hundred-MB file whole (and splitting it into every line) is a memory
- * spike for output nobody sees. Mirrors the grep guard.
- */
-const MAX_READ_FILE_BYTES = 2_000_000;
 /** Max files returned by `file_search` (matches the VS Code tool). */
 const MAX_FILE_SEARCH_RESULTS = 10;
-
-/** Read at most `maxBytes` from the start of `file`, cutting on a line boundary. */
-async function readPrefix(file: string, maxBytes: number): Promise<string> {
-  const handle = await fsp.open(file, "r");
-  try {
-    const buffer = Buffer.alloc(maxBytes);
-    const { bytesRead } = await handle.read(buffer, 0, maxBytes, 0);
-    const text = buffer.subarray(0, bytesRead).toString("utf-8");
-    // Drop the last (possibly partial) line so no half line — or half UTF-8
-    // sequence — is reported as file content.
-    const lastNewline = text.lastIndexOf("\n");
-    return lastNewline > 0 ? text.slice(0, lastNewline) : text;
-  } finally {
-    await handle.close();
-  }
-}
 
 function refused(relativePath: string): ToolResult {
   return {
@@ -209,21 +193,23 @@ export const headlessReadFileTool: Tool = {
           // Read a bounded prefix rather than the whole file: the formatter
           // emits at most DEFAULT_READ_MAX_LINES lines anyway, so a huge file
           // would only cost memory (see external review 4b).
-          content = await readPrefix(resolved, MAX_READ_FILE_BYTES);
-          const linesRead = content.split("\n").length;
+          content = await readFilePrefix(resolved);
+          const linesRead = countLines(content);
           const startLine = args.startLine as number | undefined;
           if (typeof startLine === "number" && startLine > linesRead) {
             // Saying "success" here would hand the model an empty result and
             // let it conclude the range is empty.
             return {
               success: false,
-              output:
-                `Requested startLine ${startLine} is past the read limit for "${relativePath}": ` +
-                `the file is ${stat.size} bytes and only the first ${MAX_READ_FILE_BYTES} bytes ` +
-                `(${linesRead} lines) are read. Use grep_search to find what you need.`,
+              output: prefixReadRangeError(
+                relativePath,
+                stat.size,
+                linesRead,
+                startLine,
+              ),
             };
           }
-          sizeNote = `\n\n[${relativePath}: file is ${stat.size} bytes; showing the first ${linesRead} line${linesRead === 1 ? "" : "s"}]`;
+          sizeNote = prefixReadNote(relativePath, stat.size, linesRead);
         } else {
           content = await fsp.readFile(resolved, "utf-8");
         }
