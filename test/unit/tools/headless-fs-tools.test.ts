@@ -177,6 +177,22 @@ describe("headless read_file", () => {
     expect(res.output).not.toContain("3000: line 3000");
   });
 
+  it("reads a bounded prefix instead of loading a huge file (review 4b)", async () => {
+    // One 3 MB line: the formatter emits it whole (1 line is under the
+    // 2000-line cap), so only a bounded read keeps it out of the prompt.
+    write("huge.txt", `HEAD_MARKER${"x".repeat(3_000_000)}TAIL_MARKER`);
+
+    const res = await headlessReadFileTool.execute(
+      { path: "huge.txt" },
+      context,
+    );
+
+    expect(res.success).toBe(true);
+    expect(res.output).toContain("HEAD_MARKER");
+    expect(res.output).not.toContain("TAIL_MARKER");
+    expect(res.output).toContain("showing the first 2000000");
+  });
+
   it("rejects path traversal", async () => {
     const res = await headlessReadFileTool.execute(
       { path: TRAVERSAL },

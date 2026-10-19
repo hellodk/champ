@@ -67,8 +67,31 @@ const MAX_GREP_RESULTS = 100;
 const MAX_GREP_BYTES = 20_000;
 /** Files larger than this are skipped by grep. */
 const MAX_GREP_FILE_BYTES = 2_000_000;
+/**
+ * Files larger than this are read as a bounded prefix by `read_file`: the
+ * formatter only emits `DEFAULT_READ_MAX_LINES` lines, so reading a
+ * multi-hundred-MB file whole (and splitting it into every line) is a memory
+ * spike for output nobody sees. Mirrors the grep guard.
+ */
+const MAX_READ_FILE_BYTES = 2_000_000;
 /** Max files returned by `file_search` (matches the VS Code tool). */
 const MAX_FILE_SEARCH_RESULTS = 10;
+
+/** Read at most `maxBytes` from the start of `file`, cutting on a line boundary. */
+async function readPrefix(file: string, maxBytes: number): Promise<string> {
+  const handle = await fsp.open(file, "r");
+  try {
+    const buffer = Buffer.alloc(maxBytes);
+    const { bytesRead } = await handle.read(buffer, 0, maxBytes, 0);
+    const text = buffer.subarray(0, bytesRead).toString("utf-8");
+    // Drop the last (possibly partial) line so no half line — or half UTF-8
+    // sequence — is reported as file content.
+    const lastNewline = text.lastIndexOf("\n");
+    return lastNewline > 0 ? text.slice(0, lastNewline) : text;
+  } finally {
+    await handle.close();
+  }
+}
 
 function refused(relativePath: string): ToolResult {
   return {
@@ -176,13 +199,29 @@ export const headlessReadFileTool: Tool = {
     try {
       // Staged content (already edited this turn) is the ground truth.
       const staged = context.stagedEdits?.getCurrent(resolved);
-      const content = staged ?? (await fsp.readFile(resolved, "utf-8"));
+      let content: string;
+      let sizeNote = "";
+      if (staged !== undefined) {
+        content = staged;
+      } else {
+        const stat = await fsp.stat(resolved);
+        if (stat.size > MAX_READ_FILE_BYTES) {
+          // Read a bounded prefix rather than the whole file: the formatter
+          // emits at most DEFAULT_READ_MAX_LINES lines anyway, so a huge file
+          // would only cost memory (see external review 4b).
+          content = await readPrefix(resolved, MAX_READ_FILE_BYTES);
+          sizeNote = `\n\n[${relativePath}: file is ${stat.size} bytes; showing the first ${MAX_READ_FILE_BYTES}]`;
+        } else {
+          content = await fsp.readFile(resolved, "utf-8");
+        }
+      }
 
-      const output = formatNumberedLines(
-        content,
-        args.startLine as number | undefined,
-        args.endLine as number | undefined,
-      );
+      const output =
+        formatNumberedLines(
+          content,
+          args.startLine as number | undefined,
+          args.endLine as number | undefined,
+        ) + sizeNote;
       return { success: true, output };
     } catch (err) {
       return {
