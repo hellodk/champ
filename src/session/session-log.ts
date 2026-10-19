@@ -325,7 +325,11 @@ export class SessionLog {
     }
 
     const parsed = parseLog(raw);
-    if (!parsed.header) return null;
+    if (!parsed.header) {
+      // File exists but has no readable header (corrupt/torn). Do not mask as
+      // "does not exist" (see review #3).
+      throw new Error(`corrupt session log: ${file}`);
+    }
 
     // A crash mid-append leaves an unterminated line. Drop those bytes so the
     // next append cannot be glued onto a partial record, then restore the
