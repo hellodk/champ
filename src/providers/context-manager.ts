@@ -34,6 +34,11 @@ export function atomicGroups(messages: LLMMessage[]): LLMMessage[][] {
         group.push(messages[index]);
         index += 1;
       }
+    } else if (index < messages.length && isToolResult(messages[index])) {
+      while (index < messages.length && isToolResult(messages[index])) {
+        group.push(messages[index]);
+        index += 1;
+      }
     }
     groups.push(group);
   }
@@ -54,10 +59,18 @@ function toolUseIds(message: LLMMessage): string[] {
 /** True for a message carrying tool results, in either wire shape. */
 function isToolResult(message: LLMMessage): boolean {
   if (message.role === "tool") return true;
-  return (
+  if (
     Array.isArray(message.content) &&
     message.content.some((block) => block.type === "tool_result")
-  );
+  ) {
+    return true;
+  }
+  // Prompt-based: tool results are wrapped in <tool_result ...> in a user message
+  if (typeof message.content === "string") {
+    if (message.content.trim().startsWith("<tool_result")) return true;
+    if (message.content.includes("</tool_result>")) return true;
+  }
+  return false;
 }
 
 /**
