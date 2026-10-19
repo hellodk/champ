@@ -81,14 +81,7 @@ describe("packaging + repo hygiene (#102)", () => {
     const report = JSON.parse(
       execFileSync(
         "npm",
-        [
-          "pack",
-          "--ignore-scripts",
-          "--dry-run",
-          "--json",
-          "--pack-destination",
-          ROOT,
-        ],
+        ["pack", "--dry-run", "--json", "--pack-destination", ROOT],
         { cwd: ROOT, encoding: "utf8" },
       ),
     ) as Array<{ files: Array<{ path: string }> }>;
@@ -105,6 +98,9 @@ describe("packaging + repo hygiene (#102)", () => {
       "dist/cli.js",
     ]);
     expect(packed.filter((p) => !allowed.has(p))).toEqual([]);
+    // A tarball whose `bin` target is missing installs a command that cannot
+    // run. `prepack` builds it, so no `--ignore-scripts` here (review 4c).
+    expect(packed).toContain("dist/cli.js");
   });
 
   it("declares the CLI-only npm payload and keeps vsce off it (#139)", () => {
@@ -118,9 +114,16 @@ describe("packaging + repo hygiene (#102)", () => {
     // npm payload must stay declared in .npmignore only.
     const manifest = JSON.parse(
       readFileSync(path.join(ROOT, "package.json"), "utf8"),
-    ) as { files?: unknown; engines?: Record<string, string> };
+    ) as {
+      files?: unknown;
+      engines?: Record<string, string>;
+      scripts?: Record<string, string>;
+    };
     expect(manifest.files).toBeUndefined();
     expect(manifest.engines?.node).toBe(">=20");
+    // `npm pack` from a clean checkout must build the bin it points at
+    // (review 4c) — CI runs this suite without a prior build.
+    expect(manifest.scripts?.prepack).toBe("node esbuild.mjs --production");
   });
 
   it("documents installing the headless CLI (#139)", () => {
