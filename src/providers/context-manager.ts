@@ -233,9 +233,13 @@ export class ContextWindowManager {
       middle.shift();
     }
 
-    // If even system + the newest group does not fit, return that minimal set
-    // anyway — dropping half an exchange would be a hard API error.
-    return [...systemMessages, ...newest];
+    // If even system + the newest group does not fit, try to cap tool results
+    // in the newest group so it at least fits the budget (see #114 AC3 + review).
+    let fallback = [...systemMessages, ...newest];
+    if (this.estimateTokens(fallback) > budget) {
+      fallback = this.capToolResultsInMessages(fallback, budget);
+    }
+    return fallback;
   }
 
   /**
@@ -330,10 +334,18 @@ export class ContextWindowManager {
       console.warn(
         `Champ: context summariser — summary too large to fit (${this.estimateTokens(withSummaryFinal)} > ${budget}), falling back to drop`,
       );
-      return plainDrop;
+      let capped = plainDrop;
+      if (this.estimateTokens(capped) > budget) {
+        capped = this.capToolResultsInMessages(capped, budget);
+      }
+      return capped;
     } catch {
       // summarize threw — fall back to plain drop.
-      return plainDrop;
+      let capped = plainDrop;
+      if (this.estimateTokens(capped) > budget) {
+        capped = this.capToolResultsInMessages(capped, budget);
+      }
+      return capped;
     }
   }
 
@@ -351,6 +363,32 @@ export class ContextWindowManager {
       return null;
     }
     return { count: cached.count, text: cached.text };
+  }
+
+  private capToolResultsInMessages(
+    messages: LLMMessage[],
+    budget: number,
+  ): LLMMessage[] {
+    const capped = messages.map((m) => {
+      if (typeof m.content === "string") return m;
+      const newContent = m.content.map((block) => {
+        if (block.type === "tool_result" && block.content.length > 2000) {
+          return {
+            ...block,
+            content:
+              block.content.slice(0, 1000) +
+              "\n… [truncated]" +
+              block.content.slice(block.content.length - 500),
+          };
+        }
+        return block;
+      });
+      return { ...m, content: newContent } as LLMMessage;
+    });
+    if (this.estimateTokens(capped) > budget) {
+      return messages; // keep minimal set even if still over
+    }
+    return capped;
   }
 
   private flattenContent(content: string | ContentBlock[]): string {
