@@ -77,6 +77,59 @@ describe("packaging + repo hygiene (#102)", () => {
     expect(excluded.has("LICENSE")).toBe(false);
   });
 
+  it("packs the CLI tarball without repository or user state (#139)", () => {
+    const report = JSON.parse(
+      execFileSync(
+        "npm",
+        [
+          "pack",
+          "--ignore-scripts",
+          "--dry-run",
+          "--json",
+          "--pack-destination",
+          ROOT,
+        ],
+        { cwd: ROOT, encoding: "utf8" },
+      ),
+    ) as Array<{ files: Array<{ path: string }> }>;
+    const packed = report[0].files.map((f) => f.path);
+
+    // The published artifact is the standalone CLI bundle plus the manifest and
+    // licence/readme npm always includes. Everything else is dead weight, and
+    // `.champ/` is user/team state that must never leave the machine.
+    expect(packed.length).toBeGreaterThan(0);
+    const allowed = new Set([
+      "package.json",
+      "README.md",
+      "LICENSE",
+      "dist/cli.js",
+    ]);
+    expect(packed.filter((p) => !allowed.has(p))).toEqual([]);
+  });
+
+  it("declares the CLI-only npm payload and keeps vsce off it (#139)", () => {
+    const npmignore = readLines(".npmignore");
+    expect(npmignore).toContain("*");
+    expect(npmignore).toContain("!dist/");
+    expect(npmignore).toContain("!dist/cli.js");
+    expect(readLines(".vscodeignore")).toContain(".npmignore");
+
+    // `files` would also filter the VSIX (vsce honours manifest.files), so the
+    // npm payload must stay declared in .npmignore only.
+    const manifest = JSON.parse(
+      readFileSync(path.join(ROOT, "package.json"), "utf8"),
+    ) as { files?: unknown; engines?: Record<string, string> };
+    expect(manifest.files).toBeUndefined();
+    expect(manifest.engines?.node).toBe(">=20");
+  });
+
+  it("documents installing the headless CLI (#139)", () => {
+    const readme = readFileSync(path.join(ROOT, "README.md"), "utf8");
+    expect(readme).toContain("Headless CLI");
+    expect(readme).toContain("npm pack");
+    expect(readme).toContain("champ --version");
+  });
+
   it("never value-imports playwright statically (activation crash guard)", () => {
     // esbuild marks playwright-core external and published packages ship
     // without node_modules. A static import becomes a top-level require

@@ -120,6 +120,34 @@ providers:
 
 Then ask things like *"find all TODOs under src/ and summarize"* — Champ streams the plan, calls tools (you see each call as a card), executes them sandboxed/approved, and iterates until done.
 
+## Headless CLI (no VS Code)
+
+Champ also ships as a standalone CLI for machines without VS Code — for example
+a fleet of 16 GB Mac Minis driving a local model. The bundle inlines every
+dependency and only needs Node 20+:
+
+```bash
+npm run compile            # builds dist/cli.js (standalone, vscode-free)
+npm pack                   # → champ-<version>.tgz, the CLI payload only
+npm install -g ./champ-<version>.tgz
+champ --version
+```
+
+Point it at the LAN endpoint with the same config file the extension uses
+(`~/.champ/config.yaml`, or `CHAMP_CONFIG=/path/to/config.yaml`), then run a
+one-shot task, pipe a prompt, or start the REPL:
+
+```bash
+champ "find all TODOs under src/ and summarize"
+echo "explain src/cli.ts" | champ
+champ --repl
+champ --sessions           # list stored sessions; needs no provider
+```
+
+Approvals prompt when a human is attached to the terminal. A one-shot or piped
+run has nobody to ask, so it auto-approves and says so on stderr. Replies go to
+stdout and traces to stderr, so `champ "…" > plan.md` captures only the answer.
+
 ## Useful commands
 
 | Command | Purpose |

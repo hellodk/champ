@@ -26,6 +26,7 @@ plugin-promt.txt
 GROUND_RULES.md
 .gitignore
 .gitattributes
+.npmignore
 tsconfig.json
 esbuild.mjs
 esbuild.webview.mjs

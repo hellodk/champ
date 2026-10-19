@@ -1,0 +1,14 @@
+# Published npm payload for the headless CLI (#139).
+#
+# `dist/cli.js` is a standalone bundle: it inlines every dependency and only
+# requires Node builtins at runtime, so the package is that bundle plus the
+# manifest and the licence/readme npm always includes. Without this file npm
+# falls back to "everything not in .gitignore" and ships the whole repository —
+# src/, test/, docs/, the VS Code extension bundle, and `.champ/` (user/team
+# state that must never leave the machine).
+#
+# npm-only: `vsce` reads .vscodeignore and must not be affected.
+*
+!dist/
+dist/*
+!dist/cli.js
