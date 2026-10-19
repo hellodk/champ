@@ -17,6 +17,9 @@ import type { ResponseCache } from "../providers/response-cache";
 import type { ToolRegistry } from "../tools/registry";
 import type { ToolExecutionContext } from "../tools/types";
 import type { MetricsCollector } from "../observability/metrics-collector";
+import { ContextWindowManager } from "../providers/context-manager";
+import { createContextSummariser } from "../providers/context-summariser";
+import { truncateToolOutput } from "./tool-output";
 
 export interface ToolLoopResult {
   /** Final accumulated text from the last LLM turn with no tool calls. */
@@ -69,6 +72,10 @@ export class ToolCallingLoop {
     let totalOutputTokens = 0;
     let usedTools = false;
     let finalText = "";
+
+    // One manager per tool-loop turn: it shares the anchored accounting (#137)
+    // and the per-turn compaction across iterations (#138).
+    const contextManager = new ContextWindowManager(this.provider);
 
     // Build tool definitions from the scoped registry
     const toolDefs = this.toolRegistry.getDefinitions();
@@ -128,7 +135,20 @@ export class ToolCallingLoop {
           }
         }
 
-        const stream = this.provider.chat(history, {
+        // Fit the growing history into the provider's window before every call
+        // (#138): the loop re-sends everything each iteration, and a couple of
+        // large tool results can overflow a small local model's window before
+        // the iteration cap is reached.
+        const fitted = await contextManager.fitWithSummary(
+          history,
+          createContextSummariser(this.provider, this.context.abortSignal),
+        );
+        // Compaction replaced the dropped prefix with a summary, so `fitted` is
+        // no longer a prefix of the next iteration's history. Any measurement
+        // taken now would be stale, so none is recorded (AC 3).
+        const compacted = fitted.length < history.length;
+
+        const stream = this.provider.chat(fitted, {
           tools: toolDefs.length > 0 ? toolDefs : undefined,
           abortSignal: this.context.abortSignal,
           // Deterministic decode profile for tool turns (ticket #120).
@@ -185,6 +205,13 @@ export class ToolCallingLoop {
             if (delta.usage) {
               iterInputTokens = delta.usage.inputTokens ?? 0;
               iterOutputTokens = delta.usage.outputTokens ?? 0;
+              // Anchor the next fit on the provider's authoritative prompt token
+              // count for the prefix it just saw (#137). Only usable when the
+              // request was not compacted, so the prefix still describes the
+              // growing history.
+              if (!compacted) {
+                contextManager.recordUsage(fitted, iterInputTokens);
+              }
             }
             break;
           }
@@ -293,7 +320,7 @@ export class ToolCallingLoop {
         tc: (typeof pendingToolCalls)[number],
       ): Promise<ContentBlock> => {
         const toolStartTime = Date.now();
-        let toolResultStr: string | undefined;
+        let renderedOutput = "";
         let toolSuccess = false;
         let toolError: string | undefined;
         let result: Awaited<ReturnType<ToolRegistry["execute"]>>;
@@ -303,10 +330,10 @@ export class ToolCallingLoop {
             tc.args,
             this.context,
           );
-          toolResultStr =
+          renderedOutput =
             typeof result.output === "string"
-              ? truncateForMetrics(result.output)
-              : truncateForMetrics(JSON.stringify(result.output));
+              ? result.output
+              : JSON.stringify(result.output ?? "");
           toolSuccess = result.success;
         } catch (err) {
           toolError = err instanceof Error ? err.message : String(err);
@@ -326,13 +353,16 @@ export class ToolCallingLoop {
           durationMs: Date.now() - toolStartTime,
           success: toolSuccess,
           args: tc.args,
-          result: toolResultStr,
+          result: truncateForMetrics(renderedOutput),
           error: toolError,
         });
         return {
           type: "tool_result",
           toolUseId: tc.id,
-          content: result.output,
+          // History gets the budgeted copy (#114 AC3): a 100 KB tool result
+          // must not enter the prompt whole, or the next iteration — and every
+          // iteration after it — overflows a small local model's window.
+          content: truncateToolOutput(renderedOutput),
           isError: !result.success,
         };
       };

@@ -43,6 +43,7 @@ import type { SmartRouter, TaskType } from "../providers/smart-router";
 import type { ToolRegistry } from "../tools/registry";
 import type { ToolExecutionContext, ToolResult } from "../tools/types";
 import { ContextWindowManager } from "../providers/context-manager";
+import { createContextSummariser } from "../providers/context-summariser";
 import type { MemoryBank } from "../memory/memory-bank";
 import { SystemPromptBuilder } from "./system-prompt-builder";
 import { StagedEdits } from "./staged-edits";
@@ -599,45 +600,7 @@ export class AgentController {
         // silently discarding them. Falls back to plain drop if summarize throws.
         const messagesToSend = await contextManager.fitWithSummary(
           rawMessages,
-          async (dropped) => {
-            const turns = dropped
-              .filter((m) => m.role === "user" || m.role === "assistant")
-              .map((m) => {
-                const text =
-                  typeof m.content === "string"
-                    ? m.content.slice(0, 300)
-                    : (m.content as ContentBlock[])
-                        .filter(
-                          (b): b is ContentBlock & { type: "text" } =>
-                            b.type === "text",
-                        )
-                        .map((b) => b.text)
-                        .join(" ")
-                        .slice(0, 300);
-                return `${m.role}: ${text}`;
-              })
-              .join("\n");
-            // Safe: calls the provider directly (not processMessage), so fitWithSummary
-            // is never re-entered. The summarization request is always a single small message.
-            const summaryStream = activeProvider.chat(
-              [
-                {
-                  role: "user",
-                  content: `Summarize this conversation in 2 sentences, preserving key facts and decisions:\n\n${turns}`,
-                },
-              ],
-              { abortSignal: options.abortSignal },
-            );
-            const parts: string[] = [];
-            for await (const delta of summaryStream) {
-              if (delta.type === "text" && delta.text) parts.push(delta.text);
-              if (delta.type === "done" || delta.type === "error") break;
-            }
-            return (
-              parts.join("").trim() ||
-              "Earlier conversation context not available."
-            );
-          },
+          createContextSummariser(activeProvider, options.abortSignal),
         );
         if (messagesToSend.length < rawMessages.length) {
           const dropped = rawMessages.length - messagesToSend.length;

@@ -187,6 +187,17 @@ describe("MetricsCollector wiring", () => {
 
     let callCount = 0;
     const fakeProvider = {
+      countTokens: () => 1,
+      modelInfo: () => ({
+        id: "fake",
+        name: "Fake",
+        provider: "fake",
+        contextWindow: 8192,
+        maxOutputTokens: 1024,
+        supportsToolUse: true,
+        supportsImages: false,
+        supportsStreaming: true,
+      }),
       chat: async function* () {
         callCount++;
         if (callCount === 1) {
