@@ -31,6 +31,18 @@ const SESSIONS_SEGMENTS = [".champ", "sessions"] as const;
 
 const FILE_VERSION = 1;
 
+/**
+ * A session log that exists but has no readable header, usually a crash while
+ * the first line was being written. Thrown (rather than reported as "does not
+ * exist") so callers do not try to create the id again and fail on EEXIST.
+ */
+export class CorruptSessionLogError extends Error {
+  constructor(readonly file: string) {
+    super(`corrupt session log: ${file}`);
+    this.name = "CorruptSessionLogError";
+  }
+}
+
 /** Header metadata: what the session was, and where it ran. */
 export interface SessionLogMeta {
   id: string;
@@ -309,7 +321,8 @@ export class SessionLog {
 
   /**
    * Open an existing session log, repairing a torn tail left by a crash.
-   * Returns null when the session does not exist or has no readable header.
+   * Returns null when the session does not exist. Throws
+   * `CorruptSessionLogError` when the file exists but has no readable header.
    */
   static async open(workspace: string, id: string): Promise<SessionLog | null> {
     if (!isValidSessionId(id)) {
@@ -328,7 +341,7 @@ export class SessionLog {
     if (!parsed.header) {
       // File exists but has no readable header (corrupt/torn). Do not mask as
       // "does not exist" (see review #3).
-      throw new Error(`corrupt session log: ${file}`);
+      throw new CorruptSessionLogError(file);
     }
 
     // A crash mid-append leaves an unterminated line. Drop those bytes so the

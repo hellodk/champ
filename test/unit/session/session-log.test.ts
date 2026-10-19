@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { SessionLog } from "@/session/session-log";
+import { CorruptSessionLogError, SessionLog } from "@/session/session-log";
 import { isValidSessionId } from "@/session/ids";
 import type { LLMMessage } from "@/providers/types";
 
@@ -277,7 +277,11 @@ describe("SessionLog — crash tolerance", () => {
     fs.writeFileSync(log.path, raw.split("\n")[0].slice(0, 12), "utf8");
 
     await expect(SessionLog.open(ws, "torn-header")).rejects.toThrow(
-      /corrupt session log/,
+      CorruptSessionLogError,
+    );
+    // The message names the file so the CLI can tell the user what to delete.
+    await expect(SessionLog.open(ws, "torn-header")).rejects.toThrow(
+      /corrupt session log: .*torn-header\.jsonl/,
     );
     // And the file is left for the user to inspect or delete, not rewritten.
     expect(fs.readFileSync(log.path, "utf8")).toBe(

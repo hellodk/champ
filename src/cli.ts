@@ -43,7 +43,11 @@ import {
 import { ProviderFactory, type SecretReader } from "./providers/factory";
 import { AgentController } from "./agent/agent-controller";
 import { createHeadlessToolRegistry } from "./tools/headless";
-import { SessionLog, type SessionReplay } from "./session/session-log";
+import {
+  CorruptSessionLogError,
+  SessionLog,
+  type SessionReplay,
+} from "./session/session-log";
 import { newSessionId } from "./session/ids";
 import type { LLMMessage, StreamDelta, TokenUsage } from "./providers/types";
 
@@ -614,6 +618,13 @@ async function main(): Promise<number> {
       });
     }
   } catch (err) {
+    if (err instanceof CorruptSessionLogError) {
+      // A torn header is not something the user typed wrong: say what to do
+      // about it instead of leaving a dead session id behind.
+      fail(
+        `${err.message} — delete that file to start over, or pass another --session id`,
+      );
+    }
     fail(err instanceof Error ? err.message : String(err));
   }
 

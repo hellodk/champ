@@ -174,6 +174,10 @@ describe("champ CLI — end to end", () => {
         expect(run.stderr).toContain("corrupt session log");
         expect(run.stderr).toContain("broken.jsonl");
         expect(run.stderr).not.toContain("already exists");
+        // Review pass 2: the user is told how to get unstuck, not just that
+        // the file is corrupt.
+        expect(run.stderr).toContain("delete");
+        expect(run.stderr).toContain("--session");
       } finally {
         await mock.close();
       }
