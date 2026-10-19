@@ -560,3 +560,176 @@ describe("ContextWindowManager — compaction reuse (#114)", () => {
     expect(summarize).toHaveBeenCalledTimes(2);
   });
 });
+
+/**
+ * External review (2026-10-19, finding 1): even the minimal set — system plus
+ * the newest group — can be over the window on its own, because a single
+ * `read_file` returns more than a small model's whole input budget. The fit
+ * contract still holds: the tool results inside that set are clamped instead of
+ * an over-budget request being handed to the provider.
+ */
+function charProvider(contextWindow: number): LLMProvider {
+  const provider = createMockProvider(contextWindow);
+  (provider as unknown as { countTokens: (t: string) => number }).countTokens =
+    (text: string) => Math.ceil(text.length / 4);
+  return provider;
+}
+
+/** An assistant tool call and the tool_result message answering it. */
+function nativeToolCall(result: string): LLMMessage[] {
+  return [
+    {
+      role: "assistant",
+      content: "reading",
+      toolCalls: [{ id: "c1", name: "read_file", arguments: {} }],
+    },
+    {
+      role: "tool",
+      content: [{ type: "tool_result", toolUseId: "c1", content: result }],
+      toolCallId: "c1",
+    },
+  ];
+}
+
+describe("ContextWindowManager — over-budget minimal set (review 1)", () => {
+  // 4000-token window: min(4096, 2000) reserved for output, 2000 for input.
+  const BUDGET = 2000;
+  const HUGE = "0123456789".repeat(10_000); // 100 KB ≈ 25 000 tokens
+
+  it("clamps the newest tool result instead of returning an over-budget request", () => {
+    const manager = new ContextWindowManager(charProvider(4000));
+    const messages: LLMMessage[] = [
+      { role: "system", content: "You are Champ." },
+      ...nativeToolCall(HUGE),
+    ];
+
+    const result = manager.fitMessages(messages);
+
+    expect(manager.estimateTokens(result)).toBeLessThanOrEqual(BUDGET);
+    const stored = JSON.stringify(result);
+    expect(stored).toContain("chars elided");
+    expect(stored.length).toBeLessThan(HUGE.length);
+  });
+
+  it("keeps the <tool_result> wrapper intact while clamping a prompt result", () => {
+    const manager = new ContextWindowManager(charProvider(4000));
+    const messages: LLMMessage[] = [
+      { role: "system", content: "You are Champ." },
+      {
+        role: "assistant",
+        content: "reading",
+        toolCalls: [{ id: "c1", name: "read_file", arguments: {} }],
+      },
+      {
+        role: "user",
+        content: `<tool_result tool="read_file" status="success">\n${HUGE}\n</tool_result>`,
+      },
+    ];
+
+    const result = manager.fitMessages(messages);
+
+    expect(manager.estimateTokens(result)).toBeLessThanOrEqual(BUDGET);
+    const stored = result[2].content as string;
+    expect(stored.startsWith("<tool_result")).toBe(true);
+    expect(stored.endsWith("</tool_result>")).toBe(true);
+    expect(stored).toContain("chars elided");
+  });
+
+  it("falls back to a clamped plain drop when the summary cannot fit", async () => {
+    const manager = new ContextWindowManager(charProvider(4000));
+    const summarize = vi.fn(async () => "S".repeat(50_000)); // ≈12 500 tokens
+    const messages: LLMMessage[] = [
+      { role: "system", content: "You are Champ." },
+      { role: "user", content: "first question" },
+      { role: "assistant", content: "answering" },
+      { role: "user", content: "second question" },
+      ...nativeToolCall(HUGE),
+    ];
+
+    const result = await manager.fitWithSummary(messages, summarize);
+
+    expect(summarize).toHaveBeenCalled();
+    // The summary cannot fit so it is dropped — but the request still does.
+    expect(JSON.stringify(result)).not.toContain(
+      "Earlier conversation summary",
+    );
+    expect(manager.estimateTokens(result)).toBeLessThanOrEqual(BUDGET);
+  });
+
+  it("keeps and warns about a newest message with no tool result to clamp", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const manager = new ContextWindowManager(charProvider(4000));
+    const messages: LLMMessage[] = [
+      { role: "system", content: "You are Champ." },
+      // The user's own paste: nothing safe is left to drop and it must not be
+      // rewritten silently, so the request is returned unchanged and loud.
+      { role: "user", content: "x".repeat(100_000) },
+    ];
+
+    const result = manager.fitMessages(messages);
+
+    expect(result).toEqual(messages);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("still over budget"),
+    );
+    warn.mockRestore();
+  });
+});
+
+/**
+ * External review (2026-10-19, finding 2b): prompt-based providers answer a
+ * tool call with a plain user message wrapping `<tool_result …>`. Grouping
+ * must see that shape too, or the drop boundary splits the exchange and the
+ * model is handed a result whose call it never sees.
+ */
+describe("ContextWindowManager — prompt-based pairs (review 2b)", () => {
+  it("keeps a prompt-based <tool_result> in the same group as its call", () => {
+    const groups = atomicGroups([
+      { role: "user", content: "read a.ts" },
+      {
+        role: "assistant",
+        content: "reading",
+        toolCalls: [{ id: "c1", name: "read_file", arguments: {} }],
+      },
+      {
+        role: "user",
+        content: `<tool_result tool="read_file" status="success">\n1: hello\n</tool_result>`,
+      },
+    ]);
+
+    expect(groups).toHaveLength(2);
+    expect(groups[1]).toHaveLength(2);
+  });
+
+  it("never keeps a prompt-based result without its call", () => {
+    // 100-token window with the word-count tokenizer: the budget is 50.
+    const manager = new ContextWindowManager(createMockProvider(100));
+    const exchange = (n: number): LLMMessage[] => [
+      {
+        role: "assistant",
+        content: `thinking about file ${n}`,
+        toolCalls: [{ id: `c${n}`, name: "read_file", arguments: {} }],
+      },
+      {
+        role: "user",
+        content: `<tool_result tool="read_file" status="success">\n${`contents of file ${n} `.repeat(20)}\n</tool_result>`,
+      },
+    ];
+    const messages: LLMMessage[] = [
+      { role: "user", content: "first question" },
+      ...exchange(1),
+      { role: "user", content: "second question" },
+      ...exchange(2),
+    ];
+
+    const fitted = manager.fitMessages(messages);
+
+    expect(fitted.length).toBeLessThan(messages.length);
+    const hasResult = fitted.some(
+      (m) =>
+        typeof m.content === "string" && m.content.includes("<tool_result"),
+    );
+    const hasCall = fitted.some((m) => (m.toolCalls ?? []).length > 0);
+    expect(hasResult).toBe(hasCall);
+  });
+});

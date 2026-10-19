@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { AgentController } from "@/agent/agent-controller";
 import type { LLMProvider, StreamDelta, LLMMessage } from "@/providers/types";
 import type { ToolRegistry } from "@/tools/registry";
+import { DEFAULT_TOOL_OUTPUT_BUDGET_CHARS } from "@/utils/tool-output-budget";
 
 function createMockProvider(responses: StreamDelta[][]): LLMProvider {
   let callIdx = 0;
@@ -830,5 +831,133 @@ describe("AgentController", () => {
       expect(allContent).not.toContain("sk-ant-api03-realleakingsecret");
       expect(allContent).toContain("[REDACTED]");
     });
+  });
+});
+
+/**
+ * External review (2026-10-19, finding 2): the shipped CLI drives
+ * AgentController, not ToolCallingLoop, so the tool-output budget has to hold
+ * on this path too. Without it a single 100 KB `read_file` is re-sent in full
+ * on every iteration, which is what overflows a small local model's window.
+ */
+describe("AgentController — tool-output budget (review 2)", () => {
+  const HUGE = "0123456789".repeat(10_000); // 100 KB ≈ 25 000 tokens
+
+  function registryReturning(output: string): ToolRegistry {
+    return {
+      getAll: vi.fn().mockReturnValue([]),
+      getDefinitions: vi.fn().mockReturnValue([
+        {
+          name: "read_file",
+          description: "Read a file",
+          parameters: {
+            type: "object",
+            properties: { path: { type: "string", description: "Path" } },
+            required: ["path"],
+          },
+        },
+      ]),
+      get: vi.fn(),
+      register: vi.fn(),
+      unregister: vi.fn(),
+      execute: vi.fn().mockResolvedValue({ success: true, output }),
+    } as unknown as ToolRegistry;
+  }
+
+  /** A provider that answers with a prompt-based tool call, then text. */
+  function promptProviderWithToolCall(): LLMProvider {
+    const responses = [
+      `<tool_call>\n<name>read_file</name>\n<arguments>{"path":"big.txt"}</arguments>\n</tool_call>`,
+      `Done.`,
+    ];
+    let index = 0;
+    return {
+      name: "mock-local",
+      config: {
+        provider: "mock-local",
+        model: "test",
+        maxTokens: 1024,
+        temperature: 0.7,
+      },
+      chat: vi.fn().mockImplementation(async function* () {
+        const text = responses[index++] ?? "Done.";
+        yield { type: "text", text };
+        yield { type: "done", usage: { inputTokens: 10, outputTokens: 5 } };
+      }),
+      complete: vi.fn(),
+      supportsToolUse: () => false,
+      supportsStreaming: () => true,
+      countTokens: () => 10,
+      modelInfo: () => ({
+        id: "test",
+        name: "Test",
+        provider: "mock-local",
+        contextWindow: 4096,
+        maxOutputTokens: 1024,
+        supportsToolUse: false,
+        supportsImages: false,
+        supportsStreaming: true,
+      }),
+      dispose: vi.fn(),
+    } as unknown as LLMProvider;
+  }
+
+  function historyText(controller: AgentController): string {
+    return controller
+      .getHistory()
+      .map((m) =>
+        typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+      )
+      .join("\n");
+  }
+
+  it("budgets a huge tool result before it enters history (native tools)", async () => {
+    const provider = createMockProvider([
+      [
+        {
+          type: "tool_call_start",
+          toolCall: {
+            id: "c1",
+            name: "read_file",
+            arguments: { path: "big.txt" },
+          },
+        },
+        { type: "tool_call_end" },
+        { type: "done", usage: { inputTokens: 10, outputTokens: 5 } },
+      ],
+      [
+        { type: "text", text: "Done." },
+        { type: "done", usage: { inputTokens: 20, outputTokens: 5 } },
+      ],
+    ]);
+    const controller = new AgentController(provider, registryReturning(HUGE));
+
+    await controller.processMessage("read big.txt");
+
+    const stored = historyText(controller);
+    expect(stored).toContain("chars elided");
+    expect(stored.length).toBeLessThan(DEFAULT_TOOL_OUTPUT_BUDGET_CHARS * 2);
+  });
+
+  it("budgets a huge tool result in prompt-based mode too", async () => {
+    const controller = new AgentController(
+      promptProviderWithToolCall(),
+      registryReturning(HUGE),
+    );
+
+    await controller.processMessage("read big.txt");
+
+    const history = controller.getHistory();
+    const wrapped = history.find(
+      (m) =>
+        typeof m.content === "string" && m.content.includes("<tool_result"),
+    );
+    expect(wrapped).toBeDefined();
+    const text = wrapped!.content as string;
+    expect(text).toContain("chars elided");
+    // The wrapper the model is taught to read survives the clamp.
+    expect(text.trimStart().startsWith("<tool_result")).toBe(true);
+    expect(text.trimEnd().endsWith("</tool_result>")).toBe(true);
+    expect(text.length).toBeLessThan(DEFAULT_TOOL_OUTPUT_BUDGET_CHARS * 2);
   });
 });

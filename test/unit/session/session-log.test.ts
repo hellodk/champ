@@ -265,6 +265,26 @@ describe("SessionLog — crash tolerance", () => {
     expect(reopenedAgain!.replay().skippedLines).toBe(0);
   });
 
+  it("reports a torn header as corrupt instead of pretending it is absent (review 3)", async () => {
+    const log = await SessionLog.create(ws, { id: "torn-header" });
+    await log.appendMessages([user("kept")]);
+
+    // Crash while the header was being written: the file exists but its first
+    // line is a fragment. `open` must not report "does not exist" — the CLI's
+    // open-then-create would then hit EEXIST and the id would fail forever
+    // with a contradictory "already exists".
+    const raw = fs.readFileSync(log.path, "utf8");
+    fs.writeFileSync(log.path, raw.split("\n")[0].slice(0, 12), "utf8");
+
+    await expect(SessionLog.open(ws, "torn-header")).rejects.toThrow(
+      /corrupt session log/,
+    );
+    // And the file is left for the user to inspect or delete, not rewritten.
+    expect(fs.readFileSync(log.path, "utf8")).toBe(
+      raw.split("\n")[0].slice(0, 12),
+    );
+  });
+
   it("skips corrupt and unknown records instead of failing", async () => {
     const log = await SessionLog.create(ws, { id: "corrupt" });
     await log.appendMessages([user("kept")]);

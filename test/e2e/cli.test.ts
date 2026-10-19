@@ -140,6 +140,97 @@ describe("champ CLI — end to end", () => {
     TIMEOUT,
   );
 
+  it(
+    "reports a session log with a torn header instead of 'already exists' (review 3)",
+    async () => {
+      const ws = makeWorkspace("cli-e2e-corrupt-session");
+      workspaces.push(ws);
+      const mock = await startMockOpenAI(() => [
+        frames.text("noted"),
+        frames.finish("stop"),
+        frames.usage(90, 4),
+        frames.done,
+      ]);
+      try {
+        const configPath = writeChampConfig(ws, { baseUrl: mock.baseUrl });
+        // A crash mid-write leaves a log whose header is a fragment. `open`
+        // must say the log is corrupt — reporting "does not exist" sends the
+        // CLI to create the id again, which then fails with a contradictory
+        // "already exists" and can never succeed.
+        const dir = path.join(ws, ".champ", "sessions");
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(
+          path.join(dir, "broken.jsonl"),
+          '{"v":1,"kind":"head',
+          "utf8",
+        );
+
+        const run = await runCli(["--session", "broken", "hello"], {
+          cwd: ws,
+          configPath,
+        });
+
+        expect(run.code).toBe(2);
+        expect(run.stderr).toContain("corrupt session log");
+        expect(run.stderr).toContain("broken.jsonl");
+        expect(run.stderr).not.toContain("already exists");
+      } finally {
+        await mock.close();
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "keeps a huge tool result out of the request it sends next (review 2)",
+    async () => {
+      const ws = makeWorkspace("cli-e2e-tool-budget");
+      workspaces.push(ws);
+      // 200 KB on one line: more than a small local window holds, and the
+      // formatter would happily emit it whole (one line is under the cap).
+      const huge = "x".repeat(200_000);
+      fs.writeFileSync(path.join(ws, "big.txt"), huge, "utf8");
+
+      const mock = await startMockOpenAI((_body, index) => {
+        if (index === 0) {
+          return [
+            frames.toolCall("call_read", "read_file", { path: "big.txt" }),
+            frames.finish("tool_calls"),
+            frames.usage(500, 30),
+            frames.done,
+          ];
+        }
+        return [
+          frames.text("Read it."),
+          frames.finish("stop"),
+          frames.usage(640, 12),
+          frames.done,
+        ];
+      });
+
+      try {
+        const configPath = writeChampConfig(ws, { baseUrl: mock.baseUrl });
+        const run = await runCli(["read big.txt", "--yes"], {
+          cwd: ws,
+          configPath,
+        });
+        expect(run.timedOut).toBe(false);
+        expect(run.code).toBe(0);
+
+        // The next turn re-sends the tool result: it has to be the budgeted
+        // copy, not the whole file, or a small model's window is gone after
+        // one read.
+        const second = JSON.stringify(mock.requests[1].messages);
+        expect(second).toContain("chars elided");
+        expect(second).not.toContain(huge.slice(0, 5_000));
+        expect(second.length).toBeLessThan(30_000);
+      } finally {
+        await mock.close();
+      }
+    },
+    TIMEOUT,
+  );
+
   it("ships as an executable, vscode-free bin artifact", () => {
     const artifact = path.join(ROOT, "dist", "cli.js");
     const source = fs.readFileSync(artifact, "utf8");
