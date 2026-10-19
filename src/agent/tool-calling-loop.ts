@@ -19,7 +19,7 @@ import type { ToolExecutionContext } from "../tools/types";
 import type { MetricsCollector } from "../observability/metrics-collector";
 import { ContextWindowManager } from "../providers/context-manager";
 import { createContextSummariser } from "../providers/context-summariser";
-import { truncateToolOutput } from "./tool-output";
+import { truncateToolOutput } from "../utils/tool-output-budget";
 
 export interface ToolLoopResult {
   /** Final accumulated text from the last LLM turn with no tool calls. */

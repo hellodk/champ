@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 import {
   DEFAULT_TOOL_OUTPUT_BUDGET_CHARS,
   truncateToolOutput,
-} from "@/agent/tool-output";
+} from "@/utils/tool-output-budget";
 
 /** A 100 KB body whose bytes encode their position. */
 function bigOutput(size = 100_000): string {

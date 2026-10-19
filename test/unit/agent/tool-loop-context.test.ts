@@ -10,7 +10,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { ToolCallingLoop } from "@/agent/tool-calling-loop";
 import { ToolRegistry } from "@/tools/registry";
-import { DEFAULT_TOOL_OUTPUT_BUDGET_CHARS } from "@/agent/tool-output";
+import { DEFAULT_TOOL_OUTPUT_BUDGET_CHARS } from "@/utils/tool-output-budget";
 import { SUMMARISER_MARKER } from "@/providers/context-summariser";
 import type { LLMMessage, LLMProvider, StreamDelta } from "@/providers/types";
 import type { Tool, ToolExecutionContext } from "@/tools/types";

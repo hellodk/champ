@@ -44,7 +44,7 @@ import type { ToolRegistry } from "../tools/registry";
 import type { ToolExecutionContext, ToolResult } from "../tools/types";
 import { ContextWindowManager } from "../providers/context-manager";
 import { createContextSummariser } from "../providers/context-summariser";
-import { truncateToolOutput } from "./tool-output";
+import { truncateToolOutput } from "../utils/tool-output-budget";
 import type { MemoryBank } from "../memory/memory-bank";
 import { SystemPromptBuilder } from "./system-prompt-builder";
 import { StagedEdits } from "./staged-edits";

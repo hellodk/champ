@@ -8,9 +8,16 @@
  * messages answering it — a pair that providers reject when split (#114).
  */
 import type { LLMMessage, LLMProvider, ContentBlock } from "./types";
+import { truncateToolOutput } from "../utils/tool-output-budget";
 
 const DEFAULT_RESERVED_FOR_OUTPUT = 4096;
 const PER_MESSAGE_OVERHEAD = 4;
+
+/** Chars per token assumed when converting an over-budget amount to a cut. */
+const CHARS_PER_TOKEN = 4;
+
+/** Never shrink a tool result below this; past it the result is only a marker. */
+const MIN_TOOL_RESULT_CHARS = 120;
 
 /**
  * Group messages into drop units: a plain message is its own group, while an
@@ -56,6 +63,18 @@ function toolUseIds(message: LLMMessage): string[] {
   return ids;
 }
 
+/**
+ * True for the prompt-based wire shape, where a tool result is a plain user
+ * message wrapping `<tool_result …>…</tool_result>` (see
+ * `AgentController.formatToolResultForPromptBased`).
+ */
+function isPromptToolResult(content: string): boolean {
+  const trimmed = content.trimStart();
+  return (
+    trimmed.startsWith("<tool_result") && trimmed.includes("</tool_result>")
+  );
+}
+
 /** True for a message carrying tool results, in either wire shape. */
 function isToolResult(message: LLMMessage): boolean {
   if (message.role === "tool") return true;
@@ -65,12 +84,52 @@ function isToolResult(message: LLMMessage): boolean {
   ) {
     return true;
   }
-  // Prompt-based: tool results are wrapped in <tool_result ...> in a user message
+  return (
+    typeof message.content === "string" && isPromptToolResult(message.content)
+  );
+}
+
+/** True when a message's string content is a clampable tool result. */
+function isClampableToolText(message: LLMMessage): boolean {
+  return (
+    message.role === "tool" ||
+    (typeof message.content === "string" && isPromptToolResult(message.content))
+  );
+}
+
+/** Tool-result characters that can be clamped in one message. */
+function clampableChars(message: LLMMessage): number {
   if (typeof message.content === "string") {
-    if (message.content.trim().startsWith("<tool_result")) return true;
-    if (message.content.includes("</tool_result>")) return true;
+    return isClampableToolText(message) ? message.content.length : 0;
   }
-  return false;
+  let total = 0;
+  for (const block of message.content) {
+    if (block.type === "tool_result") total += block.content.length;
+  }
+  return total;
+}
+
+/** Copy of `message` with every tool result clamped to `maxChars`. */
+function clampMessageToolResults(
+  message: LLMMessage,
+  maxChars: number,
+): LLMMessage {
+  if (typeof message.content === "string") {
+    // Head and tail are kept, so the `<tool_result …>` / `</tool_result>`
+    // wrapper survives and the content stays recognisable.
+    return {
+      ...message,
+      content: truncateToolOutput(message.content, maxChars),
+    };
+  }
+  return {
+    ...message,
+    content: message.content.map((block) =>
+      block.type === "tool_result"
+        ? { ...block, content: truncateToolOutput(block.content, maxChars) }
+        : block,
+    ),
+  };
 }
 
 /**
@@ -246,13 +305,12 @@ export class ContextWindowManager {
       middle.shift();
     }
 
-    // If even system + the newest group does not fit, try to cap tool results
-    // in the newest group so it at least fits the budget (see #114 AC3 + review).
-    let fallback = [...systemMessages, ...newest];
-    if (this.estimateTokens(fallback) > budget) {
-      fallback = this.capToolResultsInMessages(fallback, budget);
-    }
-    return fallback;
+    // If even system + the newest group does not fit, clamp the tool results in
+    // it rather than send an over-budget request (review 2026-10-19, finding 1).
+    return this.capToolResultsInMessages(
+      [...systemMessages, ...newest],
+      budget,
+    );
   }
 
   /**
@@ -295,7 +353,10 @@ export class ContextWindowManager {
 
     // Nothing needed to be dropped.
     if (dropped.length === 0) {
-      return [...systemMessages, ...middle.flat(), ...newest];
+      return this.capToolResultsInMessages(
+        [...systemMessages, ...middle.flat(), ...newest],
+        budget,
+      );
     }
 
     // Plain-drop result used as fallback.
@@ -347,18 +408,10 @@ export class ContextWindowManager {
       console.warn(
         `Champ: context summariser — summary too large to fit (${this.estimateTokens(withSummaryFinal)} > ${budget}), falling back to drop`,
       );
-      let capped = plainDrop;
-      if (this.estimateTokens(capped) > budget) {
-        capped = this.capToolResultsInMessages(capped, budget);
-      }
-      return capped;
+      return this.capToolResultsInMessages(plainDrop, budget);
     } catch {
       // summarize threw — fall back to plain drop.
-      let capped = plainDrop;
-      if (this.estimateTokens(capped) > budget) {
-        capped = this.capToolResultsInMessages(capped, budget);
-      }
-      return capped;
+      return this.capToolResultsInMessages(plainDrop, budget);
     }
   }
 
@@ -378,30 +431,56 @@ export class ContextWindowManager {
     return { count: cached.count, text: cached.text };
   }
 
+  /**
+   * Last-resort fit: shrink the tool results that are still in the minimal set
+   * instead of sending a request far over the budget (external review,
+   * 2026-10-19, finding 1). Dropping a tool result is safe — it is data the
+   * model can re-request — while dropping the newest group would throw away the
+   * question, so content is clamped with the same head/tail + marker helper the
+   * tool loops use before the result ever enters history.
+   *
+   * Returns the messages unchanged when there is nothing clampable left (the
+   * newest message itself is over the window); the caller learns that from the
+   * warning rather than from a silently truncated user turn.
+   */
   private capToolResultsInMessages(
     messages: LLMMessage[],
     budget: number,
   ): LLMMessage[] {
-    const capped = messages.map((m) => {
-      if (typeof m.content === "string") return m;
-      const newContent = m.content.map((block) => {
-        if (block.type === "tool_result" && block.content.length > 2000) {
-          return {
-            ...block,
-            content:
-              block.content.slice(0, 1000) +
-              "\n… [truncated]" +
-              block.content.slice(block.content.length - 500),
-          };
+    let current = messages;
+    for (let pass = 0; pass < 12; pass += 1) {
+      const over = this.estimateTokens(current) - budget;
+      if (over <= 0) return current;
+
+      // Clamp the message holding the most tool-result characters first, so
+      // the fewest messages are touched.
+      let target = -1;
+      let chars = 0;
+      current.forEach((message, index) => {
+        const length = clampableChars(message);
+        if (length > chars) {
+          chars = length;
+          target = index;
         }
-        return block;
       });
-      return { ...m, content: newContent } as LLMMessage;
-    });
-    if (this.estimateTokens(capped) > budget) {
-      return messages; // keep minimal set even if still over
+      if (target < 0) break;
+
+      const want = Math.max(
+        MIN_TOOL_RESULT_CHARS,
+        chars - over * CHARS_PER_TOKEN,
+      );
+      if (want >= chars) break;
+      current = current.map((message, index) =>
+        index === target ? clampMessageToolResults(message, want) : message,
+      );
     }
-    return capped;
+
+    if (this.estimateTokens(current) > budget) {
+      console.warn(
+        `Champ: context window — still over budget after trimming tool results (${this.estimateTokens(current)} > ${budget}); the newest message is larger than the window`,
+      );
+    }
+    return current;
   }
 
   private flattenContent(content: string | ContentBlock[]): string {
