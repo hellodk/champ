@@ -3,7 +3,10 @@
  * Validates token counting, message truncation, and context fitting.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { ContextWindowManager } from "@/providers/context-manager";
+import {
+  ContextWindowManager,
+  atomicGroups,
+} from "@/providers/context-manager";
 import type { LLMProvider, LLMMessage } from "@/providers/types";
 
 function createMockProvider(contextWindow: number): LLMProvider {
@@ -302,5 +305,175 @@ describe("ContextWindowManager.fitWithSummary — context compaction", () => {
 
     expect(summarize).not.toHaveBeenCalled();
     expect(result).toEqual(messages);
+  });
+});
+
+/**
+ * Tool-use pairing (#114): an assistant message that invokes tools and the
+ * tool-result messages that answer it form ONE drop unit. A history with an
+ * unmatched `tool_use` (or an orphan `tool_result`) is a hard error on
+ * Anthropic-shaped APIs, so truncation has to move whole exchanges.
+ */
+function unpairedToolIds(messages: LLMMessage[]): string[] {
+  const used = new Set<string>();
+  const answered = new Set<string>();
+  for (const message of messages) {
+    for (const call of message.toolCalls ?? []) used.add(call.id);
+    if (message.role === "tool" && message.toolCallId) {
+      answered.add(message.toolCallId);
+    }
+    if (!Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (block.type === "tool_use") used.add(block.id);
+      if (block.type === "tool_result") answered.add(block.toolUseId);
+    }
+  }
+  const ids = new Set([...used, ...answered]);
+  return [...ids].filter((id) => !(used.has(id) && answered.has(id)));
+}
+
+/** One complete exchange: user question, assistant tool call, tool result. */
+function toolExchange(n: number): LLMMessage[] {
+  return [
+    { role: "user", content: `question ${n} about the codebase` },
+    {
+      role: "assistant",
+      content: [
+        { type: "text", text: `reading file ${n}` },
+        {
+          type: "tool_use",
+          id: `call_${n}`,
+          name: "read_file",
+          input: { path: `file${n}.ts` },
+        },
+      ],
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          toolUseId: `call_${n}`,
+          content: `contents of file ${n} `.repeat(30),
+        },
+      ],
+    },
+  ];
+}
+
+describe("ContextWindowManager — pair-safe truncation (#114)", () => {
+  let manager: ContextWindowManager;
+  let provider: LLMProvider;
+
+  beforeEach(() => {
+    provider = createMockProvider(100); // 100 token window, budget 50
+    manager = new ContextWindowManager(provider);
+  });
+
+  it("groups a tool_use with the tool_result messages that answer it", () => {
+    const groups = atomicGroups(toolExchange(1));
+    // The question stands alone; the tool call and its result travel together.
+    expect(groups).toHaveLength(2);
+    expect(groups[1]).toHaveLength(2);
+    expect(unpairedToolIds(groups.flat())).toEqual([]);
+  });
+
+  it("groups role:tool results with the call that produced them", () => {
+    const messages: LLMMessage[] = [
+      { role: "user", content: "go" },
+      {
+        role: "assistant",
+        content: "thinking",
+        toolCalls: [{ id: "c1", name: "read-file", arguments: {} }],
+      },
+      { role: "tool", content: "1: hello", toolCallId: "c1" },
+      { role: "assistant", content: "done" },
+    ];
+
+    const groups = atomicGroups(messages);
+
+    expect(groups).toHaveLength(3);
+    expect(groups[1]).toHaveLength(2);
+  });
+
+  it("does not treat a lone assistant text message as an exchange", () => {
+    const groups = atomicGroups([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "hello" },
+    ]);
+    expect(groups).toEqual([
+      [{ role: "user", content: "hi" }],
+      [{ role: "assistant", content: "hello" }],
+    ]);
+  });
+
+  it("never drops a tool_use without its result", () => {
+    const messages: LLMMessage[] = [
+      { role: "system", content: "System" },
+      ...toolExchange(1),
+      ...toolExchange(2),
+      { role: "user", content: "latest question" },
+    ];
+
+    const result = manager.fitMessages(messages);
+
+    expect(result.length).toBeLessThan(messages.length);
+    expect(result[0].role).toBe("system");
+    expect(unpairedToolIds(result)).toEqual([]);
+    expect(result[result.length - 1].content).toBe("latest question");
+  });
+
+  it("keeps whole exchanges when several drop iterations are needed", () => {
+    const messages: LLMMessage[] = [
+      { role: "system", content: "System" },
+      ...toolExchange(1),
+      ...toolExchange(2),
+      ...toolExchange(3),
+      { role: "user", content: "latest question" },
+    ];
+
+    const result = manager.fitMessages(messages);
+
+    expect(unpairedToolIds(result)).toEqual([]);
+    expect(result[0].role).toBe("system");
+    expect(result[result.length - 1].content).toBe("latest question");
+  });
+
+  it("keeps the newest exchange intact when nothing else fits", () => {
+    const tiny = new ContextWindowManager(createMockProvider(60));
+    const messages: LLMMessage[] = [
+      { role: "system", content: "System" },
+      ...toolExchange(1),
+      ...toolExchange(2),
+    ];
+
+    const result = tiny.fitMessages(messages);
+
+    expect(result[0].role).toBe("system");
+    expect(unpairedToolIds(result)).toEqual([]);
+    expect(result.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("hands the summariser whole groups, never half an exchange", async () => {
+    const messages: LLMMessage[] = [
+      { role: "system", content: "System" },
+      ...toolExchange(1),
+      ...toolExchange(2),
+      { role: "user", content: "latest question" },
+    ];
+    const seen: LLMMessage[][] = [];
+    const summarize = vi.fn(async (dropped: LLMMessage[]) => {
+      seen.push(dropped);
+      return "Earlier the agent read two files.";
+    });
+
+    const result = await manager.fitWithSummary(messages, summarize);
+
+    expect(summarize).toHaveBeenCalled();
+    for (const dropped of seen) {
+      expect(unpairedToolIds(dropped)).toEqual([]);
+    }
+    expect(unpairedToolIds(result)).toEqual([]);
+    expect(result[result.length - 1].content).toBe("latest question");
   });
 });

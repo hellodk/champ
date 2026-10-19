@@ -2,14 +2,63 @@
  * ContextWindowManager: fits a message history into the provider's context
  * window by preserving system and recent turns while dropping older ones.
  *
- * The fitting strategy is: always keep the system message and the last
- * message, then progressively drop oldest middle messages until the total
- * fits under (contextWindow - reservedForOutput) tokens.
+ * The fitting strategy is: always keep the system message(s), then drop the
+ * oldest *atomic groups* until the whole set fits, always preserving the newest
+ * group. A group is a message, or an assistant tool call plus the tool-result
+ * messages answering it — a pair that providers reject when split (#114).
  */
 import type { LLMMessage, LLMProvider, ContentBlock } from "./types";
 
 const DEFAULT_RESERVED_FOR_OUTPUT = 4096;
 const PER_MESSAGE_OVERHEAD = 4;
+
+/**
+ * Group messages into drop units: a plain message is its own group, while an
+ * assistant message that invokes tools absorbs the tool-result messages that
+ * immediately follow it.
+ *
+ * Dropping one without the other produces a history that Anthropic-shaped and
+ * OpenAI-shaped APIs reject outright ("tool_use ids were found without
+ * tool_result blocks"), so truncation must move whole exchanges.
+ */
+export function atomicGroups(messages: LLMMessage[]): LLMMessage[][] {
+  const groups: LLMMessage[][] = [];
+  let index = 0;
+  while (index < messages.length) {
+    const message = messages[index];
+    const group: LLMMessage[] = [message];
+    index += 1;
+
+    if (toolUseIds(message).length > 0) {
+      while (index < messages.length && isToolResult(messages[index])) {
+        group.push(messages[index]);
+        index += 1;
+      }
+    }
+    groups.push(group);
+  }
+  return groups;
+}
+
+/** Tool-call ids an assistant message needs answered. */
+function toolUseIds(message: LLMMessage): string[] {
+  const ids = (message.toolCalls ?? []).map((call) => call.id);
+  if (Array.isArray(message.content)) {
+    for (const block of message.content) {
+      if (block.type === "tool_use") ids.push(block.id);
+    }
+  }
+  return ids;
+}
+
+/** True for a message carrying tool results, in either wire shape. */
+function isToolResult(message: LLMMessage): boolean {
+  if (message.role === "tool") return true;
+  return (
+    Array.isArray(message.content) &&
+    message.content.some((block) => block.type === "tool_result")
+  );
+}
 
 /**
  * Provider-reported ground truth for a message prefix (#137).
@@ -141,9 +190,9 @@ export class ContextWindowManager {
 
   /**
    * Fit messages into the provider's context window. If already under budget,
-   * returns the original list. Otherwise drops oldest non-system messages
-   * until it fits, always preserving the system message (if present) and the
-   * last message.
+   * returns the original list. Otherwise drops the oldest non-system atomic
+   * groups until it fits, always preserving the system messages and the newest
+   * group (so a tool call is never separated from its results).
    */
   fitMessages(messages: LLMMessage[]): LLMMessage[] {
     const budget = this.availableTokens(messages);
@@ -156,20 +205,22 @@ export class ContextWindowManager {
     const rest = messages.filter((m) => m.role !== "system");
     if (rest.length === 0) return messages;
 
-    const lastMessage = rest[rest.length - 1];
-    const middle = rest.slice(0, -1);
+    const groups = atomicGroups(rest);
+    const newest = groups[groups.length - 1];
+    const middle = groups.slice(0, -1);
 
-    // Drop oldest middle messages until the total fits.
+    // Drop oldest groups until the whole set fits.
     while (middle.length > 0) {
-      const candidate = [...systemMessages, ...middle, lastMessage];
+      const candidate = [...systemMessages, ...middle.flat(), ...newest];
       if (this.estimateTokens(candidate) <= budget) {
         return candidate;
       }
       middle.shift();
     }
 
-    // If even system + last doesn't fit, return that minimal set anyway.
-    return [...systemMessages, lastMessage];
+    // If even system + the newest group does not fit, return that minimal set
+    // anyway — dropping half an exchange would be a hard API error.
+    return [...systemMessages, ...newest];
   }
 
   /**
@@ -191,26 +242,28 @@ export class ContextWindowManager {
     const rest = messages.filter((m) => m.role !== "system");
     if (rest.length === 0) return messages;
 
-    const lastMessage = rest[rest.length - 1];
-    const middle = rest.slice(0, -1);
+    const groups = atomicGroups(rest);
+    const newest = groups[groups.length - 1];
+    const middle = groups.slice(0, -1);
 
-    // Collect dropped messages from the front until the candidate fits.
+    // Collect dropped messages from the front until the candidate fits. Only
+    // whole groups move, so the summariser never sees half a tool exchange.
     const dropped: LLMMessage[] = [];
     while (middle.length > 0) {
-      const candidate = [...systemMessages, ...middle, lastMessage];
+      const candidate = [...systemMessages, ...middle.flat(), ...newest];
       if (this.estimateTokens(candidate) <= budget) {
         break;
       }
-      dropped.push(middle.shift()!);
+      dropped.push(...middle.shift()!);
     }
 
     // Nothing needed to be dropped.
     if (dropped.length === 0) {
-      return [...systemMessages, ...middle, lastMessage];
+      return [...systemMessages, ...middle.flat(), ...newest];
     }
 
     // Plain-drop result used as fallback.
-    const plainDrop = [...systemMessages, ...middle, lastMessage];
+    const plainDrop = [...systemMessages, ...middle.flat(), ...newest];
 
     try {
       const summaryText = await summarize(dropped);
@@ -219,24 +272,24 @@ export class ContextWindowManager {
         content: `[Earlier conversation summary: ${summaryText}]`,
       };
       // If the summary message itself pushes us over budget, keep dropping
-      // middle messages until the full set with summary fits.
+      // middle groups until the full set with summary fits.
       while (middle.length > 0) {
         const withSummary = [
           ...systemMessages,
           summaryMessage,
-          ...middle,
-          lastMessage,
+          ...middle.flat(),
+          ...newest,
         ];
         if (this.estimateTokens(withSummary) <= budget) {
           return withSummary;
         }
-        dropped.push(middle.shift()!);
+        middle.shift();
       }
       const withSummaryFinal = [
         ...systemMessages,
         summaryMessage,
-        ...middle,
-        lastMessage,
+        ...middle.flat(),
+        ...newest,
       ];
       if (this.estimateTokens(withSummaryFinal) <= budget) {
         return withSummaryFinal;
