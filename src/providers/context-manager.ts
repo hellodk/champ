@@ -77,6 +77,21 @@ export interface UsageAnchor {
 export class ContextWindowManager {
   private anchor: UsageAnchor | null = null;
 
+  /**
+   * Summary reuse inside one turn (#114): the dropped prefix only ever grows
+   * while a controller turn is append-only, so a summary already computed for
+   * the front of it can be kept and only the newly dropped messages need
+   * summarising — and when nothing new was dropped, no model call is made at
+   * all. A manager instance lives for one turn, so the cache cannot outlive
+   * the history it describes.
+   */
+  private summaryCache: {
+    /** Signature of the first `count` dropped messages. */
+    fingerprint: string;
+    count: number;
+    text: string;
+  } | null = null;
+
   constructor(
     private readonly provider: LLMProvider,
     private readonly reservedForOutput?: number,
@@ -227,6 +242,10 @@ export class ContextWindowManager {
    * Fit messages into the context window, calling an LLM summarizer for
    * dropped turns instead of silently discarding them. Falls back to plain
    * drop behaviour if the summary is too large to fit or if summarize throws.
+   *
+   * Summaries are remembered for the life of this manager (#114): a later
+   * call in the same turn only summarises messages dropped since the last one,
+   * so an iteration never re-summarises a prefix it already paid for.
    */
   async fitWithSummary(
     messages: LLMMessage[],
@@ -266,7 +285,20 @@ export class ContextWindowManager {
     const plainDrop = [...systemMessages, ...middle.flat(), ...newest];
 
     try {
-      const summaryText = await summarize(dropped);
+      // Reuse what this turn already summarised (#114): only messages dropped
+      // since the last call go to the model.
+      const reuse = this.reusableSummary(dropped);
+      const pending = reuse ? dropped.slice(reuse.count) : dropped;
+      const fresh = pending.length > 0 ? await summarize(pending) : "";
+      const summaryText = [reuse?.text, fresh]
+        .filter((part): part is string => Boolean(part))
+        .join("\n\n");
+      this.summaryCache = {
+        fingerprint: this.fingerprint(dropped, dropped.length),
+        count: dropped.length,
+        text: summaryText,
+      };
+
       const summaryMessage: LLMMessage = {
         role: "system",
         content: `[Earlier conversation summary: ${summaryText}]`,
@@ -303,6 +335,22 @@ export class ContextWindowManager {
       // summarize threw — fall back to plain drop.
       return plainDrop;
     }
+  }
+
+  /**
+   * The part of a previously computed summary that still applies to `dropped`,
+   * or null when nothing can be reused (first call, smaller dropped set, or a
+   * history that changed at the front).
+   */
+  private reusableSummary(
+    dropped: LLMMessage[],
+  ): { count: number; text: string } | null {
+    const cached = this.summaryCache;
+    if (!cached || dropped.length < cached.count) return null;
+    if (this.fingerprint(dropped, cached.count) !== cached.fingerprint) {
+      return null;
+    }
+    return { count: cached.count, text: cached.text };
   }
 
   private flattenContent(content: string | ContentBlock[]): string {

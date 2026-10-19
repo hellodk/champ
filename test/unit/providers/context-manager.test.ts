@@ -477,3 +477,86 @@ describe("ContextWindowManager — pair-safe truncation (#114)", () => {
     expect(result[result.length - 1].content).toBe("latest question");
   });
 });
+
+/**
+ * Persisted compaction (#114): once a turn's dropped prefix has been
+ * summarised, later iterations reuse that summary instead of paying for the
+ * whole prefix again. `ContextWindowManager` is built per turn, so the cache
+ * lives exactly as long as the history it describes.
+ */
+describe("ContextWindowManager — compaction reuse (#114)", () => {
+  let manager: ContextWindowManager;
+
+  /** Comfortably over a 50-token budget, with whole tool exchanges. */
+  const overBudget = (): LLMMessage[] => [
+    { role: "system", content: "System" },
+    ...toolExchange(1),
+    ...toolExchange(2),
+    { role: "user", content: "latest question" },
+  ];
+
+  beforeEach(() => {
+    manager = new ContextWindowManager(createMockProvider(100));
+  });
+
+  it("summarises once when the same history is fitted twice", async () => {
+    const summarize = vi.fn(async () => "Earlier summary");
+
+    const first = await manager.fitWithSummary(overBudget(), summarize);
+    const second = await manager.fitWithSummary(overBudget(), summarize);
+
+    expect(summarize).toHaveBeenCalledTimes(1);
+    expect(second).toEqual(first);
+  });
+
+  it("only sends newly dropped messages to the summariser", async () => {
+    const summarize = vi.fn(
+      async (dropped: LLMMessage[]) => `summary(${dropped.length})`,
+    );
+    await manager.fitWithSummary(overBudget(), summarize);
+    const firstDropped = summarize.mock.calls[0][0];
+
+    // A later iteration of the same turn: the history only grew.
+    const grown: LLMMessage[] = [
+      ...overBudget(),
+      ...toolExchange(3),
+      { role: "user", content: "another question" },
+    ];
+    const result = await manager.fitWithSummary(grown, summarize);
+
+    expect(summarize).toHaveBeenCalledTimes(2);
+    const secondDropped = summarize.mock.calls[1][0];
+    const alreadySummarised = new Set(
+      firstDropped.map((message) => JSON.stringify(message)),
+    );
+    expect(secondDropped.length).toBeGreaterThan(0);
+    for (const message of secondDropped) {
+      expect(alreadySummarised.has(JSON.stringify(message))).toBe(false);
+    }
+    // The earlier summary is still part of the compacted form.
+    expect(
+      result.some(
+        (message) =>
+          typeof message.content === "string" &&
+          message.content.includes("summary("),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not reuse a summary for an unrelated history", async () => {
+    const summarize = vi.fn(async () => "Summary");
+
+    await manager.fitWithSummary(overBudget(), summarize);
+    await manager.fitWithSummary(
+      [
+        { role: "system", content: "System" },
+        { role: "user", content: "x ".repeat(80) },
+        { role: "assistant", content: "y ".repeat(80) },
+        { role: "user", content: "latest" },
+      ],
+      summarize,
+    );
+
+    expect(summarize).toHaveBeenCalledTimes(2);
+  });
+});

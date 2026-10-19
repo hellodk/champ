@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { AgentController } from "../../../src/agent/agent-controller";
 import { ToolRegistry } from "../../../src/tools/registry";
+import type { LLMMessage, StreamDelta } from "../../../src/providers/types";
 
 function makeProvider(contextWindow = 100) {
   const chat = vi.fn(async function* () {
@@ -101,5 +102,151 @@ describe("AgentController — context window compression", () => {
     const messages: Array<{ role: string }> = chatCall[0];
     // system + 2 history + new user = 4
     expect(messages.length).toBe(4);
+  });
+});
+
+/**
+ * A provider scripted with tool calls, so a single turn runs several
+ * iterations. Calls whose prompt asks for a summary are answered inline and do
+ * not consume the script — that keeps the loop script deterministic while the
+ * controller compacts the growing history (#114).
+ */
+function makeToolProvider(contextWindow: number, script: StreamDelta[][]) {
+  let callIdx = 0;
+  const chat = vi.fn(async function* (messages: LLMMessage[]) {
+    const isSummaryRequest = messages.some(
+      (m) =>
+        typeof m.content === "string" &&
+        m.content.includes("Summarize this conversation"),
+    );
+    if (isSummaryRequest) {
+      yield { type: "text" as const, text: "The agent read files." };
+      yield {
+        type: "done" as const,
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+      return;
+    }
+    const deltas = script[callIdx] ?? script[script.length - 1];
+    callIdx += 1;
+    for (const delta of deltas) {
+      yield delta;
+    }
+  });
+  return {
+    name: "test",
+    config: { provider: "test", model: "test" },
+    modelInfo: () => ({
+      id: "test",
+      name: "test",
+      provider: "test",
+      contextWindow,
+      maxOutputTokens: 32,
+      supportsToolUse: true,
+      supportsImages: false,
+      supportsStreaming: true,
+    }),
+    supportsToolUse: () => true,
+    supportsStreaming: () => true,
+    supportsImages: () => false,
+    countTokens: (text: string) => Math.ceil(text.length / 4),
+    chat,
+    complete: vi.fn(async function* () {
+      yield {
+        type: "done" as const,
+        usage: { inputTokens: 0, outputTokens: 0 },
+      };
+    }),
+    withModel: () => makeToolProvider(contextWindow, script),
+  };
+}
+
+describe("context compaction reuse within one turn (#114)", () => {
+  it("never asks the summariser about a message it already summarised", async () => {
+    // A turn that calls a tool twice: three model iterations, each fitting a
+    // longer history than the last.
+    const toolCallTurn: StreamDelta[] = [
+      { type: "text", text: "reading" },
+      {
+        type: "tool_call_start",
+        toolCall: { id: "c1", name: "read_file", arguments: { path: "a.ts" } },
+      },
+      { type: "tool_call_end" },
+      { type: "done", usage: { inputTokens: 10, outputTokens: 5 } },
+    ];
+    const provider = makeToolProvider(3200, [
+      toolCallTurn,
+      toolCallTurn,
+      [
+        { type: "text", text: "finished" },
+        { type: "done", usage: { inputTokens: 10, outputTokens: 5 } },
+      ],
+    ]);
+
+    const toolOutput = Array.from(
+      { length: 40 },
+      (_, i) => `file line ${i} with plenty of text `,
+    ).join("\n");
+    const registry = {
+      getAll: vi.fn().mockReturnValue([]),
+      getDefinitions: vi.fn().mockReturnValue([
+        {
+          name: "read_file",
+          description: "read a file",
+          parameters: { type: "object", properties: {}, required: [] },
+        },
+      ]),
+      get: vi.fn(),
+      register: vi.fn(),
+      unregister: vi.fn(),
+      execute: vi.fn().mockResolvedValue({ success: true, output: toolOutput }),
+    } as unknown as ToolRegistry;
+
+    const history: LLMMessage[] = [];
+    for (let i = 0; i < 6; i++) {
+      history.push({ role: "user", content: `question ${i} `.repeat(40) });
+      history.push({ role: "assistant", content: `answer ${i} `.repeat(40) });
+    }
+
+    const ctrl = new AgentController(provider as never, registry);
+    ctrl.setHistory(history);
+
+    await ctrl.processMessage("do the work");
+
+    const summaryPrompts = provider.chat.mock.calls
+      .map(([messages]) => (messages ?? []) as LLMMessage[])
+      .map((messages) =>
+        messages
+          .map((m) => (typeof m.content === "string" ? m.content : ""))
+          .join("\n"),
+      )
+      .filter((text) => text.includes("Summarize this conversation"));
+
+    // The turn ran three model iterations: two tool calls, then the answer.
+    const modelTurns = provider.chat.mock.calls.filter(
+      ([messages]) =>
+        !(messages as LLMMessage[]).some(
+          (m) =>
+            typeof m.content === "string" &&
+            m.content.includes("Summarize this conversation"),
+        ),
+    );
+    expect(modelTurns).toHaveLength(3);
+
+    // Compaction ran more than once in this turn, and no turn was ever sent to
+    // the summariser a second time: a later iteration only summarises what the
+    // turn has not already summarised (#114).
+    expect(summaryPrompts.length).toBeGreaterThan(1);
+    const seen = new Set<string>();
+    for (const prompt of summaryPrompts) {
+      for (const line of prompt.split("\n")) {
+        if (!line.startsWith("user: ") && !line.startsWith("assistant: ")) {
+          continue;
+        }
+        expect(seen.has(line), `turn summarised twice: ${line}`).toBe(false);
+        seen.add(line);
+      }
+    }
+    expect(seen.size).toBeGreaterThan(0);
   });
 });
