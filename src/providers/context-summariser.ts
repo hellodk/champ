@@ -12,11 +12,29 @@ import type { LLMMessage, LLMProvider } from "./types";
 const TURN_SLICE_CHARS = 300;
 
 /**
- * Total budget for the turn list. The compacted prefix can be long, and the
- * summariser request has to fit the same small window it is compacting for, so
- * only the newest turns are quoted; older ones are counted, not text.
+ * Total budget for the turn list, derived from the model's window so the
+ * summariser request fits the same window it is compacting for: 20% of the
+ * window in characters (≈ 25% of the window's input budget at 4 chars/token),
+ * clamped so a huge window does not paste a huge prefix and a tiny window
+ * still gets a usable prompt.
  */
 const MAX_PROMPT_CHARS = 8000;
+const MIN_PROMPT_CHARS = 256;
+const SUMMARISER_WINDOW_SHARE = 0.2;
+
+/** Character budget for `summariserPrompt` given the provider's window. */
+export function summariserPromptBudget(provider: LLMProvider): number {
+  try {
+    const window = provider.modelInfo().contextWindow;
+    if (Number.isFinite(window) && window > 0) {
+      const chars = Math.floor(window * SUMMARISER_WINDOW_SHARE) * 4;
+      return Math.max(MIN_PROMPT_CHARS, Math.min(MAX_PROMPT_CHARS, chars));
+    }
+  } catch {
+    // modelInfo throwing (stub provider) — fall through to the fixed cap.
+  }
+  return MAX_PROMPT_CHARS;
+}
 
 /**
  * Text every summariser request starts with. Also used by tests (and the CLI
@@ -40,15 +58,26 @@ function contentText(message: LLMMessage): string {
     .join("\n");
 }
 
+/**
+ * Overhead the prompt spends on the instruction line plus the optional
+ * "earlier messages omitted" line, so the turn list never pushes the request
+ * past `maxPromptChars`.
+ */
+const PROMPT_OVERHEAD = 64;
+
 /** The prompt asking the provider to summarise `dropped`. */
-export function summariserPrompt(dropped: LLMMessage[]): string {
+export function summariserPrompt(
+  dropped: LLMMessage[],
+  maxPromptChars: number = MAX_PROMPT_CHARS,
+): string {
+  const header = `${SUMMARISER_MARKER} in 2 sentences, preserving key facts and decisions:\n\n`;
   const lines: string[] = [];
-  let used = 0;
+  let used = header.length + PROMPT_OVERHEAD;
   let omitted = 0;
   // Walk backwards so the newest turns survive the budget, then restore order.
   for (let index = dropped.length - 1; index >= 0; index -= 1) {
     const line = `${dropped[index].role}: ${contentText(dropped[index]).slice(0, TURN_SLICE_CHARS)}`;
-    if (used + line.length > MAX_PROMPT_CHARS) {
+    if (used + line.length > maxPromptChars) {
       omitted = index + 1;
       break;
     }
@@ -61,7 +90,7 @@ export function summariserPrompt(dropped: LLMMessage[]): string {
   ]
     .filter(Boolean)
     .join("\n");
-  return `${SUMMARISER_MARKER} in 2 sentences, preserving key facts and decisions:\n\n${body}`;
+  return `${header}${body}`;
 }
 
 /**
@@ -74,15 +103,24 @@ export function createContextSummariser(
   provider: LLMProvider,
   abortSignal?: AbortSignal,
 ): (dropped: LLMMessage[]) => Promise<string> {
+  const maxPromptChars = summariserPromptBudget(provider);
   return async (dropped) => {
     const stream = provider.chat(
-      [{ role: "user", content: summariserPrompt(dropped) }],
+      [{ role: "user", content: summariserPrompt(dropped, maxPromptChars) }],
       { abortSignal },
     );
     const parts: string[] = [];
     for await (const delta of stream) {
       if (delta.type === "text" && delta.text) parts.push(delta.text);
-      if (delta.type === "done" || delta.type === "error") break;
+      // A failed summarise is not a usable summary: throw so `fitWithSummary`
+      // takes its plain-drop fallback instead of substituting a placeholder
+      // that claims the dropped turns were summarised.
+      if (delta.type === "error") {
+        throw new Error(
+          `context summariser failed: ${delta.error ?? "provider error"}`,
+        );
+      }
+      if (delta.type === "done") break;
     }
     return parts.join("").trim() || EMPTY_SUMMARY;
   };
