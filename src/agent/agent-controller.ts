@@ -44,6 +44,7 @@ import type { ToolRegistry } from "../tools/registry";
 import type { ToolExecutionContext, ToolResult } from "../tools/types";
 import { ContextWindowManager } from "../providers/context-manager";
 import { createContextSummariser } from "../providers/context-summariser";
+import { truncateToolOutput } from "./tool-output";
 import type { MemoryBank } from "../memory/memory-bank";
 import { SystemPromptBuilder } from "./system-prompt-builder";
 import { StagedEdits } from "./staged-edits";
@@ -960,16 +961,16 @@ export class AgentController {
             // see it as part of the conversation.
             this.history.push({
               role: "user",
-              content: this.formatToolResultForPromptBased(
-                call,
-                redactedResult,
-              ),
+              content: this.formatToolResultForPromptBased(call, {
+                ...redactedResult,
+                output: truncateToolOutput(redactedResult.output),
+              }),
             });
           } else {
             const toolResultBlock: ContentBlock = {
               type: "tool_result",
               toolUseId: call.id,
-              content: redactedOutput,
+              content: truncateToolOutput(redactedOutput),
               isError: !result.success,
             };
             this.history.push({
@@ -1099,7 +1100,7 @@ export class AgentController {
   ): string {
     const status = result.success ? "success" : "error";
     return `<tool_result tool="${call.name}" status="${status}">
-${result.output}
+${truncateToolOutput(result.output)}
 </tool_result>`;
   }
 
