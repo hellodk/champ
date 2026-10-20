@@ -746,6 +746,74 @@ describe("ContextWindowManager — clamp convergence (review 2)", () => {
 });
 
 /**
+ * Third review pass: `fitMessages` drops the whole newest group when that group
+ * alone is over budget, then asks the clamp to fit the remainder. If the newest
+ * group carries no tool result of its own, the clamp saw `chars === 0` and gave
+ * up — so a huge result the drop had already discarded was never clamped, and
+ * the turn lost it silently even though the clamp exists exactly for it.
+ */
+describe("ContextWindowManager — clamp after a group drop (review 3)", () => {
+  const BUDGET = 2000;
+
+  it("clamps the tool result rather than dropping it with its group", () => {
+    const manager = new ContextWindowManager(charProvider(4000));
+    const huge = "0".repeat(300_000); // ≈75 000 tokens: far past the budget
+    const messages: LLMMessage[] = [
+      { role: "system", content: "You are Champ." },
+      { role: "user", content: "read the file" },
+      ...nativeToolCall(huge),
+      { role: "user", content: "answer briefly" },
+    ];
+
+    const result = manager.fitMessages(messages);
+
+    expect(manager.estimateTokens(result)).toBeLessThanOrEqual(BUDGET);
+    // The newest group is the question; the result it depends on must still be
+    // there, clamped — not thrown away because the question cannot hold it.
+    const stored = JSON.stringify(result);
+    expect(stored).toContain("chars elided");
+    expect(stored).toContain("answer briefly");
+    expect(stored.length).toBeLessThan(huge.length);
+  });
+
+  it("keeps the tool call paired with its clamped result", () => {
+    const manager = new ContextWindowManager(charProvider(4000));
+    const messages: LLMMessage[] = [
+      { role: "system", content: "You are Champ." },
+      { role: "user", content: "read the file" },
+      {
+        role: "assistant",
+        content: "reading",
+        toolCalls: [{ id: "c1", name: "read_file", arguments: {} }],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool_result",
+            toolUseId: "c1",
+            content: "0".repeat(300_000),
+          },
+        ],
+        toolCallId: "c1",
+      },
+      { role: "user", content: "answer briefly" },
+    ];
+
+    const result = manager.fitMessages(messages);
+
+    const hasCall = result.some((m) => (m.toolCalls ?? []).length > 0);
+    const hasResult = result.some((m) =>
+      Array.isArray(m.content)
+        ? m.content.some((block) => block.type === "tool_result")
+        : false,
+    );
+    expect(hasCall).toBe(true);
+    expect(hasResult).toBe(true);
+  });
+});
+
+/**
  * External review (2026-10-19, finding 2b): prompt-based providers answer a
  * tool call with a plain user message wrapping `<tool_result …>`. Grouping
  * must see that shape too, or the drop boundary splits the exchange and the

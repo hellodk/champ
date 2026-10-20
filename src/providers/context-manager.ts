@@ -359,12 +359,45 @@ export class ContextWindowManager {
       middle.shift();
     }
 
-    // If even system + the newest group does not fit, clamp the tool results in
-    // it rather than send an over-budget request (review 2026-10-19, finding 1).
+    // Even system + the newest group does not fit. Clamp the tool results in
+    // what is left rather than send an over-budget request (review
+    // 2026-10-19, finding 1). The clamp must see the messages that were just
+    // dropped as well: when the newest group is a bare question its own
+    // results are gone by now, and clamping only `system + newest` would
+    // hand an empty set to the loop below and lose the very results the
+    // clamp exists to shrink (review 3).
     return this.capToolResultsInMessages(
-      [...systemMessages, ...newest],
+      this.clampCandidate(systemMessages, rest, newest, budget),
       budget,
     );
+  }
+
+  /**
+   * The message set the last-resort clamp should work on: `system + newest`,
+   * plus the tail of the dropped groups that still holds clampable tool
+   * results. Those results are the ones a turn cannot continue without, and
+   * clamping them keeps a call paired with its result instead of discarding
+   * the pair because the newest question cannot hold it.
+   */
+  private clampCandidate(
+    systemMessages: LLMMessage[],
+    rest: LLMMessage[],
+    newest: LLMMessage[],
+    _budget: number,
+  ): LLMMessage[] {
+    const groups = atomicGroups(rest);
+    // Scan back through the groups before `newest` (which is the last group),
+    // keeping whole ones — so a call and its results stay together — for as
+    // long as they hold clampable tool results. A group's raw size is
+    // irrelevant here: the clamp is what shrinks it.
+    const kept: LLMMessage[][] = [];
+    for (let index = groups.length - 2; index >= 0; index -= 1) {
+      const group = groups[index];
+      if (clampableChunks(group).length === 0) break;
+      kept.unshift(group);
+    }
+    if (kept.length === 0) return [...systemMessages, ...newest];
+    return [...systemMessages, ...kept.flat(), ...newest];
   }
 
   /**
