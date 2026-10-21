@@ -139,3 +139,97 @@ describe("OpenAICompatibleProvider", () => {
     expect(() => provider.dispose()).not.toThrow();
   });
 });
+
+/**
+ * Native tool-calling round-trip (review finding, 2026-10-21).
+ *
+ * When a provider declares supportsTools, the *second* leg of a tool
+ * round-trip must be spec-compliant: the assistant turn that made the call
+ * has to carry `tool_calls`, and the result has to come back as
+ * `role: "tool"` with a matching `tool_call_id`. Without that linkage the
+ * model cannot tell the result apart from ordinary conversation and
+ * re-issues the same call forever until the iteration cap.
+ *
+ * The legacy flatten (drop tool linkage, downgrade `tool` -> `user`) is
+ * kept for servers that do not accept the `tool` role — i.e. whenever the
+ * provider does not declare supportsTools.
+ */
+describe("OpenAICompatibleProvider native tool round-trip", () => {
+  const history = (): LLMMessage[] => [
+    { role: "system", content: "You are Champ." },
+    { role: "user", content: "List the files." },
+    {
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        { id: "call_1", name: "list_directory", arguments: { path: "." } },
+      ],
+    },
+    {
+      role: "tool",
+      content: [
+        {
+          type: "tool_result",
+          toolUseId: "call_1",
+          content: "notes.txt\nsample.ts",
+          isError: false,
+        },
+      ],
+      toolCallId: "call_1",
+    },
+  ];
+
+  const wire = (p: OpenAICompatibleProvider): Array<Record<string, any>> =>
+    (
+      p as unknown as {
+        convertMessages(
+          m: LLMMessage[],
+          native: boolean,
+        ): Array<Record<string, any>>;
+      }
+    ).convertMessages(history(), true);
+
+  const nativeProvider = new OpenAICompatibleProvider({
+    provider: "openai-compatible",
+    model: "custom-model",
+    baseUrl: "http://localhost:9000/v1",
+    apiKey: "optional-key",
+    supportsTools: true,
+  });
+
+  it("keeps the assistant tool-call turn on the wire", () => {
+    const assistant = wire(nativeProvider).find((m) => m.role === "assistant");
+    expect(assistant).toBeDefined();
+    expect(assistant?.tool_calls).toEqual([
+      {
+        id: "call_1",
+        type: "function",
+        function: {
+          name: "list_directory",
+          arguments: JSON.stringify({ path: "." }),
+        },
+      },
+    ]);
+  });
+
+  it("returns the tool result as role 'tool' with a matching tool_call_id", () => {
+    const toolMsg = wire(nativeProvider).find((m) => m.role === "tool");
+    expect(toolMsg).toBeDefined();
+    expect(toolMsg?.tool_call_id).toBe("call_1");
+    expect(toolMsg?.content).toBe("notes.txt\nsample.ts");
+  });
+
+  it("legacy flatten (non-native) still downgrades 'tool' to 'user'", () => {
+    const flat = (
+      nativeProvider as unknown as {
+        convertMessages(
+          m: LLMMessage[],
+          native: boolean,
+        ): Array<Record<string, any>>;
+      }
+    ).convertMessages(history(), false);
+    expect(flat.some((m) => m.role === "tool")).toBe(false);
+    expect(flat.some((m) => m.tool_call_id !== undefined)).toBe(false);
+    expect(flat.some((m) => m.tool_calls !== undefined)).toBe(false);
+  });
+});

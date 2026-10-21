@@ -147,7 +147,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     });
     const body: Record<string, unknown> = {
       model: this.config.model,
-      messages: this.convertMessages(messages),
+      messages: this.convertMessages(messages, !!options?.tools?.length),
       stream: true,
       stream_options: { include_usage: true },
       ...(dec.temperature !== undefined && { temperature: dec.temperature }),
@@ -558,6 +558,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
   private convertMessages(
     messages: LLMMessage[],
+    nativeTools = false,
   ): Array<Record<string, unknown>> {
     // Trim to fit the context window — llama.cpp and small vLLM
     // instances return 500 Internal Server Error when exceeded.
@@ -568,6 +569,37 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const result: Array<Record<string, unknown>> = [];
     for (const msg of trimmed) {
       const content = this.flattenContent(msg.content);
+      // Native tool round-trips must stay structurally linked: an
+      // assistant turn that only carried tool calls has empty text but is
+      // essential (it carries `tool_calls`), and its result must come back
+      // as role "tool" with a matching tool_call_id. Dropping or flattening
+      // either one leaves the model unable to tell a tool result apart from
+      // ordinary conversation, so it re-issues the same call indefinitely.
+      if (nativeTools) {
+        if (msg.role === "assistant" && msg.toolCalls?.length) {
+          result.push({
+            role: "assistant",
+            content,
+            tool_calls: msg.toolCalls.map((tc) => ({
+              id: tc.id,
+              type: "function",
+              function: {
+                name: tc.name,
+                arguments: JSON.stringify(tc.arguments ?? {}),
+              },
+            })),
+          });
+          continue;
+        }
+        if (msg.role === "tool") {
+          result.push({
+            role: "tool",
+            tool_call_id: msg.toolCallId ?? "",
+            content,
+          });
+          continue;
+        }
+      }
       // Skip empty-content messages (e.g. assistant turns that only
       // contained tool calls). Many OpenAI-compatible servers reject
       // them with 400/500.
