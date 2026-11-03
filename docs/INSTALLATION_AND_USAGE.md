@@ -1,277 +1,315 @@
-# Champ Plugin: Installation and Usage Guide
+# Installation and Usage Guide
 
-Champ is an AI coding agent for VS Code with full local-LLM support. This guide covers installing the extension, installing and using the headless CLI, and configuring it for your environment.
+This guide is written for beginners. No root/admin access is required. You can install everything in your user directory and add it to your `PATH` if needed.
 
 ## Table of Contents
 
-- [Installation](#installation)
-  - [VS Code Extension](#vs-code-extension)
-  - [Headless CLI (no VS Code required)](#headless-cli-no-vs-code-required)
-- [Configuration](#configuration)
-  - [Config file locations and precedence](#config-file-locations-and-precedence)
-  - [Quick config examples](#quick-config-examples)
-  - [API keys](#api-keys)
-- [Using the VS Code Extension](#using-the-vs-code-extension)
-- [Using the Headless CLI](#using-the-headless-cli)
-- [Troubleshooting](#troubleshooting)
-- [Advanced Configuration](#advanced-configuration)
+- [Overview](#overview)
+- [Prerequisites](#prerequisites)
+- [1) Install the VS Code Extension (Plugin)](#1-install-the-vs-code-extension-plugin)
+- [2) Install the Champ CLI (Terminal)](#2-install-the-champ-cli-terminal)
+- [3) Configure the CLI to use your model](#3-configure-the-cli-to-use-your-model)
+- [4) Using the VS Code Extension](#4-using-the-vs-code-extension)
+- [5) Using the Champ CLI](#5-using-the-champ-cli)
+- [6) Updating](#6-updating)
+- [7) Troubleshooting](#7-troubleshooting)
+- [8) Notes for Beginners](#8-notes-for-beginners)
 
 ---
 
-## Installation
+## Overview
 
-### VS Code Extension
+Champ has two parts:
 
-#### Option 1: Install from .vsix (offline/local)
+| Part | What it is | Where it runs |
+|---|---|---|
+| **VS Code Extension ("Plugin")** | Champ inside VS Code's sidebar/chat. | VS Code |
+| **Champ CLI** | Run Champ from any terminal like `claude` or `opencode`. | Terminal/CI/scripts (no VS Code required) |
+
+There is **no standalone desktop app executable**. Both run with Node.js.
+
+---
+
+## Prerequisites
+
+Before you start, make sure you have:
+
+1. **Node.js** (version 20 or newer)
+   - Check: `node --version`
+   - If missing, download from [nodejs.org](https://nodejs.org/) or use a version manager ([nvm](https://github.com/nvm-sh/nvm), [fnm](https://github.com/Schniz/fnm)) in your user directory (no root needed).
+
+2. **VS Code** (only if you want the extension)
+   - Download from [code.visualstudio.com](https://code.visualstudio.com/)
+
+3. **A model/provider** (local or cloud)
+   - Local: [Ollama](https://ollama.com/), [LMStudio](https://lmstudio.ai/), [vLLM](https://github.com/vllm-project/vllm), [mlx-serve](https://github.com/ml-explore/mlx-examples), etc.
+   - Cloud: Anthropic/OpenAI/Gemini/etc. (API keys go in SecretStorage or env vars, never committed to YAML)
+
+4. **(For building from source)** [pnpm](https://pnpm.io/installation)
+   - Check: `pnpm --version`
+   - Can be installed per-user with `npm install -g pnpm` or via `corepack enable`
+
+---
+
+## 1) Install the VS Code Extension (Plugin)
+
+### Option A: Install from a `.vsix` file (easiest)
+
+If you have a `champ-*.vsix` file (downloaded or built):
+
+**From terminal:**
 ```bash
-code --install-extension champ-2.0.2.vsix
+code --install-extension /path/to/champ-<version>.vsix
 ```
 
-Or in VS Code: `Extensions > ... > Install from VSIX...` and select `champ-2.0.2.vsix`.
+**From VS Code UI:**
+1. Open VS Code
+2. Press `Ctrl+Shift+P` / `Cmd+Shift+P`
+3. Run `Extensions: Install from VSIX...`
+4. Pick your `champ-*.vsix` file
+5. Reload VS Code when prompted
 
-#### Option 2: Build from source
+The Champ icon will appear in the Activity Bar.
+
+### Option B: Build from source
+
 ```bash
-# Clone and install dependencies
-git clone <repo-url>
-cd vs-code-plugin
+# Get the source code
+git clone <your-repo-url>
+cd <repo-folder>
+
+# Install dependencies
 pnpm install
 
-# Build the extension
+# Build and package
 pnpm run compile
-
-# Package as .vsix
 npx @vscode/vsce package --no-dependencies
 
-# Install
-code --install-extension champ-<version>.vsix
+# Install the generated .vsix
+code --install-extension champ-*.vsix
 ```
 
-After installation, reload VS Code and you'll see the **Champ** icon in the activity bar.
+---
 
-### Headless CLI (no VS Code required)
+## 2) Install the Champ CLI (Terminal)
 
-The CLI is built into the repo and can be installed globally for single-command usage like `claude` or `opencode`.
+You can run the CLI in a few ways. Pick one.
 
-#### Quick setup (recommended - verified working)
+### Option A: `npm link` (recommended, single command `champ`)
+
+This creates a user-accessible command without needing root.
+
 ```bash
-cd /path/to/vs-code-plugin
+# Go to the repo
+cd <repo-folder>
 
 # Build the CLI
 node esbuild.mjs
 
-# Install globally (npm link)
+# Link it to your user npm prefix
 npm link
-
-# Configure to point at your local LLM (example for local OpenAI-compatible)
-# The CLI reads from ~/.champ/config.yaml by default
 ```
 
-Edit `~/.champ/config.yaml` (create it if it doesn't exist) to point to your endpoint. See [Configuration](#configuration) for details.
+Now `champ` should be available. If your terminal says "command not found", see [7) Troubleshooting](#7-troubleshooting) for adding your npm global bin to `PATH`.
 
-#### Alternative: Install from packed tarball
+### Option B: Install from a tarball (no repo symlink needed)
+
 ```bash
-pnpm run compile  # builds dist/cli.js
-npm pack           # creates champ-<version>.tgz
+cd <repo-folder>
+node esbuild.mjs --production
+npm pack
 npm install -g ./champ-<version>.tgz
-champ --version
 ```
 
-#### Verify installation
+### Option C: Run directly with Node (no global install)
+
+Great for trying it out or on restricted systems.
+
+```bash
+cd <repo-folder>
+node esbuild.mjs
+node dist/cli.js --cwd /path/to/your/project -y "List the files"
+```
+
+**Verify:**
 ```bash
 which champ
-champ --help
+champ --version
 ```
 
 ---
 
-## Configuration
+## 3) Configure the CLI to use your model
 
-### Config file locations and precedence
+The CLI reads config from these locations (first found/merged as per app logic):
 
-Champ uses a single source of truth with the following precedence (highest to lowest):
+- **Workspace config:** `<your-project>/.champ/config.yaml`
+- **User config:** `~/.champ/config.yaml` (applies everywhere)
+- **Environment override:** `CHAMP_CONFIG=/path/to/config.yaml`
 
-1. **Workspace YAML** - `<repo>/.champ/config.yaml`
-2. **User YAML** - `~/.champ/config.yaml`
-3. **VS Code settings** - `champ.*` settings
-4. **Defaults** - built-in
+You don't need to edit anything to test locally if you already have a config. To create one:
 
-You can pin which source to use with the VS Code setting `champ.configSource` (`workspace-yaml` | `user-yaml` | `settings`). Use `Champ: Show Effective Config` in VS Code to see the merged result and where each value comes from.
+```bash
+# Create user config directory
+mkdir -p ~/.champ
 
-### Quick config examples
-
-#### Local OpenAI-compatible server (e.g., LMStudio, vLLM, mlx-serve)
-```yaml
-# ~/.champ/config.yaml or <repo>/.champ/config.yaml
-provider: openai-compatible
-
-providers:
-  openai-compatible:
-    baseUrl: http://192.168.1.64:8080/v1
-    model: Qwen3.5-4B-MLX-4bit
-    apiKey: dummy  # Self-hosted doesn't require real key
-    supportsTools: true  # Enable native function/tool calling
-
-agent:
-  yoloMode: false  # true to skip approval prompts
+# Create/edit config
+nano ~/.champ/config.yaml  # or your preferred editor
 ```
 
-#### Ollama (local)
+### Example: Local OpenAI-compatible server
+```yaml
+provider: local
+
+providers:
+  local:
+    baseUrl: http://localhost:8000/v1  # change to your server
+    model: <your-model-id>            # exact model id from your server
+    apiKey: dummy                     # use real key if your server requires auth
+    supportsTools: true               # only if server supports OpenAI-style tool calls
+```
+
+### Example: Ollama (native)
 ```yaml
 provider: ollama
 
 providers:
   ollama:
     baseUrl: http://127.0.0.1:11434
-    model: qwen2.5-coder:7b
+    model: qwen2.5-coder:7b  # use a model you have pulled
 ```
 
-#### Cloud providers (API keys via SecretStorage)
-```yaml
-provider: claude
+### Find your model ID
+```bash
+# For OpenAI-compatible servers
+curl -s http://<host>:<port>/v1/models | jq -r '.data[].id'
 
-# API keys stored securely - set via: Champ: Set API Key
-# or env var: export ANTHROPIC_API_KEY=sk-...
+# For Ollama
+curl -s http://127.0.0.1:11434/api/tags | jq -r '.models[].name'
 ```
 
-For all options, see [`docs/CONFIG.md`](./CONFIG.md).
+Copy the exact ID into `model:`.
 
-### API keys
-
-- **Cloud providers**: Never put API keys in YAML. Store them securely via `Champ: Set API Key` command in VS Code, or set environment variables.
-- **Local/OpenAI-compatible**: Often no key needed; use `apiKey: dummy` if the server requires one.
+**Tip:** API keys for cloud providers should go to SecretStorage (VS Code) or environment variables. Don't commit real keys to YAML files.
 
 ---
 
-## Using the VS Code Extension
+## 4) Using the VS Code Extension
 
-1. **Open Champ**: Click the Champ icon in the Activity Bar
-2. **Select provider/model**: Use the model picker or configure via YAML
-3. **Choose mode**: Agent (autonomous), Ask (Q&A), Manual, Plan, Composer
-4. **Chat**: Use `@` symbols for context (`@Files`, `@Codebase`, `@Git`, `@Terminal`, etc.)
-5. **Approve actions**: In Agent mode, destructive actions will prompt for approval unless `yoloMode: true`
+1. Open your project in VS Code
+2. Click the **Champ** icon in the Activity Bar
+3. Pick your provider/model (or let it use your config)
+4. Choose a mode: `Agent`, `Ask`, `Plan`, etc.
+5. Chat with `@Files`, `@Codebase`, `@Git`, etc. for context
+6. In Agent mode, you'll be asked to approve destructive actions unless `yoloMode: true`
 
-**Useful commands** (Command Palette `Ctrl+Shift+P` / `Cmd+Shift+P`):
-- `Champ: Show Effective Config` - View merged config
-- `Champ: Rescan Models` - Discover models from all providers
-- `Champ: Set API Key` - Store cloud API key securely
-- `Champ: Index Workspace` - Build/rebuild RAG index
-- `Champ: Verify Audit Log` - Validate security audit trail
+Useful commands (`Ctrl+Shift+P` / `Cmd+Shift+P`):
+- `Champ: Show Effective Config` - See what config is actually being used
+- `Champ: Rescan Models` - Re-discover models from configured servers
+- `Champ: Set API Key` - Store cloud keys securely
 
 ---
 
-## Using the Headless CLI
+## 5) Using the Champ CLI
 
-The CLI provides the same agent capabilities without VS Code. Perfect for automation, CI, or local scripting.
-
-### Basic usage
+Run from any project directory:
 
 ```bash
-cd /your/project
-
-# One-shot task
-champ "list all TypeScript files and summarize the project structure"
-
-# Interactive REPL
-champ
-
-# Pipe from stdin
-echo "explain src/index.ts" | champ
-
-# Resume a previous session
-champ --session <session-id> "continue from where we left off"
+cd /path/to/your/project
 ```
 
-### Flags
+### Common commands
+
+```bash
+# One-shot task
+champ "List all files and summarize this repo"
+
+# Interactive REPL (like claude/opencode)
+champ
+
+# Pipe a prompt
+echo "Explain src/index.ts" | champ
+
+# Force REPL mode
+champ --repl
+
+# Resume latest session for this directory
+champ "Continue where we left off"
+
+# Resume a specific session
+champ --session <session-id> "..."
+```
+
+### Useful flags
 
 | Flag | Description |
 |------|-------------|
-| `-y, --yes` | Auto-approve all tool calls (required for non-interactive use) |
-| `-r, --repl` | Force interactive REPL mode |
+| `-y`, `--yes` | Auto-approve tool calls (needed for non-interactive scripts) |
+| `-r`, `--repl` | Start in REPL mode |
 | `--cwd <dir>` | Set working directory |
-| `--provider <name>` | Override provider from config |
-| `--base-url <url>` | Override base URL |
-| `--model <id>` | Override model |
+| `--provider <name>` | Override provider |
+| `--base-url <url>` | Override base URL (include `/v1` for OpenAI-compatible) |
+| `--model <id>` | Override model ID |
 | `--api-key <key>` | Override API key |
-| `--session <id>` | Resume a specific session |
-| `--max-iter <n>` | Set max agent iterations |
+| `--session <id>` | Resume session |
+| `--max-iter <n>` | Limit agent iterations |
 | `-` | Read task from stdin explicitly |
 
-### Session management
-
+### Override example (no config change)
 ```bash
-# List sessions
-champ --sessions
-
-# Resume latest session automatically (just run champ again in same dir)
-champ "continue the task"
+champ \
+  --provider openai-compatible \
+  --base-url http://localhost:8000/v1 \
+  --model <your-model-id> \
+  --api-key dummy \
+  -y "Find all TODO comments"
 ```
 
-Sessions are stored in `<cwd>/.champ/sessions/` as append-only JSONL logs.
+### Sessions
+Sessions are saved in `<project>/.champ/sessions/`. Use `champ --sessions` to list them.
 
-### Output behavior
-
-- **Agent replies** go to `stdout` (so you can pipe them: `champ "..." > result.md`)
-- **Traces/logs** go to `stderr`
-- **In non-interactive mode** (piped stdin or one-shot without TTY), destructive tools are auto-approved with a notice to stderr
+### Output
+- **Answer** goes to `stdout` (easy to pipe to files)
+- **Logs/traces** go to `stderr`
 
 ---
 
-## Troubleshooting
+## 6) Updating
 
-| Issue | Solution |
-|-------|----------|
-| `champ: command not found` | Run `npm link` from the repo, or ensure global npm bin is in PATH. Check with `which npm && npm config get prefix`. |
-| `Cannot find module dist/cli.js` | Build the CLI: `node esbuild.mjs`. If you used `npm link`, rebuild after source changes. |
-| `no provider configured` | Set up `~/.champ/config.yaml` or use `--provider`/`--base-url` flags. Check with `champ "test"` - it will show config errors. |
-| Repeats tool calls forever | Enable `supportsTools: true` for OpenAI-compatible servers, or use a provider with native tool support. |
-| Server unreachable | Verify endpoint: `curl http://your-server:8000/v1/models`. Check firewall/network. |
-| Permission denied on approval | Use `-y` flag for non-interactive runs, or run in interactive terminal. |
-| Context window issues | The CLI auto-detects from server; if wrong, set in config or let it detect. |
+### Update the VS Code extension
+Rebuild and reinstall the `.vsix`, or reinstall from the updated file.
 
----
-
-## Advanced Configuration
-
-### Environment variables
-- `CHAMP_CONFIG` - Override config file path
-- Provider API keys: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, etc.
-
-### Smart Routing
-Configure per-task model selection:
-```yaml
-routing:
-  mode: smart  # or "manual"
-  coding: claude-sonnet-4-20250514
-  chat: gpt-4o-mini
-  embedding: ollama:nomic-embed-text
-```
-
-### Codebase indexing (RAG)
-```yaml
-indexing:
-  enabled: true
-  embeddingProvider: ollama
-  ignore:
-    - node_modules/**
-    - dist/**
-    - .git/**
-```
-
-### MCP servers
-```yaml
-mcp:
-  servers:
-    - name: github
-      command: npx
-      args: ["-y", "@modelcontextprotocol/server-github"]
-      env:
-        GITHUB_TOKEN: ${env:GITHUB_TOKEN}
+### Update the CLI
+```bash
+cd <repo-folder>
+git pull
+node esbuild.mjs
+# If using npm link, no extra install needed
+# If installed from tarball, reinstall the new tarball
 ```
 
 ---
 
-For more details, see:
-- [README.md](../README.md) - Full feature overview
-- [docs/CONFIG.md](./CONFIG.md) - Complete configuration reference
-- [docs/USER_GUIDE.md](./USER_GUIDE.md) - In-depth usage guide
-- [docs/SETUP_GUIDE.md](./SETUP_GUIDE.md) - Detailed setup instructions
+## 7) Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| `champ: command not found` | Your npm global bin isn't in `PATH`. Find it with `npm config get prefix` and add `$(npm config get prefix)/bin` to your shell config (`~/.bashrc`, `~/.zshrc`, etc.), then reload your shell. No sudo needed. |
+| `Cannot find module dist/cli.js` | Build it: `node esbuild.mjs` in the repo folder. |
+| `no provider configured` | Create `~/.champ/config.yaml` or use flags. Run `champ --help` to see options. |
+| Server unreachable | Check with `curl http://<host>:<port>/v1/models`. Verify host/port and firewall. |
+| Model not found | Use the exact model ID from `/v1/models` or Ollama's `/api/tags`. |
+| Tool calls repeat forever | Your server may not support OpenAI-style tool calls. Try `supportsTools: false` or use a server that supports `tool_calls`. |
+| Permission prompts in scripts | Add `-y` for non-interactive runs. |
+| `code: command not found` | VS Code CLI not in PATH. Open VS Code, run `Shell Command: Install 'code' command in PATH` (macOS) or ensure VS Code is on PATH. |
+
+---
+
+## 8) Notes for Beginners
+
+- **No root required.** Install Node in your user account, use `npm link` without `sudo`, and put configs in `~/.champ/`.
+- **Use user config for convenience.** Put `~/.champ/config.yaml` in your home directory so `champ` works from any project.
+- **Keep keys safe.** Never commit API keys to git. Use SecretStorage or environment variables.
+- **Start simple.** Try Option C (run with Node directly) first to test, then switch to `npm link` for convenience.
+- **Configs are generic.** Replace host/port/model with your own values — nothing here is hardcoded to a specific machine.
+- **Rebuild on changes.** If you modify source code, run `node esbuild.mjs` to update `dist/cli.js`.
