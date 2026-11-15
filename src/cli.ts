@@ -34,6 +34,8 @@ import * as path from "path";
 import { createInterface, type Interface as Readline } from "readline";
 import { format } from "util";
 import { parseCliArgs, USAGE, type CliFlags } from "./cli/args";
+import { loadCliRules, rulesPrompt } from "./cli/rules";
+import type { RulesEngine } from "./rules/rules-engine";
 import {
   isProviderName,
   resolveLayered,
@@ -225,6 +227,8 @@ interface SessionOptions {
   log: SessionLog | null;
   /** Workspace the session belongs to — used by `/sessions`. */
   workspace: string;
+  /** Loaded rules engine for per-turn project/user rules injection. */
+  rules: RulesEngine;
   /** Persist the turn's new messages to the session log. */
   onTurnEnd: () => Promise<void>;
 }
@@ -514,6 +518,9 @@ async function runRepl(
 
     // Approval questions share the REPL interface: readline routes the
     // answer to the question callback while the turn runs.
+    controller.setProjectRules(
+      rulesPrompt(opts.rules, { mode: controller.getMode() }),
+    );
     const outcome = await runTurn(controller, trimmed, {
       maxIterations: opts.maxIterations,
       requestApproval: (description) => askOn(rl, description),
@@ -596,6 +603,10 @@ async function main(): Promise<number> {
     workspace,
   );
   controller.setMode(config.agent?.defaultMode ?? "agent");
+  const rulesEngine = await loadCliRules({
+    workspaceRoot: workspace,
+    userRules: config.userRules,
+  });
 
   // ── Session persistence ───────────────────────────────────────────────
   // `--session <id>` opts a run into the append-only session log, resuming
@@ -679,11 +690,15 @@ async function main(): Promise<number> {
           maxIterations: flags.maxIterations,
           log: sessionLog,
           workspace,
+          rules: rulesEngine,
           onTurnEnd,
         },
         `Champ ${cliVersion()} — model ${provider.config.model ?? "?"}. /help for commands.`,
       );
     } else {
+      controller.setProjectRules(
+        rulesPrompt(rulesEngine, { mode: controller.getMode() }),
+      );
       const outcome = await runTurn(controller, task!, {
         requestApproval,
         maxIterations: flags.maxIterations,
