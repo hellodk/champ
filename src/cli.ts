@@ -35,7 +35,9 @@ import { createInterface, type Interface as Readline } from "readline";
 import { format } from "util";
 import { parseCliArgs, USAGE, type CliFlags } from "./cli/args";
 import { loadCliRules, rulesPrompt } from "./cli/rules";
+import { loadCliSkills } from "./cli/skills";
 import type { RulesEngine } from "./rules/rules-engine";
+import type { SkillRegistry } from "./skills/skill-registry";
 import {
   isProviderName,
   resolveLayered,
@@ -229,6 +231,8 @@ interface SessionOptions {
   workspace: string;
   /** Loaded rules engine for per-turn project/user rules injection. */
   rules: RulesEngine;
+  /** Loaded skills registry for REPL slash-command dispatch. */
+  registry: SkillRegistry;
   /** Persist the turn's new messages to the session log. */
   onTurnEnd: () => Promise<void>;
 }
@@ -607,6 +611,10 @@ async function main(): Promise<number> {
     workspaceRoot: workspace,
     userRules: config.userRules,
   });
+  const skills = loadCliSkills({ workspaceRoot: workspace });
+  for (const problem of skills.problems) {
+    process.stderr.write(`[champ] skill ignored: ${problem}\n`);
+  }
 
   // ── Session persistence ───────────────────────────────────────────────
   // `--session <id>` opts a run into the append-only session log, resuming
@@ -691,6 +699,7 @@ async function main(): Promise<number> {
           log: sessionLog,
           workspace,
           rules: rulesEngine,
+          registry: skills.registry,
           onTurnEnd,
         },
         `Champ ${cliVersion()} — model ${provider.config.model ?? "?"}. /help for commands.`,
