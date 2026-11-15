@@ -109,6 +109,41 @@ describe("champ CLI packaging (#139)", () => {
       env: { ...process.env, CHAMP_CONFIG: path.join(tmp, "absent.yaml") },
     });
     expect(sessions).toContain("no sessions in");
+
+    const skills = execFileSync(
+      process.execPath,
+      [cli, "--list-skills", "--cwd", tmp],
+      {
+        cwd: tmp,
+        encoding: "utf8",
+        env: { ...process.env, CHAMP_CONFIG: path.join(tmp, "absent.yaml") },
+      },
+    );
+    expect(skills).toContain("explain");
+    expect(skills).toContain("review");
+    expect(skills).toContain("commit");
+
+    const noDiskSkills = execFileSync(
+      process.execPath,
+      [cli, "--list-skills", "--no-skills", "--cwd", tmp],
+      {
+        cwd: tmp,
+        encoding: "utf8",
+        env: { ...process.env, CHAMP_CONFIG: path.join(tmp, "absent.yaml") },
+      },
+    );
+    for (const name of [
+      "explain",
+      "test",
+      "refactor",
+      "review",
+      "commit",
+      "doc",
+      "fix",
+      "optimize",
+    ]) {
+      expect(noDiskSkills).toContain(name);
+    }
   });
 
   it("installs globally and exposes a working champ bin", () => {

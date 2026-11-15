@@ -290,7 +290,73 @@ node esbuild.mjs
 
 ---
 
-## 7) Troubleshooting
+## 7) Skills and Project Rules
+
+Champ supports reusable markdown skills and automatic project rules in both the VS Code extension and the headless CLI.
+
+### Directory Layout
+
+- `<workspace>/.champ/skills/*.md` — workspace skills (checked into git for the team; highest precedence)
+- `~/.champ/skills/*.md` — personal user skills (override built-ins)
+- `<workspace>/.champ/rules/*.md` — project rules (`always` or `auto-attached` by `glob`)
+- `userRules:` in `~/.champ/config.yaml` — personal global rules always included in every turn
+
+Precedence for same-named skills: **workspace > user > built-in**.
+
+### Example Skill File
+
+```markdown
+---
+name: api-check
+description: Review an API handler for validation and error codes
+mode: ask
+allowedTools: [read_file, grep_search]
+---
+
+Check `{{currentFile}}` ({{language}}) for input validation and error handling.
+Focus on: {{userInput}}
+```
+
+### Template Variables in the CLI
+
+| Variable | CLI Value |
+|---|---|
+| `{{userInput}}` | Arguments after `/<skill>` or `--skill <name>` |
+| `{{workspaceRoot}}` | Resolved `--cwd` directory |
+| `{{date}}` | Today's ISO date (`YYYY-MM-DD`) |
+| `{{currentFile}}` | Value passed to `--file <path>` (empty if omitted) |
+| `{{language}}` | Derived from `--file` extension (empty if omitted/unknown) |
+| `{{selection}}` | Empty in terminal (no editor) |
+| `{{cursorLine}}` | Empty in terminal (no editor) |
+| `{{branch}}` | Empty in terminal |
+
+### CLI Commands and Flags
+
+```bash
+# List all available skills (no LLM endpoint needed)
+champ --list-skills
+
+# Run a skill in one-shot mode
+champ -y "/review src/auth.ts"
+champ -y --skill review "src/auth.ts"
+
+# Attach file context for {{currentFile}}, {{language}}, and glob rules
+champ -y --file src/auth.ts "/explain check token expiry"
+
+# Ignore workspace/user skill directories (built-ins only)
+champ --no-skills -y "just answer the question"
+```
+
+Inside the interactive REPL (`champ`), run `/skills` to list skills and `/<skill> [args]` to invoke one.
+
+### Terminal Limitations (`/commit` and `/fix`)
+
+- `/commit` declares `run_terminal_cmd`, which is not registered in the headless CLI; it runs with zero tools and warns on `stderr`.
+- `/fix` expects editor LSP diagnostics, which are only available in the VS Code extension.
+
+---
+
+## 8) Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
@@ -305,7 +371,7 @@ node esbuild.mjs
 
 ---
 
-## 8) Notes for Beginners
+## 9) Notes for Beginners
 
 - **No root required.** Install Node in your user account, use `npm link` without `sudo`, and put configs in `~/.champ/`.
 - **Use user config for convenience.** Put `~/.champ/config.yaml` in your home directory so `champ` works from any project.

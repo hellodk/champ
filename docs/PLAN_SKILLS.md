@@ -315,3 +315,15 @@ After generating the message, suggest the exact command to commit
 - All variable placeholders resolve correctly
 - Test count grows by ≥20 (loader + registry + resolver + integration)
 - No regressions in the existing 364 tests
+
+---
+
+## Phase E — CLI Integration
+
+Skills and project rules are also integrated into the headless CLI (`src/cli.ts`, `src/cli/skills.ts`, `src/cli/rules.ts`, `src/cli/tool-scope.ts`). See [`docs/PLAN_CLI_SKILLS_AND_RULES.md`](./PLAN_CLI_SKILLS_AND_RULES.md) for the full design.
+
+Key CLI-side decisions (D5–D8):
+- **D5 (Fault tolerance):** Invalid skill or rule files emit a warning to `stderr` and are skipped rather than aborting CLI startup.
+- **D6 (Empty body guard):** Skill files with an empty template body are skipped with a warning so they never send an empty user prompt.
+- **D7 (Lookup by `metadata.name`):** `trigger` remains ignored in the CLI, matching the extension's `SkillRegistry.get` behavior.
+- **D8 (`allowedTools` enforcement):** Declared `allowedTools` are enforced per turn in the CLI via `applyAllowedTools` with `restore()` in `finally` (a skill declaring only unavailable tools runs with zero tools and a warning).
