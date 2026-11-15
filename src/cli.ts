@@ -35,9 +35,17 @@ import { createInterface, type Interface as Readline } from "readline";
 import { format } from "util";
 import { parseCliArgs, USAGE, type CliFlags } from "./cli/args";
 import { loadCliRules, rulesPrompt } from "./cli/rules";
-import { loadCliSkills } from "./cli/skills";
+import {
+  buildSkillContext,
+  formatSkillList,
+  loadCliSkills,
+  resolveInvocation,
+  type ResolvedInvocation,
+} from "./cli/skills";
+import { applyAllowedTools } from "./cli/tool-scope";
 import type { RulesEngine } from "./rules/rules-engine";
 import type { SkillRegistry } from "./skills/skill-registry";
+import type { ToolRegistry } from "./tools/registry";
 import {
   isProviderName,
   resolveLayered,
@@ -233,8 +241,62 @@ interface SessionOptions {
   rules: RulesEngine;
   /** Loaded skills registry for REPL slash-command dispatch. */
   registry: SkillRegistry;
+  /** Tool registry for per-turn allowedTools scoping. */
+  toolRegistry: ToolRegistry;
+  /** Optional --file path for skill context and glob rules. */
+  file?: string;
   /** Persist the turn's new messages to the session log. */
   onTurnEnd: () => Promise<void>;
+}
+
+function warnMissingTools(
+  missing: string[],
+  skillName: string,
+  toolRegistry: ToolRegistry,
+): void {
+  if (missing.length === 0) return;
+  const list = missing.join(", ");
+  if (toolRegistry.getAll().length === 0) {
+    process.stderr.write(
+      `[skills] /${skillName}: declared tools not available in the CLI: ${list} — the turn runs with no tools.\n`,
+    );
+  } else {
+    process.stderr.write(
+      `[skills] /${skillName}: declared tools not available in the CLI: ${list} (ignored).\n`,
+    );
+  }
+}
+
+async function runSkillTurn(
+  controller: AgentController,
+  toolRegistry: ToolRegistry,
+  rulesEngine: RulesEngine,
+  invocation: ResolvedInvocation,
+  currentFile: string | undefined,
+  opts: TurnOptions,
+): Promise<TurnOutcome> {
+  const scope = applyAllowedTools(
+    toolRegistry,
+    invocation.skill.metadata.allowedTools,
+  );
+  warnMissingTools(scope.missing, invocation.skill.metadata.name, toolRegistry);
+  const previousMode = controller.getMode();
+  try {
+    if (invocation.mode) controller.setMode(invocation.mode);
+    controller.setProjectRules(
+      rulesPrompt(rulesEngine, {
+        mode: controller.getMode(),
+        currentFile,
+      }),
+    );
+    return await runTurn(controller, invocation.prompt, opts);
+  } finally {
+    scope.restore();
+    controller.setMode(previousMode);
+    controller.setProjectRules(
+      rulesPrompt(rulesEngine, { mode: previousMode, currentFile }),
+    );
+  }
 }
 
 interface TurnOutcome {
@@ -510,11 +572,53 @@ async function runRepl(
           );
           break;
         }
-        default:
-          process.stderr.write(
-            `[champ] unknown command ${command} — /help for the list\n`,
-          );
+        case "/skills":
+          process.stderr.write(`${formatSkillList(opts.registry)}\n`);
           break;
+        default: {
+          const { context, notes: ctxNotes } = buildSkillContext(
+            opts.workspace,
+            "",
+            { file: opts.file },
+          );
+          const resolved = resolveInvocation(opts.registry, trimmed, context);
+          if (resolved.kind === "skill") {
+            for (const note of [...ctxNotes, ...resolved.invocation.notes]) {
+              process.stderr.write(`${note}\n`);
+            }
+            const outcome = await runSkillTurn(
+              controller,
+              opts.toolRegistry,
+              opts.rules,
+              resolved.invocation,
+              context.currentFile,
+              {
+                maxIterations: opts.maxIterations,
+                requestApproval: (description) => askOn(rl, description),
+                onTurnEnd: opts.onTurnEnd,
+                onDone: printSummary,
+              },
+            );
+            if (outcome.aborted) {
+              process.stderr.write("\n[champ] aborted\n");
+            } else if (outcome.error) {
+              process.stderr.write(`champ: ${outcome.error}\n`);
+            }
+          } else if (resolved.kind === "unknown") {
+            process.stderr.write(
+              `[champ] unknown command /${resolved.name} — /help for the list\n`,
+            );
+            if (resolved.suggestions.length > 0) {
+              const sugg = resolved.suggestions.map((s) => `/${s}`).join(", ");
+              process.stderr.write(`[champ] did you mean: ${sugg}\n`);
+            }
+          } else {
+            process.stderr.write(
+              `[champ] unknown command ${command} — /help for the list\n`,
+            );
+          }
+          break;
+        }
       }
       rl.prompt();
       continue;
@@ -522,8 +626,14 @@ async function runRepl(
 
     // Approval questions share the REPL interface: readline routes the
     // answer to the question callback while the turn runs.
+    const { context: plainCtx } = buildSkillContext(opts.workspace, "", {
+      file: opts.file,
+    });
     controller.setProjectRules(
-      rulesPrompt(opts.rules, { mode: controller.getMode() }),
+      rulesPrompt(opts.rules, {
+        mode: controller.getMode(),
+        currentFile: plainCtx.currentFile,
+      }),
     );
     const outcome = await runTurn(controller, trimmed, {
       maxIterations: opts.maxIterations,
@@ -566,6 +676,17 @@ async function main(): Promise<number> {
     process.stdout.write(await sessionsReport(path.resolve(parsed.cwd)));
     return EXIT_OK;
   }
+  if (parsed.kind === "list-skills") {
+    const { registry, problems } = loadCliSkills({
+      workspaceRoot: path.resolve(parsed.cwd),
+      skipDisk: parsed.noSkills,
+    });
+    for (const problem of problems) {
+      process.stderr.write(`[champ] skill ignored: ${problem}\n`);
+    }
+    process.stdout.write(`${formatSkillList(registry)}\n`);
+    return EXIT_OK;
+  }
 
   const { mode, task: taskFromArgv, flags } = parsed.options;
 
@@ -601,17 +722,17 @@ async function main(): Promise<number> {
   }
 
   const workspace = path.resolve(flags.cwd);
-  const controller = new AgentController(
-    provider,
-    createHeadlessToolRegistry(),
-    workspace,
-  );
+  const toolRegistry = createHeadlessToolRegistry();
+  const controller = new AgentController(provider, toolRegistry, workspace);
   controller.setMode(config.agent?.defaultMode ?? "agent");
   const rulesEngine = await loadCliRules({
     workspaceRoot: workspace,
     userRules: config.userRules,
   });
-  const skills = loadCliSkills({ workspaceRoot: workspace });
+  const skills = loadCliSkills({
+    workspaceRoot: workspace,
+    skipDisk: flags.noSkills,
+  });
   for (const problem of skills.problems) {
     process.stderr.write(`[champ] skill ignored: ${problem}\n`);
   }
@@ -700,25 +821,75 @@ async function main(): Promise<number> {
           workspace,
           rules: rulesEngine,
           registry: skills.registry,
+          toolRegistry,
+          file: flags.file,
           onTurnEnd,
         },
         `Champ ${cliVersion()} — model ${provider.config.model ?? "?"}. /help for commands.`,
       );
     } else {
-      controller.setProjectRules(
-        rulesPrompt(rulesEngine, { mode: controller.getMode() }),
+      const { context: skillCtx, notes: ctxNotes } = buildSkillContext(
+        workspace,
+        "",
+        { file: flags.file },
       );
-      const outcome = await runTurn(controller, task!, {
-        requestApproval,
-        maxIterations: flags.maxIterations,
-        onTurnEnd,
-        onDone: printSummary,
-      });
-      if (outcome.aborted) code = EXIT_ABORTED;
-      else if (outcome.error) {
-        process.stderr.write(`champ: ${outcome.error}\n`);
-        code = EXIT_FAILURE;
-      } else code = EXIT_OK;
+      const effectiveTask = flags.skill
+        ? `/${flags.skill}${task ? ` ${task}` : ""}`
+        : task!;
+      const resolved = resolveInvocation(
+        skills.registry,
+        effectiveTask,
+        skillCtx,
+      );
+
+      if (resolved.kind === "unknown") {
+        process.stderr.write(
+          `[champ] unknown command /${resolved.name} — /help for the list\n`,
+        );
+        if (resolved.suggestions.length > 0) {
+          const sugg = resolved.suggestions.map((s) => `/${s}`).join(", ");
+          process.stderr.write(`[champ] did you mean: ${sugg}\n`);
+        }
+        code = EXIT_USAGE;
+      } else {
+        let outcome: TurnOutcome;
+        if (resolved.kind === "skill") {
+          for (const note of [...ctxNotes, ...resolved.invocation.notes]) {
+            process.stderr.write(`${note}\n`);
+          }
+          outcome = await runSkillTurn(
+            controller,
+            toolRegistry,
+            rulesEngine,
+            resolved.invocation,
+            skillCtx.currentFile,
+            {
+              requestApproval,
+              maxIterations: flags.maxIterations,
+              onTurnEnd,
+              onDone: printSummary,
+            },
+          );
+        } else {
+          controller.setProjectRules(
+            rulesPrompt(rulesEngine, {
+              mode: controller.getMode(),
+              currentFile: skillCtx.currentFile,
+            }),
+          );
+          outcome = await runTurn(controller, task!, {
+            requestApproval,
+            maxIterations: flags.maxIterations,
+            onTurnEnd,
+            onDone: printSummary,
+          });
+        }
+        if (outcome.aborted) code = EXIT_ABORTED;
+        else if (outcome.error) {
+          process.stderr.write(`champ: ${outcome.error}\n`);
+          code = EXIT_FAILURE;
+        } else code = EXIT_OK;
+      }
     }
   } catch (err) {
     process.stderr.write(

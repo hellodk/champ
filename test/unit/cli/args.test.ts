@@ -243,11 +243,106 @@ describe("cli arg parser — sessions (issue #72)", () => {
   });
 });
 
+describe("cli arg parser — skills and file flags", () => {
+  it("parses --skill review and --skill=review", () => {
+    expect(run(parse(["--skill", "review"])).flags.skill).toBe("review");
+    expect(run(parse(["--skill=review"])).flags.skill).toBe("review");
+  });
+
+  it("rejects an invalid skill name", () => {
+    expect(parse(["--skill", "123bad"])).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining(
+        '--skill must be a skill name like "review"',
+      ),
+    });
+    expect(parse(["--skill", "../evil"])).toMatchObject({
+      kind: "error",
+    });
+  });
+
+  it("rejects --skill with --repl", () => {
+    expect(parse(["--skill", "review", "--repl"])).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining(
+        "--skill cannot be combined with --repl",
+      ),
+    });
+  });
+
+  it("rejects --skill with a leading-slash positional", () => {
+    expect(parse(["--skill", "review", "/explain"])).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining(
+        "give the skill either with --skill or /<name>, not both",
+      ),
+    });
+  });
+
+  it("runs --skill with no positional as oneshot even when stdinIsTTY is false", () => {
+    const opts = run(parse(["--skill", "review"], false));
+    expect(opts.mode).toBe("oneshot");
+    expect(opts.task).toBe("");
+    expect(opts.flags.skill).toBe("review");
+  });
+
+  it("parses --file src/a.ts and --file=src/a.ts", () => {
+    expect(run(parse(["--file", "src/a.ts", "task"])).flags.file).toBe(
+      "src/a.ts",
+    );
+    expect(run(parse(["--file=src/a.ts", "task"])).flags.file).toBe("src/a.ts");
+  });
+
+  it("returns list-skills for --list-skills", () => {
+    expect(parse(["--list-skills"])).toMatchObject({
+      kind: "list-skills",
+      cwd: "/tmp/ws",
+    });
+    expect(parse(["--list-skills", "--cwd", "/elsewhere"])).toMatchObject({
+      kind: "list-skills",
+      cwd: "/elsewhere",
+    });
+  });
+
+  it("rejects --list-skills with --repl or with a task", () => {
+    expect(parse(["--list-skills", "--repl"])).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining(
+        "cannot combine --list-skills with --repl",
+      ),
+    });
+    expect(parse(["--list-skills", "task"])).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining(
+        "cannot combine --list-skills with a task",
+      ),
+    });
+    expect(parse(["--list-skills", "-"])).toMatchObject({ kind: "error" });
+  });
+
+  it("sets --no-skills", () => {
+    expect(run(parse(["--no-skills", "task"])).flags.noSkills).toBe(true);
+    expect(run(parse(["task"])).flags.noSkills).toBe(false);
+  });
+
+  it("USAGE contains all four new flags and two new command lines", () => {
+    expect(USAGE).toContain("--skill <name>");
+    expect(USAGE).toContain("--file <path>");
+    expect(USAGE).toContain("--list-skills");
+    expect(USAGE).toContain("--no-skills");
+    expect(USAGE).toContain("/skills");
+    expect(USAGE).toContain("/<skill> [args]");
+  });
+});
+
 describe("cli entry — no vscode on the CLI path (issue #136)", () => {
   it("never imports the vscode API", () => {
     const sources = [
       "src/cli.ts",
       "src/cli/args.ts",
+      "src/cli/rules.ts",
+      "src/cli/skills.ts",
+      "src/cli/tool-scope.ts",
       "src/tools/headless/index.ts",
       "src/tools/headless/fs-tools.ts",
       "src/providers/factory.ts",

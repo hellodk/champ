@@ -32,6 +32,14 @@ export interface CliFlags {
   apiKey?: string;
   /** Maximum tool-calling iterations per user message. */
   maxIterations?: number;
+  /** Run a named skill in one-shot mode (`--skill <name>`). */
+  skill?: string;
+  /** Target file for skill context and auto-attached glob rules (`--file <path>`). */
+  file?: string;
+  /** List available skills and exit (`--list-skills`). */
+  listSkills: boolean;
+  /** Skip loading workspace/user skill directories (`--no-skills`). */
+  noSkills: boolean;
 }
 
 export interface CliOptions {
@@ -45,6 +53,7 @@ export type CliParseResult =
   | { kind: "help" }
   | { kind: "version" }
   | { kind: "sessions"; cwd: string }
+  | { kind: "list-skills"; cwd: string; noSkills: boolean }
   | { kind: "error"; message: string }
   | { kind: "run"; options: CliOptions };
 
@@ -77,11 +86,15 @@ Options:
       --api-key <key>     Override the API key
       --max-iter <n>      Maximum tool-call iterations per message
       --session <id>      Resume a stored session (created when it is new)
+      --skill <name>      Run a skill (same as /<name>) in one-shot mode
+      --file <path>       The file skills and glob rules should assume
+      --list-skills       Print available skills and exit
+      --no-skills         Ignore workspace/user skill directories
 
 Sessions are append-only JSONL logs in <workspace>/.champ/sessions. The REPL
 keeps one automatically; --session does the same for one-shot runs. Resuming
 replays the log bounded at the newest checkpoint, without re-summarising.
-REPL commands: /session, /sessions, /checkpoint [label], /help, /exit.
+REPL commands: /skills, /<skill> [args], /session, /sessions, /checkpoint [label], /help, /exit.
 
 Configuration is read from ~/.champ/config.yaml (or CHAMP_CONFIG).
 Interactive runs prompt before destructive tools; non-interactive runs
@@ -97,6 +110,8 @@ const VALUE_FLAGS: Record<string, keyof CliFlags> = {
   "--api-key": "apiKey",
   "--max-iter": "maxIterations",
   "--session": "session",
+  "--skill": "skill",
+  "--file": "file",
 };
 
 function error(message: string): CliParseResult {
@@ -119,6 +134,8 @@ export function parseCliArgs(
     yes: false,
     repl: false,
     listSessions: false,
+    listSkills: false,
+    noSkills: false,
     cwd: env.cwd ?? process.cwd(),
   };
   const positionals: string[] = [];
@@ -155,6 +172,14 @@ export function parseCliArgs(
     }
     if (arg === "--sessions") {
       flags.listSessions = true;
+      continue;
+    }
+    if (arg === "--list-skills") {
+      flags.listSkills = true;
+      continue;
+    }
+    if (arg === "--no-skills") {
+      flags.noSkills = true;
       continue;
     }
 
@@ -213,6 +238,17 @@ export function parseCliArgs(
           }
           flags.session = value;
           break;
+        case "skill":
+          if (!/^[A-Za-z][\w-]*$/.test(value)) {
+            return error(
+              `--skill must be a skill name like "review", got "${value}"`,
+            );
+          }
+          flags.skill = value;
+          break;
+        case "file":
+          flags.file = value;
+          break;
         default:
           // Boolean flags never appear in VALUE_FLAGS.
           break;
@@ -242,9 +278,30 @@ export function parseCliArgs(
     return { kind: "sessions", cwd: flags.cwd };
   }
 
+  if (flags.listSkills) {
+    if (positionals.length > 0 || explicitStdin) {
+      return error("cannot combine --list-skills with a task");
+    }
+    if (flags.repl) {
+      return error("cannot combine --list-skills with --repl");
+    }
+    return { kind: "list-skills", cwd: flags.cwd, noSkills: flags.noSkills };
+  }
+
+  if (flags.skill) {
+    if (flags.repl) {
+      return error(
+        "--skill cannot be combined with --repl (use /<skill> inside the REPL)",
+      );
+    }
+    if (positionals[0]?.startsWith("/")) {
+      return error("give the skill either with --skill or /<name>, not both");
+    }
+  }
+
   // Mode precedence: --repl forces an interactive session (a task makes the
-  // combination ambiguous, so it is rejected); otherwise an explicit task
-  // wins, then explicit `-`, then a non-terminal stdin means piped input,
+  // combination ambiguous, so it is rejected); otherwise an explicit --skill
+  // or task wins, then explicit `-`, then a non-terminal stdin means piped input,
   // otherwise an interactive REPL.
   if (flags.repl && (positionals.length > 0 || explicitStdin)) {
     return error("cannot combine --repl with a task");
@@ -254,6 +311,9 @@ export function parseCliArgs(
   let task: string | undefined;
   if (flags.repl) {
     mode = "repl";
+  } else if (flags.skill) {
+    mode = "oneshot";
+    task = positionals.join(" ");
   } else if (positionals.length > 0) {
     mode = "oneshot";
     task = positionals.join(" ");
