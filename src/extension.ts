@@ -70,6 +70,8 @@ import type { AvailableProviderModel, WorkflowHistoryRun } from "./ui/messages";
 import { SAMPLE_CONFIGS } from "./config/sample-configs";
 import { estimateCost } from "./config/token-cost";
 import { BudgetEnforcer } from "./config/budget";
+import { FileBudgetLedger } from "./config/budget-ledger";
+import { createPolicyEngine } from "./policy/engine";
 import {
   FIRST_RUN_COMPLETE_KEY,
   ONBOARDING_DISMISSED_KEY,
@@ -356,6 +358,13 @@ export async function activate(
   // network/SDK errors happen.
   const workspaceRoot =
     vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+
+  // A malformed managed/user policy must stop activation, not silently
+  // produce an empty policy layer. Project grants require workspace trust.
+  const policyEngine = createPolicyEngine({
+    workspace: workspaceRoot,
+    workspaceTrusted: vscode.workspace.isTrusted,
+  });
 
   // ---- Audit log (tamper-evident append-only log of all agent actions) ----
   auditLog = new AuditLog(workspaceRoot);
@@ -986,6 +995,7 @@ export async function activate(
     context.extensionUri,
     agentController,
     context.extension.packageJSON.version as string,
+    policyEngine,
   );
   chatViewProvider.setContextResolver(contextResolver);
   if (checkpointManager) {
@@ -3668,7 +3678,12 @@ export async function activate(
       // One shared budget across the main controller and every session so
       // per-day limits cannot be bypassed by opening a new chat tab.
       const budget = yamlConfig?.agent?.budget
-        ? new BudgetEnforcer(yamlConfig.agent.budget)
+        ? new BudgetEnforcer(yamlConfig.agent.budget, {
+            ledger: new FileBudgetLedger(
+              path.join(context.globalStorageUri.fsPath, "budget-ledger.json"),
+            ),
+            project: workspaceRoot,
+          })
         : undefined;
       agentController.setBudget(budget);
       agentManager?.setBudget(budget);

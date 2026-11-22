@@ -149,21 +149,75 @@ export class PolicyEngine {
 /** Read a JSON policy file. Missing, malformed or invalid entries are ignored. */
 export function loadPolicyFile(file: string, scope: PolicyScope): PolicyRule[] {
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as unknown;
-    const raw = Array.isArray(parsed)
-      ? parsed
-      : parsed && typeof parsed === "object"
-        ? (parsed as { rules?: unknown }).rules
-        : undefined;
-    if (!Array.isArray(raw)) return [];
-    return raw
-      .map((rule) =>
-        rule && typeof rule === "object" ? { ...rule, scope } : rule,
-      )
-      .filter((rule): rule is PolicyRule => isValidRule(rule));
+    return parsePolicyFile(fs.readFileSync(file, "utf8"), scope, false);
   } catch {
     return [];
   }
+}
+
+/** Thrown when a policy file that must be trustworthy cannot be loaded. */
+export class PolicyLoadError extends Error {}
+
+function parsePolicyFile(
+  text: string,
+  scope: PolicyScope,
+  strict: boolean,
+): PolicyRule[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    throw new PolicyLoadError(
+      `${scope} policy: invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const raw = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === "object"
+      ? (parsed as { rules?: unknown }).rules
+      : undefined;
+  if (!Array.isArray(raw)) {
+    throw new PolicyLoadError(`${scope} policy: expected an array of rules`);
+  }
+  const rules: PolicyRule[] = [];
+  let invalid = 0;
+  for (const rule of raw) {
+    const candidate =
+      rule && typeof rule === "object" ? { ...rule, scope } : rule;
+    if (!isValidRule(candidate)) {
+      invalid++;
+      continue;
+    }
+    rules.push(candidate);
+  }
+  if (invalid > 0 && strict) {
+    throw new PolicyLoadError(
+      `${scope} policy: ${invalid} invalid rule(s) rejected`,
+    );
+  }
+  return rules;
+}
+
+/**
+ * Strict loader for layers that must fail closed. A missing file is fine; an
+ * unreadable, malformed or invalid file is not — treating it as an empty layer
+ * would silently drop administrator/user restrictions.
+ */
+export function loadPolicyFileStrict(
+  file: string,
+  scope: PolicyScope,
+): PolicyRule[] {
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return [];
+    throw new PolicyLoadError(
+      `${scope} policy: cannot read ${file}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  return parsePolicyFile(text, scope, true);
 }
 
 export interface PolicyEngineOptions {
@@ -172,6 +226,11 @@ export interface PolicyEngineOptions {
   managedPolicyPath?: string;
   sessionRules?: PolicyRule[];
   env?: Record<string, string | undefined>;
+  /**
+   * Project-level ALLOW rules only grant access in a trusted workspace.
+   * Defaults to false so a cloned repository cannot grant itself permissions.
+   */
+  workspaceTrusted?: boolean;
 }
 
 export const MANAGED_POLICY_ENV = "CHAMP_MANAGED_POLICY";
@@ -188,10 +247,17 @@ export function createPolicyEngine(
   const projectPath = opts.workspace
     ? path.join(opts.workspace, ".champ", "policy.json")
     : undefined;
+  const projectRules = projectPath
+    ? loadPolicyFile(projectPath, "project")
+    : [];
+  const trusted = opts.workspaceTrusted === true;
   return new PolicyEngine({
-    managed: managedPath ? loadPolicyFile(managedPath, "managed") : [],
-    user: userPath ? loadPolicyFile(userPath, "user") : [],
-    project: projectPath ? loadPolicyFile(projectPath, "project") : [],
+    managed: managedPath ? loadPolicyFileStrict(managedPath, "managed") : [],
+    user: userPath ? loadPolicyFileStrict(userPath, "user") : [],
+    // DENY/ASK still apply in an untrusted workspace; only grants are withheld.
+    project: trusted
+      ? projectRules
+      : projectRules.filter((rule) => rule.decision !== "ALLOW"),
     session: opts.sessionRules ?? [],
   });
 }

@@ -52,13 +52,13 @@ cmd_version() {
 }
 
 cmd_build() {
-  _require_cmds node npm npx
+  _require_cmds node pnpm
   _section "compile"
-  npm run compile
+  pnpm run compile
   _section "package VSIX"
   local ver
   ver=$(_version)
-  npx @vscode/vsce package --no-dependencies 2>&1
+  pnpm dlx @vscode/vsce package --no-dependencies 2>&1
   _ok "champ-${ver}.vsix ready"
 }
 
@@ -68,7 +68,7 @@ cmd_install() {
 
   local ver vsix
   if [[ "$mode" == "build" ]]; then
-    _require_cmds node npm npx
+    _require_cmds node pnpm
     _section "build from source"
     cmd_build
     ver=$(_version)
@@ -94,7 +94,7 @@ cmd_install() {
 }
 
 cmd_release() {
-  _require_cmds git gh node npm npx
+  _require_cmds git gh node pnpm
   local ver vsix tag
   ver=$(_version)
   vsix="${ROOT}/champ-${ver}.vsix"
@@ -150,36 +150,36 @@ NOTES
 }
 
 cmd_watch() {
-  _require_cmds node npm
+  _require_cmds node pnpm
   _section "watch (extension + webview)"
   echo "  Ctrl-C to stop"
-  npm run watch
+  pnpm run watch
 }
 
 cmd_test() {
-  _require_cmds npx
+  _require_cmds pnpm
   local suite="${1:-unit}"
   case "$suite" in
     unit)
       _section "unit tests"
-      npx vitest run --config vitest.config.ts
+      pnpm exec vitest run --config vitest.config.ts
       ;;
     int|integration)
       _section "integration tests"
-      npx vitest run --config vitest.integration.config.ts
+      pnpm exec vitest run --config vitest.integration.config.ts
       ;;
     e2e)
       _section "E2E tests"
-      npx vitest run --config vitest.e2e.config.ts
+      pnpm exec vitest run --config vitest.e2e.config.ts
       ;;
     report)
       cmd_test_report
       ;;
     all)
       _section "unit tests"
-      npx vitest run --config vitest.config.ts || true
+      pnpm exec vitest run --config vitest.config.ts || true
       _section "integration tests"
-      npx vitest run --config vitest.integration.config.ts || true
+      pnpm exec vitest run --config vitest.integration.config.ts || true
       ;;
     *)
       echo "Usage: champ test [unit|int|e2e|all|report]" >&2
@@ -218,12 +218,12 @@ cmd_test_report() {
 }
 
 cmd_lint() {
-  _require_cmds npx
+  _require_cmds pnpm
   _section "type-check"
-  npm run check-types
+  pnpm run check-types
   _ok "TypeScript OK"
   _section "eslint"
-  npm run lint
+  pnpm run lint
   _ok "ESLint OK"
 }
 

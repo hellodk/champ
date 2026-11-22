@@ -47,6 +47,8 @@ import { runProviderCommand } from "./cli/provider-commands";
 import { runUpdateCommand } from "./cli/update";
 import { ChainCredentialStore } from "./config/credential-store";
 import { BudgetEnforcer } from "./config/budget";
+import { FileBudgetLedger } from "./config/budget-ledger";
+import { createPolicyEngine, type PolicyEngine } from "./policy/engine";
 import { EndpointRegistry } from "./config/endpoint-registry";
 import { discoverModels, testEndpoint } from "./config/model-discovery";
 import { migrateFromYaml, scrubYamlSecrets } from "./config/provider-migration";
@@ -308,6 +310,8 @@ interface TurnOptions {
   headless?: boolean;
   /** Shared per-process budget, enforced from actual provider usage. */
   budget?: BudgetEnforcer;
+  /** Managed/user/project/session policy shared by both clients. */
+  policy?: PolicyEngine;
 }
 
 /** Shared per-turn options for an interactive session (REPL). */
@@ -329,6 +333,8 @@ interface SessionOptions {
   onTurnEnd: () => Promise<void>;
   /** Shared per-process budget, enforced from actual provider usage. */
   budget?: BudgetEnforcer;
+  /** Managed/user/project/session policy shared by both clients. */
+  policy?: PolicyEngine;
 }
 
 function warnMissingTools(
@@ -435,6 +441,7 @@ async function runTurn(
       abortSignal: abort.signal,
       headless: options.headless,
       budget: options.budget,
+      policy: options.policy,
     });
     if (sawText) {
       process.stdout.write("\n");
@@ -726,6 +733,7 @@ async function runRepl(
       onTurnEnd: opts.onTurnEnd,
       onDone: printSummary,
       budget: opts.budget,
+      policy: opts.policy,
     });
 
     if (outcome.aborted) {
@@ -832,7 +840,12 @@ async function main(): Promise<number> {
   // Budgets are optional; when configured they are enforced from actual
   // provider usage across the whole process (all REPL turns / one shot).
   const budget = config.agent?.budget
-    ? new BudgetEnforcer(config.agent.budget)
+    ? new BudgetEnforcer(config.agent.budget, {
+        ledger: new FileBudgetLedger(
+          path.join(path.dirname(configPath()), "budget-ledger.json"),
+        ),
+        project: workspace,
+      })
     : undefined;
   const hasExplicitEndpointOverride = Boolean(flags.provider || flags.baseUrl);
   const registryChoice = hasExplicitEndpointOverride
@@ -889,6 +902,19 @@ async function main(): Promise<number> {
   }
   const toolRegistry = createHeadlessToolRegistry();
   const controller = new AgentController(provider, toolRegistry, workspace);
+  let policy: PolicyEngine;
+  try {
+    policy = createPolicyEngine({
+      workspace,
+      // No CLI workspace-trust UI exists: project grants require an explicit
+      // opt-in, while managed/user DENY rules always apply.
+      workspaceTrusted: process.env.CHAMP_TRUST_WORKSPACE === "1",
+    });
+  } catch (err) {
+    fail(
+      `policy configuration rejected: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   controller.setMode(config.agent?.defaultMode ?? "agent");
   if (
     registryChoice &&
@@ -1060,6 +1086,7 @@ async function main(): Promise<number> {
           file: flags.file,
           onTurnEnd,
           budget,
+          policy,
         },
         `Champ ${cliVersion()} — model ${provider.config.model ?? "?"}. /help for commands.`,
       );
@@ -1106,6 +1133,7 @@ async function main(): Promise<number> {
               onDone: printSummary,
               headless,
               budget,
+              policy,
             },
           );
         } else {
@@ -1122,6 +1150,7 @@ async function main(): Promise<number> {
             onDone: printSummary,
             headless,
             budget,
+            policy,
           });
         }
         if (outcome.aborted) code = EXIT_ABORTED;

@@ -18,6 +18,79 @@ const PATH_ARG_KEYS = [
   "workspacePath",
 ];
 
+const SUBAGENT_TOOLS = new Set([
+  "delegate_task",
+  "delegate",
+  "spawn_subagent",
+  "subagent",
+]);
+
+/**
+ * Split a shell command on unconditional/conditional separators outside
+ * quotes so every subcommand is checked against shell policy. A single
+ * "curl *" DENY must not be bypassed by `echo ok && curl evil`.
+ */
+function splitShellCommand(command: string): string[] {
+  const segments: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  for (const char of command) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
+      current += char;
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      current += char;
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === ";" || char === "|" || char === "&" || char === "\n") {
+      if (current.trim()) segments.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim()) segments.push(current.trim());
+  return segments;
+}
+
+/** MCP adapters name tools `mcp_{server}_{tool}`; check each server prefix. */
+function mcpServerCandidates(name: string): string[] {
+  if (!name.startsWith("mcp_")) return [];
+  const parts = name.slice(4).split("_").filter(Boolean);
+  const candidates: string[] = [];
+  for (let i = 1; i <= parts.length; i++) {
+    candidates.push(parts.slice(0, i).join("_"));
+  }
+  return candidates;
+}
+
+function subagentCandidates(
+  name: string,
+  args: Record<string, unknown>,
+): string[] {
+  const ids: string[] = [];
+  for (const key of ["agent", "subagent", "targetAgent", "model"]) {
+    const value = args[key];
+    if (typeof value === "string" && value.length > 0) ids.push(value);
+  }
+  if (SUBAGENT_TOOLS.has(name)) ids.push(name);
+  return [...new Set(ids)];
+}
+
 /**
  * Evaluate tool, shell and path rules with one shared engine. A DENY in any
  * subject wins; otherwise a single ASK is surfaced to the caller.
@@ -50,6 +123,21 @@ function evaluatePolicy(
   if (typeof args.command === "string") {
     evaluations.push(
       engine.evaluate({ kind: "shell", id: args.command, args }, options),
+    );
+    for (const segment of splitShellCommand(args.command)) {
+      evaluations.push(
+        engine.evaluate({ kind: "shell", id: segment, args }, options),
+      );
+    }
+  }
+  for (const server of mcpServerCandidates(name)) {
+    evaluations.push(
+      engine.evaluate({ kind: "mcp", id: server, args }, options),
+    );
+  }
+  for (const subagent of subagentCandidates(name, args)) {
+    evaluations.push(
+      engine.evaluate({ kind: "subagent", id: subagent, args }, options),
     );
   }
   for (const key of PATH_ARG_KEYS) {

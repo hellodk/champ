@@ -141,6 +141,9 @@ export interface BudgetLimits {
   maxUsdPerRun?: number;
   maxTokensPerDay?: number;
   maxUsdPerDay?: number;
+  /** Caps applied to the scoped daily ledger (project/agent). */
+  maxUsdPerProject?: number;
+  maxUsdPerAgent?: number;
 }
 
 export interface BudgetDecision {
@@ -148,7 +151,7 @@ export interface BudgetDecision {
   reason?: string;
 }
 
-interface Totals {
+export interface Totals {
   inputTokens: number;
   outputTokens: number;
   usd: number;
@@ -165,16 +168,35 @@ export interface BudgetSnapshot {
   pricingVersion: string;
 }
 
+export interface BudgetEnforcerOptions {
+  now?: () => number;
+  /** Shared durable daily ledger. Without one, daily spend is process-local. */
+  ledger?: import("./budget-ledger").BudgetLedger;
+  project?: string;
+  agent?: string;
+}
+
 export class BudgetEnforcer {
   private run = emptyTotals();
   private day = emptyTotals();
   private dayKey: string;
+  private readonly ledger?: import("./budget-ledger").BudgetLedger;
+  private readonly scopeKey: string;
 
   constructor(
     private readonly limits: BudgetLimits,
-    private readonly opts: { now?: () => number } = {},
+    private readonly opts: BudgetEnforcerOptions = {},
   ) {
     this.dayKey = this.todayKey();
+    this.ledger = opts.ledger;
+    const scope = [
+      opts.project ? `project=${opts.project}` : "",
+      opts.agent ? `agent=${opts.agent}` : "",
+    ]
+      .filter(Boolean)
+      .join(";");
+    this.scopeKey = scope || "default";
+    this.syncLedger();
   }
 
   private todayKey(): string {
@@ -182,11 +204,25 @@ export class BudgetEnforcer {
     return new Date(now).toISOString().slice(0, 10);
   }
 
+  private ledgerKey(): string {
+    return `${this.dayKey}|${this.scopeKey}`;
+  }
+
+  /** Refresh daily totals written by other CLI invocations / extensions. */
+  private syncLedger(): void {
+    if (!this.ledger) return;
+    this.day = this.ledger.read(this.ledgerKey()) ?? emptyTotals();
+  }
+
   private rollDay(): void {
     const key = this.todayKey();
-    if (key === this.dayKey) return;
+    if (key === this.dayKey) {
+      this.syncLedger();
+      return;
+    }
     this.dayKey = key;
     this.day = emptyTotals();
+    this.syncLedger();
   }
 
   private price(usage: UsageRecord): PriceQuote {
@@ -247,6 +283,18 @@ export class BudgetEnforcer {
       this.day.usd >= this.limits.maxUsdPerDay
     ) {
       return { allowed: false, reason: "daily USD budget exhausted" };
+    }
+    if (
+      this.limits.maxUsdPerProject !== undefined &&
+      this.day.usd >= this.limits.maxUsdPerProject
+    ) {
+      return { allowed: false, reason: "project USD budget exhausted" };
+    }
+    if (
+      this.limits.maxUsdPerAgent !== undefined &&
+      this.day.usd >= this.limits.maxUsdPerAgent
+    ) {
+      return { allowed: false, reason: "agent USD budget exhausted" };
     }
     return { allowed: true };
   }
@@ -311,6 +359,18 @@ export class BudgetEnforcer {
     ) {
       return { allowed: false, reason: "daily USD budget exceeded" };
     }
+    if (
+      this.limits.maxUsdPerProject !== undefined &&
+      dayUsd > this.limits.maxUsdPerProject
+    ) {
+      return { allowed: false, reason: "project USD budget exceeded" };
+    }
+    if (
+      this.limits.maxUsdPerAgent !== undefined &&
+      dayUsd > this.limits.maxUsdPerAgent
+    ) {
+      return { allowed: false, reason: "agent USD budget exceeded" };
+    }
     return { allowed: true };
   }
 
@@ -318,13 +378,32 @@ export class BudgetEnforcer {
   record(usage: UsageRecord): void {
     this.rollDay();
     const quote = this.price(usage);
+    const usdBudgetActive =
+      this.limits.maxUsdPerRun !== undefined ||
+      this.limits.maxUsdPerDay !== undefined ||
+      this.limits.maxUsdPerProject !== undefined ||
+      this.limits.maxUsdPerAgent !== undefined;
+    if (usdBudgetActive && (!quote.known || quote.usd === null)) {
+      throw new Error(
+        `no pricing entry for ${usage.provider}/${usage.model} (${PRICING_TABLE_VERSION}); ` +
+          "cannot record spend against a USD budget",
+      );
+    }
     const usd = quote.usd ?? 0;
     this.run.inputTokens += usage.inputTokens;
     this.run.outputTokens += usage.outputTokens;
     this.run.usd += usd;
-    this.day.inputTokens += usage.inputTokens;
-    this.day.outputTokens += usage.outputTokens;
-    this.day.usd += usd;
+    if (this.ledger) {
+      this.day = this.ledger.update(this.ledgerKey(), (current) => ({
+        inputTokens: current.inputTokens + usage.inputTokens,
+        outputTokens: current.outputTokens + usage.outputTokens,
+        usd: current.usd + usd,
+      }));
+    } else {
+      this.day.inputTokens += usage.inputTokens;
+      this.day.outputTokens += usage.outputTokens;
+      this.day.usd += usd;
+    }
   }
 
   snapshot(): BudgetSnapshot {

@@ -1,24 +1,28 @@
 import { describe, it, expect } from "vitest";
+import * as path from "path";
 import { ContextResolver } from "@/agent/context-resolver";
+
+const WS = path.resolve("/ws");
+const MAIN = path.join(WS, "src/main.ts");
 
 describe("ContextResolver.getEditorContext", () => {
   it("returns configured context", () => {
     const resolver = new ContextResolver({
-      workspaceRoot: "/ws",
+      workspaceRoot: WS,
       indexingService: { search: async () => [] },
       webSearchTool: { execute: async () => ({ success: true, output: "" }) },
       getEditorContext: () => ({
         selection: "",
-        filePath: "/ws/src/main.ts",
+        filePath: MAIN,
         language: "typescript",
       }),
     });
-    expect(resolver.getEditorContext()?.filePath).toBe("/ws/src/main.ts");
+    expect(resolver.getEditorContext()?.filePath).toBe(MAIN);
   });
 
   it("returns undefined when not wired", () => {
     const resolver = new ContextResolver({
-      workspaceRoot: "/ws",
+      workspaceRoot: WS,
       indexingService: { search: async () => [] },
       webSearchTool: { execute: async () => ({ success: true, output: "" }) },
     });
@@ -27,17 +31,17 @@ describe("ContextResolver.getEditorContext", () => {
 
   it("resolve() returns file content when synthetic file ref is injected", async () => {
     const resolver = new ContextResolver({
-      workspaceRoot: "/ws",
+      workspaceRoot: WS,
       indexingService: { search: async () => [] },
       webSearchTool: { execute: async () => ({ success: true, output: "" }) },
       getEditorContext: () => ({
         selection: "",
-        filePath: "/ws/src/main.ts",
+        filePath: MAIN,
         language: "typescript",
       }),
       fileReader: {
         async readFile(absPath) {
-          if (absPath === "/ws/src/main.ts") return "export const MAIN = true;";
+          if (absPath === MAIN) return "export const MAIN = true;";
           throw new Error("not found");
         },
         async readdir() {
@@ -47,7 +51,7 @@ describe("ContextResolver.getEditorContext", () => {
     });
     const syntheticRef = {
       type: "file" as const,
-      value: "/ws/src/main.ts",
+      value: MAIN,
       start: 0,
       end: 0,
     };

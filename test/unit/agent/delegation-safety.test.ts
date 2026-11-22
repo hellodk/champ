@@ -3,6 +3,8 @@
  * cancellation, ownership contracts and detached worktree isolation.
  */
 import { describe, it, expect, vi } from "vitest";
+import * as os from "os";
+import * as path from "path";
 import {
   ConcurrencyLimiter,
   OwnershipRegistry,
@@ -95,10 +97,10 @@ describe("WorktreeManager", () => {
     });
     const manager = new WorktreeManager({
       run: runner as never,
-      baseDir: "/tmp/champ-wt-test",
+      baseDir: path.join(os.tmpdir(), "champ-wt-test"),
     });
     const worktree = await manager.create("/repo", "task-1");
-    expect(worktree.path).toMatch(/\/tmp\/champ-wt-test/);
+    expect(worktree.path).toContain(path.join(os.tmpdir(), "champ-wt-test"));
     expect(calls[0].args).toContain("--detach");
     const diffCalls = calls.length;
     await worktree.cleanup();
@@ -112,7 +114,7 @@ describe("WorktreeManager", () => {
   it("rejects task ids that could escape the worktree root", async () => {
     const manager = new WorktreeManager({
       run: vi.fn(async () => "") as never,
-      baseDir: "/tmp/champ-wt-test",
+      baseDir: path.join(os.tmpdir(), "champ-wt-test"),
     });
     await expect(manager.create("/repo", "../escape")).rejects.toThrow(/id/i);
   });

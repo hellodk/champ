@@ -8,7 +8,7 @@ import {
   readFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, delimiter } from "node:path";
 
 const REPO = join(__dirname, "..", "..");
 const SCRIPT = join(REPO, "scripts", "champ");
@@ -48,8 +48,7 @@ beforeAll(() => {
     "node",
     `if echo "$*" | grep -q process; then printf '2.0.2\\n'; fi; exit 0`,
   );
-  mock("npm", `exit 0`);
-  mock("npx", `exit 0`);
+  mock("pnpm", `exit 0`);
 });
 
 afterAll(() => {
@@ -59,7 +58,7 @@ afterAll(() => {
 function run(mode: "latest" | "build") {
   const env = {
     ...process.env,
-    PATH: join(sandbox, "bin") + ":" + process.env.PATH,
+    PATH: join(sandbox, "bin") + delimiter + process.env.PATH,
   };
   const out = execFileSync("bash", [SCRIPT, "install", mode], {
     cwd: REPO,

@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import * as os from "node:os";
+import * as path from "node:path";
 import { ChatViewProvider } from "@/ui/chat-view-provider";
 import type { AgentController } from "@/agent/agent-controller";
 
@@ -1018,7 +1019,7 @@ describe("ChatViewProvider", () => {
       const fsPath = String((uri as { fsPath: string }).fsPath);
       // Since #126 the config is written only to the user-level path, never
       // a workspace-local .champ/config.yaml.
-      expect(fsPath).toContain(".champ/config.yaml");
+      expect(fsPath).toContain(path.join(".champ", "config.yaml"));
       expect(fsPath.startsWith(os.homedir())).toBe(true);
       const text = new TextDecoder().decode(bytes);
       expect(text).toContain("provider: openai-compatible");

@@ -32,6 +32,14 @@ function getDefaultBackend(): ExecutionBackend {
   return defaultBackend;
 }
 
+/** Optional OS-enforced resource caps; a set but invalid value is ignored. */
+function envLimit(name: string): number | undefined {
+  const raw = process.env[name];
+  if (!raw) return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
 export const runTerminalTool: Tool = {
   name: "run_terminal_cmd",
   description:
@@ -123,7 +131,13 @@ export const runTerminalTool: Tool = {
       allowNetwork: false,
       envAllowlist: ENV_ALLOWLIST,
       env: { TERM: "dumb" },
-      limits: { timeoutMs, maxOutputBytes: MAX_OUTPUT_BYTES },
+      limits: {
+        timeoutMs,
+        maxOutputBytes: MAX_OUTPUT_BYTES,
+        memoryMb: envLimit("CHAMP_EXEC_MEMORY_MB"),
+        cpuSeconds: envLimit("CHAMP_EXEC_CPU_SECONDS"),
+        fileSizeMb: envLimit("CHAMP_EXEC_FILE_SIZE_MB"),
+      },
       abortSignal: context.abortSignal,
       onOutput: (stream, text) => {
         if (stream === "stdout") context.reportProgress(text);
