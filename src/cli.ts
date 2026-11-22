@@ -47,6 +47,7 @@ import { runProviderCommand } from "./cli/provider-commands";
 import { ChainCredentialStore } from "./config/credential-store";
 import { EndpointRegistry } from "./config/endpoint-registry";
 import { discoverModels, testEndpoint } from "./config/model-discovery";
+import { migrateFromYaml } from "./config/provider-migration";
 import type {
   Endpoint,
   TaskAssignment,
@@ -816,6 +817,13 @@ async function main(): Promise<number> {
       cwd: path.resolve(parsed.cwd),
       stdout: (text) => process.stdout.write(text),
       stderr: (text) => process.stderr.write(text),
+      migrate: ({ dryRun }) =>
+        migrateFromYaml({
+          configText: readConfigText(),
+          registry,
+          credentials,
+          dryRun,
+        }),
     });
   }
 

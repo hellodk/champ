@@ -1,44 +1,39 @@
 # Champ Configuration Reference
 
-Champ reads configuration from a hierarchical YAML file instead of (or alongside) VS Code's flat `settings.json`. This is cleaner, version-controlled, and shareable with the rest of your team.
+Champ separates **provider endpoint management** (stored automatically in `~/.champ/providers.json`) from **non-provider settings** (`userRules`, `agent`, `routing`, `indexing`, `mcp`, stored in `~/.champ/config.yaml`).
 
 ## Locations and precedence
 
-Highest wins:
+For **provider and model selection** (highest wins):
 
-1. **`<workspace>/.champ/config.yaml`** — project-specific, committed to git, shared with the team
-2. **`~/.champ/config.yaml`** — your personal defaults across all projects
-3. **VS Code `champ.*` settings** — legacy backward-compatibility (still works, but YAML is preferred)
-4. **Built-in defaults**
+1. **CLI flags** — `--provider`, `--base-url`, `--model`, `--api-key`
+2. **Workspace endpoint reference (`<workspace>/.champ/provider.json`)** — optional non-secret `{ "endpoint": "<id>", "model": "<model-id>" }` created by `champ model use --workspace`
+3. **User endpoint registry (`~/.champ/providers.json`)** — managed by `champ setup`, `champ provider ...`, and VS Code `Champ: Configure Provider`
+4. **Built-in defaults** (or legacy `~/.champ/config.yaml` / `CHAMP_CONFIG` when `~/.champ/providers.json` is not yet created)
 
-The workspace config is deep-merged on top of the user config. Nested objects merge field-by-field; arrays are replaced wholesale.
+For **non-provider settings** (`userRules`, `agent`, `mcp`, `indexing`, `routing`, `telemetry`), Champ reads the single user-level YAML file **`~/.champ/config.yaml`** (or `CHAMP_CONFIG` on the CLI). No workspace `.champ/config.yaml` is read; workspace-level overrides use `.champ/rules/*.md`, `.champ/skills/*.md`, and `.champ/provider.json`.
+
+Existing YAML `provider:` / `providers:` sections remain supported as an **import/migration format** (`champ config migrate`), not the primary live provider store.
 
 ## Quick start
 
-Run **`Champ: Generate Config File`** from the command palette (`Ctrl+Shift+P`). It writes a starter `.champ/config.yaml` in your workspace root and opens it in the editor. Edit and save — the extension watches the file and hot-reloads on change.
+In the CLI:
 
-Or write it by hand:
-
-```yaml
-# .champ/config.yaml
-provider: ollama
-providers:
-  ollama:
-    baseUrl: http://localhost:11434
-    model: llama3.1
+```bash
+champ setup
 ```
 
-That's the minimum required to get a working setup. Everything else has sensible defaults.
+In VS Code: run **`Champ: Configure Provider`** from the command palette (`Ctrl+Shift+P` / `Cmd+Shift+P`). Both write to the same `~/.champ/providers.json` registry while keeping credentials in separate host stores (OS keyring/env for the CLI, VS Code `SecretStorage` for the extension).
 
-## Full schema
+To create `~/.champ/config.yaml` for non-provider settings (`userRules`, `mcp`, `agent`, `indexing`), run **`Champ: Generate Config File`** in VS Code.
+
+## YAML schema (non-provider settings + migration source)
 
 ```yaml
-# Active provider — must match a key under `providers:` below.
+# Legacy/migration provider keys (use `champ setup` or `champ config migrate` instead):
 # Valid: claude, openai, gemini, ollama, llamacpp, vllm, openai-compatible
 provider: llamacpp
 
-# Per-provider settings. Add only the providers you actually use —
-# Champ only reads the entry matching the active `provider:` above.
 providers:
   claude:
     model: claude-sonnet-4-20250514
@@ -54,16 +49,16 @@ providers:
     model: llama3.1
 
   llamacpp:
-    baseUrl: http://192.168.1.24:21434/v1
-    model: Qwen2.5-Coder-7B-Instruct.gguf
+    baseUrl: http://localhost:8080/v1
+    model: <your-model-id>
 
   vllm:
     baseUrl: http://localhost:8000/v1
-    model: meta-llama/Llama-3.1-8B
+    model: <your-model-id>
 
   openai-compatible:
-    baseUrl: http://localhost:9000/v1
-    model: custom-model
+    baseUrl: http://localhost:8080/v1
+    model: <your-model-id>
 
 # Inline ghost-text autocomplete (Ctrl+Space style suggestions as you type).
 autocomplete:
@@ -161,91 +156,30 @@ If the variable is not set, the literal `${env:VAR_NAME}` text is left in place 
 
 ## Hot reload
 
-When you save `.champ/config.yaml`, the extension automatically reloads the active provider. The status bar updates and a "switched to ..." notification appears. No need to reload the window.
+When you modify `~/.champ/providers.json` (from the CLI or VS Code) or `~/.champ/config.yaml`, the extension automatically reloads the active provider. No window restart is required.
 
 If you save invalid YAML, the extension shows the parse error and keeps the previous provider active.
 
-## Example: switching from settings.json to YAML
+## Workspace vs user files
 
-Before — `settings.json`:
+**Workspace** (`.champ/` inside the repo, safe to commit):
+- `.champ/provider.json` — non-secret endpoint/model reference (`{ "endpoint": "<id>", "model": "<model-id>" }`)
+- `.champ/rules/*.md` — project-specific rules
+- `.champ/skills/*.md` — team skills
 
-```json
-{
-  "champ.provider": "llamacpp",
-  "champ.llamacpp.baseUrl": "http://192.168.1.24:21434/v1",
-  "champ.llamacpp.model": "Qwen2.5-Coder-7B-Instruct.gguf",
-  "champ.autocomplete.enabled": true,
-  "champ.autocomplete.debounceMs": 300,
-  "champ.userRules": "Always write tests first."
-}
-```
+**User** (`~/.champ/`, private — never commit):
+- `~/.champ/providers.json` — named endpoints, discovered models, and task assignments (no API keys)
+- `~/.champ/config.yaml` — personal `userRules`, `agent`, `mcp`, `indexing`, `routing`, and legacy YAML provider config
 
-After — `.champ/config.yaml`:
+## Validation and inspection
 
-```yaml
-provider: llamacpp
-providers:
-  llamacpp:
-    baseUrl: http://192.168.1.24:21434/v1
-    model: Qwen2.5-Coder-7B-Instruct.gguf
-autocomplete:
-  enabled: true
-  debounceMs: 300
-userRules: |
-  Always write tests first.
-```
-
-You can keep both — the YAML file wins, and the `settings.json` values are silently ignored. To migrate cleanly, remove the `champ.*` entries from `settings.json` after creating the YAML file.
-
-## Validation errors
-
-The loader produces clear, actionable error messages:
+Run **`champ config show`** on the CLI (secrets are redacted to `<keyring:...>` or `<env:...>`) or **`Champ: Show Effective Config`** in VS Code.
 
 | Error | Cause | Fix |
 |-------|-------|-----|
 | `Invalid YAML: ...` | Syntactically broken YAML | Check indentation, quotes, list dashes |
 | `Invalid provider "X"` | `provider:` doesn't match a known name | Use one of: claude, openai, gemini, ollama, llamacpp, vllm, openai-compatible |
 | `Active provider "X" is not configured under providers:` | You set `provider: ollama` but no `providers.ollama:` block | Add the block |
-| `providers.X.apiKey is not allowed in YAML` | Tried to put a secret in YAML | Use `Champ: Set API Key` instead |
+| `providers.X.apiKey is not allowed in YAML` | Tried to put a cloud secret in YAML | Use `Champ: Set API Key` or `champ setup` instead |
 | `agent.defaultMode must be one of: ...` | Invalid mode name | Use one of: agent, ask, manual, plan, composer |
 | `autocomplete.debounceMs must be a number` | Wrong type for a numeric field | Remove quotes from the number |
-
-## What goes in workspace vs user config
-
-**Workspace** (`.champ/config.yaml`, committed):
-- Active provider (so the team uses the same one)
-- Project-specific user rules ("our codebase uses tabs not spaces")
-- MCP servers required for the project
-- Indexing ignore patterns specific to the repo
-
-**User** (`~/.champ/config.yaml`, personal):
-- Personal model preferences
-- Personal user rules ("always explain in plain English")
-- Local llama.cpp endpoint URL (might differ from teammates')
-- Per-machine autocomplete model
-
-The workspace file usually ends up in the repo. The user file is private and should never be committed.
-
-## Disabling YAML config
-
-If you'd rather stick with `settings.json`, just don't create a `.champ/config.yaml`. The loader falls through to the legacy path automatically. Backward compatibility is permanent.
-
-## Single source of truth (`champ.configSource`)
-
-Four layers exist: workspace YAML > user YAML > VS Code settings > defaults.
-Under the default `auto` that precedence applies silently. To eliminate
-ambiguity, set **`champ.configSource`**:
-
-| Value            | Meaning                                        |
-|------------------|------------------------------------------------|
-| `auto` (default) | historical precedence, as above                |
-| `workspace-yaml` | ONLY `<repo>/.champ/config.yaml`               |
-| `user-yaml`      | ONLY `~/.champ/config.yaml`                    |
-| `settings`       | ONLY `champ.*` settings; all YAML ignored      |
-
-Ignored layers are logged at startup. If both YAML files exist under `auto`,
-Champ tells you which one wins (once per session).
-
-Inspect what is actually running with **Champ: Show Effective Config** — it
-prints the merged config plus a per-key origin table (which layer supplied
-each key). API keys always live in SecretStorage regardless of source.

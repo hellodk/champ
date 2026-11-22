@@ -144,6 +144,31 @@ describe("champ CLI packaging (#139)", () => {
     ]) {
       expect(noDiskSkills).toContain(name);
     }
+
+    const emptyHome = path.join(tmp, "empty-home");
+    fs.mkdirSync(emptyHome, { recursive: true });
+    const providerList = execFileSync(
+      process.execPath,
+      [cli, "provider", "list", "--cwd", tmp],
+      {
+        cwd: tmp,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HOME: emptyHome,
+          CHAMP_CONFIG: path.join(tmp, "absent.yaml"),
+        },
+      },
+    );
+    expect(providerList).toContain("No endpoints configured");
+
+    const setupHelp = execFileSync(process.execPath, [cli, "setup", "--help"], {
+      cwd: tmp,
+      encoding: "utf8",
+      env: { ...process.env, HOME: emptyHome },
+    });
+    expect(setupHelp).toContain("champ setup");
+    expect(setupHelp).toContain("champ provider");
   });
 
   it("installs globally and exposes a working champ bin", () => {

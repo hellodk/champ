@@ -432,6 +432,7 @@ describe("cli entry — no vscode on the CLI path (issue #136)", () => {
       "src/config/provider-repository.ts",
       "src/config/credential-store.ts",
       "src/config/provider-catalog.ts",
+      "src/config/provider-migration.ts",
       "src/config/model-discovery.ts",
       "src/config/endpoint-registry.ts",
       "src/tools/headless/index.ts",

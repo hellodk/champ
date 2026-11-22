@@ -396,4 +396,59 @@ describe("champ CLI provider registry integration", () => {
     },
     TIMEOUT,
   );
+
+  it(
+    "`champ config migrate` imports existing YAML URL/model without copying inline secret to JSON",
+    async () => {
+      const { home, ws } = createHomeAndWs();
+      const mock = await startMockOpenAI(() => [
+        frames.text("migrated ok"),
+        frames.finish("stop"),
+        frames.done,
+      ]);
+      const configPath = writeChampConfig(ws, {
+        baseUrl: mock.baseUrl,
+        model: "yaml-migrated-model",
+      });
+
+      try {
+        const dryRes = await runCli(["config", "migrate", "--dry-run"], {
+          cwd: ws,
+          configPath,
+          env: { HOME: home },
+        });
+        expect(dryRes.code).toBe(0);
+        expect(dryRes.stdout).toContain("Would migrate 1 endpoint");
+        expect(fs.existsSync(path.join(home, ".champ", "providers.json"))).toBe(
+          false,
+        );
+
+        const migRes = await runCli(["config", "migrate"], {
+          cwd: ws,
+          configPath,
+          env: { HOME: home },
+        });
+        expect(migRes.code).toBe(0);
+        expect(migRes.stdout).toContain("Migrated 1 endpoint");
+
+        const regPath = path.join(home, ".champ", "providers.json");
+        const regText = fs.readFileSync(regPath, "utf8");
+        expect(regText).toContain(mock.baseUrl);
+        expect(regText).toContain("yaml-migrated-model");
+        expect(regText).not.toContain("test-key");
+
+        // Second run is a no-op.
+        const againRes = await runCli(["config", "migrate"], {
+          cwd: ws,
+          configPath,
+          env: { HOME: home },
+        });
+        expect(againRes.code).toBe(0);
+        expect(againRes.stdout).toContain("0 endpoint");
+      } finally {
+        await mock.close();
+      }
+    },
+    TIMEOUT,
+  );
 });

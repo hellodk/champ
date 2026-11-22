@@ -141,56 +141,60 @@ champ --version
 
 ## 3) Configure the CLI to use your model
 
-The CLI reads config from these locations (first found/merged as per app logic):
-
-- **Workspace config:** `<your-project>/.champ/config.yaml`
-- **User config:** `~/.champ/config.yaml` (applies everywhere)
-- **Environment override:** `CHAMP_CONFIG=/path/to/config.yaml`
-
-You don't need to edit anything to test locally if you already have a config. To create one:
+The recommended way to configure Champ is the interactive setup wizard — you do **not** need to hand-edit YAML:
 
 ```bash
-# Create user config directory
-mkdir -p ~/.champ
-
-# Create/edit config
-nano ~/.champ/config.yaml  # or your preferred editor
+champ setup
 ```
 
-### Example: Local OpenAI-compatible server
-```yaml
-provider: local
+`champ setup` lets you pick a provider (Anthropic Claude, OpenAI, Google Gemini, Ollama, llama.cpp, vLLM, or OpenAI-compatible such as MLX / LM Studio), enter your endpoint URL, enter an API key if the server requires one, automatically discover available models, and choose a default endpoint.
 
-providers:
-  local:
-    baseUrl: http://localhost:8000/v1  # change to your server
-    model: <your-model-id>            # exact model id from your server
-    apiKey: dummy                     # use real key if your server requires auth
-    supportsTools: true               # only if server supports OpenAI-style tool calls
-```
+### Managed Registry and Secret Storage
 
-### Example: Ollama (native)
-```yaml
-provider: ollama
+- **Endpoint registry:** `~/.champ/providers.json` (managed automatically by `champ setup`, `champ provider ...`, and VS Code's `Champ: Configure Provider` — do not hand-edit).
+- **Optional workspace reference:** `<your-project>/.champ/provider.json` (created by `champ model use <endpoint-id>/<model> --workspace`). Contains only non-secret endpoint/model references so projects can share model preferences safely.
+- **Credential stores (host-separated, same logical IDs):**
+  - **CLI:** stores keys in your OS keyring (`security` on macOS, `secret-tool` on Linux when a D-Bus session is running) or falls back to environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `VLLM_API_KEY`, `OLLAMA_API_KEY`, etc.). Secrets are never written to JSON or plaintext files.
+  - **VS Code extension:** stores keys in VS Code's encrypted `SecretStorage`.
+- **Migrating an older `~/.champ/config.yaml`:**
 
-providers:
-  ollama:
-    baseUrl: http://127.0.0.1:11434
-    model: qwen2.5-coder:7b  # use a model you have pulled
-```
-
-### Find your model ID
 ```bash
-# For OpenAI-compatible servers
-curl -s http://<host>:<port>/v1/models | jq -r '.data[].id'
-
-# For Ollama
-curl -s http://127.0.0.1:11434/api/tags | jq -r '.models[].name'
+champ config migrate --dry-run   # preview
+champ config migrate             # import URLs/models without moving secrets into JSON
 ```
 
-Copy the exact ID into `model:`.
+- **Scripted / CI overrides:** pass `--provider`, `--base-url`, `--model`, `--api-key` on the CLI (explicit flags always override the registry), or set `CHAMP_CONFIG=/path/to/config.yaml` when testing legacy YAML configs.
 
-**Tip:** API keys for cloud providers should go to SecretStorage (VS Code) or environment variables. Don't commit real keys to YAML files.
+### Managing Endpoints and Models
+
+```bash
+# List configured endpoints (keys are never printed)
+champ provider list
+
+# Test connectivity and latency for an endpoint
+champ provider test <endpoint-id>
+
+# Discover or list available models
+champ models
+champ models refresh
+
+# Switch the default model (or pin one to the current workspace)
+champ model use <endpoint-id>/<model-id>
+champ model use <endpoint-id>/<model-id> --workspace
+
+# Inspect redacted configuration state
+champ config show
+```
+
+### PATH Setup (when `champ` is not found)
+
+Install with `npm link` (no `sudo` required). If your shell reports `champ: command not found`, add your user npm prefix's `bin` directory to `PATH`:
+
+```bash
+export PATH="$(npm config get prefix)/bin:$PATH"
+```
+
+Add that line to `~/.bashrc` or `~/.zshrc` and reload your shell.
 
 ---
 
@@ -362,9 +366,9 @@ Inside the interactive REPL (`champ`), run `/skills` to list skills and `/<skill
 |---------|-----|
 | `champ: command not found` | Your npm global bin isn't in `PATH`. Find it with `npm config get prefix` and add `$(npm config get prefix)/bin` to your shell config (`~/.bashrc`, `~/.zshrc`, etc.), then reload your shell. No sudo needed. |
 | `Cannot find module dist/cli.js` | Build it: `node esbuild.mjs` in the repo folder. |
-| `no provider configured` | Create `~/.champ/config.yaml` or use flags. Run `champ --help` to see options. |
-| Server unreachable | Check with `curl http://<host>:<port>/v1/models`. Verify host/port and firewall. |
-| Model not found | Use the exact model ID from `/v1/models` or Ollama's `/api/tags`. |
+| `no provider configured` | Run `champ setup`, migrate existing YAML with `champ config migrate`, or pass `--provider`/`--base-url`. Run `champ --help` to see options. |
+| Server unreachable | Run `champ provider test <id>`. Verify server URL, port, and firewall. |
+| Model not found | Run `champ models refresh` and pick an exact ID with `champ model use <id>/<model>`. |
 | Tool calls repeat forever | Your server may not support OpenAI-style tool calls. Try `supportsTools: false` or use a server that supports `tool_calls`. |
 | Permission prompts in scripts | Add `-y` for non-interactive runs. |
 | `code: command not found` | VS Code CLI not in PATH. Open VS Code, run `Shell Command: Install 'code' command in PATH` (macOS) or ensure VS Code is on PATH. |

@@ -1,0 +1,191 @@
+/**
+ * One-way YAML-to-registry importer (`champ config migrate`).
+ *
+ * Reads `~/.champ/config.yaml` via `ConfigLoader.parseYaml`, preserves URLs,
+ * models, tool flags, context windows, options, and task routing assignments,
+ * moves any inline self-hosted `apiKey` into the credential store (never JSON),
+ * and warns explicitly about cloud secrets that must be re-entered or kept in
+ * SecretStorage / environment variables. Never mutates or deletes the YAML file.
+ */
+import {
+  ConfigLoader,
+  isProviderName,
+  type ChampConfig,
+  type ProviderName,
+} from "./config-loader";
+import { fallbackEnvVarForId, type CredentialStore } from "./credential-store";
+import type { EndpointRegistry } from "./endpoint-registry";
+import { catalogEntry, legacySecretIdForProvider } from "./provider-catalog";
+import type {
+  CredentialRef,
+  Endpoint,
+  ProviderKind,
+  TaskAssignment,
+} from "./provider-model";
+
+export interface MigrationResult {
+  endpoints: number;
+  warnings: string[];
+  written: boolean;
+}
+
+interface PlannedEndpoint {
+  kind: ProviderKind;
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
+  supportsTools?: boolean;
+  contextWindow?: number;
+  options?: Record<string, unknown>;
+  isDefault: boolean;
+  credential: CredentialRef;
+}
+
+function sameUrl(a: string | undefined, b: string | undefined): boolean {
+  return (a ?? "").replace(/\/+$/, "") === (b ?? "").replace(/\/+$/, "");
+}
+
+function alreadyImported(
+  existing: readonly Endpoint[],
+  kind: ProviderKind,
+  baseUrl: string | undefined,
+): boolean {
+  return existing.some(
+    (ep) =>
+      ep.provider === kind &&
+      (sameUrl(ep.baseUrl, baseUrl) ||
+        ep.name.toLowerCase() === kind.toLowerCase()),
+  );
+}
+
+export async function migrateFromYaml(deps: {
+  configText: string | null;
+  registry: EndpointRegistry;
+  credentials: CredentialStore;
+  dryRun: boolean;
+}): Promise<MigrationResult> {
+  if (!deps.configText || !deps.configText.trim()) {
+    return { endpoints: 0, warnings: [], written: false };
+  }
+
+  let parsed: ChampConfig;
+  try {
+    parsed = ConfigLoader.parseYaml(deps.configText);
+  } catch (err) {
+    return {
+      endpoints: 0,
+      warnings: [
+        `Could not parse YAML config: ${err instanceof Error ? err.message : String(err)}`,
+      ],
+      written: false,
+    };
+  }
+
+  const providerEntries = parsed.providers ?? {};
+  const existing = await deps.registry.list();
+  const warnings: string[] = [];
+  const planned: PlannedEndpoint[] = [];
+
+  for (const [rawKind, conf] of Object.entries(providerEntries)) {
+    if (!conf || !isProviderName(rawKind)) continue;
+    const kind = rawKind as ProviderName & ProviderKind;
+    const entry = catalogEntry(kind);
+    const effectiveBaseUrl = conf.baseUrl ?? entry.defaultBaseUrl;
+
+    if (alreadyImported(existing, kind, effectiveBaseUrl)) {
+      continue;
+    }
+
+    const legacySecretId = legacySecretIdForProvider(kind);
+    let credential: CredentialRef = null;
+    if (entry.cloud) {
+      credential = { kind: "keyring", id: legacySecretId };
+      warnings.push(
+        `Cloud provider "${kind}" cannot recover keys from YAML; set its key via \`champ setup\`, export ${fallbackEnvVarForId(legacySecretId)}, or keep VS Code SecretStorage key "${legacySecretId}".`,
+      );
+    } else if (conf.apiKey) {
+      credential = { kind: "keyring", id: legacySecretId };
+      const unavailable = deps.credentials.unavailableReason?.();
+      if (unavailable) {
+        warnings.push(
+          `Endpoint "${kind}" has an inline apiKey in YAML, but OS keyring is unavailable (${unavailable}); export ${fallbackEnvVarForId(legacySecretId)} before running champ.`,
+        );
+      }
+    }
+
+    planned.push({
+      kind,
+      baseUrl: effectiveBaseUrl,
+      model: conf.model,
+      apiKey: conf.apiKey,
+      supportsTools: conf.supportsTools,
+      contextWindow: conf.contextWindow,
+      options: conf.options as Record<string, unknown> | undefined,
+      isDefault: parsed.provider === kind,
+      credential,
+    });
+  }
+
+  if (planned.length === 0) {
+    return { endpoints: 0, warnings, written: false };
+  }
+
+  if (deps.dryRun) {
+    return { endpoints: planned.length, warnings, written: false };
+  }
+
+  const createdEndpoints: Array<{ ep: Endpoint; plan: PlannedEndpoint }> = [];
+  for (const plan of planned) {
+    const ep = await deps.registry.add({
+      name: plan.kind,
+      provider: plan.kind,
+      baseUrl: plan.baseUrl,
+      isDefault: plan.isDefault,
+      supportsTools: plan.supportsTools,
+      contextWindow: plan.contextWindow,
+      options: plan.options,
+      credential: plan.credential,
+      models: plan.model ? [{ id: plan.model }] : [],
+    });
+    if (plan.apiKey && !deps.credentials.unavailableReason?.()) {
+      await deps.registry.setCredential(ep.id, plan.apiKey);
+    }
+    createdEndpoints.push({ ep, plan });
+  }
+
+  const defaultCreated =
+    createdEndpoints.find((c) => c.plan.isDefault) ?? createdEndpoints[0];
+  if (defaultCreated?.plan.model) {
+    await deps.registry.setAssignment(
+      "default",
+      defaultCreated.ep.id,
+      defaultCreated.plan.model,
+    );
+  }
+
+  const routing = parsed.routing;
+  if (routing) {
+    const tasks: Array<Exclude<TaskAssignment, "default">> = [
+      "coding",
+      "chat",
+      "completion",
+      "embedding",
+    ];
+    for (const task of tasks) {
+      const targetModel = routing[task];
+      if (!targetModel) continue;
+      const owner =
+        createdEndpoints.find((c) => c.plan.model === targetModel) ??
+        defaultCreated;
+      if (owner) {
+        await deps.registry.setAssignment(task, owner.ep.id, targetModel);
+      }
+    }
+  }
+
+  return {
+    endpoints: createdEndpoints.length,
+    warnings,
+    written: true,
+  };
+}
