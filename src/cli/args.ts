@@ -8,6 +8,7 @@
  * usage error, not a filesystem call.
  */
 import { isValidSessionId } from "../session/ids";
+import { isTaskAssignment } from "../config/provider-model";
 import type { ProviderCommand } from "./provider-commands";
 import { validateRepoOrRef, type UpdateCommandOptions } from "./update";
 
@@ -46,8 +47,10 @@ export interface CliFlags {
   endpoint?: string;
   /** Persist `champ model use` reference to `<workspace>/.champ/provider.json`. */
   workspace: boolean;
-  /** Preview `champ config migrate` without writing changes. */
+  /** Preview `champ config migrate` / `scrub-secrets` without writing changes. */
   dryRun: boolean;
+  /** Send a 1-token inference request during `champ provider test` (`--inference`). */
+  inference: boolean;
   /** Check for a newer CLI version without installing (`champ update --check`). */
   check: boolean;
   /** Reinstall even when already at the latest version (`champ update --force`). */
@@ -94,10 +97,11 @@ Usage:
   echo "<t>" | champ      Same as above (piped stdin)
   champ --sessions        List stored sessions for the workspace
   champ setup             Guided interactive provider setup
-  champ provider <cmd>    Manage endpoints: list | add | edit <id> | remove <id> | test <id> | discover <id>
+  champ provider <cmd>    Manage endpoints: list | add | edit <id> | remove <id> | test <id> [--inference] | discover <id>
   champ models [refresh]  List or refresh discovered models
   champ model use <id/m>  Select default or workspace model
-  champ config <cmd>      show | migrate [--dry-run]
+  champ model assign <t> <id/m>  Assign model to task: default | coding | chat | completion | embedding
+  champ config <cmd>      show | migrate [--dry-run] | scrub-secrets [--dry-run] | routing <auto|manual>
   champ update            Update the champ CLI installation from upstream git
 
 Options:
@@ -118,7 +122,8 @@ Options:
       --no-skills         Ignore workspace/user skill directories
       --endpoint <id>     Filter \`models\` / \`models refresh\` by endpoint
       --workspace         Write \`model use\` selection to workspace .champ/provider.json
-      --dry-run           Preview \`config migrate\` or \`update\` without writing changes
+      --dry-run           Preview \`config migrate\`, \`config scrub-secrets\`, or \`update\` without writing
+      --inference         Send a minimal inference request during \`champ provider test\`
       --check             Check if a newer CLI update is available without installing
       --force             Reinstall CLI even when already on the latest commit
       --ref <ref>         Branch or tag to install during \`champ update\`
@@ -177,6 +182,7 @@ export function parseCliArgs(
     noSkills: false,
     workspace: false,
     dryRun: false,
+    inference: false,
     check: false,
     force: false,
     cwd: env.cwd ?? process.cwd(),
@@ -231,6 +237,10 @@ export function parseCliArgs(
     }
     if (arg === "--dry-run") {
       flags.dryRun = true;
+      continue;
+    }
+    if (arg === "--inference") {
+      flags.inference = true;
       continue;
     }
     if (arg === "--check") {
@@ -454,9 +464,23 @@ function parseProviderCommand(
             command: { name: "provider-add" },
             cwd: flags.cwd,
           };
+        case "test": {
+          const id = positionals[2];
+          if (!id) {
+            return error(`missing endpoint id for "provider ${sub}"`);
+          }
+          return {
+            kind: "provider-command",
+            command: {
+              name: "provider-test",
+              id,
+              inference: flags.inference || undefined,
+            },
+            cwd: flags.cwd,
+          };
+        }
         case "edit":
         case "remove":
-        case "test":
         case "discover": {
           const id = positionals[2];
           if (!id) {
@@ -465,7 +489,6 @@ function parseProviderCommand(
           const name = `provider-${sub}` as
             | "provider-edit"
             | "provider-remove"
-            | "provider-test"
             | "provider-discover";
           return {
             kind: "provider-command",
@@ -514,6 +537,27 @@ function parseProviderCommand(
           cwd: flags.cwd,
         };
       }
+      if (sub === "assign") {
+        const task = positionals[2];
+        const target = positionals[3];
+        if (!task || !isTaskAssignment(task)) {
+          return error(
+            'expected task name for "model assign": default, coding, chat, completion, or embedding',
+          );
+        }
+        if (!target) {
+          return error('missing <endpoint-id>/<model> for "model assign"');
+        }
+        return {
+          kind: "provider-command",
+          command: {
+            name: "model-assign",
+            task,
+            endpointAndModel: target,
+          },
+          cwd: flags.cwd,
+        };
+      }
       return error(`unknown model subcommand "${sub ?? ""}"`);
     }
 
@@ -533,6 +577,27 @@ function parseProviderCommand(
             name: "config-migrate",
             dryRun: flags.dryRun || undefined,
           },
+          cwd: flags.cwd,
+        };
+      }
+      if (sub === "scrub-secrets") {
+        return {
+          kind: "provider-command",
+          command: {
+            name: "config-scrub-secrets",
+            dryRun: flags.dryRun || undefined,
+          },
+          cwd: flags.cwd,
+        };
+      }
+      if (sub === "routing") {
+        const mode = positionals[2];
+        if (mode !== "auto" && mode !== "manual") {
+          return error('expected "auto" or "manual" for "config routing"');
+        }
+        return {
+          kind: "provider-command",
+          command: { name: "config-routing", mode },
           cwd: flags.cwd,
         };
       }

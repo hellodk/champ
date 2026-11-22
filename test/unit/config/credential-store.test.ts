@@ -5,6 +5,8 @@ import * as path from "path";
 import {
   ChainCredentialStore,
   EnvCredentialStore,
+  OsKeyringBackend,
+  SharedCredentialStore,
   VsCodeSecretCredentialStore,
   type KeyringBackend,
   type SecretStorageLike,
@@ -157,5 +159,114 @@ describe("CredentialStore", () => {
     const jsonText = fs.readFileSync(repo.path(), "utf8");
     expect(jsonText).not.toContain(secret);
     expect(await store.get(ref)).toBe(secret);
+  });
+
+  it("SharedCredentialStore reads CLI keyring secrets and falls back to VS Code SecretStorage", async () => {
+    const keyring = makeMockBackend(true);
+    const backing = new Map<string, string>([
+      ["champ.claude.apiKey", "legacy-vscode-secret"],
+    ]);
+    const secretStorage: SecretStorageLike = {
+      get: async (key) => backing.get(key),
+      store: async (key, val) => {
+        backing.set(key, val);
+      },
+      delete: async (key) => {
+        backing.delete(key);
+      },
+    };
+    const shared = new SharedCredentialStore(secretStorage, {
+      keyring,
+      env: {},
+    });
+
+    // CLI writes ep_cli01 to OS keyring; VS Code SharedCredentialStore sees it.
+    const cli = new ChainCredentialStore({ keyring, env: {} });
+    await cli.set({ kind: "keyring", id: "ep_cli01" }, "cli-shared-token");
+    expect(await shared.get({ kind: "keyring", id: "ep_cli01" })).toBe(
+      "cli-shared-token",
+    );
+
+    // VS Code writes ep_ext02 via SharedCredentialStore; CLI reads it.
+    const status = await shared.setWithStatus(
+      { kind: "keyring", id: "ep_ext02" },
+      "ext-shared-token",
+    );
+    expect(status).toEqual({ persisted: true, storage: "keyring" });
+    expect(await cli.get({ kind: "keyring", id: "ep_ext02" })).toBe(
+      "ext-shared-token",
+    );
+
+    // Legacy VS Code SecretStorage key still readable as fallback.
+    expect(
+      await shared.get({ kind: "keyring", id: "champ.claude.apiKey" }),
+    ).toBe("legacy-vscode-secret");
+
+    await shared.delete({ kind: "keyring", id: "champ.claude.apiKey" });
+    expect(backing.has("champ.claude.apiKey")).toBe(false);
+  });
+
+  it("OsKeyringBackend supports win32 Credential Manager via PowerShell stdin without exposing secrets in argv", async () => {
+    const calls: Array<{
+      command: string;
+      args: string[];
+      stdinText?: string;
+      extraEnv?: Record<string, string | undefined>;
+    }> = [];
+    const store = new Map<string, string>();
+    const backend = new OsKeyringBackend({
+      platform: "win32",
+      env: {},
+      commandExists: (cmd) => cmd === "powershell.exe",
+      runCommand: async (command, args, stdinText, extraEnv) => {
+        calls.push({ command, args, stdinText, extraEnv });
+        const target = extraEnv?.CHAMP_CRED_TARGET ?? "";
+        if (stdinText !== undefined) {
+          store.set(target, stdinText);
+          return { code: 0, stdout: "", stderr: "" };
+        }
+        const script = args[args.length - 1] ?? "";
+        if (script.includes("[ChampWinCred]::Read(")) {
+          const val = store.get(target);
+          return val !== undefined
+            ? {
+                code: 0,
+                stdout: Buffer.from(val, "utf8").toString("base64"),
+                stderr: "",
+              }
+            : { code: 0, stdout: "", stderr: "" };
+        }
+        if (script.includes("[ChampWinCred]::Delete(")) {
+          store.delete(target);
+          return { code: 0, stdout: "", stderr: "" };
+        }
+        return { code: 1, stdout: "", stderr: "unexpected script" };
+      },
+    });
+
+    expect(backend.isAvailable()).toBe(true);
+    expect(backend.unavailableReason()).toBeUndefined();
+
+    await backend.set("ep_win01", "win-secret-token");
+    expect(calls[0].args.join(" ")).not.toContain("win-secret-token");
+    expect(calls[0].stdinText).toBe("win-secret-token");
+    expect(await backend.get("ep_win01")).toBe("win-secret-token");
+
+    await backend.delete("ep_win01");
+    expect(await backend.get("ep_win01")).toBeUndefined();
+  });
+
+  it("ChainCredentialStore.setWithStatus reports non-persistent env storage when keyring is unavailable", async () => {
+    const backend = makeMockBackend(false);
+    const env: Record<string, string | undefined> = {};
+    const store = new ChainCredentialStore({ keyring: backend, env });
+    const status = await store.setWithStatus(
+      { kind: "keyring", id: "ep_headless" },
+      "temp-secret",
+    );
+    expect(status.persisted).toBe(false);
+    expect(status.storage).toBe("env");
+    expect(status.envVar).toBe("CHAMP_SECRET_EP_HEADLESS");
+    expect(status.reason).toContain("unavailable");
   });
 });

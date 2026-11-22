@@ -41,10 +41,18 @@ import { ContextResolver } from "./agent/context-resolver";
 import { buildProbeUrl } from "./utils/probe-url";
 import { resilientFetch } from "./providers/http-resilience";
 import { runWizard } from "./config/setup-wizard";
-import { VsCodeSecretCredentialStore } from "./config/credential-store";
+import { SharedCredentialStore } from "./config/credential-store";
 import { EndpointRegistry } from "./config/endpoint-registry";
 import { discoverModels, testEndpoint } from "./config/model-discovery";
-import { legacySecretIdForProvider } from "./config/provider-catalog";
+import {
+  ModelSelectionService,
+  readWorkspaceProviderRef,
+} from "./config/model-selection";
+import {
+  catalogEntry,
+  legacySecretIdForProvider,
+  PROVIDER_CATALOG,
+} from "./config/provider-catalog";
 import type { ProviderKind } from "./config/provider-model";
 import { EndpointRepository } from "./config/provider-repository";
 import {
@@ -259,13 +267,16 @@ export async function activate(
   teamRunner = new TeamRunner();
   const factory = new ProviderFactory();
   const endpointRepository = new EndpointRepository();
-  const endpointCredentials = new VsCodeSecretCredentialStore(context.secrets);
+  const endpointCredentials = new SharedCredentialStore(context.secrets);
   const endpointRegistry = new EndpointRegistry({
     repository: endpointRepository,
     credentials: endpointCredentials,
     discovery: { discoverModels, testEndpoint },
     now: () => new Date().toISOString(),
   });
+  const modelSelection = new ModelSelectionService(endpointRepository, (msg) =>
+    console.warn(msg),
+  );
 
   // ---- Tool registry --------------------------------------------------
   const toolRegistry = new ToolRegistry();
@@ -1623,104 +1634,75 @@ export async function activate(
       );
     }),
     // Guided provider setup wizard (#118). Collects provider → endpoint →
-    // (401? API key) → live model discovery and merges the result into the
-    // effective YAML config, then hot-reloads the provider.
+    // (401? API key) → live model discovery via the shared EndpointRegistry
+    // and model-discovery pipeline, storing endpoint-specific credentials.
     vscode.commands.registerCommand("champ.configureProvider", async () => {
-      const wizardProviders: {
-        id: import("./config/config-loader").ProviderName;
-        cloud: boolean;
-      }[] = [
-        { id: "claude", cloud: true },
-        { id: "openai", cloud: true },
-        { id: "gemini", cloud: true },
-        { id: "ollama", cloud: false },
-        { id: "llamacpp", cloud: false },
-        { id: "vllm", cloud: false },
-        { id: "openai-compatible", cloud: false },
-      ];
+      const wizardProviders = PROVIDER_CATALOG.map((entry) => ({
+        id: entry.kind,
+        cloud: entry.cloud,
+      }));
 
-      const SECRET_KEY: Record<string, string> = {
-        claude: "champ.claude.apiKey",
-        openai: "champ.openai.apiKey",
-        gemini: "champ.gemini.apiKey",
-        vllm: "champ.vllm.apiKey",
-        "openai-compatible": "champ.openaiCompatible.apiKey",
-      };
+      let capturedApiKey: string | undefined;
+      let existingSecretIdForKind: string | undefined;
 
-      const DEFAULT_BASE_URL: Record<string, string> = {
-        claude: "https://api.anthropic.com/v1",
-        openai: "https://api.openai.com/v1",
-        gemini: "https://generativelanguage.googleapis.com/v1beta",
-        ollama: "http://localhost:11434",
-        llamacpp: "http://localhost:8080/v1",
-        vllm: "http://localhost:8000/v1",
-      };
-
-      const listModels = async (
+      const resolveWizardSecret = async (
         providerId: string,
-        baseUrl: string,
-      ): Promise<string[]> => {
-        try {
-          if (providerId === "ollama") {
-            const res = await resilientFetch(
-              `${baseUrl.replace(/\/+$/, "")}/api/tags`,
-              {},
-              { timeoutMs: 8000, maxRetries: 0 },
-            );
-            if (!res.ok) return [];
-            const data = (await res.json()) as {
-              models?: Array<{ model?: string; name?: string }>;
-            };
-            return (data.models ?? [])
-              .map((m) => m.model ?? m.name ?? "")
-              .filter(Boolean);
-          }
-          const res = await resilientFetch(
-            buildProbeUrl(baseUrl, providerId),
-            {},
-            { timeoutMs: 8000, maxRetries: 0 },
+      ): Promise<string | undefined> => {
+        if (capturedApiKey) return capturedApiKey;
+        const kind = providerId as ProviderKind;
+        const legacyId = legacySecretIdForProvider(kind);
+        const existingEndpoints = await endpointRegistry.list().catch(() => []);
+        const existingMatch = existingEndpoints.find(
+          (ep) => ep.provider === kind,
+        );
+        if (existingMatch?.credential) {
+          const fromEndpoint = await endpointCredentials.get(
+            existingMatch.credential,
           );
-          if (!res.ok) return [];
-          const data = (await res.json()) as {
-            data?: Array<{ id: string }>;
-          };
-          return (data.data ?? []).map((m) => m.id).filter(Boolean);
-        } catch {
-          return [];
+          if (fromEndpoint) return fromEndpoint;
         }
+        return endpointCredentials.get({ kind: "keyring", id: legacyId });
       };
 
       const outcome = await runWizard({
         providers: wizardProviders,
         pickProvider: async (options) => {
           const picked = await vscode.window.showQuickPick(
-            options.map((p) => ({
-              label: p.id,
-              description: p.cloud ? "cloud API" : "self-hosted",
-            })),
+            options.map((p) => {
+              const entry = catalogEntry(p.id as ProviderKind);
+              return {
+                label: entry.kind,
+                description: entry.label,
+              };
+            }),
             { placeHolder: "Choose a provider to configure" },
           );
           return picked?.label;
         },
         inputBaseUrl: async (providerId) => {
+          const entry = catalogEntry(providerId as ProviderKind);
           const value = await vscode.window.showInputBox({
-            prompt: `Base URL for ${providerId}`,
-            value: DEFAULT_BASE_URL[providerId] ?? "",
+            prompt: `Base URL for ${entry.label}`,
+            value: entry.defaultBaseUrl ?? "",
             ignoreFocusOut: true,
           });
-          return value?.trim() || undefined;
+          return value?.trim() || entry.defaultBaseUrl;
         },
         probeEndpoint: async (providerId, baseUrl) => {
-          if (CLOUD_PROVIDERS.has(providerId)) {
-            // Deterministic decision: cloud without a stored key behaves as
-            // 401 so the wizard captures the key; cloud with a key is "ready".
-            const hasKey = await context.secrets.get(SECRET_KEY[providerId]);
-            return hasKey ? { status: 200 } : { status: 401 };
+          const kind = providerId as ProviderKind;
+          const entry = catalogEntry(kind);
+          if (entry.cloud) {
+            const secret = await resolveWizardSecret(providerId);
+            return secret ? { status: 200 } : { status: 401 };
           }
+          const secret = await resolveWizardSecret(providerId);
+          const headers: Record<string, string> = secret
+            ? { Authorization: `Bearer ${secret}` }
+            : {};
           try {
             const res = await resilientFetch(
               buildProbeUrl(baseUrl, providerId),
-              {},
+              { method: "GET", headers },
               { timeoutMs: 6000, maxRetries: 1 },
             );
             return { status: res.status };
@@ -1729,19 +1711,40 @@ export async function activate(
           }
         },
         hasStoredApiKey: async (providerId) =>
-          Boolean(await context.secrets.get(SECRET_KEY[providerId] ?? "")),
+          Boolean(await resolveWizardSecret(providerId)),
         promptForApiKey: async (providerId) => {
           const key = await vscode.window.showInputBox({
-            prompt: `${providerId} requires an API key. Paste it now (stored in VS Code's secure secret store):`,
+            prompt: `${providerId} requires an API key. Paste it now (stored securely in OS keyring / VS Code SecretStorage):`,
             password: true,
             ignoreFocusOut: true,
           });
           return key?.trim() || undefined;
         },
         storeKey: async (providerId, apiKey) => {
-          await context.secrets.store(SECRET_KEY[providerId], apiKey);
+          capturedApiKey = apiKey;
+          existingSecretIdForKind = legacySecretIdForProvider(
+            providerId as ProviderKind,
+          );
         },
-        fetchModels: listModels,
+        fetchModels: async (providerId, baseUrl) => {
+          const kind = providerId as ProviderKind;
+          const secret = await resolveWizardSecret(providerId);
+          const discovered = await discoverModels(
+            {
+              id: "ep_probe",
+              name: providerId,
+              provider: kind,
+              baseUrl,
+              credential: null,
+              enabled: true,
+              isDefault: false,
+              models: [],
+            },
+            secret,
+            { fetch, now: () => new Date().toISOString() },
+          );
+          return discovered.map((m) => m.id);
+        },
         pickModel: async (models) => {
           const picked = await vscode.window.showQuickPick(models, {
             placeHolder: "Choose a model",
@@ -1754,7 +1757,17 @@ export async function activate(
       if (outcome.status === "cancelled") return;
 
       const kind = outcome.providerId as ProviderKind;
-      const secretId = legacySecretIdForProvider(kind);
+      const entry = catalogEntry(kind);
+      let chosenModel = outcome.model;
+      if (!chosenModel) {
+        const enteredModel = await vscode.window.showInputBox({
+          prompt: `Model ID for ${entry.label}`,
+          value: entry.defaultModel ?? "",
+          ignoreFocusOut: true,
+        });
+        chosenModel = enteredModel?.trim() || entry.defaultModel;
+      }
+
       const existing = await endpointRegistry.list().catch(() => []);
       const match = existing.find(
         (ep) =>
@@ -1767,13 +1780,28 @@ export async function activate(
           baseUrl: outcome.baseUrl,
           enabled: true,
           isDefault: true,
-          credential: { kind: "keyring", id: secretId },
+          ...(match.credential === null && !capturedApiKey
+            ? {}
+            : capturedApiKey
+              ? { credential: { kind: "keyring", id: match.id } }
+              : {}),
         });
-        if (outcome.model) {
+        if (capturedApiKey) {
+          await endpointRegistry.setCredential(match.id, capturedApiKey);
+        } else if (match.credential === null && existingSecretIdForKind) {
+          const legacyKey = await endpointCredentials.get({
+            kind: "keyring",
+            id: existingSecretIdForKind,
+          });
+          if (legacyKey) {
+            await endpointRegistry.setCredential(match.id, legacyKey);
+          }
+        }
+        if (chosenModel) {
           await endpointRegistry.setAssignment(
             "default",
             match.id,
-            outcome.model,
+            chosenModel,
           );
         }
       } else {
@@ -1793,14 +1821,24 @@ export async function activate(
           baseUrl: outcome.baseUrl,
           enabled: true,
           isDefault: true,
-          credential: { kind: "keyring", id: secretId },
-          models: outcome.model ? [{ id: outcome.model }] : [],
+          models: chosenModel ? [{ id: chosenModel }] : [],
         });
-        if (outcome.model) {
+        if (capturedApiKey) {
+          await endpointRegistry.setCredential(created.id, capturedApiKey);
+        } else if (entry.auth === "required") {
+          const legacyKey = await endpointCredentials.get({
+            kind: "keyring",
+            id: legacySecretIdForProvider(kind),
+          });
+          if (legacyKey) {
+            await endpointRegistry.setCredential(created.id, legacyKey);
+          }
+        }
+        if (chosenModel) {
           await endpointRegistry.setAssignment(
             "default",
             created.id,
-            outcome.model,
+            chosenModel,
           );
         }
       }
@@ -3459,25 +3497,25 @@ export async function activate(
           sess.controller.setGlobalMemoryBank(globalMemoryBank);
         }
       });
-      const resolvedEndpoint = await endpointRegistry
-        .resolveAssignment("default")
-        .catch((err) => {
-          console.warn(
-            "Champ: failed to read endpoint registry; falling back to config.yaml:",
-            err,
-          );
-          return null;
-        });
-      const registryEndpoints = await endpointRegistry
-        .list()
-        .catch(() => [] as import("./config/provider-model").Endpoint[]);
+      const registryDoc = await endpointRegistry
+        .readDocument()
+        .catch(() => null);
+      const resolvedSelection = registryDoc
+        ? modelSelection.resolveFromDocument(registryDoc, {
+            task: "default",
+            workspaceDir: workspaceRoot,
+            routingRules: yamlConfig?.routing?.rules,
+          })
+        : null;
+      const registryEndpoints = registryDoc?.endpoints ?? [];
 
-      const rawProvider = resolvedEndpoint
-        ? await factory.createFromEndpoint(resolvedEndpoint.endpoint, {
+      const rawProvider = resolvedSelection
+        ? await factory.createFromEndpoint(resolvedSelection.endpoint, {
             model:
-              resolvedEndpoint.model ||
-              yamlConfig?.providers?.[resolvedEndpoint.endpoint.provider]
+              resolvedSelection.model ||
+              yamlConfig?.providers?.[resolvedSelection.endpoint.provider]
                 ?.model ||
+              catalogEntry(resolvedSelection.endpoint.provider).defaultModel ||
               "default",
             secretProvider: {
               get: (key) =>
@@ -3571,7 +3609,7 @@ export async function activate(
             providerName as keyof typeof yamlConfig.providers
           ];
         const baseUrl =
-          resolvedEndpoint?.endpoint.baseUrl ??
+          resolvedSelection?.endpoint.baseUrl ??
           (providerConfig as any)?.baseUrl;
         if (!baseUrl) return;
 
@@ -3582,9 +3620,9 @@ export async function activate(
         const url = buildProbeUrl(baseUrl, providerName);
         const headers: Record<string, string> = {};
         const probeKey =
-          (resolvedEndpoint?.endpoint.credential
+          (resolvedSelection?.endpoint.credential
             ? await endpointCredentials.get(
-                resolvedEndpoint.endpoint.credential,
+                resolvedSelection.endpoint.credential,
               )
             : undefined) ?? (providerConfig as any)?.apiKey;
         if (probeKey) {
@@ -3652,7 +3690,14 @@ export async function activate(
       inlineProvider.setProvider(newProvider);
       inlineProviderRef.current = newProvider;
       lastProviderError = null; // Clear cached error on successful load
-      // If YAML configures a separate autocomplete provider or model, wire it.
+      // If YAML or EndpointRegistry configures a separate completion model, wire it.
+      const completionSelection = registryDoc
+        ? modelSelection.resolveFromDocument(registryDoc, {
+            task: "completion",
+            workspaceDir: workspaceRoot,
+            routingRules: yamlConfig?.routing?.rules,
+          })
+        : null;
       if (
         yamlConfig?.autocomplete?.provider &&
         yamlConfig.autocomplete.provider !== newProvider.name
@@ -3683,6 +3728,26 @@ export async function activate(
           yamlConfig.autocomplete.model,
         );
         if (acProvider) inlineProvider.setProvider(acProvider);
+      } else if (
+        completionSelection &&
+        (completionSelection.endpoint.id !== resolvedSelection?.endpoint.id ||
+          completionSelection.model !== newProvider.config.model)
+      ) {
+        try {
+          const acProvider = await factory.createFromEndpoint(
+            completionSelection.endpoint,
+            {
+              model: completionSelection.model,
+              secretProvider: {
+                get: (key) =>
+                  endpointCredentials.get({ kind: "keyring", id: key }),
+              },
+            },
+          );
+          inlineProvider.setProvider(acProvider);
+        } catch {
+          // Autocomplete endpoint unavailable — keep main provider.
+        }
       } else if (!yamlConfig) {
         // No YAML config: apply the VS Code setting champ.autocomplete.model
         // (default: "qwen2.5-coder:1.5b"). This was defined in package.json
@@ -3721,7 +3786,7 @@ export async function activate(
           newProvider.name,
           newProvider,
           newProvider.name,
-          resolvedEndpoint?.endpoint.baseUrl ??
+          resolvedSelection?.endpoint.baseUrl ??
             yamlConfig?.providers?.[
               newProvider.name as keyof typeof yamlConfig.providers
             ]?.baseUrl ??
@@ -3731,13 +3796,16 @@ export async function activate(
           if (
             !ep.enabled ||
             !ep.baseUrl ||
-            ep.id === resolvedEndpoint?.endpoint.id
+            ep.id === resolvedSelection?.endpoint.id
           ) {
             continue;
           }
           try {
             const epProvider = await factory.createFromEndpoint(ep, {
-              model: ep.models[0]?.id ?? "default",
+              model:
+                ep.models[0]?.id ||
+                catalogEntry(ep.provider).defaultModel ||
+                "default",
               secretProvider: {
                 get: (key) =>
                   endpointCredentials.get({ kind: "keyring", id: key }),
@@ -3777,10 +3845,42 @@ export async function activate(
             }
           }
         }
-        // Apply routing config from YAML before first discovery.
-        // Lock SmartRouter to the active YAML provider so it never silently
-        // swaps to a different provider. Set routing.mode: smart to unlock.
-        smartRouter.setActiveProvider(yamlConfig?.provider ?? null);
+        // Apply routing mode & task overrides from shared registry + YAML.
+        const activeWsRef = workspaceRoot
+          ? readWorkspaceProviderRef(workspaceRoot)
+          : null;
+        if (activeWsRef?.endpoint) {
+          smartRouter.setMode("manual");
+          smartRouter.setActiveProvider(
+            resolvedSelection?.endpoint.provider ?? null,
+          );
+        } else if (registryDoc?.routingMode === "manual") {
+          smartRouter.setMode("manual");
+          smartRouter.setActiveProvider(
+            resolvedSelection?.endpoint.provider ??
+              yamlConfig?.provider ??
+              null,
+          );
+        } else {
+          smartRouter.setActiveProvider(
+            registryDoc?.endpoints.length
+              ? null
+              : (yamlConfig?.provider ?? null),
+          );
+        }
+        if (registryDoc?.assignments) {
+          for (const taskKey of [
+            "coding",
+            "chat",
+            "completion",
+            "embedding",
+          ] as const) {
+            const assign = registryDoc.assignments[taskKey];
+            if (assign?.model) {
+              smartRouter.setTaskModel(taskKey, assign.model);
+            }
+          }
+        }
         if (yamlConfig?.routing) {
           // routing.mode: smart unlocks full cross-provider routing.
           if (yamlConfig.routing.mode === "smart")

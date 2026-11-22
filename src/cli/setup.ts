@@ -3,10 +3,22 @@
  * `src/config/setup-wizard.ts` and persisting via `EndpointRegistry`.
  */
 import * as readline from "readline";
+import {
+  fallbackEnvVarForId,
+  type CredentialWriteStatus,
+} from "../config/credential-store";
 import type { EndpointRegistry } from "../config/endpoint-registry";
 import { discoverModels } from "../config/model-discovery";
-import { catalogEntry, PROVIDER_CATALOG } from "../config/provider-catalog";
-import type { DiscoveredModel, ProviderKind } from "../config/provider-model";
+import {
+  catalogEntry,
+  legacySecretIdForProvider,
+  PROVIDER_CATALOG,
+} from "../config/provider-catalog";
+import type {
+  CredentialRef,
+  DiscoveredModel,
+  ProviderKind,
+} from "../config/provider-model";
 import { runWizard } from "../config/setup-wizard";
 import { resilientFetch } from "../providers/http-resilience";
 import { buildProbeUrl } from "../utils/probe-url";
@@ -154,16 +166,52 @@ export async function runSetup(deps: RunSetupDeps): Promise<RunSetupResult> {
     existing.length === 0,
   );
 
+  const keyringUnavailable = deps.registry.credentialsUnavailableReason?.();
+  let explicitCredential: CredentialRef | undefined;
+  let useEnvReference = false;
+
+  if (keyringUnavailable && (capturedKey || entry.auth === "required")) {
+    const suggestedEnvVar = fallbackEnvVarForId(
+      legacySecretIdForProvider(kind),
+    );
+    const preferEnv = await deps.prompts.confirm(
+      `OS keyring unavailable (${keyringUnavailable}). Store an explicit environment variable reference (${suggestedEnvVar}) instead?`,
+      true,
+    );
+    if (preferEnv) {
+      const enteredEnv = await deps.prompts.input(
+        "Environment variable name",
+        suggestedEnvVar,
+      );
+      const envName = (enteredEnv ?? "").trim() || suggestedEnvVar;
+      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName)) {
+        explicitCredential = { kind: "env", name: envName };
+        useEnvReference = true;
+      } else {
+        deps.writeLine(
+          `Warning: invalid environment variable name "${envName}"; falling back to process-only env.`,
+        );
+      }
+    }
+  }
+
   const savedEndpoint = await deps.registry.add({
     name: endpointName.trim(),
     provider: kind,
     baseUrl: userLeftBlankClaudeUrl ? undefined : outcome.baseUrl,
     isDefault: makeDefault,
+    ...(explicitCredential !== undefined
+      ? { credential: explicitCredential }
+      : {}),
     models: lastDiscovered.length > 0 ? lastDiscovered : [{ id: chosenModel }],
   });
 
+  let credStatus: CredentialWriteStatus | undefined;
   if (capturedKey) {
-    await deps.registry.setCredential(savedEndpoint.id, capturedKey);
+    credStatus = await deps.registry.setCredential(
+      savedEndpoint.id,
+      capturedKey,
+    );
   }
 
   if (savedEndpoint.isDefault) {
@@ -173,6 +221,22 @@ export async function runSetup(deps: RunSetupDeps): Promise<RunSetupResult> {
   deps.writeLine(
     `Saved endpoint ${savedEndpoint.id} (${savedEndpoint.name}: ${savedEndpoint.provider} -> ${savedEndpoint.baseUrl ?? "default"}, model ${chosenModel})`,
   );
+
+  if (useEnvReference && explicitCredential?.kind === "env") {
+    deps.writeLine(
+      `Credential configured as env reference ${explicitCredential.name} (NOT written to disk — add \`export ${explicitCredential.name}=...\` to your shell profile).`,
+    );
+  } else if (credStatus) {
+    if (credStatus.persisted) {
+      deps.writeLine(
+        `Credential persisted in ${credStatus.storage} (ref: ${savedEndpoint.id}).`,
+      );
+    } else {
+      deps.writeLine(
+        `Warning: credential was NOT persisted (${credStatus.reason ?? "OS keyring unavailable"}); active for this process only. Export ${credStatus.envVar ?? "the API key"} in your shell before next run.`,
+      );
+    }
+  }
 
   return { saved: true, endpointId: savedEndpoint.id };
 }

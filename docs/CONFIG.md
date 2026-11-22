@@ -40,11 +40,11 @@ providers:
   ollama:
     baseUrl: http://localhost:11434
     model: qwen3:8b
-    contextWindow: 16384          # optional cap (#119)
-    supportsTools: true             # opt-in native tool_calls for OpenAI-spec servers
+    contextWindow: 16384 # optional cap (#119)
+    supportsTools: true # opt-in native tool_calls for OpenAI-spec servers
     structuredOutput: false
     cachePrompt: true
-    options:                        # decode overrides (#120)
+    options: # decode overrides (#120)
       temperature: 0.2
       topP: 0.9
       topK: 40
@@ -63,16 +63,16 @@ autocomplete:
 
 agent:
   yoloMode: false
-  defaultMode: agent                # agent | ask | manual | plan | composer
+  defaultMode: agent # agent | ask | manual | plan | composer
   autoFix:
     enabled: true
     maxIterations: 3
   promptGuard:
-    enabled: true                   # screen inbound/outbound text for injection
+    enabled: true # screen inbound/outbound text for injection
 
 indexing:
   enabled: true
-  embeddingProvider: ollama         # ollama | openai | vllm | openai-compatible
+  embeddingProvider: ollama # ollama | openai | vllm | openai-compatible
   embeddingModel: nomic-embed-text
   ignore:
     - "node_modules/**"
@@ -80,7 +80,7 @@ indexing:
     - ".git/**"
 
 routing:
-  mode: smart                       # smart | manual
+  mode: smart # smart | manual
   coding: qwen3:8b
   chat: llama3.1:8b
   completion: qwen2.5-coder:1.5b
@@ -97,13 +97,13 @@ rateLimit:
 telemetry:
   enabled: false
   endpoint: http://localhost:4318/v1/traces
-  format: otlp                      # otlp | json
+  format: otlp # otlp | json
   flushIntervalMs: 5000
 
 triggers:
   - name: "security scan on TS save"
     glob: "src/**/*.ts"
-    on: save                        # save | change
+    on: save # save | change
     run: security-auditor
     debounceMs: 3000
 
@@ -136,7 +136,7 @@ ssh:
       host: build-host.internal
       port: 22
       username: deploy
-      authMethod: key               # key | password | agent
+      authMethod: key # key | password | agent
       keyPath: ~/.ssh/id_ed25519
       # password: ${env:SSH_PASS}   # only when authMethod: password
 ```
@@ -158,9 +158,13 @@ Import existing YAML endpoints and routing assignments into `~/.champ/providers.
 ```bash
 champ config migrate --dry-run
 champ config migrate
+champ config scrub-secrets --dry-run   # preview removing migrated inline apiKey entries
+champ config scrub-secrets             # remove only verified keyring-backed inline apiKey entries
+champ model assign coding <id>/<model> # assign coding | chat | completion | embedding | default
+champ config routing auto              # auto | manual
 ```
 
-Migration preserves URLs, models, `supportsTools`, `contextWindow`, `options`, and routing tasks without modifying `~/.champ/config.yaml`, moves self-hosted inline keys to the keyring (or warns naming the env var when headless), and never writes keys to JSON. Inspect config with `champ config show` (secrets redacted to `<keyring:...>` / `<env:...>`) or VS Code `Champ: Show Effective Config`.
+Migration preserves URLs, models, `supportsTools`, `contextWindow`, `options`, and routing tasks without modifying `~/.champ/config.yaml`, moves self-hosted inline keys to the keyring (or offers explicit `{ kind: "env", name }` references when headless), and never writes keys to JSON. Run `champ config scrub-secrets` explicitly to delete inline `apiKey` fields from `config.yaml` once migrated. Inspect config with `champ config show` (secrets redacted to `<keyring:...>` / `<env:...>`) or VS Code `Champ: Show Effective Config`.
 
 ---
 
@@ -174,24 +178,24 @@ Migration preserves URLs, models, `supportsTools`, `contextWindow`, `options`, a
 
 ### Recommended Open Models
 
-| Tier | Model | Disk (Q4_K_M) | VRAM / RAM | Best For |
-|---|---|---|---|---|
-| Autocomplete | `qwen2.5-coder:1.5b` | ~1 GB | 2 GB | Inline ghost text (`autocomplete.model` only) |
-| Embedding | `nomic-embed-text` / `mxbai-embed-large` | <1 GB | 1–2 GB | `@Codebase` vector search |
-| General 8B | `qwen3:8b` | ~5 GB | 8 GB | Daily coding, native Ollama tools, good Mermaid |
-| Code 7B–14B | `Qwen2.5-Coder-7B` / `14B-Instruct` | 4.5–8 GB | 8–16 GB | File editing, refactoring, tests |
-| Generalist | `Llama-3.1-8B-Instruct` | ~5 GB | 8 GB+ | Multi-step planning & Q&A |
-| Vision | `gemma4:4b` / `gemma4:27b` | 3–16 GB | 4–24 GB+ | Screenshot analysis & structured docs |
-| MoE / Large | `DeepSeek-Coder-V2-Lite` / `Qwen2.5-Coder-32B` | 10–18 GB | 12–24 GB+ | Deep multi-file refactors |
+| Tier         | Model                                          | Disk (Q4_K_M) | VRAM / RAM | Best For                                        |
+| ------------ | ---------------------------------------------- | ------------- | ---------- | ----------------------------------------------- |
+| Autocomplete | `qwen2.5-coder:1.5b`                           | ~1 GB         | 2 GB       | Inline ghost text (`autocomplete.model` only)   |
+| Embedding    | `nomic-embed-text` / `mxbai-embed-large`       | <1 GB         | 1–2 GB     | `@Codebase` vector search                       |
+| General 8B   | `qwen3:8b`                                     | ~5 GB         | 8 GB       | Daily coding, native Ollama tools, good Mermaid |
+| Code 7B–14B  | `Qwen2.5-Coder-7B` / `14B-Instruct`            | 4.5–8 GB      | 8–16 GB    | File editing, refactoring, tests                |
+| Generalist   | `Llama-3.1-8B-Instruct`                        | ~5 GB         | 8 GB+      | Multi-step planning & Q&A                       |
+| Vision       | `gemma4:4b` / `gemma4:27b`                     | 3–16 GB       | 4–24 GB+   | Screenshot analysis & structured docs           |
+| MoE / Large  | `DeepSeek-Coder-V2-Lite` / `Qwen2.5-Coder-32B` | 10–18 GB      | 12–24 GB+  | Deep multi-file refactors                       |
 
 ### Capability by Task Size
 
-| Task | Min Size | Notes |
-|---|---|---|
-| Simple Q&A / file summary | 3B+ | Fast responses |
-| Single-function edits / tests | 7B+ | Fewer hallucinations |
-| Architecture docs / Mermaid | 8B (`qwen3:8b`) / 27B | 3B breaks Mermaid syntax |
-| Multi-file refactoring / debugging | 14B+ or Cloud API | Needs larger context & chain-of-thought |
+| Task                               | Min Size              | Notes                                   |
+| ---------------------------------- | --------------------- | --------------------------------------- |
+| Simple Q&A / file summary          | 3B+                   | Fast responses                          |
+| Single-function edits / tests      | 7B+                   | Fewer hallucinations                    |
+| Architecture docs / Mermaid        | 8B (`qwen3:8b`) / 27B | 3B breaks Mermaid syntax                |
+| Multi-file refactoring / debugging | 14B+ or Cloud API     | Needs larger context & chain-of-thought |
 
 ### Tool-calling smoke test
 

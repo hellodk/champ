@@ -7,12 +7,16 @@
  * the runtime LLM provider container in `src/providers/registry.ts`.
  */
 import { randomUUID } from "crypto";
-import type { CredentialStore } from "./credential-store";
+import type {
+  CredentialStore,
+  CredentialWriteStatus,
+} from "./credential-store";
 import type {
   discoverModels,
   DiscoveryDeps,
   EndpointTestResult,
   testEndpoint,
+  TestEndpointOptions,
 } from "./model-discovery";
 import { catalogEntry } from "./provider-catalog";
 import {
@@ -273,7 +277,14 @@ export class EndpointRegistry {
     this.emitChange();
   }
 
-  async setCredential(id: string, secret: string): Promise<void> {
+  credentialsUnavailableReason(): string | undefined {
+    return this.deps.credentials.unavailableReason?.();
+  }
+
+  async setCredential(
+    id: string,
+    secret: string,
+  ): Promise<CredentialWriteStatus> {
     const ref = await this.deps.repository.withLock(async () => {
       const doc = await this.deps.repository.read();
       const ep = findEndpointOrThrow(doc, id);
@@ -284,7 +295,38 @@ export class EndpointRegistry {
       return ep.credential;
     });
 
-    await this.deps.credentials.set(ref, secret);
+    let status: CredentialWriteStatus;
+    if (this.deps.credentials.setWithStatus) {
+      status = await this.deps.credentials.setWithStatus(ref, secret);
+    } else {
+      await this.deps.credentials.set(ref, secret);
+      const reason = this.deps.credentials.unavailableReason?.();
+      status = {
+        persisted: !reason,
+        storage: reason ? "env" : "keyring",
+        ...(reason ? { reason } : {}),
+      };
+    }
+    this.emitChange();
+    return status;
+  }
+
+  async setCredentialRef(id: string, credential: CredentialRef): Promise<void> {
+    await this.deps.repository.withLock(async () => {
+      const doc = await this.deps.repository.read();
+      const ep = findEndpointOrThrow(doc, id);
+      ep.credential = credential;
+      await this.deps.repository.write(doc);
+    });
+    this.emitChange();
+  }
+
+  async setRoutingMode(mode: "auto" | "manual"): Promise<void> {
+    await this.deps.repository.withLock(async () => {
+      const doc = await this.deps.repository.read();
+      doc.routingMode = mode;
+      await this.deps.repository.write(doc);
+    });
     this.emitChange();
   }
 
@@ -416,10 +458,18 @@ export class EndpointRegistry {
     return models;
   }
 
-  async test(id: string): Promise<EndpointTestResult> {
+  async test(
+    id: string,
+    opts?: TestEndpointOptions,
+  ): Promise<EndpointTestResult> {
     const doc = await this.deps.repository.read();
     const ep = findEndpointOrThrow(doc, id);
     const secret = await this.deps.credentials.get(ep.credential);
-    return this.deps.discovery.testEndpoint(ep, secret, this.discoveryDeps());
+    return this.deps.discovery.testEndpoint(
+      ep,
+      secret,
+      this.discoveryDeps(),
+      opts,
+    );
   }
 }

@@ -13,6 +13,7 @@ import { LlamaCppProvider } from "./llamacpp";
 import { VLLMProvider } from "./vllm";
 import { OpenAICompatibleProvider } from "./openai-compatible";
 import type { ChampConfig, ProviderConfig } from "../config/config-loader";
+import { catalogEntry } from "../config/provider-catalog";
 import type { Endpoint } from "../config/provider-model";
 
 /**
@@ -136,7 +137,7 @@ export class ProviderFactory {
   ): Promise<LLMProvider> {
     const entry: ProviderConfig = {
       baseUrl: endpoint.baseUrl,
-      model: opts.model,
+      model: resolveEndpointModel(endpoint, opts.model),
       supportsTools: endpoint.supportsTools,
       contextWindow: opts.contextWindow ?? endpoint.contextWindow,
       options: endpoint.options as ProviderConfig["options"],
@@ -174,4 +175,16 @@ export class ProviderFactory {
       ...extras,
     };
   }
+}
+
+function resolveEndpointModel(
+  endpoint: Endpoint,
+  requestedModel: string,
+): string | undefined {
+  const trimmed = requestedModel.trim();
+  const entry = catalogEntry(endpoint.provider);
+  if (!trimmed || (entry.cloud && trimmed === "default")) {
+    return endpoint.models[0]?.id || entry.defaultModel;
+  }
+  return trimmed;
 }

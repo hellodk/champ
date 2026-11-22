@@ -393,6 +393,26 @@ describe("cli arg parser — setup and provider commands", () => {
       kind: "provider-command",
       command: { name: "config-migrate", dryRun: true },
     });
+    expect(parse(["config", "scrub-secrets", "--dry-run"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "config-scrub-secrets", dryRun: true },
+    });
+    expect(parse(["config", "routing", "manual"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "config-routing", mode: "manual" },
+    });
+    expect(parse(["model", "assign", "coding", "ep_1/qwen"])).toMatchObject({
+      kind: "provider-command",
+      command: {
+        name: "model-assign",
+        task: "coding",
+        endpointAndModel: "ep_1/qwen",
+      },
+    });
+    expect(parse(["provider", "test", "ep_1", "--inference"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "provider-test", id: "ep_1", inference: true },
+    });
     expect(parse(["update"])).toMatchObject({
       kind: "update",
       options: { check: false, force: false },
@@ -476,6 +496,7 @@ describe("cli entry — no vscode on the CLI path (issue #136)", () => {
       "src/config/provider-catalog.ts",
       "src/config/provider-migration.ts",
       "src/config/model-discovery.ts",
+      "src/config/model-selection.ts",
       "src/config/endpoint-registry.ts",
       "src/tools/headless/index.ts",
       "src/tools/headless/fs-tools.ts",

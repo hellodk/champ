@@ -25,8 +25,17 @@ export interface DiscoveryDeps {
 
 export interface EndpointTestResult {
   ok: boolean;
+  mode?: "connectivity+auth" | "inference";
+  statusCode?: number;
+  modelsCount?: number;
+  detail?: string;
   latencyMs?: number;
   error?: string;
+}
+
+export interface TestEndpointOptions {
+  inference?: boolean;
+  model?: string;
 }
 
 function buildAuthHeaders(
@@ -36,8 +45,13 @@ function buildAuthHeaders(
   if (!secret) return {};
   if (endpoint.provider === "claude") {
     return {
-      Authorization: `Bearer ${secret}`,
       "x-api-key": secret,
+      "anthropic-version": "2023-06-01",
+    };
+  }
+  if (endpoint.provider === "gemini") {
+    return {
+      "x-goog-api-key": secret,
     };
   }
   return { Authorization: `Bearer ${secret}` };
@@ -187,23 +201,98 @@ export async function testEndpoint(
   endpoint: Endpoint,
   secret: string | undefined,
   deps: DiscoveryDeps,
+  opts?: TestEndpointOptions,
 ): Promise<EndpointTestResult> {
   const entry = catalogEntry(endpoint.provider);
-  if (entry.discovery === "none" && !endpoint.baseUrl) {
-    return secret
-      ? { ok: true, latencyMs: 0 }
-      : { ok: false, error: `No API key configured for ${endpoint.name}` };
+  const mode: EndpointTestResult["mode"] = opts?.inference
+    ? "inference"
+    : "connectivity+auth";
+
+  if (entry.auth === "required" && !secret) {
+    return {
+      ok: false,
+      mode,
+      error: `No API key configured for ${endpoint.name}`,
+    };
   }
 
   const baseUrl = endpoint.baseUrl ?? entry.defaultBaseUrl;
   if (!baseUrl) {
-    return { ok: false, error: `No baseUrl configured for ${endpoint.name}` };
+    return {
+      ok: false,
+      mode,
+      error: `No baseUrl configured for ${endpoint.name}`,
+    };
   }
 
-  const url = buildProbeUrl(baseUrl, endpoint.provider);
   const requestTimeoutMs = deps.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const deadlineMs = deps.testDeadlineMs ?? DEFAULT_TEST_DEADLINE_MS;
   const startedAt = Date.now();
+
+  if (opts?.inference) {
+    const model =
+      opts.model?.trim() || endpoint.models[0]?.id || entry.defaultModel || "";
+    if (!model) {
+      return {
+        ok: false,
+        mode,
+        error: `No model configured for ${endpoint.name} inference smoke test`,
+      };
+    }
+    const { url, headers, body } = buildInferenceProbeRequest(
+      endpoint,
+      baseUrl,
+      model,
+      secret,
+    );
+    return runWithDeadline<EndpointTestResult>(
+      deadlineMs,
+      async (signal) => {
+        try {
+          const res = await resilientFetch(
+            url,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json", ...headers },
+              body: JSON.stringify(body),
+            },
+            { signal, timeoutMs: requestTimeoutMs, maxRetries: 0 },
+            deps.fetch,
+          );
+          const latencyMs = Date.now() - startedAt;
+          if (!res.ok) {
+            return {
+              ok: false,
+              mode,
+              statusCode: res.status,
+              latencyMs,
+              error: `HTTP ${res.status}`,
+            };
+          }
+          return {
+            ok: true,
+            mode,
+            statusCode: res.status,
+            latencyMs,
+            detail: `inference ok (${model})`,
+          };
+        } catch (err) {
+          return {
+            ok: false,
+            mode,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      },
+      () => ({
+        ok: false,
+        mode,
+        error: `Timed out after ${deadlineMs}ms`,
+      }),
+    );
+  }
+
+  const url = buildProbeUrl(baseUrl, endpoint.provider);
 
   return runWithDeadline<EndpointTestResult>(
     deadlineMs,
@@ -219,23 +308,109 @@ export async function testEndpoint(
         if (!res.ok) {
           return {
             ok: false,
+            mode,
+            statusCode: res.status,
             latencyMs,
             error: `HTTP ${res.status}`,
           };
         }
-        return { ok: true, latencyMs };
+        let modelsCount: number | undefined;
+        try {
+          const payload = (await res.json()) as Record<string, unknown>;
+          if (Array.isArray(payload.models))
+            modelsCount = payload.models.length;
+          else if (Array.isArray(payload.data))
+            modelsCount = payload.data.length;
+        } catch {
+          // Non-JSON or empty body still counts as reachable HTTP 2xx.
+        }
+        return {
+          ok: true,
+          mode,
+          statusCode: res.status,
+          latencyMs,
+          ...(modelsCount !== undefined ? { modelsCount } : {}),
+          detail:
+            modelsCount !== undefined
+              ? `${modelsCount} model(s) listed (use --inference to test generation)`
+              : "reachable (use --inference to test generation)",
+        };
       } catch (err) {
         return {
           ok: false,
+          mode,
           error: err instanceof Error ? err.message : String(err),
         };
       }
     },
     () => ({
       ok: false,
+      mode,
       error: `Timed out after ${deadlineMs}ms`,
     }),
   );
+}
+
+function buildInferenceProbeRequest(
+  endpoint: Endpoint,
+  baseUrl: string,
+  model: string,
+  secret: string | undefined,
+): {
+  url: string;
+  headers: Record<string, string>;
+  body: Record<string, unknown>;
+} {
+  const headers = buildAuthHeaders(endpoint, secret);
+  const trimmed = baseUrl.replace(/\/+$/, "");
+
+  if (endpoint.provider === "claude") {
+    const base = trimmed.replace(/\/v1$/, "");
+    return {
+      url: `${base}/v1/messages`,
+      headers,
+      body: {
+        model,
+        max_tokens: 1,
+        messages: [{ role: "user", content: "ping" }],
+      },
+    };
+  }
+  if (endpoint.provider === "gemini") {
+    const base = /\/v1beta$/i.test(trimmed) ? trimmed : `${trimmed}/v1beta`;
+    return {
+      url: `${base}/models/${encodeURIComponent(model)}:generateContent`,
+      headers,
+      body: {
+        contents: [{ parts: [{ text: "ping" }] }],
+        generationConfig: { maxOutputTokens: 1 },
+      },
+    };
+  }
+  if (endpoint.provider === "ollama") {
+    const base = trimmed.replace(/\/v1$/, "");
+    return {
+      url: `${base}/api/generate`,
+      headers,
+      body: {
+        model,
+        prompt: "ping",
+        stream: false,
+        options: { num_predict: 1 },
+      },
+    };
+  }
+  const base = trimmed.replace(/\/v1$/, "");
+  return {
+    url: `${base}/v1/chat/completions`,
+    headers,
+    body: {
+      model,
+      max_tokens: 1,
+      stream: false,
+      messages: [{ role: "user", content: "ping" }],
+    },
+  };
 }
 
 /**

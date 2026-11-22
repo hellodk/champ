@@ -376,4 +376,61 @@ describe("EndpointRegistry + ModelDiscovery", () => {
     const reloaded = await repository.read();
     expect(reloaded.endpoints.map((e) => e.name)).toEqual(["Ollama", "vLLM"]);
   });
+
+  it("testEndpoint executes a real authenticated probe for Claude/Gemini and supports inference mode", async () => {
+    const calls: Array<{
+      url: string;
+      method?: string;
+      headers?: HeadersInit;
+    }> = [];
+    const fetchStub = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({
+          url: String(input),
+          method: init?.method,
+          headers: init?.headers,
+        });
+        return new Response(
+          JSON.stringify({ data: [{ id: "claude-sonnet-4-20250514" }] }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    ) as typeof fetch;
+
+    const claudeEp = {
+      id: "ep_claude",
+      name: "Claude",
+      provider: "claude" as const,
+      credential: { kind: "keyring" as const, id: "ep_claude" },
+      enabled: true,
+      isDefault: true,
+      models: [{ id: "claude-sonnet-4-20250514" }],
+    };
+
+    const probeRes = await testEndpoint(claudeEp, "sk-ant-real", {
+      fetch: fetchStub,
+      now: () => "2026-11-22T05:00:00.000Z",
+    });
+    expect(probeRes.ok).toBe(true);
+    expect(probeRes.mode).toBe("connectivity+auth");
+    expect(calls[0].url).toBe("https://api.anthropic.com/v1/models");
+    expect(calls[0].headers).toMatchObject({
+      "x-api-key": "sk-ant-real",
+      "anthropic-version": "2023-06-01",
+    });
+
+    const infRes = await testEndpoint(
+      claudeEp,
+      "sk-ant-real",
+      {
+        fetch: fetchStub,
+        now: () => "2026-11-22T05:00:00.000Z",
+      },
+      { inference: true },
+    );
+    expect(infRes.ok).toBe(true);
+    expect(infRes.mode).toBe("inference");
+    expect(calls[1].url).toBe("https://api.anthropic.com/v1/messages");
+    expect(calls[1].method).toBe("POST");
+  });
 });

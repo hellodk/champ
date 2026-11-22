@@ -363,4 +363,40 @@ describe("runUpdateCommand", () => {
       eacces.cleanup();
     }
   });
+
+  it("preserves a custom rootless install prefix inferred from packageRoot", async () => {
+    const h = makeHarness({
+      installedVersion: "2.0.2",
+      installedCommit: "1111111",
+      remoteVersion: "2.0.3",
+      remoteSha: "4444444abcdef",
+    });
+    const prefixRoot = path.join(h.root, ".local");
+    const installedPkgRoot = path.join(
+      prefixRoot,
+      "lib",
+      "node_modules",
+      "champ",
+    );
+    fs.mkdirSync(installedPkgRoot, { recursive: true });
+    fs.copyFileSync(
+      path.join(h.pkgRoot, "package.json"),
+      path.join(installedPkgRoot, "package.json"),
+    );
+
+    try {
+      const code = await runUpdateCommand(
+        { check: false, force: false },
+        { ...h.deps, packageRoot: installedPkgRoot },
+      );
+      expect(code).toBe(0);
+      const installCall = h.calls.find(
+        (c) => c.file === "npm" && c.args.includes("--global"),
+      );
+      expect(installCall?.args).toContain("--prefix");
+      expect(installCall?.args).toContain(prefixRoot);
+    } finally {
+      h.cleanup();
+    }
+  });
 });

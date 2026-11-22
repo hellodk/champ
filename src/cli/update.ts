@@ -180,6 +180,13 @@ function defaultExec(
   });
 }
 
+function inferInstallPrefix(packageRoot: string): string | undefined {
+  const match = /^(.*)[/\\]lib[/\\]node_modules[/\\]champ[/\\]?$/.exec(
+    path.resolve(packageRoot),
+  );
+  return match?.[1] || undefined;
+}
+
 /** Check prerequisites and update (or report status for) the global CLI install. */
 export async function runUpdateCommand(
   options: UpdateCommandOptions,
@@ -372,6 +379,7 @@ export async function runUpdateCommand(
     }
     const tarballPath = path.join(workDir, tgzName);
 
+    const resolvedPrefix = options.prefix ?? inferInstallPrefix(packageRoot);
     const installArgs = [
       "install",
       "--global",
@@ -379,7 +387,7 @@ export async function runUpdateCommand(
       "--ignore-scripts",
       "--no-audit",
       "--no-fund",
-      ...(options.prefix ? ["--prefix", options.prefix] : []),
+      ...(resolvedPrefix ? ["--prefix", resolvedPrefix] : []),
       tarballPath,
     ];
     stderr(`[champ] installing ${tgzName}...\n`);

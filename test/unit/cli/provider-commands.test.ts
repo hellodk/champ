@@ -208,4 +208,52 @@ describe("cli provider commands", () => {
     expect(JSON.stringify(parsed)).not.toContain("sk-workspace-must-not-see");
     expect(JSON.stringify(parsed)).not.toContain("localhost");
   });
+
+  it("model assign and config routing update tasks and routingMode", async () => {
+    const { deps, registry, out } = createCmdHarness();
+    const ep = await registry.add({
+      name: "Work vLLM",
+      provider: "vllm",
+      baseUrl: "http://localhost:8000/v1",
+    });
+
+    const assignCode = await runProviderCommand(
+      {
+        name: "model-assign",
+        task: "coding",
+        endpointAndModel: `${ep.id}/qwen2.5-coder`,
+      },
+      deps,
+    );
+    expect(assignCode).toBe(0);
+    expect((await registry.resolveAssignment("coding"))?.model).toBe(
+      "qwen2.5-coder",
+    );
+
+    const routingCode = await runProviderCommand(
+      { name: "config-routing", mode: "manual" },
+      deps,
+    );
+    expect(routingCode).toBe(0);
+    expect((await registry.readDocument()).routingMode).toBe("manual");
+    expect(out.join("")).toContain('Routing mode set to "manual"');
+  });
+
+  it("provider test supports --inference mode", async () => {
+    const { deps, registry, out } = createCmdHarness();
+    const ep = await registry.add({
+      name: "Inference EP",
+      provider: "vllm",
+      baseUrl: "http://localhost:8000/v1",
+      models: [{ id: "qwen2.5-coder" }],
+    });
+
+    const code = await runProviderCommand(
+      { name: "provider-test", id: ep.id, inference: true },
+      deps,
+    );
+    expect(code).toBe(0);
+    expect(out.join("")).toContain("[inference]");
+    expect(out.join("")).toContain("inference ok (qwen2.5-coder)");
+  });
 });

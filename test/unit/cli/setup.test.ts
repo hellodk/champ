@@ -302,4 +302,68 @@ describe("cli setup (champ setup)", () => {
     expect(list.find((e) => e.name === "First")?.isDefault).toBe(true);
     expect(list.find((e) => e.name === "Second")?.isDefault).toBe(false);
   });
+
+  it("offers explicit env-var reference and reports persistence accurately when OS keyring is unavailable", async () => {
+    const home = fs.mkdtempSync(
+      path.join(os.tmpdir(), "champ-setup-headless-"),
+    );
+    dirs.push(home);
+    const repository = new EndpointRepository({ homeDir: home });
+    const unavailableKeyring: KeyringBackend = {
+      isAvailable: () => false,
+      unavailableReason: () =>
+        "Linux D-Bus session is unavailable; use an explicit environment-variable reference instead",
+      get: async () => undefined,
+      set: async () => {
+        throw new Error("no keyring");
+      },
+      delete: async () => {},
+    };
+    const env: Record<string, string | undefined> = {};
+    const credentials = new ChainCredentialStore({
+      keyring: unavailableKeyring,
+      env,
+    });
+    const fetchStub = vi.fn(
+      async () => new Response("{}", { status: 401 }),
+    ) as typeof fetch;
+    const registry = new EndpointRegistry({
+      repository,
+      credentials,
+      discovery: { discoverModels, testEndpoint },
+      now: () => "2026-11-22T05:00:00.000Z",
+      fetch: fetchStub,
+    });
+    const lines: string[] = [];
+
+    const result = await runSetup({
+      registry,
+      writeLine: (line) => lines.push(line),
+      probeFetch: fetchStub,
+      prompts: {
+        choose: async () => "claude",
+        input: vi
+          .fn()
+          .mockResolvedValueOnce("https://api.anthropic.com/v1")
+          .mockResolvedValueOnce("claude-sonnet-4-20250514")
+          .mockResolvedValueOnce("Headless Claude")
+          .mockResolvedValueOnce("MY_CLAUDE_KEY"),
+        secret: async () => "sk-ant-headless-temp",
+        confirm: vi
+          .fn()
+          .mockResolvedValueOnce(true)
+          .mockResolvedValueOnce(true),
+        pickModel: async () => undefined,
+      },
+    });
+
+    expect(result.saved).toBe(true);
+    const endpoints = await registry.list();
+    expect(endpoints[0].credential).toEqual({
+      kind: "env",
+      name: "MY_CLAUDE_KEY",
+    });
+    expect(lines.join("\n")).toContain("NOT written to disk");
+    expect(lines.join("\n")).toContain("MY_CLAUDE_KEY");
+  });
 });

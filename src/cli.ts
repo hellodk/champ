@@ -48,13 +48,14 @@ import { runUpdateCommand } from "./cli/update";
 import { ChainCredentialStore } from "./config/credential-store";
 import { EndpointRegistry } from "./config/endpoint-registry";
 import { discoverModels, testEndpoint } from "./config/model-discovery";
-import { migrateFromYaml } from "./config/provider-migration";
-import type {
-  Endpoint,
-  TaskAssignment,
-  WorkspaceProviderRef,
-} from "./config/provider-model";
+import { migrateFromYaml, scrubYamlSecrets } from "./config/provider-migration";
+import {
+  ModelSelectionService,
+  type SelectionTask,
+} from "./config/model-selection";
+import type { Endpoint, TaskAssignment } from "./config/provider-model";
 import { EndpointRepository } from "./config/provider-repository";
+import { SmartRouter } from "./providers/smart-router";
 import type { RulesEngine } from "./rules/rules-engine";
 import type { SkillRegistry } from "./skills/skill-registry";
 import type { ToolRegistry } from "./tools/registry";
@@ -173,51 +174,20 @@ function buildConfig(flags: CliFlags): ChampConfig {
   return config;
 }
 
-function readWorkspaceProviderRef(
-  workspace: string,
-): WorkspaceProviderRef | null {
-  const refPath = path.join(workspace, ".champ", "provider.json");
-  if (!fs.existsSync(refPath)) return null;
-  try {
-    const raw = JSON.parse(fs.readFileSync(refPath, "utf8")) as unknown;
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-    const obj = raw as Record<string, unknown>;
-    if ("apiKey" in obj) {
-      process.stderr.write(
-        "[champ] ignoring embedded apiKey in .champ/provider.json (workspace refs cannot contain secrets)\n",
-      );
-    }
-    const ref: WorkspaceProviderRef = {};
-    if (typeof obj.endpoint === "string" && obj.endpoint.trim()) {
-      ref.endpoint = obj.endpoint.trim();
-    }
-    if (typeof obj.model === "string" && obj.model.trim()) {
-      ref.model = obj.model.trim();
-    }
-    if (
-      obj.taskModels &&
-      typeof obj.taskModels === "object" &&
-      !Array.isArray(obj.taskModels)
-    ) {
-      ref.taskModels = obj.taskModels as WorkspaceProviderRef["taskModels"];
-    }
-    return ref;
-  } catch (err) {
-    process.stderr.write(
-      `[champ] ignoring invalid .champ/provider.json: ${err instanceof Error ? err.message : String(err)}\n`,
-    );
-    return null;
-  }
-}
-
 async function resolveProviderFromRegistry(
   flags: CliFlags,
   workspace: string,
-  taskKind: TaskAssignment,
+  taskKind: SelectionTask,
+  config: ChampConfig,
 ): Promise<{
   endpoint: Endpoint;
   model: string;
   credentials: ChainCredentialStore;
+  routingMode: "auto" | "manual";
+  assignments: Partial<
+    Record<TaskAssignment, { endpointId: string; model: string }>
+  >;
+  endpoints: Endpoint[];
 } | null> {
   const repository = new EndpointRepository();
   if (!fs.existsSync(repository.path())) {
@@ -242,39 +212,28 @@ async function resolveProviderFromRegistry(
     return null;
   }
 
-  const wsRef = readWorkspaceProviderRef(workspace);
-  if (wsRef?.endpoint) {
-    const match = doc.endpoints.find(
-      (ep) =>
-        ep.id === wsRef.endpoint ||
-        ep.name.toLowerCase() === wsRef.endpoint!.toLowerCase(),
-    );
-    if (!match || !match.enabled) {
-      process.stderr.write(
-        `[champ] workspace provider.json references missing or disabled endpoint "${wsRef.endpoint}" — falling back to user registry\n`,
-      );
-    } else {
-      const fallbackResolved = await registry.resolveAssignment(taskKind);
-      const model =
-        flags.model ??
-        wsRef.taskModels?.[taskKind] ??
-        wsRef.model ??
-        (fallbackResolved?.endpoint.id === match.id
-          ? fallbackResolved.model
-          : undefined) ??
-        match.models[0]?.id ??
-        "default";
-      return { endpoint: match, model, credentials };
-    }
-  }
-
-  const assigned = await registry.resolveAssignment(taskKind);
-  if (!assigned) {
+  const selector = new ModelSelectionService(repository, (msg) =>
+    process.stderr.write(`${msg}\n`),
+  );
+  const selected = selector.resolveFromDocument(doc, {
+    task: taskKind,
+    workspaceDir: workspace,
+    preferredModel: flags.model,
+    currentFile: flags.file,
+    routingRules: config.routing?.rules,
+  });
+  if (!selected) {
     return null;
   }
 
-  const model = flags.model ?? (assigned.model || "default");
-  return { endpoint: assigned.endpoint, model, credentials };
+  return {
+    endpoint: selected.endpoint,
+    model: selected.model,
+    credentials,
+    routingMode: doc.routingMode,
+    assignments: doc.assignments,
+    endpoints: doc.endpoints,
+  };
 }
 
 /** Print a fatal message and stop the process with the usage exit code. */
@@ -828,6 +787,22 @@ async function main(): Promise<number> {
           credentials,
           dryRun,
         }),
+      scrubSecrets: ({ dryRun }) =>
+        scrubYamlSecrets({
+          configText: readConfigText(),
+          registry,
+          credentials,
+          dryRun,
+          writeConfigText: (updatedText) => {
+            const target = configPath();
+            const tmp = `${target}.tmp-${process.pid}`;
+            fs.writeFileSync(tmp, updatedText, {
+              encoding: "utf8",
+              mode: 0o600,
+            });
+            fs.renameSync(tmp, target);
+          },
+        }),
     });
   }
 
@@ -850,6 +825,7 @@ async function main(): Promise<number> {
         flags,
         workspace,
         mode === "repl" ? "default" : "coding",
+        config,
       );
 
   let provider;
@@ -898,6 +874,72 @@ async function main(): Promise<number> {
   const toolRegistry = createHeadlessToolRegistry();
   const controller = new AgentController(provider, toolRegistry, workspace);
   controller.setMode(config.agent?.defaultMode ?? "agent");
+  if (
+    registryChoice &&
+    registryChoice.routingMode === "auto" &&
+    !flags.model &&
+    (registryChoice.assignments.coding || registryChoice.assignments.chat)
+  ) {
+    const cliRouter = new SmartRouter();
+    const factory = new ProviderFactory();
+    const secretProvider: SecretReader = {
+      get: async (key: string) =>
+        flags.apiKey ??
+        registryChoice.credentials.get({ kind: "keyring", id: key }),
+    };
+    cliRouter.registerProvider(
+      registryChoice.endpoint.name,
+      provider,
+      registryChoice.endpoint.provider,
+      registryChoice.endpoint.baseUrl,
+    );
+    const staticModels: import("./providers/smart-router").DiscoveredModel[] =
+      [];
+    for (const ep of registryChoice.endpoints) {
+      if (!ep.enabled) continue;
+      if (ep.id !== registryChoice.endpoint.id) {
+        try {
+          const epProv = await factory.createFromEndpoint(ep, {
+            model: ep.models[0]?.id ?? "",
+            secretProvider,
+          });
+          cliRouter.registerProvider(ep.name, epProv, ep.provider, ep.baseUrl);
+        } catch {
+          continue;
+        }
+      }
+      for (const m of ep.models) {
+        const caps = (m.capabilities ?? [
+          "coding",
+          "general",
+        ]) as import("./providers/smart-router").ModelCapability[];
+        staticModels.push({
+          id: m.id,
+          providerName: ep.name,
+          providerType: ep.provider,
+          capabilities: caps,
+          speed: "medium",
+          contextWindow: m.contextWindow ?? ep.contextWindow ?? 8192,
+          sizeHint: "",
+          quantizationLevel: "",
+          source: "discovered",
+        });
+      }
+    }
+    if (staticModels.length > 0) {
+      cliRouter.registerStaticModels(staticModels);
+      if (registryChoice.assignments.coding?.model) {
+        cliRouter.setTaskModel(
+          "coding",
+          registryChoice.assignments.coding.model,
+        );
+      }
+      if (registryChoice.assignments.chat?.model) {
+        cliRouter.setTaskModel("chat", registryChoice.assignments.chat.model);
+      }
+      controller.setSmartRouter(cliRouter);
+    }
+  }
   const rulesEngine = await loadCliRules({
     workspaceRoot: workspace,
     userRules: config.userRules,

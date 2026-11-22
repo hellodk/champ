@@ -11,6 +11,8 @@ export interface CatalogEntry {
   label: string;
   /** Generic loopback/public URL only — never a LAN address. */
   defaultBaseUrl?: string;
+  /** Sensible default model when discovery returns nothing (e.g. cloud APIs). */
+  defaultModel?: string;
   cloud: boolean;
   auth: "none" | "optional" | "required";
   discovery: "ollama-tags" | "openai-models" | "none";
@@ -23,6 +25,8 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
   {
     kind: "claude",
     label: "Anthropic Claude",
+    defaultBaseUrl: "https://api.anthropic.com/v1",
+    defaultModel: "claude-sonnet-4-20250514",
     cloud: true,
     auth: "required",
     discovery: "none",
@@ -34,6 +38,7 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     kind: "openai",
     label: "OpenAI",
     defaultBaseUrl: "https://api.openai.com/v1",
+    defaultModel: "gpt-4o",
     cloud: true,
     auth: "required",
     discovery: "openai-models",
@@ -45,6 +50,7 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     kind: "gemini",
     label: "Google Gemini",
     defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
+    defaultModel: "gemini-2.0-flash",
     cloud: true,
     auth: "required",
     discovery: "none",
@@ -56,6 +62,7 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     kind: "ollama",
     label: "Ollama",
     defaultBaseUrl: "http://localhost:11434",
+    defaultModel: "qwen3:8b",
     cloud: false,
     auth: "optional",
     discovery: "ollama-tags",
@@ -67,6 +74,7 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     kind: "llamacpp",
     label: "llama.cpp server",
     defaultBaseUrl: "http://localhost:8080/v1",
+    defaultModel: "default",
     cloud: false,
     auth: "optional",
     discovery: "openai-models",

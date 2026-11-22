@@ -21,19 +21,24 @@ import {
   type SetupPrompts,
 } from "./setup";
 
+import type { ScrubSecretsResult } from "../config/provider-migration";
+
 export type ProviderCommand =
   | { name: "setup" }
   | { name: "provider-list" }
   | { name: "provider-add" }
   | { name: "provider-edit"; id: string }
   | { name: "provider-remove"; id: string }
-  | { name: "provider-test"; id: string }
+  | { name: "provider-test"; id: string; inference?: boolean }
   | { name: "provider-discover"; id: string }
   | { name: "models"; id?: string }
   | { name: "models-refresh"; id?: string }
   | { name: "model-use"; endpointAndModel: string; workspace?: boolean }
+  | { name: "model-assign"; task: TaskAssignment; endpointAndModel: string }
   | { name: "config-show" }
-  | { name: "config-migrate"; dryRun?: boolean };
+  | { name: "config-migrate"; dryRun?: boolean }
+  | { name: "config-scrub-secrets"; dryRun?: boolean }
+  | { name: "config-routing"; mode: "auto" | "manual" };
 
 export interface CommandDeps {
   registry: EndpointRegistry;
@@ -47,6 +52,7 @@ export interface CommandDeps {
     warnings: string[];
     written: boolean;
   }>;
+  scrubSecrets?: (opts: { dryRun: boolean }) => Promise<ScrubSecretsResult>;
 }
 
 function redactCredentialRef(ref: CredentialRef): string {
@@ -164,18 +170,23 @@ export async function runProviderCommand(
       case "provider-test": {
         const endpoints = await deps.registry.list();
         const target = findEndpoint(endpoints, cmd.id);
-        const result = await deps.registry.test(target.id);
+        const result = await deps.registry.test(target.id, {
+          inference: cmd.inference,
+        });
+        const phase =
+          result.mode ?? (cmd.inference ? "inference" : "connectivity+auth");
         if (!result.ok) {
           const credHint = target.credential
             ? ` (credential: ${redactCredentialRef(target.credential)})`
             : "";
           deps.stderr(
-            `champ: test failed for ${target.id} (${target.name})${credHint}: ${result.error ?? "unreachable"}\n`,
+            `champ: test failed [${phase}] for ${target.id} (${target.name})${credHint}: ${result.error ?? "unreachable"}\n`,
           );
           return 1;
         }
+        const detail = result.detail ? ` — ${result.detail}` : "";
         deps.stdout(
-          `OK ${target.id} (${target.name}) latency=${result.latencyMs ?? 0}ms\n`,
+          `OK ${target.id} (${target.name}) [${phase}] latency=${result.latencyMs ?? 0}ms${detail}\n`,
         );
         return 0;
       }
@@ -259,6 +270,23 @@ export async function runProviderCommand(
         return 0;
       }
 
+      case "model-assign": {
+        const slash = cmd.endpointAndModel.indexOf("/");
+        if (slash <= 0 || slash === cmd.endpointAndModel.length - 1) {
+          deps.stderr(
+            "champ: expected <endpoint-id>/<model> (e.g. ep_1234/qwen2.5-coder)\n",
+          );
+          return 2;
+        }
+        const endpointId = cmd.endpointAndModel.slice(0, slash);
+        const model = cmd.endpointAndModel.slice(slash + 1);
+        const endpoints = await deps.registry.list();
+        const target = findEndpoint(endpoints, endpointId);
+        await deps.registry.setAssignment(cmd.task, target.id, model);
+        deps.stdout(`Task "${cmd.task}" assigned to ${target.id}/${model}\n`);
+        return 0;
+      }
+
       case "config-show": {
         const doc = await deps.registry.readDocument();
         const redacted = {
@@ -287,6 +315,34 @@ export async function runProviderCommand(
         }
         const action = result.written ? "Migrated" : "Would migrate";
         deps.stdout(`${action} ${result.endpoints} endpoint(s).\n`);
+        return 0;
+      }
+
+      case "config-scrub-secrets": {
+        if (!deps.scrubSecrets) {
+          deps.stderr(
+            "champ: secret scrub handler is not wired in this build.\n",
+          );
+          return 1;
+        }
+        const result = await deps.scrubSecrets({
+          dryRun: Boolean(cmd.dryRun),
+        });
+        for (const skipped of result.skippedKeys) {
+          deps.stderr(`Skipped: ${skipped}\n`);
+        }
+        if (result.scrubbedKeys.length === 0) {
+          deps.stdout("No migrated inline YAML secrets to scrub.\n");
+          return 0;
+        }
+        const verb = result.written ? "Scrubbed" : "Would scrub";
+        deps.stdout(`${verb}: ${result.scrubbedKeys.join(", ")}\n`);
+        return 0;
+      }
+
+      case "config-routing": {
+        await deps.registry.setRoutingMode(cmd.mode);
+        deps.stdout(`Routing mode set to "${cmd.mode}".\n`);
         return 0;
       }
     }

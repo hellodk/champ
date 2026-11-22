@@ -47,4 +47,5 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm run build:webview
       - run: pnpm run test:unit

@@ -115,4 +115,37 @@ describe("ProviderFactory.createFromEndpoint", () => {
     });
     expect(overridden.config.contextWindow).toBe(32768);
   });
+
+  it("never passes literal 'default' to cloud providers when endpoint models are empty", async () => {
+    const factory = new ProviderFactory();
+    const secretProvider: SecretReader = { get: async () => "sk-test" };
+
+    const claude = await factory.createFromEndpoint(
+      {
+        id: "ep_c",
+        name: "Claude",
+        provider: "claude",
+        credential: null,
+        enabled: true,
+        isDefault: true,
+        models: [],
+      },
+      { model: "default", secretProvider },
+    );
+    expect(claude.config.model).toBe("claude-sonnet-4-20250514");
+
+    const gemini = await factory.createFromEndpoint(
+      {
+        id: "ep_g",
+        name: "Gemini",
+        provider: "gemini",
+        credential: null,
+        enabled: true,
+        isDefault: false,
+        models: [],
+      },
+      { model: "", secretProvider },
+    );
+    expect(gemini.config.model).toBe("gemini-2.0-flash");
+  });
 });

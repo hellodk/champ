@@ -8,7 +8,7 @@ import {
 } from "@/config/credential-store";
 import { EndpointRegistry } from "@/config/endpoint-registry";
 import { discoverModels, testEndpoint } from "@/config/model-discovery";
-import { migrateFromYaml } from "@/config/provider-migration";
+import { migrateFromYaml, scrubYamlSecrets } from "@/config/provider-migration";
 import { EndpointRepository } from "@/config/provider-repository";
 
 function makeInMemoryKeyring(available = true): KeyringBackend & {
@@ -264,5 +264,51 @@ providers:
     expect(result.endpoints).toBe(0);
     expect(result.written).toBe(false);
     expect(result.warnings.length).toBeGreaterThan(0);
+  });
+
+  it("scrubYamlSecrets strips only verified migrated inline keys and preserves comments/config", async () => {
+    const { registry, credentials } = setup(true);
+    const yaml = `# User config header\nprovider: vllm\nproviders:\n  vllm:\n    baseUrl: http://localhost:8000/v1\n    model: local-coder\n    apiKey: sk-migrated-vllm\n  ollama:\n    baseUrl: http://localhost:11434\n    apiKey: sk-unmigrated-ollama\nagent:\n  defaultMode: agent\n`;
+
+    await migrateFromYaml({
+      configText: yaml,
+      registry,
+      credentials,
+      dryRun: false,
+    });
+
+    // Simulate ollama not existing in registry yet so it must be skipped!
+    const vllmOnly = (await registry.list()).find((e) => e.provider === "vllm");
+    expect(vllmOnly).toBeDefined();
+    const ollamaEp = (await registry.list()).find(
+      (e) => e.provider === "ollama",
+    );
+    if (ollamaEp) await registry.remove(ollamaEp.id);
+
+    const dry = await scrubYamlSecrets({
+      configText: yaml,
+      registry,
+      credentials,
+      dryRun: true,
+    });
+    expect(dry.scrubbedKeys).toEqual(["providers.vllm.apiKey"]);
+    expect(dry.skippedKeys.some((k) => k.includes("ollama"))).toBe(true);
+    expect(dry.written).toBe(false);
+
+    let persistedYaml = "";
+    const applied = await scrubYamlSecrets({
+      configText: yaml,
+      registry,
+      credentials,
+      dryRun: false,
+      writeConfigText: (txt) => {
+        persistedYaml = txt;
+      },
+    });
+    expect(applied.written).toBe(true);
+    expect(persistedYaml).toContain("# User config header");
+    expect(persistedYaml).toContain("model: local-coder");
+    expect(persistedYaml).not.toContain("sk-migrated-vllm");
+    expect(persistedYaml).toContain("sk-unmigrated-ollama");
   });
 });

@@ -18,18 +18,18 @@ Complete guide for the **Champ VS Code extension** and the **headless `champ` CL
 
 ## Installation
 
-### Champ CLI (Linux / macOS one-liner)
+### Champ CLI (Linux / macOS rootless one-liner)
 
-Requires `node >= 20`, `npm`, and `git` (safe to re-run to upgrade an existing install):
+Requires `node >= 20`, `npm`, and `git` (installs into `~/.local`, safe to re-run to upgrade):
 
 ```bash
-tmp=$(mktemp -d) && git clone --depth 1 https://github.com/hellodk/champ.git "$tmp/champ" && (cd "$tmp/champ" && npm install --ignore-scripts --no-audit --no-fund --no-package-lock && node esbuild.mjs --production && npm pack --ignore-scripts && npm install -g --force --ignore-scripts --no-audit --no-fund ./champ-*.tgz) && rm -rf "$tmp" && hash -r && champ --version
+tmp=$(mktemp -d) && git clone --depth 1 https://github.com/hellodk/champ.git "$tmp/champ" && (cd "$tmp/champ" && npm install --ignore-scripts --no-audit --no-fund --no-package-lock && node esbuild.mjs --production && npm pack --ignore-scripts && npm install -g --prefix "${CHAMP_PREFIX:-$HOME/.local}" --force --ignore-scripts --no-audit --no-fund ./champ-*.tgz) && rm -rf "$tmp" && export PATH="${CHAMP_PREFIX:-$HOME/.local}/bin:$PATH" && hash -r && champ --version
 ```
 
-If `champ` is not found after installing, add your user npm bin directory to `~/.bashrc` or `~/.zshrc`:
+Add `~/.local/bin` to `~/.bashrc` or `~/.zshrc` if not already on your `PATH`:
 
 ```bash
-export PATH="$(npm config get prefix)/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Updating an existing global install:
@@ -41,6 +41,7 @@ champ update --force --ref <branch/tag>  # force reinstall from a specific branc
 ```
 
 From an existing checkout:
+
 - **`npm link`** (after `node esbuild.mjs`) for local development.
 - **Tarball**: `node esbuild.mjs --production && npm pack --ignore-scripts && npm install -g --force ./champ-<version>.tgz`.
 - **No install**: `node dist/cli.js --cwd /path/to/project -y "List the files"`.
@@ -64,6 +65,7 @@ champ setup
 In VS Code, run **`Champ: Configure Provider`** (`Ctrl+Shift+P` / `Cmd+Shift+P`).
 
 Both store endpoints in `~/.champ/providers.json` (permissions `0600`) and keep secrets out of JSON:
+
 - **CLI secrets**: stored in OS keyring (`security` on macOS, `secret-tool` on Linux with D-Bus) with environment variable fallback (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OLLAMA_API_KEY`, `LLAMACPP_API_KEY`, `VLLM_API_KEY`, `OPENAI_COMPATIBLE_API_KEY`).
 - **VS Code secrets**: stored in encrypted `SecretStorage` using matching logical IDs (`champ.<provider>.apiKey`).
 
@@ -95,7 +97,8 @@ Open the **Champ** Activity Bar sidebar (chat toolbar with mode selector & New C
 ### Modes
 
 Switch modes from the dropdown or `Cmd/Ctrl + Shift + M`:
-- **Agent** *(default)*: autonomous multi-step tool loop with approval for writes/commands.
+
+- **Agent** _(default)_: autonomous multi-step tool loop with approval for writes/commands.
 - **Ask**: read-only Q&A (`read_file`, `list_directory`, `grep_search`, `file_search`, `codebase_search`).
 - **Manual**: prompts before every single action.
 - **Plan**: read-only research that produces a structured step-by-step plan.
@@ -149,6 +152,7 @@ description: Review API handler validation and error codes
 mode: ask
 allowedTools: [read_file, grep_search]
 ---
+
 Inspect `{{currentFile}}` ({{language}}). Focus on: {{userInput}}
 ```
 
@@ -161,9 +165,10 @@ CLI notes: editor-only variables (`{{selection}}`, `{{cursorLine}}`) resolve to 
 ```markdown
 ---
 name: ts-strict
-type: auto-attached   # always | auto-attached | agent-requested
+type: auto-attached # always | auto-attached | agent-requested
 glob: "src/**/*.ts"
 ---
+
 Prefer composition and early returns.
 ```
 
@@ -197,12 +202,12 @@ Configure stdio/SSE servers in `~/.champ/config.yaml` under `mcp.servers` (`name
 
 ## Keyboard Shortcuts
 
-| Action | Shortcut |
-|---|---|
-| Toggle Mode | `Cmd/Ctrl + Shift + M` |
-| Inline Edit | `Cmd/Ctrl + K Cmd/Ctrl + I` |
-| Send Chat Message | `Cmd/Ctrl + Enter` (in input) |
-| Accept / Dismiss Autocomplete | `Tab` / `Esc` |
+| Action                        | Shortcut                      |
+| ----------------------------- | ----------------------------- |
+| Toggle Mode                   | `Cmd/Ctrl + Shift + M`        |
+| Inline Edit                   | `Cmd/Ctrl + K Cmd/Ctrl + I`   |
+| Send Chat Message             | `Cmd/Ctrl + Enter` (in input) |
+| Accept / Dismiss Autocomplete | `Tab` / `Esc`                 |
 
 ---
 

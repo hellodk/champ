@@ -189,3 +189,176 @@ export async function migrateFromYaml(deps: {
     written: true,
   };
 }
+
+export interface ScrubSecretsResult {
+  scrubbedKeys: string[];
+  skippedKeys: string[];
+  updatedText: string | null;
+  written: boolean;
+}
+
+const ENV_PLACEHOLDER_RE = /^\$\{env:[A-Za-z_][A-Za-z0-9_]*\}$/;
+
+function stripProviderApiKeysFromYaml(
+  yamlText: string,
+  kindsToScrub: ReadonlySet<string>,
+): string {
+  const lines = yamlText.split(/\r?\n/);
+  const eol = yamlText.includes("\r\n") ? "\r\n" : "\n";
+  const out: string[] = [];
+
+  let inProviders = false;
+  let providersIndent = -1;
+  let currentKind: string | null = null;
+  let kindIndent = -1;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const isCommentOrEmpty = !trimmed || trimmed.startsWith("#");
+    const indent = line.length - line.trimStart().length;
+
+    if (!isCommentOrEmpty) {
+      if (indent === 0 && /^providers\s*:\s*(#.*)?$/.test(trimmed)) {
+        inProviders = true;
+        providersIndent = 0;
+        currentKind = null;
+        kindIndent = -1;
+      } else if (inProviders && indent <= providersIndent) {
+        inProviders = false;
+        currentKind = null;
+        kindIndent = -1;
+      } else if (inProviders) {
+        const keyMatch = /^([a-z0-9-]+)\s*:\s*(#.*)?$/i.exec(trimmed);
+        if (keyMatch && (currentKind === null || indent <= kindIndent)) {
+          currentKind = keyMatch[1];
+          kindIndent = indent;
+        } else if (
+          currentKind &&
+          kindsToScrub.has(currentKind) &&
+          indent > kindIndent &&
+          /^apiKey\s*:/.test(trimmed)
+        ) {
+          continue;
+        }
+      }
+    }
+
+    out.push(line);
+  }
+
+  return out.join(eol);
+}
+
+export async function scrubYamlSecrets(deps: {
+  configText: string | null;
+  registry: EndpointRegistry;
+  credentials: CredentialStore;
+  dryRun: boolean;
+  writeConfigText?: (text: string) => void;
+}): Promise<ScrubSecretsResult> {
+  if (!deps.configText || !deps.configText.trim()) {
+    return {
+      scrubbedKeys: [],
+      skippedKeys: [],
+      updatedText: null,
+      written: false,
+    };
+  }
+
+  let parsed: ChampConfig;
+  try {
+    parsed = ConfigLoader.parseYaml(deps.configText);
+  } catch {
+    return {
+      scrubbedKeys: [],
+      skippedKeys: [],
+      updatedText: null,
+      written: false,
+    };
+  }
+
+  const endpoints = await deps.registry.list();
+  const providerEntries = parsed.providers ?? {};
+  const scrubbedKeys: string[] = [];
+  const skippedKeys: string[] = [];
+  const kindsToScrub = new Set<string>();
+  const unavailable = deps.credentials.unavailableReason?.();
+
+  for (const [rawKind, conf] of Object.entries(providerEntries)) {
+    if (!conf || !isProviderName(rawKind) || !conf.apiKey) continue;
+    const rawKey = conf.apiKey.trim();
+    if (!rawKey || ENV_PLACEHOLDER_RE.test(rawKey)) continue;
+
+    const kind = rawKind as ProviderName & ProviderKind;
+    const match =
+      endpoints.find(
+        (ep) =>
+          ep.provider === kind &&
+          sameUrl(
+            ep.baseUrl,
+            conf.baseUrl ?? catalogEntry(kind).defaultBaseUrl,
+          ),
+      ) ?? endpoints.find((ep) => ep.provider === kind);
+
+    if (!match) {
+      skippedKeys.push(
+        `providers.${kind}.apiKey (no migrated endpoint in providers.json — run \`champ config migrate\` first)`,
+      );
+      continue;
+    }
+
+    if (match.credential?.kind === "env") {
+      scrubbedKeys.push(`providers.${kind}.apiKey`);
+      kindsToScrub.add(kind);
+      continue;
+    }
+
+    if (unavailable) {
+      skippedKeys.push(
+        `providers.${kind}.apiKey (OS keyring unavailable: ${unavailable})`,
+      );
+      continue;
+    }
+
+    const stored = await deps.credentials.get(match.credential);
+    if (!stored) {
+      skippedKeys.push(
+        `providers.${kind}.apiKey (secret not yet stored in keyring for ${match.id})`,
+      );
+      continue;
+    }
+
+    scrubbedKeys.push(`providers.${kind}.apiKey`);
+    kindsToScrub.add(kind);
+  }
+
+  if (scrubbedKeys.length === 0) {
+    return {
+      scrubbedKeys: [],
+      skippedKeys,
+      updatedText: null,
+      written: false,
+    };
+  }
+
+  const updatedText = stripProviderApiKeysFromYaml(
+    deps.configText,
+    kindsToScrub,
+  );
+  if (deps.dryRun) {
+    return {
+      scrubbedKeys,
+      skippedKeys,
+      updatedText,
+      written: false,
+    };
+  }
+
+  deps.writeConfigText?.(updatedText);
+  return {
+    scrubbedKeys,
+    skippedKeys,
+    updatedText,
+    written: Boolean(deps.writeConfigText),
+  };
+}
