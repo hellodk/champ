@@ -107,10 +107,21 @@ describe("packaging + repo hygiene (#102)", () => {
 
   it("packs the CLI tarball without repository or user state (#139)", () => {
     const [pm, ...pmPrefix] = pnpmInvocation();
+    const isWin = process.platform === "win32";
+    // Node refuses to spawn a .CMD shim without a shell on Windows.
+    const quote = (value: string) =>
+      isWin && /\s/.test(value) ? `"${value}"` : value;
     const stdout = execFileSync(
       pm,
-      [...pmPrefix, "pack", "--dry-run", "--json", "--pack-destination", ROOT],
-      { cwd: ROOT, encoding: "utf8" },
+      [
+        ...pmPrefix,
+        "pack",
+        "--dry-run",
+        "--json",
+        "--pack-destination",
+        quote(ROOT),
+      ],
+      { cwd: ROOT, encoding: "utf8", shell: isWin },
     );
     // pnpm prints lifecycle-script output before the JSON, and emits one object
     // rather than npm's one-element array.

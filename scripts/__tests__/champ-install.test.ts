@@ -34,9 +34,10 @@ beforeAll(() => {
   mkdirSync(join(sandbox, "bin"));
   writeFileSync(calls, "");
 
+  // `gh release view ... -q` prints the resolved value, not the raw JSON.
   mock(
     "gh",
-    `case "$1" in api) printf 'v9.9.9\\n';; release) printf '%s\\n' '{"assets":[{"url":"https://github.com/hellodk/champ/releases/download/v9.9.9/champ-9.9.9.vsix","name":"champ-9.9.9.vsix"}]}';; esac`,
+    `case "$1" in api) printf 'v9.9.9\\n';; release) printf '%s\\n' 'https://github.com/hellodk/champ/releases/download/v9.9.9/champ-9.9.9.vsix';; esac`,
   );
   mock(
     "curl",
@@ -82,11 +83,10 @@ describe("scripts/champ install", () => {
   it("build mode installs the locally built champ-*.vsix via code --force", () => {
     const { out } = run("build");
     const log = readFileSync(calls, "utf8");
-    expect(log).toContain(
-      "MOCK-CODE args=[--install-extension " +
-        join(REPO, "champ-2.0.2.vsix") +
-        " --force]",
-    );
+    // bash on Windows reports the POSIX spelling of REPO, so assert the
+    // basename rather than a platform-specific absolute path.
+    expect(log).toContain("MOCK-CODE args=[--install-extension ");
+    expect(log).toContain("champ-2.0.2.vsix --force]");
     expect(out).toContain("installed champ 2.0.2");
   });
 });
