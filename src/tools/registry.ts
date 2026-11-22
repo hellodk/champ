@@ -7,6 +7,76 @@
  */
 import type { Tool, ToolResult, ToolExecutionContext } from "./types";
 import type { ToolDefinition } from "../providers/types";
+import { PolicyEngine, type PolicyEvaluation } from "../policy/engine";
+
+const PATH_ARG_KEYS = [
+  "filePath",
+  "file_path",
+  "path",
+  "targetPath",
+  "directory",
+  "workspacePath",
+];
+
+/**
+ * Evaluate tool, shell and path rules with one shared engine. A DENY in any
+ * subject wins; otherwise a single ASK is surfaced to the caller.
+ */
+function evaluatePolicy(
+  name: string,
+  tool: Tool,
+  args: Record<string, unknown>,
+  context: ToolExecutionContext,
+): PolicyEvaluation | null {
+  const engine: PolicyEngine | undefined =
+    context.policy ??
+    (context.sessionPolicy
+      ? new PolicyEngine({ session: context.sessionPolicy })
+      : undefined);
+  if (!engine) return null;
+  const options = { headless: context.headless === true };
+  const evaluations: PolicyEvaluation[] = [
+    engine.evaluate(
+      {
+        kind: "tool",
+        id: name,
+        requiresApproval: tool.requiresApproval,
+        args,
+      },
+      options,
+    ),
+  ];
+
+  if (typeof args.command === "string") {
+    evaluations.push(
+      engine.evaluate({ kind: "shell", id: args.command, args }, options),
+    );
+  }
+  for (const key of PATH_ARG_KEYS) {
+    const value = args[key];
+    if (typeof value === "string" && value.length > 0) {
+      evaluations.push(
+        engine.evaluate({ kind: "path", id: value, args }, options),
+      );
+    }
+  }
+  const paths = args.paths;
+  if (Array.isArray(paths)) {
+    for (const value of paths) {
+      if (typeof value === "string") {
+        evaluations.push(
+          engine.evaluate({ kind: "path", id: value, args }, options),
+        );
+      }
+    }
+  }
+
+  const denied = evaluations.find((e) => e.decision === "DENY");
+  if (denied) return denied;
+  return (
+    evaluations.find((e) => e.decision === "ASK") ?? evaluations[0] ?? null
+  );
+}
 
 /**
  * Validate tool arguments against the declared JSON schema before execution
@@ -117,7 +187,28 @@ export class ToolRegistry {
       };
     }
 
-    if (tool.requiresApproval) {
+    const policyDecision = evaluatePolicy(name, tool, args, context);
+    if (policyDecision?.decision === "DENY") {
+      return {
+        success: false,
+        output: `Action denied by policy (${policyDecision.source}): ${policyDecision.reason}`,
+      };
+    }
+
+    if (
+      context.headless &&
+      tool.requiresApproval &&
+      policyDecision?.decision !== "ALLOW"
+    ) {
+      return {
+        success: false,
+        output: "Action requires approval but the session is headless.",
+      };
+    }
+    const needsApproval = policyDecision
+      ? policyDecision.decision === "ASK"
+      : tool.requiresApproval;
+    if (needsApproval) {
       const preview = tool.getPreview?.(args);
       const approved = await context.requestApproval(
         `Tool "${name}" wants to execute with args: ${JSON.stringify(args, null, 2)}`,
@@ -128,6 +219,27 @@ export class ToolRegistry {
           success: false,
           output: `User denied execution of tool "${name}".`,
         };
+      }
+    }
+
+    // Snapshot the files a mutating tool is about to change. This runs after
+    // approval (no point checkpointing a denied action) but strictly before
+    // the tool touches disk. Failure fails closed — no mutation is attempted
+    // without a recovery point.
+    if (context.onBeforeMutation && tool.mutationPaths) {
+      const paths = tool
+        .mutationPaths(args)
+        .filter((p) => typeof p === "string" && p.length > 0);
+      if (paths.length > 0) {
+        try {
+          await context.onBeforeMutation(paths);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return {
+            success: false,
+            output: `Refusing to run "${name}": checkpoint failed: ${message}`,
+          };
+        }
       }
     }
 

@@ -128,6 +128,19 @@ describe("ModelSelectionService", () => {
     expect(resolved?.source).toBe("assignment");
   });
 
+  it("exposes the authoritative routingMode so callers need not re-read the document", () => {
+    const svc = new ModelSelectionService(makeRepo());
+    expect(
+      svc.resolveFromDocument(baseDoc, { task: "default" })?.routingMode,
+    ).toBe("auto");
+    expect(
+      svc.resolveFromDocument(
+        { ...baseDoc, routingMode: "manual" },
+        { task: "default" },
+      )?.routingMode,
+    ).toBe("manual");
+  });
+
   it("applies workspace taskModels and fills cloud defaultModel instead of literal default", () => {
     const svc = new ModelSelectionService(makeRepo());
     const ws = makeWorkspace({

@@ -22,6 +22,12 @@ export interface DelegatedTask {
   priority?: number;
   /** Optional timeout in milliseconds. */
   timeoutMs?: number;
+  /** Provider used for per-provider concurrency accounting. */
+  provider?: string;
+  /** Cancellation signal shared with the concurrency limiter and the agent. */
+  abortSignal?: AbortSignal;
+  /** Optional ownership contract; overlapping exclusive claims are rejected. */
+  ownership?: { paths: string[]; mode: "exclusive" | "shared" };
 }
 
 /**
@@ -151,4 +157,10 @@ export interface DelegationManagerConfig {
   maxRetries?: number;
   /** Default timeout for tasks in milliseconds. */
   defaultTimeoutMs?: number;
+  /** Process-wide concurrency cap across all agents and providers. */
+  maxGlobalConcurrency?: number;
+  /** Provider-specific concurrency cap. */
+  maxPerProviderConcurrency?: number;
+  /** Maximum number of tasks waiting for a concurrency slot. */
+  maxQueuedTasks?: number;
 }

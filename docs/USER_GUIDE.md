@@ -71,16 +71,41 @@ Both store endpoints in `~/.champ/providers.json` (permissions `0600`) and keep 
 
 ### Managing endpoints & models
 
+An **endpoint** is a provider plus its base URL and discovered model list. Endpoints live in `~/.champ/providers.json` (mode `0600`); API keys are stored in the OS keyring or in environment variables, never in that file (see above). Adding a new model means adding or refreshing an endpoint, then selecting a model id from it.
+
 ```bash
+champ setup                                  # guided setup (alias: champ provider add)
 champ provider list                          # list endpoints (keys never printed)
-champ provider add | edit <id> | remove <id>
-champ provider test <id>                     # check connectivity & latency
-champ provider discover <id>                 # refresh models from /v1/models or /api/tags
-champ models [refresh] [--endpoint <id>]     # list or refresh models
-champ model use <id>/<model> [--workspace]   # set default globally or in .champ/provider.json
+champ provider edit <id> | remove <id>       # manage an existing endpoint
+champ provider test <id> [--inference]       # connectivity/auth; --inference also runs a 1-token request
+champ provider discover <id>                 # refresh one endpoint's models from /v1/models or /api/tags
+champ models [refresh] [--endpoint <id>]     # list or refresh models as <endpoint-id>/<model-id>
 champ config show                            # redacted config view
 champ config migrate [--dry-run]             # import URLs/models from ~/.champ/config.yaml
 ```
+
+### Selecting a model
+
+`champ models` prints selectable ids such as `ep_1234/qwen2.5-coder`. Pass that exact string to the selection commands:
+
+```bash
+champ model use <id>/<model>                  # set the global default
+champ model use <id>/<model> --workspace      # write <workspace>/.champ/provider.json instead
+champ model assign <task> <id>/<model>        # assign a model to a task
+champ config routing auto                     # routing mode: auto | manual
+```
+
+`<task>` is one of `default`, `coding`, `chat`, `completion`, `embedding`. In `auto` mode, routing rules and capability/context matching choose among the discovered models; `manual` mode uses only explicit assignments and the default.
+
+For a single run, override without changing any stored config:
+
+```bash
+champ --provider <name> --base-url <url> --model <model> "task"
+```
+
+Selection precedence, highest first: CLI flags → workspace `.champ/provider.json` → `~/.champ/providers.json` assignments → defaults.
+
+In VS Code, **`Champ: Configure Provider`** manages endpoints. The chat footer's model dropdown runs `champ.setActiveModel`, which edits the top-level `provider:` and `providers.<name>.model` lines of `~/.champ/config.yaml` (the legacy YAML path, not `providers.json`); the config watcher reloads the provider afterward.
 
 ### Local backend quick commands
 

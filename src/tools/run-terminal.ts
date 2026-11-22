@@ -1,25 +1,36 @@
 /**
  * run_terminal_cmd tool: executes a shell command and captures output.
  *
- * Uses child_process.spawn with bash -c for output capture. Commands
- * are passed through the CommandSandbox before execution. Output is
- * capped and timeout-enforced to prevent runaway commands.
+ * Execution goes through an ExecutionBackend: a declared filesystem scope,
+ * explicit environment allowlist, resource limits and process-tree
+ * termination. The regex sandboxes remain as pre-execution filters.
  */
-import { spawn } from "child_process";
 import * as fs from "fs";
 import type { Tool, ToolResult, ToolExecutionContext } from "./types";
 import { CommandSandbox } from "../safety/command-sandbox";
 import { AdvancedCommandSandbox } from "../safety/advanced-command-sandbox";
+import {
+  createExecutionBackend,
+  type ExecutionBackend,
+} from "../safety/execution-backend";
+import { PolicyEngine } from "../policy/engine";
 import { terminalOutputBuffer } from "../agent/terminal-output-buffer";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_BYTES = 15_000;
+const ENV_ALLOWLIST = ["PATH", "LANG", "LC_ALL", "TMPDIR"];
 
 const sandbox = new CommandSandbox();
 const advancedSandbox = new AdvancedCommandSandbox({
   workspacePath: process.cwd(),
   allowedWorkspacePaths: [process.cwd()],
 });
+
+let defaultBackend: ExecutionBackend | undefined;
+function getDefaultBackend(): ExecutionBackend {
+  defaultBackend ??= createExecutionBackend();
+  return defaultBackend;
+}
 
 export const runTerminalTool: Tool = {
   name: "run_terminal_cmd",
@@ -57,6 +68,24 @@ export const runTerminalTool: Tool = {
     const timeoutMs =
       (args.timeout as number | undefined) ?? DEFAULT_TIMEOUT_MS;
 
+    const policy =
+      context.policy ??
+      (context.sessionPolicy
+        ? new PolicyEngine({ session: context.sessionPolicy })
+        : undefined);
+    if (policy) {
+      const evaluation = policy.evaluate(
+        { kind: "shell", id: command, args },
+        { headless: context.headless === true },
+      );
+      if (evaluation.decision === "DENY") {
+        return {
+          success: false,
+          output: `Command denied by policy (${evaluation.source}): ${evaluation.reason}`,
+        };
+      }
+    }
+
     // Sandbox check first — this happens even after approval as a safety net.
     const check = sandbox.check(command);
     if (!check.allowed) {
@@ -79,102 +108,45 @@ export const runTerminalTool: Tool = {
       }
     }
 
-    return new Promise<ToolResult>((resolve) => {
-      let stdout = "";
-      let stderr = "";
-      let stdoutBytes = 0;
-      let stderrBytes = 0;
-      let timedOut = false;
+    // Fall back to the process cwd if the workspace root doesn't exist on disk.
+    const cwd = fs.existsSync(context.workspaceRoot)
+      ? context.workspaceRoot
+      : process.cwd();
 
-      // Fall back to the process cwd if the workspace root doesn't exist
-      // on disk. spawn() emits ENOENT when the cwd is missing, which is
-      // confusing and hides the real error output.
-      const cwd = fs.existsSync(context.workspaceRoot)
-        ? context.workspaceRoot
-        : process.cwd();
-
-      let proc: ReturnType<typeof spawn>;
-      try {
-        proc = spawn("bash", ["-c", command], {
-          cwd,
-          env: { ...process.env, TERM: "dumb" },
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        resolve({ success: false, output: `Failed to spawn command: ${msg}` });
-        return;
-      }
-
-      // Enforce timeout manually so we can report it distinctly from other
-      // kill scenarios.
-      const timeoutHandle = setTimeout(() => {
-        timedOut = true;
-        proc.kill("SIGKILL");
-      }, timeoutMs);
-
-      const abortHandler = () => proc.kill("SIGTERM");
-      context.abortSignal.addEventListener("abort", abortHandler);
-
-      proc.stdout?.on("data", (chunk: Buffer) => {
-        const text = chunk.toString();
-        stdoutBytes += text.length;
-        if (stdout.length < MAX_OUTPUT_BYTES) {
-          stdout += text;
-        }
-        context.reportProgress(text);
-      });
-
-      proc.stderr?.on("data", (chunk: Buffer) => {
-        const text = chunk.toString();
-        stderrBytes += text.length;
-        if (stderr.length < MAX_OUTPUT_BYTES) {
-          stderr += text;
-        }
-      });
-
-      proc.on("error", (err) => {
-        clearTimeout(timeoutHandle);
-        context.abortSignal.removeEventListener("abort", abortHandler);
-        resolve({ success: false, output: `Command failed: ${err.message}` });
-      });
-
-      proc.on("close", (code, signal) => {
-        clearTimeout(timeoutHandle);
-        context.abortSignal.removeEventListener("abort", abortHandler);
-
-        const sections: string[] = [];
-        if (stdout.trim()) {
-          const capped =
-            stdoutBytes > MAX_OUTPUT_BYTES
-              ? stdout.slice(0, MAX_OUTPUT_BYTES) + "\n[truncated]"
-              : stdout;
-          sections.push(`STDOUT:\n${capped}`);
-        }
-        if (stderr.trim()) {
-          const capped =
-            stderrBytes > MAX_OUTPUT_BYTES
-              ? stderr.slice(0, MAX_OUTPUT_BYTES) + "\n[truncated]"
-              : stderr;
-          sections.push(`STDERR:\n${capped}`);
-        }
-        if (timedOut) {
-          sections.push(
-            `Command timed out and was killed after ${timeoutMs}ms`,
-          );
-        }
-        sections.push(
-          `Exit code: ${code ?? (signal ? `signal ${signal}` : "unknown")}`,
-        );
-
-        // Write combined output to shared buffer so @Terminal context can read it.
-        const fullOutput = [stdout, stderr].filter(Boolean).join("\n");
-        terminalOutputBuffer.write(fullOutput);
-
-        resolve({
-          success: code === 0 && !timedOut,
-          output: sections.join("\n\n"),
-        });
-      });
+    const result = await (
+      context.executionBackend ?? getDefaultBackend()
+    ).execute({
+      command,
+      shell: "bash",
+      cwd,
+      allowedPaths: [cwd],
+      allowNetwork: false,
+      envAllowlist: ENV_ALLOWLIST,
+      env: { TERM: "dumb" },
+      limits: { timeoutMs, maxOutputBytes: MAX_OUTPUT_BYTES },
+      abortSignal: context.abortSignal,
+      onOutput: (stream, text) => {
+        if (stream === "stdout") context.reportProgress(text);
+      },
     });
+
+    const sections: string[] = [];
+    if (result.stdout.trim()) sections.push(`STDOUT:\n${result.stdout}`);
+    if (result.stderr.trim()) sections.push(`STDERR:\n${result.stderr}`);
+    if (result.truncated) sections.push("[truncated]");
+    if (result.timedOut) {
+      sections.push(`Command timed out and was killed after ${timeoutMs}ms`);
+    }
+    sections.push(
+      `Exit code: ${result.exitCode ?? (result.signal ? `signal ${result.signal}` : "unknown")}`,
+    );
+
+    // Write combined output to shared buffer so @Terminal context can read it.
+    terminalOutputBuffer.write(result.output);
+
+    return {
+      success: result.exitCode === 0 && !result.timedOut,
+      output: sections.join("\n\n"),
+    };
   },
 };

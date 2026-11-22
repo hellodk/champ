@@ -9,6 +9,7 @@
  * - Support parallel task execution
  */
 
+import { ConcurrencyLimiter, OwnershipRegistry } from "./safety";
 import type {
   SubAgent,
   DelegatedTask,
@@ -30,6 +31,8 @@ export class DelegationManager {
   private runningTasks = new Map<string, Set<string>>(); // agent ID -> set of task IDs
   private maxRetries: number;
   private defaultTimeoutMs: number;
+  private readonly limiter: ConcurrencyLimiter;
+  private readonly ownership = new OwnershipRegistry();
   private onStateChangeCallback?: (
     taskId: string,
     state: DelegationState,
@@ -39,6 +42,11 @@ export class DelegationManager {
   constructor(config: DelegationManagerConfig = {}) {
     this.maxRetries = config.maxRetries ?? 3;
     this.defaultTimeoutMs = config.defaultTimeoutMs ?? 30000;
+    this.limiter = new ConcurrencyLimiter({
+      maxGlobal: config.maxGlobalConcurrency,
+      maxPerProvider: config.maxPerProviderConcurrency,
+      maxQueued: config.maxQueuedTasks,
+    });
   }
 
   /**
@@ -106,6 +114,49 @@ export class DelegationManager {
       `Task ${task.id} created: ${task.description}`,
     );
 
+    // Global/provider limits and backpressure are applied before an agent is
+    // selected, so a burst of delegations cannot spawn unbounded work.
+    let releaseSlot: (() => void) | undefined;
+    try {
+      releaseSlot = await this.limiter.acquire(
+        task.provider ?? "default",
+        task.abortSignal,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.setState(task.id, "failed");
+      const status = this.tasks.get(task.id);
+      if (status) status.success = false;
+      this.taskLog(task.id, "error", `Task ${task.id} rejected: ${message}`);
+      return this.createResult(task.id, false, startTime, 0, message);
+    }
+    // Ownership contracts prevent two agents from mutating overlapping paths.
+    // Claims fail closed: a conflicting task is rejected before any agent runs.
+    let ownershipClaimed = false;
+    if (task.ownership) {
+      try {
+        this.ownership.claim(
+          task.id,
+          task.ownership.paths,
+          task.ownership.mode,
+        );
+        ownershipClaimed = true;
+      } catch (err) {
+        releaseSlot?.();
+        const message = err instanceof Error ? err.message : String(err);
+        this.setState(task.id, "failed");
+        const status = this.tasks.get(task.id);
+        if (status) status.success = false;
+        this.taskLog(task.id, "error", `Task ${task.id} rejected: ${message}`);
+        return this.createResult(task.id, false, startTime, 0, message);
+      }
+    }
+    const finish = (result: DelegationResult): DelegationResult => {
+      if (ownershipClaimed) this.ownership.release(task.id);
+      releaseSlot?.();
+      return result;
+    };
+
     let lastError: Error | undefined;
     const maxAttempts = this.maxRetries + 1;
 
@@ -115,12 +166,14 @@ export class DelegationManager {
         const agent = this.selectAgent();
         if (!agent) {
           this.taskLog(task.id, "error", "No available agents with capacity");
-          return this.createResult(
-            task.id,
-            false,
-            startTime,
-            maxAttempts,
-            "No available agents with capacity",
+          return finish(
+            this.createResult(
+              task.id,
+              false,
+              startTime,
+              maxAttempts,
+              "No available agents with capacity",
+            ),
           );
         }
 
@@ -163,6 +216,11 @@ export class DelegationManager {
         // Cooperative cancellation: cooperative SubAgents observe this
         // signal and stop, so timed-out attempts don't run forever.
         const attemptAbort = new AbortController();
+        const externalAbort = () => attemptAbort.abort();
+        task.abortSignal?.addEventListener("abort", externalAbort, {
+          once: true,
+        });
+        if (task.abortSignal?.aborted) externalAbort();
         try {
           const timeout = this.createTimeout(
             task.timeoutMs ?? this.defaultTimeoutMs,
@@ -179,6 +237,7 @@ export class DelegationManager {
             ]);
           } finally {
             timeout.cancel();
+            task.abortSignal?.removeEventListener("abort", externalAbort);
           }
           if (!result.success && /timeout/i.test(result.error ?? "")) {
             attemptAbort.abort();
@@ -209,12 +268,8 @@ export class DelegationManager {
             timestamp: Date.now(),
           });
 
-          return this.createResult(
-            task.id,
-            true,
-            startTime,
-            attempt,
-            result.output,
+          return finish(
+            this.createResult(task.id, true, startTime, attempt, result.output),
           );
         } catch (error) {
           // Tell the (possibly zombie) execution to stop before retrying —
@@ -269,12 +324,14 @@ export class DelegationManager {
       timestamp: Date.now(),
     });
 
-    return this.createResult(
-      task.id,
-      false,
-      startTime,
-      maxAttempts,
-      lastError?.message ?? "Task failed",
+    return finish(
+      this.createResult(
+        task.id,
+        false,
+        startTime,
+        maxAttempts,
+        lastError?.message ?? "Task failed",
+      ),
     );
   }
 

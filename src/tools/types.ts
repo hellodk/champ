@@ -34,6 +34,20 @@ export interface ToolExecutionContext {
   stagedEdits?: import("../agent/staged-edits").StagedEdits;
   /** Optional audit log — tools call record() on success for tamper-evident logging. */
   auditLog?: import("../observability/audit-log").AuditLog;
+  /** Optional execution backend override (defaults to the detected backend). */
+  executionBackend?: import("../safety/execution-backend").ExecutionBackend;
+  /** Active policy engine, consulted before tool and shell execution. */
+  policy?: import("../policy/engine").PolicyEngine;
+  /** Session-scoped policy layer, overridden by project/user/managed layers. */
+  sessionPolicy?: import("../policy/engine").PolicyRule[];
+  /** True when no human can answer an approval prompt. */
+  headless?: boolean;
+  /**
+   * Called before a mutating tool writes to disk. Implementations should
+   * create a recovery checkpoint of the returned paths. Throwing aborts the
+   * mutation. A missing callback means no automatic checkpoint is taken.
+   */
+  onBeforeMutation?: (paths: string[]) => Promise<void>;
 }
 
 /**
@@ -88,6 +102,12 @@ export interface Tool {
    * falls back to displaying the raw JSON args.
    */
   getPreview?(args: Record<string, unknown>): ToolPreview | undefined;
+  /**
+   * Workspace-relative paths this tool is about to mutate. Used to create an
+   * automatic recovery checkpoint before execution. When omitted, no automatic
+   * checkpoint is taken for this tool.
+   */
+  mutationPaths?(args: Record<string, unknown>): string[];
   /** Execute the tool with the given arguments and context. */
   execute(
     args: Record<string, unknown>,

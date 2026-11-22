@@ -14,6 +14,28 @@ import { ConfigLoader, type ChampConfig } from "@/config/config-loader";
 
 describe("ConfigLoader", () => {
   describe("parseYaml", () => {
+    it("parses and validates agent budget limits", () => {
+      const yaml = `
+provider: ollama
+agent:
+  budget:
+    maxTokensPerRun: 100000
+    maxUsdPerDay: 5.50
+`;
+      const config = ConfigLoader.parseYaml(yaml);
+      expect(config.agent?.budget?.maxTokensPerRun).toBe(100000);
+      expect(config.agent?.budget?.maxUsdPerDay).toBe(5.5);
+
+      expect(() =>
+        ConfigLoader.parseYaml(`
+provider: ollama
+agent:
+  budget:
+    maxUsdPerDay: free
+`),
+      ).toThrow(/maxUsdPerDay/i);
+    });
+
     it("parses a minimal valid config", () => {
       const yaml = `
 provider: ollama

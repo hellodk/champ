@@ -22,6 +22,7 @@
  * from vscode.workspace.fs.
  */
 import * as yaml from "js-yaml";
+import type { BudgetLimits } from "./budget";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -95,6 +96,8 @@ export interface AutoFixConfig {
 export interface AgentConfig {
   yoloMode?: boolean;
   defaultMode?: AgentModeName;
+  /** Optional per-run and per-day token/USD budgets, enforced from actual usage. */
+  budget?: BudgetLimits;
   autoFix?: AutoFixConfig;
   promptGuard?: {
     /** Set to false to disable prompt injection blocking (e.g. for security research). Default: true. */
@@ -600,6 +603,39 @@ export class ConfigLoader {
             );
           } else {
             out.defaultMode = a.defaultMode as AgentModeName;
+          }
+        }
+        if ("budget" in a) {
+          const budget = a.budget;
+          if (
+            typeof budget !== "object" ||
+            budget === null ||
+            Array.isArray(budget)
+          ) {
+            pushError("agent.budget must be an object");
+          } else {
+            const parsed: Record<string, number> = {};
+            for (const key of [
+              "maxTokensPerRun",
+              "maxInputTokensPerRun",
+              "maxOutputTokensPerRun",
+              "maxUsdPerRun",
+              "maxTokensPerDay",
+              "maxUsdPerDay",
+            ] as const) {
+              const value = (budget as Record<string, unknown>)[key];
+              if (value === undefined) continue;
+              if (
+                typeof value !== "number" ||
+                !Number.isFinite(value) ||
+                value < 0
+              ) {
+                pushError(`agent.budget.${key} must be a non-negative number`);
+              } else {
+                parsed[key] = value;
+              }
+            }
+            out.budget = parsed as BudgetLimits;
           }
         }
         if ("autoFix" in a) {

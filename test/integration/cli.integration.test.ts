@@ -31,10 +31,11 @@ let fixtures: string[] = [];
 /** Everything a single test needs: a workspace, a mock server, its config. */
 async function scenario(
   responder: (_body: unknown, index: number) => SseFrame[],
+  budget?: { maxTokensPerRun?: number; maxUsdPerRun?: number },
 ) {
   const ws = makeWorkspace("cli-int");
   const mock: MockOpenAI = await startMockOpenAI(responder);
-  const configPath = writeChampConfig(ws, { baseUrl: mock.baseUrl });
+  const configPath = writeChampConfig(ws, { baseUrl: mock.baseUrl, budget });
   const fixture = { ws, mock, configPath };
   fixtures.push(ws);
   return {
@@ -93,8 +94,11 @@ describe("champ CLI — one-shot agent turn (dist/cli.js)", () => {
         const file = path.join(s.ws, "hello.txt");
         fs.writeFileSync(file, "before\n", "utf8");
 
-        // No --yes: non-interactive runs still approve, and say so.
-        const result = await s.run(["replace before with after in hello.txt"]);
+        // Explicit --yes opts in to auto-approval for this headless run.
+        const result = await s.run([
+          "--yes",
+          "replace before with after in hello.txt",
+        ]);
 
         expect(result.timedOut).toBe(false);
         expect(result.code).toBe(0);
@@ -113,7 +117,9 @@ describe("champ CLI — one-shot agent turn (dist/cli.js)", () => {
         expect(result.stderr).toContain(
           "[champ] tools=2 tokens in=1800 out=42",
         );
-        expect(result.stderr).toContain("non-interactive run");
+        expect(result.stderr).not.toContain(
+          "actions requiring approval are denied",
+        );
 
         // The mock saw a well-formed OpenAI request sequence.
         expect(s.mock.requests).toHaveLength(3);
@@ -147,6 +153,55 @@ describe("champ CLI — one-shot agent turn (dist/cli.js)", () => {
   );
 
   it(
+    "denies approval-required tools in a headless run without --yes",
+    async () => {
+      const s = await scenario((_body, index) => {
+        if (index === 0) {
+          return [
+            frames.toolCall("call_edit", "edit_file", {
+              path: "hello.txt",
+              old_content: "before",
+              new_content: "after",
+            }),
+            frames.finish("tool_calls"),
+            frames.usage(100, 5),
+            frames.done,
+          ];
+        }
+        return [
+          frames.text("I could not change the file without approval."),
+          frames.finish("stop"),
+          frames.usage(100, 5),
+          frames.done,
+        ];
+      });
+
+      try {
+        const file = path.join(s.ws, "hello.txt");
+        fs.writeFileSync(file, "before\n", "utf8");
+
+        const result = await s.run(["replace before with after in hello.txt"]);
+
+        expect(result.timedOut).toBe(false);
+        expect(result.code).toBe(0);
+        // The mutating tool never touched disk.
+        expect(fs.readFileSync(file, "utf8")).toBe("before\n");
+        expect(result.stderr).toContain(
+          "actions requiring approval are denied",
+        );
+        // The denial is fed back to the model as the tool result.
+        const followUp = s.mock.requests[1] as {
+          messages: Array<{ role: string; content: unknown }>;
+        };
+        expect(JSON.stringify(followUp.messages)).toContain("headless");
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
     "reads the task from stdin with `-` and prints only the reply",
     async () => {
       const s = await scenario(() => [
@@ -167,6 +222,44 @@ describe("champ CLI — one-shot agent turn (dist/cli.js)", () => {
         expect(result.stdout).toBe("Piped tasks work.\n");
         expect(result.stderr).toContain("[champ] tools=0 tokens in=310 out=7");
         expect(s.mock.requests).toHaveLength(1);
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "enforces a configured token budget from actual provider usage",
+    async () => {
+      const s = await scenario(
+        (_body, index) => {
+          if (index === 0) {
+            return [
+              frames.toolCall("call_read", "read_file", { path: "hello.txt" }),
+              frames.finish("tool_calls"),
+              frames.usage(500, 20),
+              frames.done,
+            ];
+          }
+          return [
+            frames.text("should not be reached"),
+            frames.finish("stop"),
+            frames.usage(10, 1),
+            frames.done,
+          ];
+        },
+        { maxTokensPerRun: 50 },
+      );
+
+      try {
+        fs.writeFileSync(path.join(s.ws, "hello.txt"), "content\n", "utf8");
+        const result = await s.run(["--yes", "read hello.txt"]);
+        expect(result.timedOut).toBe(false);
+        // The first call recorded 520 actual tokens, exceeding the 50 budget;
+        // the follow-up call was blocked before hitting the provider again.
+        expect(s.mock.requests).toHaveLength(1);
+        expect(result.stderr).toContain("Budget exceeded");
       } finally {
         await s.close();
       }

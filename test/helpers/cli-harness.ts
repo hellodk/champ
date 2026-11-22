@@ -168,25 +168,36 @@ export const frames = {
  */
 export function writeChampConfig(
   dir: string,
-  opts: { baseUrl: string; model?: string; supportsTools?: boolean },
+  opts: {
+    baseUrl: string;
+    model?: string;
+    supportsTools?: boolean;
+    budget?: { maxTokensPerRun?: number; maxUsdPerRun?: number };
+  },
 ): string {
   const configDir = path.join(dir, ".champ");
   fs.mkdirSync(configDir, { recursive: true });
   const file = path.join(configDir, "config.yaml");
-  fs.writeFileSync(
-    file,
-    [
-      "provider: openai-compatible",
-      "providers:",
-      "  openai-compatible:",
-      `    baseUrl: "${opts.baseUrl}"`,
-      `    model: "${opts.model ?? "mock-model"}"`,
-      "    apiKey: test-key",
-      `    supportsTools: ${opts.supportsTools ?? true}`,
-      "",
-    ].join("\n"),
-    "utf8",
-  );
+  const lines = [
+    "provider: openai-compatible",
+    "providers:",
+    "  openai-compatible:",
+    `    baseUrl: "${opts.baseUrl}"`,
+    `    model: "${opts.model ?? "mock-model"}"`,
+    "    apiKey: test-key",
+    `    supportsTools: ${opts.supportsTools ?? true}`,
+  ];
+  if (opts.budget) {
+    lines.push("agent:", "  budget:");
+    if (opts.budget.maxTokensPerRun !== undefined) {
+      lines.push(`    maxTokensPerRun: ${opts.budget.maxTokensPerRun}`);
+    }
+    if (opts.budget.maxUsdPerRun !== undefined) {
+      lines.push(`    maxUsdPerRun: ${opts.budget.maxUsdPerRun}`);
+    }
+  }
+  lines.push("");
+  fs.writeFileSync(file, lines.join("\n"), "utf8");
   return file;
 }
 

@@ -28,6 +28,7 @@ export const createFileTool: Tool = {
     required: ["path", "content"],
   },
   requiresApproval: true,
+  mutationPaths: (args) => (typeof args.path === "string" ? [args.path] : []),
 
   async execute(
     args: Record<string, unknown>,

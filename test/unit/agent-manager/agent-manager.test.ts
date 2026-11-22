@@ -3,6 +3,8 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { AgentManager } from "@/agent-manager/agent-manager";
+import { AgentController } from "@/agent/agent-controller";
+import { BudgetEnforcer } from "@/config/budget";
 import type { ToolRegistry } from "@/tools/registry";
 import type { LLMProvider } from "@/providers/types";
 
@@ -49,6 +51,22 @@ function stubToolRegistry(): ToolRegistry {
 }
 
 describe("AgentManager", () => {
+  it("applies a shared budget to existing and future sessions", () => {
+    const mgr = new AgentManager(stubToolRegistry(), "/tmp", () =>
+      stubProvider(),
+    );
+    const existing = mgr.createSession();
+    const existingSpy = vi.spyOn(existing.controller, "setBudget");
+    const budget = new BudgetEnforcer({ maxTokensPerRun: 10 });
+
+    mgr.setBudget(budget);
+    expect(existingSpy).toHaveBeenCalledWith(budget);
+
+    const createSpy = vi.spyOn(AgentController.prototype, "setBudget");
+    mgr.createSession();
+    expect(createSpy).toHaveBeenCalledWith(budget);
+  });
+
   let manager: AgentManager;
   let provider: LLMProvider;
 

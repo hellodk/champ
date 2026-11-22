@@ -22,6 +22,7 @@ export const deleteFileTool: Tool = {
     required: ["path"],
   },
   requiresApproval: true,
+  mutationPaths: (args) => (typeof args.path === "string" ? [args.path] : []),
 
   async execute(
     args: Record<string, unknown>,
