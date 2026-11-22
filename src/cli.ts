@@ -47,6 +47,11 @@ import { runProviderCommand } from "./cli/provider-commands";
 import { ChainCredentialStore } from "./config/credential-store";
 import { EndpointRegistry } from "./config/endpoint-registry";
 import { discoverModels, testEndpoint } from "./config/model-discovery";
+import type {
+  Endpoint,
+  TaskAssignment,
+  WorkspaceProviderRef,
+} from "./config/provider-model";
 import { EndpointRepository } from "./config/provider-repository";
 import type { RulesEngine } from "./rules/rules-engine";
 import type { SkillRegistry } from "./skills/skill-registry";
@@ -164,6 +169,110 @@ function buildConfig(flags: CliFlags): ChampConfig {
   }
 
   return config;
+}
+
+function readWorkspaceProviderRef(
+  workspace: string,
+): WorkspaceProviderRef | null {
+  const refPath = path.join(workspace, ".champ", "provider.json");
+  if (!fs.existsSync(refPath)) return null;
+  try {
+    const raw = JSON.parse(fs.readFileSync(refPath, "utf8")) as unknown;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const obj = raw as Record<string, unknown>;
+    if ("apiKey" in obj) {
+      process.stderr.write(
+        "[champ] ignoring embedded apiKey in .champ/provider.json (workspace refs cannot contain secrets)\n",
+      );
+    }
+    const ref: WorkspaceProviderRef = {};
+    if (typeof obj.endpoint === "string" && obj.endpoint.trim()) {
+      ref.endpoint = obj.endpoint.trim();
+    }
+    if (typeof obj.model === "string" && obj.model.trim()) {
+      ref.model = obj.model.trim();
+    }
+    if (
+      obj.taskModels &&
+      typeof obj.taskModels === "object" &&
+      !Array.isArray(obj.taskModels)
+    ) {
+      ref.taskModels = obj.taskModels as WorkspaceProviderRef["taskModels"];
+    }
+    return ref;
+  } catch (err) {
+    process.stderr.write(
+      `[champ] ignoring invalid .champ/provider.json: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    return null;
+  }
+}
+
+async function resolveProviderFromRegistry(
+  flags: CliFlags,
+  workspace: string,
+  taskKind: TaskAssignment,
+): Promise<{
+  endpoint: Endpoint;
+  model: string;
+  credentials: ChainCredentialStore;
+} | null> {
+  const repository = new EndpointRepository();
+  if (!fs.existsSync(repository.path())) {
+    return null;
+  }
+
+  const credentials = new ChainCredentialStore();
+  const registry = new EndpointRegistry({
+    repository,
+    credentials,
+    discovery: { discoverModels, testEndpoint },
+    now: () => new Date().toISOString(),
+  });
+
+  let doc;
+  try {
+    doc = await registry.readDocument();
+  } catch (err) {
+    process.stderr.write(
+      `[champ] could not read ${repository.path()}: ${err instanceof Error ? err.message : String(err)} — falling back to legacy config\n`,
+    );
+    return null;
+  }
+
+  const wsRef = readWorkspaceProviderRef(workspace);
+  if (wsRef?.endpoint) {
+    const match = doc.endpoints.find(
+      (ep) =>
+        ep.id === wsRef.endpoint ||
+        ep.name.toLowerCase() === wsRef.endpoint!.toLowerCase(),
+    );
+    if (!match || !match.enabled) {
+      process.stderr.write(
+        `[champ] workspace provider.json references missing or disabled endpoint "${wsRef.endpoint}" — falling back to user registry\n`,
+      );
+    } else {
+      const fallbackResolved = await registry.resolveAssignment(taskKind);
+      const model =
+        flags.model ??
+        wsRef.taskModels?.[taskKind] ??
+        wsRef.model ??
+        (fallbackResolved?.endpoint.id === match.id
+          ? fallbackResolved.model
+          : undefined) ??
+        match.models[0]?.id ??
+        "default";
+      return { endpoint: match, model, credentials };
+    }
+  }
+
+  const assigned = await registry.resolveAssignment(taskKind);
+  if (!assigned) {
+    return null;
+  }
+
+  const model = flags.model ?? (assigned.model || "default");
+  return { endpoint: assigned.endpoint, model, credentials };
 }
 
 /** Print a fatal message and stop the process with the usage exit code. */
@@ -720,30 +829,60 @@ async function main(): Promise<number> {
   }
 
   // ── Build the agent ───────────────────────────────────────────────────
+  const workspace = path.resolve(flags.cwd);
   const config = buildConfig(flags);
-  if (!config.provider) {
-    fail(
-      "no provider configured — set `provider:` in ~/.champ/config.yaml or pass --provider/--base-url",
-    );
-  }
-
-  const secrets: SecretReader = {
-    get: () => Promise.resolve(undefined), // cloud keys come from env vars
-  };
+  const hasExplicitEndpointOverride = Boolean(flags.provider || flags.baseUrl);
+  const registryChoice = hasExplicitEndpointOverride
+    ? null
+    : await resolveProviderFromRegistry(
+        flags,
+        workspace,
+        mode === "repl" ? "default" : "coding",
+      );
 
   let provider;
-  try {
-    provider = await new ProviderFactory().createFromChampConfig(
-      config,
-      secrets,
-    );
-  } catch (err) {
-    fail(
-      `could not build provider: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  if (registryChoice) {
+    const secretProvider: SecretReader = {
+      get: async (key: string) => {
+        if (flags.apiKey) return flags.apiKey;
+        return registryChoice.credentials.get({ kind: "keyring", id: key });
+      },
+    };
+    try {
+      provider = await new ProviderFactory().createFromEndpoint(
+        registryChoice.endpoint,
+        {
+          model: registryChoice.model,
+          secretProvider,
+        },
+      );
+    } catch (err) {
+      fail(
+        `could not build provider: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  } else {
+    if (!config.provider) {
+      fail(
+        "no provider configured — set `provider:` in ~/.champ/config.yaml or pass --provider/--base-url",
+      );
+    }
 
-  const workspace = path.resolve(flags.cwd);
+    const secrets: SecretReader = {
+      get: () => Promise.resolve(undefined), // cloud keys come from env vars
+    };
+
+    try {
+      provider = await new ProviderFactory().createFromChampConfig(
+        config,
+        secrets,
+      );
+    } catch (err) {
+      fail(
+        `could not build provider: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
   const toolRegistry = createHeadlessToolRegistry();
   const controller = new AgentController(provider, toolRegistry, workspace);
   controller.setMode(config.agent?.defaultMode ?? "agent");

@@ -41,7 +41,12 @@ import { ContextResolver } from "./agent/context-resolver";
 import { buildProbeUrl } from "./utils/probe-url";
 import { resilientFetch } from "./providers/http-resilience";
 import { runWizard } from "./config/setup-wizard";
-import { upsertProviderInYaml } from "./config/yaml-writer";
+import { VsCodeSecretCredentialStore } from "./config/credential-store";
+import { EndpointRegistry } from "./config/endpoint-registry";
+import { discoverModels, testEndpoint } from "./config/model-discovery";
+import { legacySecretIdForProvider } from "./config/provider-catalog";
+import type { ProviderKind } from "./config/provider-model";
+import { EndpointRepository } from "./config/provider-repository";
 import {
   ConfigLoader,
   resolveLayered,
@@ -253,6 +258,14 @@ export async function activate(
   metrics = new MetricsCollector();
   teamRunner = new TeamRunner();
   const factory = new ProviderFactory();
+  const endpointRepository = new EndpointRepository();
+  const endpointCredentials = new VsCodeSecretCredentialStore(context.secrets);
+  const endpointRegistry = new EndpointRegistry({
+    repository: endpointRepository,
+    credentials: endpointCredentials,
+    discovery: { discoverModels, testEndpoint },
+    now: () => new Date().toISOString(),
+  });
 
   // ---- Tool registry --------------------------------------------------
   const toolRegistry = new ToolRegistry();
@@ -1741,36 +1754,58 @@ export async function activate(
 
       if (outcome.status === "cancelled") return;
 
-      const targetDirUri = vscode.Uri.file(path.join(os.homedir(), ".champ"));
-      const targetUri = vscode.Uri.file(
-        path.join(targetDirUri.fsPath, "config.yaml"),
+      const kind = outcome.providerId as ProviderKind;
+      const secretId = legacySecretIdForProvider(kind);
+      const existing = await endpointRegistry.list().catch(() => []);
+      const match = existing.find(
+        (ep) =>
+          ep.provider === kind &&
+          (ep.baseUrl ?? "") === (outcome.baseUrl ?? ""),
       );
-      let previousText: string | null = null;
-      try {
-        previousText = new TextDecoder().decode(
-          await vscode.workspace.fs.readFile(targetUri),
-        );
-      } catch {
-        previousText = null; // no file yet
-      }
-      const { yaml: updated } = upsertProviderInYaml(
-        previousText,
-        {
-          providerId: outcome.providerId,
+
+      if (match) {
+        await endpointRegistry.update(match.id, {
           baseUrl: outcome.baseUrl,
-          model: outcome.model,
-        },
-        { setActive: true },
-      );
-      try {
-        await vscode.workspace.fs.createDirectory(targetDirUri);
-      } catch {
-        // already exists
+          enabled: true,
+          isDefault: true,
+          credential: { kind: "keyring", id: secretId },
+        });
+        if (outcome.model) {
+          await endpointRegistry.setAssignment(
+            "default",
+            match.id,
+            outcome.model,
+          );
+        }
+      } else {
+        const nameTaken = (candidate: string) =>
+          existing.some(
+            (ep) => ep.name.toLowerCase() === candidate.toLowerCase(),
+          );
+        let endpointName: string = outcome.providerId;
+        if (nameTaken(endpointName)) {
+          let n = 2;
+          while (nameTaken(`${outcome.providerId}-${n}`)) n++;
+          endpointName = `${outcome.providerId}-${n}`;
+        }
+        const created = await endpointRegistry.add({
+          name: endpointName,
+          provider: kind,
+          baseUrl: outcome.baseUrl,
+          enabled: true,
+          isDefault: true,
+          credential: { kind: "keyring", id: secretId },
+          models: outcome.model ? [{ id: outcome.model }] : [],
+        });
+        if (outcome.model) {
+          await endpointRegistry.setAssignment(
+            "default",
+            created.id,
+            outcome.model,
+          );
+        }
       }
-      await vscode.workspace.fs.writeFile(
-        targetUri,
-        new TextEncoder().encode(updated),
-      );
+
       await loadProvider();
       void vscode.window.showInformationMessage(
         `Champ: ${outcome.providerId} configured and active.`,
@@ -3425,13 +3460,38 @@ export async function activate(
           sess.controller.setGlobalMemoryBank(globalMemoryBank);
         }
       });
-      const rawProvider = yamlConfig
-        ? await factory.createFromChampConfig(yamlConfig, context.secrets)
-        : (() => {
-            throw new Error(
-              "No Champ configuration found. Run 'Champ: Configure Provider' or create ~/.champ/config.yaml.",
-            );
-          })();
+      const resolvedEndpoint = await endpointRegistry
+        .resolveAssignment("default")
+        .catch((err) => {
+          console.warn(
+            "Champ: failed to read endpoint registry; falling back to config.yaml:",
+            err,
+          );
+          return null;
+        });
+      const registryEndpoints = await endpointRegistry
+        .list()
+        .catch(() => [] as import("./config/provider-model").Endpoint[]);
+
+      const rawProvider = resolvedEndpoint
+        ? await factory.createFromEndpoint(resolvedEndpoint.endpoint, {
+            model:
+              resolvedEndpoint.model ||
+              yamlConfig?.providers?.[resolvedEndpoint.endpoint.provider]
+                ?.model ||
+              "default",
+            secretProvider: {
+              get: (key) =>
+                endpointCredentials.get({ kind: "keyring", id: key }),
+            },
+          })
+        : yamlConfig
+          ? await factory.createFromChampConfig(yamlConfig, context.secrets)
+          : (() => {
+              throw new Error(
+                "No Champ configuration found. Run 'Champ: Configure Provider' or create ~/.champ/config.yaml.",
+              );
+            })();
       // Wrap primary provider in a CircuitBreaker so repeated failures stop
       // hammering a known-bad endpoint.
       const wrappedPrimary = new CircuitBreaker(rawProvider);
@@ -3506,21 +3566,28 @@ export async function activate(
         )
           return;
 
-        // Extract baseUrl from config using the actual underlying provider name
+        // Extract baseUrl from the resolved registry endpoint or YAML config.
         const providerConfig =
           yamlConfig?.providers?.[
             providerName as keyof typeof yamlConfig.providers
           ];
-        const baseUrl = (providerConfig as any)?.baseUrl;
+        const baseUrl =
+          resolvedEndpoint?.endpoint.baseUrl ??
+          (providerConfig as any)?.baseUrl;
         if (!baseUrl) return;
 
-        // Normalised URL (no double /v1) + auth from the YAML entry: the
+        // Normalised URL (no double /v1) + auth from the registry/YAML entry: the
         // old probe sent no Authorization header, so any server requiring
         // a key returned 401 and the provider was declared unreachable
         // even though chat itself would have worked.
         const url = buildProbeUrl(baseUrl, providerName);
         const headers: Record<string, string> = {};
-        const probeKey = (providerConfig as any)?.apiKey;
+        const probeKey =
+          (resolvedEndpoint?.endpoint.credential
+            ? await endpointCredentials.get(
+                resolvedEndpoint.endpoint.credential,
+              )
+            : undefined) ?? (providerConfig as any)?.apiKey;
         if (probeKey) {
           headers.Authorization = `Bearer ${probeKey}`;
         }
@@ -3655,10 +3722,38 @@ export async function activate(
           newProvider.name,
           newProvider,
           newProvider.name,
-          yamlConfig?.providers?.[
-            newProvider.name as keyof typeof yamlConfig.providers
-          ]?.baseUrl ?? (newProvider.config as { baseUrl?: string }).baseUrl,
+          resolvedEndpoint?.endpoint.baseUrl ??
+            yamlConfig?.providers?.[
+              newProvider.name as keyof typeof yamlConfig.providers
+            ]?.baseUrl ??
+            (newProvider.config as { baseUrl?: string }).baseUrl,
         );
+        for (const ep of registryEndpoints) {
+          if (
+            !ep.enabled ||
+            !ep.baseUrl ||
+            ep.id === resolvedEndpoint?.endpoint.id
+          ) {
+            continue;
+          }
+          try {
+            const epProvider = await factory.createFromEndpoint(ep, {
+              model: ep.models[0]?.id ?? "default",
+              secretProvider: {
+                get: (key) =>
+                  endpointCredentials.get({ kind: "keyring", id: key }),
+              },
+            });
+            smartRouter.registerProvider(
+              ep.name,
+              epProvider,
+              ep.provider,
+              ep.baseUrl,
+            );
+          } catch {
+            // Endpoint construction failed — skip.
+          }
+        }
         if (yamlConfig?.providers) {
           for (const [pName, pConf] of Object.entries(yamlConfig.providers)) {
             if (!pConf?.baseUrl || pName === newProvider.name) continue;
@@ -4231,6 +4326,47 @@ export async function activate(
     context.subscriptions.push(native);
 
     watcher.start();
+  }
+
+  context.subscriptions.push({
+    dispose: endpointRegistry.onChange(() => {
+      void loadProvider();
+    }),
+  });
+
+  // Watch ~/.champ/providers.json for changes made from the CLI (`champ setup` / `champ provider`).
+  {
+    const registryWatcher = new ConfigWatcher({
+      path: endpointRepository.path(),
+      onChange: () => void loadProvider(),
+      now: () => Date.now(),
+      setIntervalFn: (cb, ms) => {
+        const id = setInterval(cb, ms);
+        context.subscriptions.push({
+          dispose: () => clearInterval(id),
+        });
+        return id;
+      },
+      clearIntervalFn: (id) => clearInterval(id),
+      setTimeoutFn: (cb, ms) => {
+        const id = setTimeout(cb, ms);
+        context.subscriptions.push({
+          dispose: () => clearTimeout(id),
+        });
+        return id;
+      },
+      clearTimeoutFn: (id) => clearTimeout(id),
+      stat: async (p) => {
+        try {
+          const st = await vscode.workspace.fs.stat(vscode.Uri.file(p));
+          return { mtimeMs: st.mtime };
+        } catch {
+          return null;
+        }
+      },
+    });
+    context.subscriptions.push({ dispose: () => registryWatcher.dispose() });
+    registryWatcher.start();
   }
 
   // ---- Team Builder and Rules Editor commands -------------------------
