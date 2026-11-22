@@ -64,6 +64,15 @@ export interface ProcessMessageOptions {
   requestApproval?: (description: string) => Promise<boolean>;
   /** Called after user input PII is redacted, before the LLM is called. */
   onPiiRedacted?: (summary: string) => void;
+  /** Optional per-run/day token and USD budget, checked before each call. */
+  budget?: import("../config/budget").BudgetEnforcer;
+  /** True when no human can answer an approval prompt. */
+  headless?: boolean;
+  /** Snapshot the given paths before a mutating tool writes to disk. */
+  onBeforeMutation?: (paths: string[]) => Promise<void>;
+  policy?: import("../policy/engine").PolicyEngine;
+  sessionPolicy?: import("../policy/engine").PolicyRule[];
+  executionBackend?: import("../safety/execution-backend").ExecutionBackend;
 }
 
 export interface ProcessMessageResult {
@@ -147,6 +156,12 @@ export class AgentController {
   private memoryBank: MemoryBank | undefined;
   private editReviewTracker?: import("./edit-review-tracker").EditReviewTracker;
   private responseCache: ResponseCache | null = null;
+  /**
+   * Optional shared budget. A per-call `options.budget` takes precedence;
+   * this fallback lets a host (CLI/extension) enforce one budget across all
+   * turns and sessions without threading options through every call site.
+   */
+  private budget?: import("../config/budget").BudgetEnforcer;
   /** True while a processMessage() call is actively executing (streaming or tool calls). */
   private _isProcessing = false;
   /** FIFO queue of processMessage() calls that arrived while _isProcessing was true. */
@@ -183,6 +198,16 @@ export class AgentController {
   /** Wire the audit log — called from extension.ts after activation. */
   setAuditLog(log: import("../observability/audit-log").AuditLog): void {
     this._auditLog = log;
+  }
+
+  /**
+   * Attach a shared budget enforced across all turns of this controller.
+   * Pass undefined to remove it. A per-call `options.budget` still wins.
+   */
+  setBudget(
+    budget: import("../config/budget").BudgetEnforcer | undefined,
+  ): void {
+    this.budget = budget;
   }
 
   /**
@@ -651,6 +676,19 @@ export class AgentController {
           ? [...messagesToSend, buildPrefillAssistantMessage()]
           : messagesToSend;
 
+        const activeBudget = options.budget ?? this.budget;
+        if (activeBudget) {
+          const decision = activeBudget.checkCurrent();
+          if (!decision.allowed) {
+            this.emit({
+              type: "error",
+              error: `Budget exceeded: ${decision.reason}`,
+            });
+            hadError = true;
+            break;
+          }
+        }
+
         const stream = activeProvider.chat(requestMessages, {
           // Native tool defs only when the provider says it supports them.
           tools: usePromptBased ? undefined : allTools,
@@ -698,6 +736,14 @@ export class AgentController {
           } else if (delta.type === "done") {
             totalInputTokens += delta.usage.inputTokens;
             totalOutputTokens += delta.usage.outputTokens;
+            activeBudget?.record({
+              provider: activeProvider.name,
+              model:
+                activeProvider.modelInfo().id ??
+                activeProvider.modelInfo().name,
+              inputTokens: delta.usage.inputTokens,
+              outputTokens: delta.usage.outputTokens,
+            });
             // Anchor future estimates on the provider's authoritative prompt
             // token count for this prefix (#137). The prefill seed (prompt-based
             // continuation only) is a constant small delta, so recording against
@@ -885,6 +931,11 @@ export class AgentController {
             editReviewTracker: this.editReviewTracker,
             stagedEdits,
             auditLog: this._auditLog,
+            headless: options.headless,
+            onBeforeMutation: options.onBeforeMutation,
+            policy: options.policy,
+            sessionPolicy: options.sessionPolicy,
+            executionBackend: options.executionBackend,
           };
 
           const result = await this.toolRegistry.execute(

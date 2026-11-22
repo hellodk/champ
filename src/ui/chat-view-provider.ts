@@ -222,6 +222,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     | import("./diff-overlay-controller").DiffOverlayController
     | null = null;
   private memoryBank?: import("../memory/memory-bank").MemoryBank;
+  /** Automatic pre-mutation checkpoint hook, supplied by extension.ts. */
+  private mutationCheckpointer?: (paths: string[]) => Promise<void>;
   constructor(
     private readonly extensionUri: vscode.Uri,
     private agent: AgentController,
@@ -255,6 +257,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /** Attach the MemoryBank so CRUD operations from the webview can be forwarded. */
   setMemoryBank(bank: import("../memory/memory-bank").MemoryBank): void {
     this.memoryBank = bank;
+  }
+
+  /**
+   * Attach the CheckpointManager used to snapshot files before a mutating
+   * tool runs. Every call creates a labeled checkpoint of the declared paths.
+   */
+  setCheckpointManager(
+    manager: import("../checkpoints/checkpoint-manager").CheckpointManager,
+  ): void {
+    this.mutationCheckpointer = async (paths) => {
+      await manager.create(
+        `auto: before mutation (${new Date().toISOString()})`,
+        paths,
+      );
+    };
   }
 
   /**
@@ -1106,6 +1123,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       await this.agent.processMessage(enrichedContent, {
         abortSignal: controller.signal,
         requestApproval: this.buildApprovalCallback(),
+        onBeforeMutation: this.mutationCheckpointer,
         onPiiRedacted: (summary) => {
           this.postMessage(createPiiNotice(summary));
         },

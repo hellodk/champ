@@ -69,6 +69,7 @@ import type { LLMProvider, StreamDelta } from "./providers/types";
 import type { AvailableProviderModel, WorkflowHistoryRun } from "./ui/messages";
 import { SAMPLE_CONFIGS } from "./config/sample-configs";
 import { estimateCost } from "./config/token-cost";
+import { BudgetEnforcer } from "./config/budget";
 import {
   FIRST_RUN_COMPLETE_KEY,
   ONBOARDING_DISMISSED_KEY,
@@ -987,6 +988,9 @@ export async function activate(
     context.extension.packageJSON.version as string,
   );
   chatViewProvider.setContextResolver(contextResolver);
+  if (checkpointManager) {
+    chatViewProvider.setCheckpointManager(checkpointManager);
+  }
   chatViewProvider.setSkillRegistry(skillRegistry);
   chatViewProvider.setSkillContext(
     {
@@ -3660,6 +3664,14 @@ export async function activate(
           .getSession(meta.id)
           ?.controller.setPromptGuardEnabled(guardEnabled);
       });
+
+      // One shared budget across the main controller and every session so
+      // per-day limits cannot be bypassed by opening a new chat tab.
+      const budget = yamlConfig?.agent?.budget
+        ? new BudgetEnforcer(yamlConfig.agent.budget)
+        : undefined;
+      agentController.setBudget(budget);
+      agentManager?.setBudget(budget);
       // Replace any prior real provider in the registry.
       try {
         providerRegistry?.unregister(inlineProviderRef.current.name);
@@ -3854,7 +3866,7 @@ export async function activate(
           smartRouter.setActiveProvider(
             resolvedSelection?.endpoint.provider ?? null,
           );
-        } else if (registryDoc?.routingMode === "manual") {
+        } else if (resolvedSelection?.routingMode === "manual") {
           smartRouter.setMode("manual");
           smartRouter.setActiveProvider(
             resolvedSelection?.endpoint.provider ??

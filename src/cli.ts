@@ -46,6 +46,7 @@ import { applyAllowedTools } from "./cli/tool-scope";
 import { runProviderCommand } from "./cli/provider-commands";
 import { runUpdateCommand } from "./cli/update";
 import { ChainCredentialStore } from "./config/credential-store";
+import { BudgetEnforcer } from "./config/budget";
 import { EndpointRegistry } from "./config/endpoint-registry";
 import { discoverModels, testEndpoint } from "./config/model-discovery";
 import { migrateFromYaml, scrubYamlSecrets } from "./config/provider-migration";
@@ -303,6 +304,10 @@ interface TurnOptions {
   onDone: (info: { tools: number; usage: TokenUsage }) => void;
   /** Persist whatever the turn added to the session log, if any. */
   onTurnEnd?: () => Promise<void>;
+  /** No human can answer an approval prompt — ASK is denied, never silently approved. */
+  headless?: boolean;
+  /** Shared per-process budget, enforced from actual provider usage. */
+  budget?: BudgetEnforcer;
 }
 
 /** Shared per-turn options for an interactive session (REPL). */
@@ -322,6 +327,8 @@ interface SessionOptions {
   file?: string;
   /** Persist the turn's new messages to the session log. */
   onTurnEnd: () => Promise<void>;
+  /** Shared per-process budget, enforced from actual provider usage. */
+  budget?: BudgetEnforcer;
 }
 
 function warnMissingTools(
@@ -426,6 +433,8 @@ async function runTurn(
       maxIterations: options.maxIterations,
       requestApproval: options.requestApproval,
       abortSignal: abort.signal,
+      headless: options.headless,
+      budget: options.budget,
     });
     if (sawText) {
       process.stdout.write("\n");
@@ -672,6 +681,7 @@ async function runRepl(
                 requestApproval: (description) => askOn(rl, description),
                 onTurnEnd: opts.onTurnEnd,
                 onDone: printSummary,
+                budget: opts.budget,
               },
             );
             if (outcome.aborted) {
@@ -715,6 +725,7 @@ async function runRepl(
       requestApproval: (description) => askOn(rl, description),
       onTurnEnd: opts.onTurnEnd,
       onDone: printSummary,
+      budget: opts.budget,
     });
 
     if (outcome.aborted) {
@@ -818,6 +829,11 @@ async function main(): Promise<number> {
   // ── Build the agent ───────────────────────────────────────────────────
   const workspace = path.resolve(flags.cwd);
   const config = buildConfig(flags);
+  // Budgets are optional; when configured they are enforced from actual
+  // provider usage across the whole process (all REPL turns / one shot).
+  const budget = config.agent?.budget
+    ? new BudgetEnforcer(config.agent.budget)
+    : undefined;
   const hasExplicitEndpointOverride = Boolean(flags.provider || flags.baseUrl);
   const registryChoice = hasExplicitEndpointOverride
     ? null
@@ -1009,19 +1025,23 @@ async function main(): Promise<number> {
   };
   process.on("SIGINT", onSigint);
 
-  // Approval policy: prompt only when a human can answer. Piped or
-  // non-terminal runs approve automatically (documented in --help) —
-  // refusing would make headless runs unable to do anything.
+  // Approval policy: a human can answer only in the REPL or a TTY one-shot.
+  // In headless runs ASK is DENIED — it is never silently approved. Auto-
+  // approval requires an explicit opt-in (`--yes` or yoloMode), so a piped
+  // run cannot accidentally gain destructive access.
   const canPrompt =
     mode === "repl" || (mode === "oneshot" && Boolean(process.stdin.isTTY));
   const yolo = config.agent?.yoloMode === true;
-  const autoApprove = flags.yes || yolo || !canPrompt;
-  const requestApproval = async (description: string): Promise<boolean> =>
-    autoApprove ? true : askFresh(description);
+  const autoApprove = flags.yes || yolo;
+  const headless = !canPrompt && !autoApprove;
+  const requestApproval = async (description: string): Promise<boolean> => {
+    if (headless) return false;
+    return autoApprove ? true : askFresh(description);
+  };
 
-  if (!flags.yes && !yolo && !canPrompt) {
+  if (headless) {
     process.stderr.write(
-      "[champ] non-interactive run: destructive tools are approved automatically (pass --yes to silence this note)\n",
+      "[champ] non-interactive run without --yes: actions requiring approval are denied (pass --yes to auto-approve)\n",
     );
   }
 
@@ -1039,6 +1059,7 @@ async function main(): Promise<number> {
           toolRegistry,
           file: flags.file,
           onTurnEnd,
+          budget,
         },
         `Champ ${cliVersion()} — model ${provider.config.model ?? "?"}. /help for commands.`,
       );
@@ -1083,6 +1104,8 @@ async function main(): Promise<number> {
               maxIterations: flags.maxIterations,
               onTurnEnd,
               onDone: printSummary,
+              headless,
+              budget,
             },
           );
         } else {
@@ -1097,6 +1120,8 @@ async function main(): Promise<number> {
             maxIterations: flags.maxIterations,
             onTurnEnd,
             onDone: printSummary,
+            headless,
+            budget,
           });
         }
         if (outcome.aborted) code = EXIT_ABORTED;

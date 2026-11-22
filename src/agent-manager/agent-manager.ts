@@ -36,6 +36,8 @@ export class AgentManager {
   private activeId: string | null = null;
   private listeners = new Set<(event: ManagerEvent) => void>();
   private smartRouter: SmartRouter | null = null;
+  /** Shared budget applied to every current and future session. */
+  private budget?: import("../config/budget").BudgetEnforcer;
 
   constructor(
     private readonly toolRegistry: ToolRegistry,
@@ -48,6 +50,19 @@ export class AgentManager {
     // Wire into all existing sessions.
     for (const session of this.sessions.values()) {
       session.controller.setSmartRouter(router);
+    }
+  }
+
+  /**
+   * Apply one shared budget across all sessions. New sessions inherit it on
+   * creation, so per-day limits cannot be bypassed by opening a new chat tab.
+   */
+  setBudget(
+    budget: import("../config/budget").BudgetEnforcer | undefined,
+  ): void {
+    this.budget = budget;
+    for (const session of this.sessions.values()) {
+      session.controller.setBudget(budget);
     }
   }
 
@@ -71,6 +86,7 @@ export class AgentManager {
       this.workspaceRoot,
     );
     if (this.smartRouter) controller.setSmartRouter(this.smartRouter);
+    if (this.budget) controller.setBudget(this.budget);
     const session: AgentSession = { metadata, controller };
     this.sessions.set(id, session);
     this.activeId = id;

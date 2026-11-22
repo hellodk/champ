@@ -56,6 +56,8 @@ export interface ResolvedModelSelection {
     | "first-enabled";
   reason: string;
   fallbacks: Endpoint[];
+  /** Authoritative routing mode, derived from the registry document. */
+  routingMode: "manual" | "auto";
 }
 
 /**
@@ -198,10 +200,27 @@ export class ModelSelectionService {
     return this.resolveFromDocument(doc, input);
   }
 
+  /**
+   * Resolve a model and expose the effective routing mode. Callers must use
+   * this result as the single source of truth — they must not re-read
+   * `doc.routingMode` and make a second, divergent routing decision.
+   */
   resolveFromDocument(
     doc: ProvidersDocument,
     input: ModelSelectionInput,
   ): ResolvedModelSelection | null {
+    const resolved = this.resolveInternal(doc, input);
+    if (!resolved) return null;
+    return {
+      ...resolved,
+      routingMode: doc.routingMode === "manual" ? "manual" : "auto",
+    };
+  }
+
+  private resolveInternal(
+    doc: ProvidersDocument,
+    input: ModelSelectionInput,
+  ): Omit<ResolvedModelSelection, "routingMode"> | null {
     const enabled = doc.endpoints.filter((ep) => ep.enabled);
     if (enabled.length === 0) return null;
 

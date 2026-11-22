@@ -43,6 +43,7 @@ export const editFileTool: Tool = {
     required: ["path", "old_content", "new_content"],
   },
   requiresApproval: true,
+  mutationPaths: (args) => (typeof args.path === "string" ? [args.path] : []),
 
   getPreview(args: Record<string, unknown>): ToolPreview | undefined {
     return buildEditPreview(
