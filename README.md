@@ -39,13 +39,13 @@ User ─▶ VS Code / CLI ─▶ AgentController ─┬─▶ EndpointRegistry (
 
 Champ ships as a standalone CLI (`champ`) for terminals, CI, and remote machines without VS Code. The bundle inlines its runtime dependencies and only requires **Node.js 20+** (no root access needed).
 
-**One-liner (Linux / macOS — requires `node >= 20`, `npm`, and `git`):**
+**One-liner (Linux / macOS — requires `node >= 20`, `npm`, and `git`; safe to re-run to upgrade an existing install):**
 
 ```bash
-tmp=$(mktemp -d) && git clone --depth 1 https://github.com/hellodk/champ.git "$tmp/champ" && (cd "$tmp/champ" && npm install --ignore-scripts --no-audit --no-fund --no-package-lock && node esbuild.mjs --production && npm pack --ignore-scripts && npm install -g ./champ-*.tgz) && rm -rf "$tmp" && champ --version
+tmp=$(mktemp -d) && git clone --depth 1 https://github.com/hellodk/champ.git "$tmp/champ" && (cd "$tmp/champ" && npm install --ignore-scripts --no-audit --no-fund --no-package-lock && node esbuild.mjs --production && npm pack --ignore-scripts && npm install -g --force --ignore-scripts --no-audit --no-fund ./champ-*.tgz) && rm -rf "$tmp" && hash -r && champ --version
 ```
 
-If `champ` is not on your `PATH` after installing, add your user npm global bin directory to `~/.bashrc` or `~/.zshrc`:
+Once installed, you can also update anytime with `champ update`. If `champ` is not on your `PATH` after installing, add your user npm global bin directory to `~/.bashrc` or `~/.zshrc`:
 
 ```bash
 export PATH="$(npm config get prefix)/bin:$PATH"
@@ -54,9 +54,9 @@ export PATH="$(npm config get prefix)/bin:$PATH"
 **From an existing local checkout:**
 
 ```bash
-node esbuild.mjs --production   # builds dist/cli.js (standalone, vscode-free)
-npm pack                        # creates champ-<version>.tgz (CLI payload only)
-npm install -g ./champ-*.tgz    # or: npm link
+node esbuild.mjs --production          # builds dist/cli.js (standalone, vscode-free)
+npm pack --ignore-scripts              # creates champ-<version>.tgz (CLI payload only)
+npm install -g --force ./champ-*.tgz   # or: npm link
 champ --version
 ```
 

@@ -20,10 +20,10 @@ Complete guide for the **Champ VS Code extension** and the **headless `champ` CL
 
 ### Champ CLI (Linux / macOS one-liner)
 
-Requires `node >= 20`, `npm`, and `git`:
+Requires `node >= 20`, `npm`, and `git` (safe to re-run to upgrade an existing install):
 
 ```bash
-tmp=$(mktemp -d) && git clone --depth 1 https://github.com/hellodk/champ.git "$tmp/champ" && (cd "$tmp/champ" && npm install --ignore-scripts --no-audit --no-fund --no-package-lock && node esbuild.mjs --production && npm pack --ignore-scripts && npm install -g ./champ-*.tgz) && rm -rf "$tmp" && champ --version
+tmp=$(mktemp -d) && git clone --depth 1 https://github.com/hellodk/champ.git "$tmp/champ" && (cd "$tmp/champ" && npm install --ignore-scripts --no-audit --no-fund --no-package-lock && node esbuild.mjs --production && npm pack --ignore-scripts && npm install -g --force --ignore-scripts --no-audit --no-fund ./champ-*.tgz) && rm -rf "$tmp" && hash -r && champ --version
 ```
 
 If `champ` is not found after installing, add your user npm bin directory to `~/.bashrc` or `~/.zshrc`:
@@ -42,7 +42,7 @@ champ update --force --ref <branch/tag>  # force reinstall from a specific branc
 
 From an existing checkout:
 - **`npm link`** (after `node esbuild.mjs`) for local development.
-- **Tarball**: `node esbuild.mjs --production && npm pack && npm install -g ./champ-<version>.tgz`.
+- **Tarball**: `node esbuild.mjs --production && npm pack --ignore-scripts && npm install -g --force ./champ-<version>.tgz`.
 - **No install**: `node dist/cli.js --cwd /path/to/project -y "List the files"`.
 
 ### VS Code Extension

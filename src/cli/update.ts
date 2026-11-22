@@ -375,6 +375,7 @@ export async function runUpdateCommand(
     const installArgs = [
       "install",
       "--global",
+      "--force",
       "--ignore-scripts",
       "--no-audit",
       "--no-fund",

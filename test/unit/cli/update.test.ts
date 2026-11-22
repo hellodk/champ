@@ -239,6 +239,7 @@ describe("runUpdateCommand", () => {
       const globalInstall = h.calls.find(
         (c) => c.file === "npm" && c.args.includes("--global"),
       );
+      expect(globalInstall?.args).toContain("--force");
       expect(globalInstall?.args).toContain("--prefix");
       expect(globalInstall?.args).toContain("/tmp/custom-prefix");
       expect(globalInstall?.args.at(-1)).toMatch(/champ-2\.0\.3\.tgz$/);
