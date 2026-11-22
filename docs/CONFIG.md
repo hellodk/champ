@@ -28,6 +28,19 @@ Champ separates **provider endpoint management** (`~/.champ/providers.json`) fro
 
 Saving `~/.champ/providers.json` or `~/.champ/config.yaml` triggers automatic hot reload in VS Code via `ConfigWatcher`.
 
+### Selecting a model
+
+Add or refresh an endpoint with `champ setup` / `champ provider discover <id>`, then list the selectable ids:
+
+```bash
+champ models [refresh] [--endpoint <id>]              # prints <endpoint-id>/<model-id>
+champ model use <id>/<model> [--workspace]            # default assignment (or workspace override)
+champ model assign <task> <id>/<model>                # task: default | coding | chat | completion | embedding
+champ config routing auto                             # auto | manual
+```
+
+In `auto` mode, `routing.rules` from the YAML config and capability/context scoring select among discovered models; `manual` mode uses only the explicit assignments and default. The YAML `routing.mode: smart|manual` block is a separate setting for the VS Code `SmartRouter`, while `champ config routing` writes `routingMode` to `~/.champ/providers.json`. See [USER_GUIDE.md](USER_GUIDE.md#selecting-a-model) for the full workflow and VS Code details.
+
 ---
 
 ## YAML Schema
@@ -64,6 +77,13 @@ autocomplete:
 agent:
   yoloMode: false
   defaultMode: agent # agent | ask | manual | plan | composer
+  budget: # optional; enforced from actual provider usage
+    maxTokensPerRun: 100000
+    maxInputTokensPerRun: 80000
+    maxOutputTokensPerRun: 20000
+    maxUsdPerRun: 5.00
+    maxTokensPerDay: 500000
+    maxUsdPerDay: 25.00
   autoFix:
     enabled: true
     maxIterations: 3
@@ -118,6 +138,16 @@ mcp:
       env:
         GITHUB_TOKEN: ${env:GITHUB_TOKEN}
 ```
+
+### Budget enforcement
+
+`agent.budget` is optional. Every limit is checked against **actual** provider usage reported on the `done` event, never against a predicted maximum, and the next call is blocked once a limit is exhausted. "Run" means the lifetime of the shared budget: one CLI process or one VS Code extension host. Per-run counters accumulate over that lifetime; per-day counters reset at 00:00 UTC. Limits are shared across all VS Code chat sessions and across CLI REPL turns.
+
+- `maxTokensPerRun`, `maxInputTokensPerRun`, `maxOutputTokensPerRun` — token ceilings for one run.
+- `maxUsdPerRun`, `maxUsdPerDay` — cost ceilings using the built-in, versioned pricing table. Providers with no known price are treated as unpriced and fail closed when a USD limit is configured; local providers are known and free.
+- `maxTokensPerDay` — daily token ceiling.
+
+Invalid values (non-numeric, negative, non-finite) are rejected at config-load time.
 
 ---
 
