@@ -393,25 +393,66 @@ describe("cli arg parser — setup and provider commands", () => {
       kind: "provider-command",
       command: { name: "config-migrate", dryRun: true },
     });
+    expect(parse(["update"])).toMatchObject({
+      kind: "update",
+      options: { check: false, force: false },
+    });
+    expect(
+      parse([
+        "update",
+        "--check",
+        "--force",
+        "--ref",
+        "v2.1.0",
+        "--repo",
+        "https://example.com/champ.git",
+        "--prefix",
+        "/tmp/npm-global",
+      ]),
+    ).toMatchObject({
+      kind: "update",
+      options: {
+        check: true,
+        force: true,
+        ref: "v2.1.0",
+        repo: "https://example.com/champ.git",
+        prefix: "/tmp/npm-global",
+      },
+    });
+    expect(parse(["update", "--dry-run"])).toMatchObject({
+      kind: "update",
+      options: { check: true, force: false },
+    });
   });
 
-  it('keeps champ "setup the repo" in task mode', () => {
-    const opts = run(parse(["setup the repo"]));
-    expect(opts.mode).toBe("oneshot");
-    expect(opts.task).toBe("setup the repo");
+  it('keeps champ "setup the repo" and champ "update the readme" in task mode', () => {
+    const setupTask = run(parse(["setup the repo"]));
+    expect(setupTask.mode).toBe("oneshot");
+    expect(setupTask.task).toBe("setup the repo");
+
+    const updateTask = run(parse(["update the readme"]));
+    expect(updateTask.mode).toBe("oneshot");
+    expect(updateTask.task).toBe("update the readme");
   });
 
-  it("rejects unknown subcommands with usage error", () => {
+  it("rejects unknown subcommands and unsafe update flags with usage error", () => {
     expect(parse(["provider", "bogus"]).kind).toBe("error");
     expect(parse(["provider"]).kind).toBe("error");
     expect(parse(["config", "bogus"]).kind).toBe("error");
     expect(parse(["model", "bogus"]).kind).toBe("error");
     expect(parse(["models", "bogus"]).kind).toBe("error");
+    expect(parse(["update", "extra"]).kind).toBe("error");
+    expect(parse(["update", "--ref", "--upload-pack=evil"]).kind).toBe("error");
+    expect(parse(["update", "--repo=-flag"]).kind).toBe("error");
+    expect(parse(["update", "--prefix", "  "]).kind).toBe("error");
   });
 
-  it("USAGE includes setup and provider command lines", () => {
+  it("USAGE includes setup, provider, and update command lines", () => {
     expect(USAGE).toContain("champ setup");
     expect(USAGE).toContain("champ provider");
+    expect(USAGE).toContain("champ update");
+    expect(USAGE).toContain("--check");
+    expect(USAGE).toContain("--force");
     expect(USAGE).toContain("--endpoint <id>");
     expect(USAGE).toContain("--workspace");
     expect(USAGE).toContain("--dry-run");
@@ -425,6 +466,7 @@ describe("cli entry — no vscode on the CLI path (issue #136)", () => {
       "src/cli/args.ts",
       "src/cli/setup.ts",
       "src/cli/provider-commands.ts",
+      "src/cli/update.ts",
       "src/cli/rules.ts",
       "src/cli/skills.ts",
       "src/cli/tool-scope.ts",

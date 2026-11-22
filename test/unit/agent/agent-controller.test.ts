@@ -371,7 +371,7 @@ describe("AgentController", () => {
     it("should include anti-hallucination directives in the system prompt", async () => {
       // The system prompt must contain specific directives that prevent
       // the model from inventing functions, file paths, or claiming
-      // actions it didn't perform. See docs/HALLUCINATION_MITIGATION.md.
+      // actions it didn't perform. See docs/ARCHITECTURE.md#hallucination-mitigation.
       const provider = createPromptBasedProvider([`ok.`]);
       const registry = createToolRegistryWithReadFile();
       const controller = new AgentController(provider, registry);

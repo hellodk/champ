@@ -11,6 +11,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as fs from "fs/promises";
 import * as crypto from "crypto";
+import * as os from "os";
 import * as path from "path";
 
 // Redirect os.homedir() to a temp dir so ~/.champ/index writes are isolated.
@@ -119,9 +120,9 @@ describe("persisted index reuse (issue #107)", () => {
   let wsRoot: string;
 
   beforeEach(async () => {
-    tmpHome = await fs.mkdtemp(path.join("/tmp/opencode", "champ-home-"));
+    tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "champ-home-"));
     homedirHolder.home = tmpHome;
-    wsRoot = await fs.mkdtemp(path.join("/tmp/opencode", "champ-ws-"));
+    wsRoot = await fs.mkdtemp(path.join(os.tmpdir(), "champ-ws-"));
   });
 
   afterEach(async () => {
@@ -216,9 +217,9 @@ describe("incremental freshness (issue #107)", () => {
   let wsRoot: string;
 
   beforeEach(async () => {
-    tmpHome = await fs.mkdtemp(path.join("/tmp/opencode", "champ-home-"));
+    tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "champ-home-"));
     homedirHolder.home = tmpHome;
-    wsRoot = await fs.mkdtemp(path.join("/tmp/opencode", "champ-ws-"));
+    wsRoot = await fs.mkdtemp(path.join(os.tmpdir(), "champ-ws-"));
   });
 
   afterEach(async () => {

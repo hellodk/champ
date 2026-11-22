@@ -1,93 +1,73 @@
-# Champ — AI Coding Agent for VS Code
+# Champ — AI Coding Agent for VS Code & Terminal
 
-Open-source VS Code extension that puts an autonomous coding agent in your editor with **full local-LLM support**, multi-agent orchestration, a fresh RAG codebase index, and defense-in-depth safety. Built in TypeScript, TDD-first (1,900+ tests).
+Open-source coding agent for **VS Code** and the **terminal (`champ` CLI)** with local-first LLM support, multi-agent orchestration, a watcher-fresh RAG codebase index, skills, project rules, and defense-in-depth safety. Built in TypeScript with TDD (220+ test files, 2,000+ unit tests).
 
 ```
-User ─▶ Sidebar Chat ─▶ AgentController ─┬─▶ LLM Provider (7 backends)
-      (@Files @Codebase @Git …)          ├─▶ ToolRegistry (19 tools, approval-gated)
-                                         ├─▶ RAG Index (watcher-fresh, persisted)
-                                         └─▶ Multi-Agent Teams / Workflows / MCP
+User ─▶ VS Code / CLI ─▶ AgentController ─┬─▶ EndpointRegistry (7 providers)
+      (@Files @Codebase @Git / Skills)    ├─▶ ToolRegistry (approval-gated)
+                                          ├─▶ RAG Index (watcher-fresh, persisted)
+                                          └─▶ Multi-Agent Teams / Workflows / MCP
 ```
 
 ---
 
-## Features
+## Index
 
-### Providers & models
-- **7 providers behind one interface** — Claude, OpenAI, Gemini, Ollama, llama.cpp, vLLM and any OpenAI-compatible endpoint (vLLM, LM Studio, omlx, …)
-- **Local-first** — run entirely offline; discovery scans every configured server and lists all models in the picker
-- **Native tool-calling opt-in** for OpenAI-spec servers via `supportsTools: true` in YAML
-- **Smart Router** — auto-picks the right model per task type (coding / chat / completion), with user-defined routing rules, circuit breakers and fallback chains
-
-### Agentic core
-- **Agent loop** with iteration cap, abort-safety, staged atomic edits, and per-tool approval previews
-- **Hallucination guard** — detects narrated-but-never-executed tool calls and forces real `<tool_call>` emission
-- **Tool-call hardening** — arguments schema-validated before execution with corrective feedback to the model
-- **Resilience** — per-request HTTP timeouts, bounded exponential backoff honoring `Retry-After`, workflow-wide retry budgets that terminate runaway retry loops
-- **Context management** — token-budgeted compaction with LLM summaries, repo-map grounding, terminal output buffer for `@Terminal`
-
-### Multi-agent & automation
-- **Pipeline runner** (`planner → context → code → reviewer → validator`) and DAG orchestrator with conditional branching and dynamic routing
-- **Agent Teams** — YAML-defined teams running in topological parallel groups with shared memory, token budgets, pause/resume, checkpoints, and dynamic agent spawning (`SPAWN:` protocol)
-- **Auto-fix loop** — LSP-diagnostics-driven fix iterations after edits
-- **Test-driven fix loop** — runs your test suite and iterates until green
-
-### RAG codebase index
-- Language-aware AST chunking (TS/JS) + sliding windows elsewhere
-- HNSW vector search (brute-force below 10k chunks), model-scoped embedding cache on disk
-- **Persisted index reused across sessions** and kept fresh by a file watcher — create/change/delete reindex within ~500 ms
-- Query via `@Codebase` or the `codebase_search` tool (ripgrep fallback when the index is cold)
-
-### Editor integrations
-- **Sidebar chat** — Agent / Ask / Manual / Plan / Composer modes, rAF-batched streaming (smooth even on long answers), lazy-loaded syntax highlighting
-- **Inline ghost-text autocomplete** from a small fast model with stale-request cancellation
-- **Hunk-level diff overlay** — accept/reject individual changes via CodeLens + gutter markers
-- **@-context symbols** — `@Files`, `@Folders`, `@Code`, `@Codebase`, `@Web`, `@Git`, `@Docs`, `@Symbols`, `@Terminal`, `@GitBlame`, `@TestFor`, `@PR(123)`, `@Issue(456)`, `@MCP(server:uri)`
-- **Skills** — `/explain`, `/test`, `/refactor`, `/review`, `/commit`, `/doc`, `/fix`, `/optimize` plus workspace/user skills with frontmatter
-
-### Safety
-- Command denylist sandbox (`rm -rf /`, `curl | bash`, sudo…), allowlist mode
-- Secret scanner redacts keys/credentials in tool output before they reach the LLM; PII scanner on input
-- PromptGuard screens user input *and* tool outputs for injection patterns
-- Path-traversal guards on every file tool (symlink-aware)
-- Hash-chained audit log with tamper verification
-- Approval flow: per-action prompts by default, `champ.yoloMode` kill-switch, team modes (safe/supervised/auto)
-
-### Configuration — one source of truth
-```yaml
-# .champ/config.yaml  (workspace)   or   ~/.champ/config.yaml  (user)
-provider: openai-compatible            # active provider
-providers:
-  openai-compatible:                   # any OpenAI-spec server
-    baseUrl: http://192.168.1.5:8000/v1   # note the /v1 suffix
-    model: mlx-community--Qwen3.5-4B-MLX-4bit
-    apiKey: dummy                      # self-hosted keys allowed here
-    supportsTools: true                # native OpenAI tool calling
-  ollama:
-    baseUrl: http://127.0.0.1:11434
-    model: qwen2.5-coder:1.5b
-agent:
-  yoloMode: false                      # true = skip approval prompts
-indexing:
-  enabled: true                        # RAG index
-```
-- Precedence: workspace YAML > user YAML > VS Code settings > defaults
-- **`champ.configSource`** setting pins ONE source explicitly (`workspace-yaml` | `user-yaml` | `settings`) — ignored layers are logged
-- **`Champ: Show Effective Config`** prints the merged result annotated with which layer supplied every key
-- Cloud API keys always go to SecretStorage (`Champ: Set API Key`) — never YAML
-
-### Observability
-- Bounded metrics buffers (requests, steps, tool calls, failures) + authenticated Prometheus `/metrics` on the local API server
-- Optional OTLP export of agent-run analytics
-- Hash-chained audit log (`Champ: Verify Audit Log`)
-- Local API server (`Champ: Show API Server Info`) with timing-safe bearer auth
+- [Install](#install)
+  - [Headless CLI (Linux / macOS one-liner)](#headless-cli-no-vs-code)
+  - [VS Code Extension](#vs-code-extension)
+- [Quick Start](#quick-start)
+- [Features](#features)
+  - [Providers & models](#providers--models)
+  - [Agentic core](#agentic-core)
+  - [Multi-agent & automation](#multi-agent--automation)
+  - [RAG codebase index](#rag-codebase-index)
+  - [Editor integrations](#editor-integrations)
+  - [Safety](#safety)
+  - [Observability](#observability)
+- [Configuration](#configuration)
+- [Useful Commands](#useful-commands)
+- [Development](#development)
+- [Documentation](#documentation)
+- [License](#license)
 
 ---
 
 ## Install
 
+### Headless CLI (no VS Code)
+
+Champ ships as a standalone CLI (`champ`) for terminals, CI, and remote machines without VS Code. The bundle inlines its runtime dependencies and only requires **Node.js 20+** (no root access needed).
+
+**One-liner (Linux / macOS — requires `node >= 20`, `npm`, and `git`):**
+
 ```bash
-code --install-extension champ-1.7.0.vsix
+tmp=$(mktemp -d) && git clone --depth 1 https://github.com/hellodk/champ.git "$tmp/champ" && (cd "$tmp/champ" && npm install --ignore-scripts --no-audit --no-fund --no-package-lock && node esbuild.mjs --production && npm pack --ignore-scripts && npm install -g ./champ-*.tgz) && rm -rf "$tmp" && champ --version
+```
+
+If `champ` is not on your `PATH` after installing, add your user npm global bin directory to `~/.bashrc` or `~/.zshrc`:
+
+```bash
+export PATH="$(npm config get prefix)/bin:$PATH"
+```
+
+**From an existing local checkout:**
+
+```bash
+node esbuild.mjs --production   # builds dist/cli.js (standalone, vscode-free)
+npm pack                        # creates champ-<version>.tgz (CLI payload only)
+npm install -g ./champ-*.tgz    # or: npm link
+champ --version
+```
+
+### VS Code Extension
+
+Install from a `.vsix` file or via the repo script:
+
+```bash
+code --install-extension champ-<version>.vsix
+# or from a checkout:
+scripts/champ install
 ```
 
 Or build from source:
@@ -99,90 +79,156 @@ npx @vscode/vsce package --no-dependencies
 code --install-extension champ-<version>.vsix
 ```
 
-## Quick start
+---
 
-1. Reload VS Code → open the **Champ** sidebar.
-2. Pick a provider: either use settings, or drop a `.champ/config.yaml` like the one above into your project.
-3. Run **Champ: Show Effective Config** to confirm what's live.
-4. Chat. In *agent* mode Champ reads files, edits, and runs commands — each destructive action asks first unless yoloMode is on.
+## Quick Start
 
-### Using agentic tasks against a local OpenAI-compatible server
+### Terminal CLI
 
-```yaml
-provider: openai-compatible
-providers:
-  openai-compatible:
-    baseUrl: http://your-server:8000/v1
-    model: <model-id-from-/v1/models>
-    apiKey: <token-if-required>
-    supportsTools: true     # enables native function calling
-```
+1. Run the interactive provider wizard (no YAML hand-editing required):
+   ```bash
+   champ setup
+   ```
+2. Run a one-shot task, pipe stdin, or start an interactive REPL:
+   ```bash
+   champ "find all TODOs under src/ and summarize"
+   echo "explain src/cli.ts" | champ
+   champ                      # interactive REPL
+   champ --sessions           # list stored workspace sessions
+   champ --list-skills        # list built-in, user, and workspace skills
+   ```
 
-Then ask things like *"find all TODOs under src/ and summarize"* — Champ streams the plan, calls tools (you see each call as a card), executes them sandboxed/approved, and iterates until done.
+Approvals prompt when a human is attached to the terminal. Non-interactive runs (`-y` or piped stdin) auto-approve and report that on `stderr`. Model replies go to `stdout` and diagnostics go to `stderr`, so `champ "..." > plan.md` captures only the answer.
 
-## Headless CLI (no VS Code)
+### VS Code Extension
 
-Champ also ships as a standalone CLI for machines without VS Code — for example
-a fleet of 16 GB Mac Minis driving a local model. The bundle inlines every
-dependency and only needs Node 20+:
+1. Open the **Champ** sidebar in VS Code.
+2. Run **`Champ: Configure Provider`** (`Ctrl+Shift+P` / `Cmd+Shift+P`) or reuse endpoints already saved by `champ setup`.
+3. Chat in **Agent**, **Ask**, **Manual**, **Plan**, or **Composer** mode. Destructive actions prompt before running unless `yoloMode` is enabled.
+
+---
+
+## Features
+
+### Providers & models
+- **7 provider kinds behind one interface** — Anthropic Claude, OpenAI, Google Gemini, Ollama, llama.cpp, vLLM, and any OpenAI-compatible server (MLX, LM Studio, etc.)
+- **Shared local-first registry** — `champ setup` and VS Code share `~/.champ/providers.json` while keeping credentials in OS keyring / env vars (CLI) or VS Code `SecretStorage` (extension)
+- **Live model discovery & health checks** — probes `/v1/models` or `/api/tags` (with Bearer auth when configured) and records latency via `champ provider test`
+- **Smart Router & fallback chains** — task-based routing (coding / chat / completion / embedding), circuit breakers, and fallback chains
+
+### Agentic core
+- **Agent loop** with iteration caps, abort safety, staged atomic edits, and per-tool approval previews
+- **Hallucination guard** — detects narrated-but-never-executed tool calls and enforces real tool invocation
+- **Tool-call hardening** — arguments schema-validated before execution with corrective feedback
+- **Resilience** — per-request HTTP timeouts, bounded exponential backoff honoring `Retry-After`, and workflow-wide retry budgets
+- **Context management** — token-budgeted compaction with LLM summaries, repo-map grounding, and `@Terminal` output buffering
+
+### Multi-agent & automation
+- **Pipeline runner** (`planner → context → code → reviewer → validator`) and DAG orchestrator with conditional branching and dynamic routing
+- **Agent Teams** — YAML-defined teams running in parallel dependency groups with shared memory, token budgets, pause/resume, checkpoints, and dynamic `SPAWN:` agents
+- **Auto-fix loop** — LSP-diagnostics-driven fix iterations after edits
+- **Test-driven fix loop** — runs your test suite and iterates until green
+
+### RAG codebase index
+- Language-aware AST chunking (TS/JS) plus sliding windows elsewhere
+- HNSW vector search with a persisted, model-scoped embedding cache on disk
+- File-watcher incremental reindexing and `codebase_search` / `@Codebase`
+
+### Editor integrations
+- **Sidebar chat** — rAF-batched streaming and lazy-loaded syntax highlighting
+- **Inline ghost-text autocomplete** with stale-request cancellation
+- **Hunk-level diff overlay** — accept/reject individual changes via CodeLens and gutter markers
+- **@-context symbols** — `@Files`, `@Folders`, `@Code`, `@Codebase`, `@Web`, `@Git`, `@Docs`, `@Symbols`, `@Terminal`, `@GitBlame`, `@TestFor`, `@PR(123)`, `@Issue(456)`, `@MCP(server:uri)`
+- **Skills & rules** — built-in skills (`/explain`, `/test`, `/refactor`, `/review`, `/commit`, `/doc`, `/fix`, `/optimize`) plus workspace/user skills (`.champ/skills/*.md`) and rules (`.champ/rules/*.md`) in both VS Code and the CLI
+
+### Safety
+- Command denylist sandbox (`rm -rf /`, `curl | bash`, `sudo`, …) and allowlist mode
+- Secret scanner redacts credentials before they reach tool output; PII scanner on input
+- PromptGuard screens user input and tool outputs for injection patterns
+- Symlink-aware path-traversal guards on every file tool
+- Hash-chained audit log with tamper verification
+- Per-action approval prompts by default, optional `yoloMode`, and team safety modes (`safe`/`supervised`/`auto`)
+
+### Observability
+- Bounded metrics buffers and authenticated Prometheus `/metrics` on the local API server
+- Optional OTLP analytics export
+- Hash-chained audit log (`Champ: Verify Audit Log`) and timing-safe local API server (`Champ: Show API Server Info`)
+
+---
+
+## Configuration
+
+Provider endpoints are managed automatically via `champ setup` / `Champ: Configure Provider`; non-provider settings (`userRules`, `agent`, `indexing`, `mcp`, `routing`, `telemetry`) live in `~/.champ/config.yaml`.
+
+| Layer | Purpose | Location |
+|---|---|---|
+| CLI flags | Explicit per-run overrides (`--provider`, `--base-url`, `--model`, `--api-key`) | Command line |
+| Workspace ref | Optional non-secret endpoint/model pointer (`champ model use <id>/<model> --workspace`) | `<repo>/.champ/provider.json` |
+| Endpoint registry | Named endpoints, discovered models, task assignments (no secrets) | `~/.champ/providers.json` |
+| User YAML | Non-provider settings (`userRules`, `agent`, `mcp`, `indexing`) + legacy migration source | `~/.champ/config.yaml` (or `CHAMP_CONFIG`) |
+| Credentials | Secrets kept out of JSON/YAML | OS keyring / env vars (CLI), `SecretStorage` (VS Code) |
+
+Migrate an existing `~/.champ/config.yaml` provider block into the registry at any time:
 
 ```bash
-npm run compile            # builds dist/cli.js (standalone, vscode-free)
-npm pack                   # → champ-<version>.tgz, the CLI payload only
-npm install -g ./champ-<version>.tgz
-champ --version
+champ config migrate --dry-run
+champ config migrate
 ```
 
-Point it at the LAN endpoint with the same config file the extension uses
-(`~/.champ/config.yaml`, or `CHAMP_CONFIG=/path/to/config.yaml`), then run a
-one-shot task, pipe a prompt, or start the REPL:
+---
 
-```bash
-champ "find all TODOs under src/ and summarize"
-echo "explain src/cli.ts" | champ
-champ --repl
-champ --sessions           # list stored sessions; needs no provider
-```
+## Useful Commands
 
-Approvals prompt when a human is attached to the terminal. A one-shot or piped
-run has nobody to ask, so it auto-approves and says so on stderr. Replies go to
-stdout and traces to stderr, so `champ "…" > plan.md` captures only the answer.
-
-## Useful commands
+### CLI commands
 
 | Command | Purpose |
 |---|---|
-| `Champ: Show Effective Config` | merged config + per-key origin layer |
-| `Champ: Index Workspace` / auto | rebuild / incrementally refresh RAG index |
-| `Champ: Rescan Models` | re-discover models on all servers |
-| `Champ: Set API Key` | store cloud provider key in SecretStorage |
-| `Champ: Save/Restore Checkpoint` | snapshot & roll back workspace state |
-| `Champ: Run Multi-Agent Workflow` / `Run Agent Team` | orchestration entry points |
-| `Champ: Verify Audit Log` | validate hash chain |
+| `champ setup` | Interactive endpoint setup + model discovery |
+| `champ provider list \| add \| edit <id> \| remove <id>` | Manage saved endpoints |
+| `champ provider test <id> \| discover <id>` | Test connectivity/latency or refresh models |
+| `champ models [refresh]` | List or refresh discovered models |
+| `champ model use <id>/<model> [--workspace]` | Set default model globally or for a repo |
+| `champ config show \| migrate [--dry-run]` | Inspect redacted config or import legacy YAML |
+| `champ update [--check \| --force \| --ref <ref>]` | Update the `champ` CLI installation from upstream git |
 
-## Configuration sources
+### VS Code commands
 
-| Source | File / place |
+| Command | Purpose |
 |---|---|
-| Workspace YAML | `<repo>/.champ/config.yaml` |
-| User YAML | `~/.champ/config.yaml` |
-| VS Code settings | `champ.*` in Settings UI |
-| Defaults | built-in |
+| `Champ: Configure Provider` | Guided provider setup wizard |
+| `Champ: Show Effective Config` | Active config and origin diagnostics |
+| `Champ: Index Workspace` | Rebuild / refresh RAG index |
+| `Champ: Rescan Models` | Re-discover models on configured endpoints |
+| `Champ: Set API Key` | Store cloud keys in `SecretStorage` |
+| `Champ: Save Checkpoint` / `Champ: Restore Checkpoint` | Snapshot & restore workspace state |
+| `Champ: Run Multi-Agent Workflow` | Multi-agent orchestration entry point |
+| `Champ: Verify Audit Log` | Validate audit hash chain |
 
-Pin one with `champ.configSource`; inspect the winner any time via **Show Effective Config**.
+---
 
 ## Development
 
 ```bash
-pnpm install          # pnpm is the only package manager
-pnpm run watch        # esbuild watch (ext + webview)
-pnpm run test:unit    # 190+ files, 1,600+ tests
+pnpm install
+pnpm run watch
+pnpm run test:unit
 pnpm run check-types && pnpm run lint
-pnpm run compile      # production bundle
+pnpm run compile
 npx @vscode/vsce package --no-dependencies
 ```
 
-Architecture notes, plans and reviews live in [`docs/`](docs/) (`ARCHITECTURE.md`, `CONFIG.md`, `TEAMS.md`, review documents).
+---
+
+## Documentation
+
+- [Documentation Index](docs/README.md)
+- [User Guide (Install, CLI, Extension, Skills, Teams)](docs/USER_GUIDE.md)
+- [Configuration & Model Guide](docs/CONFIG.md)
+- [Architecture Overview](docs/ARCHITECTURE.md)
+- [Interfaces & System Prompts Reference](docs/REFERENCE.md)
+- [Operations, Security & Publishing](docs/OPERATIONS.md)
+
+---
 
 ## License
 

@@ -6,7 +6,7 @@
  * is the prompt template (with {{variables}} substituted at invocation
  * time).
  *
- * See docs/PLAN_SKILLS.md for the full design.
+ * See docs/USER_GUIDE.md for the skills schema and usage.
  */
 import type { AgentMode } from "../agent/agent-controller";
 

@@ -7,7 +7,7 @@
  * - Trusted hosts (certificate pinning, key verification)
  * - Credential management (keys, passwords, certificates)
  *
- * See docs/SSH_CONFIG.md for the schema reference.
+ * See docs/CONFIG.md for the schema reference.
  */
 import { describe, it, expect } from "vitest";
 import { ConfigLoader, type ChampConfig } from "@/config/config-loader";

@@ -1,350 +1,217 @@
-# Champ — User Guide
+# Champ User Guide
 
-A complete walkthrough of the Champ chat experience, from first install to advanced workflows.
+Complete guide for the **Champ VS Code extension** and the **headless `champ` CLI**. Requires **Node.js 20+**; no root access is needed.
 
-## Table of Contents
+## Index
 
 1. [Installation](#installation)
-2. [First run and provider setup](#first-run-and-provider-setup)
-3. [The chat sidebar](#the-chat-sidebar)
-4. [Modes](#modes)
-5. [Tools and approvals](#tools-and-approvals)
-6. [Inline autocomplete](#inline-autocomplete)
-7. [@-symbols for context](#-symbols-for-context)
-8. [Checkpoints](#checkpoints)
-9. [Rules](#rules)
-10. [MCP servers](#mcp-servers)
-11. [Keyboard shortcuts](#keyboard-shortcuts)
-12. [Troubleshooting](#troubleshooting)
+2. [Provider Setup](#provider-setup)
+3. [VS Code Extension](#vs-code-extension)
+4. [Headless CLI](#headless-cli)
+5. [Skills & Project Rules](#skills--project-rules)
+6. [Agent Teams & Custom Agents](#agent-teams--custom-agents)
+7. [MCP Servers](#mcp-servers)
+8. [Keyboard Shortcuts](#keyboard-shortcuts)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Installation
 
-### From the VS Code Marketplace (once published)
+### Champ CLI (Linux / macOS one-liner)
 
-1. Open the Extensions view (`Cmd/Ctrl + Shift + X`).
-2. Search for **Champ**.
-3. Click **Install**.
-
-### From a local `.vsix` (during development)
+Requires `node >= 20`, `npm`, and `git`:
 
 ```bash
-code --install-extension champ-0.1.0.vsix
+tmp=$(mktemp -d) && git clone --depth 1 https://github.com/hellodk/champ.git "$tmp/champ" && (cd "$tmp/champ" && npm install --ignore-scripts --no-audit --no-fund --no-package-lock && node esbuild.mjs --production && npm pack --ignore-scripts && npm install -g ./champ-*.tgz) && rm -rf "$tmp" && champ --version
 ```
 
-### From source
+If `champ` is not found after installing, add your user npm bin directory to `~/.bashrc` or `~/.zshrc`:
 
 ```bash
-git clone <repo-url>
-cd vs-code-plugin
-npm install
-# Press F5 to launch an Extension Development Host
+export PATH="$(npm config get prefix)/bin:$PATH"
 ```
 
----
+Updating an existing global install:
 
-## First run and provider setup
-
-After install, click the **Champ** icon in the Activity Bar (left sidebar). The chat panel opens with a welcome message. Before sending your first message you need to configure an LLM provider.
-
-### Option A — Local (privacy-preserving, no API costs)
-
-**Ollama** is the fastest path to a working local setup.
-
-1. Install Ollama from <https://ollama.com>.
-2. Pull the models:
-   ```bash
-   ollama pull llama3.1                # main chat/agent model
-   ollama pull qwen2.5-coder:1.5b      # small model for inline completions
-   ```
-3. In VS Code settings (`Cmd/Ctrl + ,`), search for `champ`:
-   - `champ.provider` → `ollama`
-   - `champ.ollama.model` → `llama3.1`
-   - `champ.ollama.baseUrl` → `http://localhost:11434` *(default, leave as-is)*
-   - `champ.autocomplete.model` → `qwen2.5-coder:1.5b`
-
-**llama.cpp** works identically if you prefer:
 ```bash
-./llama-server -m your-model.gguf --port 8080
-```
-- `champ.provider` → `llamacpp`
-- `champ.llamacpp.baseUrl` → `http://localhost:8080/v1` *(default)*
-
-**vLLM** for GPU inference:
-- `champ.provider` → `vllm`
-- `champ.vllm.baseUrl` → `http://localhost:8000/v1`
-- `champ.vllm.model` → your served model name
-
-### Option B — Cloud (best quality, requires API key)
-
-**Claude** (recommended):
-1. Get an API key from <https://console.anthropic.com>.
-2. Set `champ.provider` → `claude`.
-3. Run the command `Champ: Set Claude API Key` *(or configure via SecretStorage)*.
-
-**OpenAI**:
-- `champ.provider` → `openai`
-- `champ.openai.model` → `gpt-4o`
-- Store the API key via SecretStorage key `champ.openai.apiKey`
-
-**Gemini**:
-- `champ.provider` → `gemini`
-- `champ.gemini.model` → `gemini-2.0-flash`
-- Store the API key via SecretStorage key `champ.gemini.apiKey`
-
-### Option C — Any OpenAI-compatible endpoint
-
-Covers LM Studio, text-generation-webui, and self-hosted proxies:
-- `champ.provider` → `openai-compatible`
-- `champ.openaiCompatible.baseUrl` → your URL (e.g. `http://your-server:9000/v1`)
-- `champ.openaiCompatible.model` → your model name
-- `champ.openaiCompatible.apiKey` → optional
-
----
-
-## The chat sidebar
-
-The sidebar has three sections, top to bottom:
-
-```
-┌─────────────────────────────────────┐
-│ [Agent ▾]              [New Chat]   │  ← toolbar
-├─────────────────────────────────────┤
-│                                     │
-│  assistant                          │
-│  ┌─────────────────────────────┐   │
-│  │ Sure, I'll read main.ts     │   │
-│  │                             │   │
-│  │ 🔧 read_file                │   │  ← tool card
-│  │   {"path": "src/main.ts"}   │   │
-│  │   → file contents...        │   │
-│  └─────────────────────────────┘   │
-│                                     │  ← message list
-├─────────────────────────────────────┤
-│  Ask Champ anything...              │
-│                                     │
-│                  [Cancel] [Send]    │  ← input
-└─────────────────────────────────────┘
+champ update                             # update global CLI installation from upstream git
+champ update --check                     # check for a newer version/commit without installing
+champ update --force --ref <branch/tag>  # force reinstall from a specific branch or tag
 ```
 
-- **Toolbar**: mode switcher (left) and New Chat button (right).
-- **Message list**: scrolling history of user and assistant messages with inline tool cards.
-- **Input**: multi-line textarea with `Cmd/Ctrl + Enter` to send and a Cancel button that appears while the agent is running.
+From an existing checkout:
+- **`npm link`** (after `node esbuild.mjs`) for local development.
+- **Tarball**: `node esbuild.mjs --production && npm pack && npm install -g ./champ-<version>.tgz`.
+- **No install**: `node dist/cli.js --cwd /path/to/project -y "List the files"`.
 
-Messages stream character-by-character as the model generates. A blinking cursor appears on the active assistant message until streaming completes.
+### VS Code Extension
 
----
-
-## Modes
-
-Change mode via the dropdown in the toolbar or with `Cmd/Ctrl + Shift + M`.
-
-### Agent (default)
-
-Autonomous multi-step execution. The agent proactively uses its tools to complete your request end-to-end. It can read files, edit them, run terminal commands, and iterate on errors — all without asking for permission on every step.
-
-**Best for**: "Fix this bug", "Add a test for this function", "Refactor the auth module to use JWT".
-
-### Ask
-
-Read-only Q&A. The agent can use `read_file`, `list_directory`, `grep_search`, `codebase_search`, and `file_search` to answer questions, but it cannot modify any files or run commands.
-
-**Best for**: "How does authentication work in this codebase?", "Where is the rate limiter implemented?", "Explain this function".
-
-### Manual
-
-Step-by-step with explicit approval per tool call. Before executing any action, the agent explains what it plans to do and waits for your approval. Use this when you want to be in the loop on every decision.
-
-**Best for**: Learning how the agent works, high-stakes changes, unfamiliar codebases.
-
-### Plan
-
-Research and produce a detailed plan without making edits. The agent reads the codebase, understands the current state, and produces a numbered list of proposed changes for your review.
-
-**Best for**: Architectural changes, large refactors, any work you want to review before execution.
-
-### Composer
-
-Multi-file edit workflow with a Plan → Diff → Apply cycle and git integration. The composer produces diffs for all affected files at once, shows them in a review interface with per-file accept/reject, and can auto-commit to a new branch.
-
-**Best for**: Coordinated changes across many files, bulk refactors, anything you want to roll back cleanly.
+- From VSIX: `code --install-extension champ-<version>.vsix` (or `Extensions: Install from VSIX...`).
+- From a local checkout: `scripts/champ install` (latest GitHub release) or `scripts/champ install build` (local build).
+- From source: `pnpm install && pnpm run compile && npx @vscode/vsce package --no-dependencies`.
 
 ---
 
-## Tools and approvals
+## Provider Setup
 
-The agent has 10 built-in tools:
+Run the interactive wizard — **no YAML hand-editing required**:
 
-| Tool | Description | Requires approval |
-|------|-------------|-------------------|
-| `read_file` | Read a file with line numbers | No |
-| `list_directory` | List directory contents | No |
-| `grep_search` | Regex search via ripgrep | No |
-| `file_search` | Fuzzy file name search | No |
-| `edit_file` | Replace content in a file | **Yes** |
-| `create_file` | Create a new file | **Yes** |
-| `delete_file` | Delete a file | **Yes** |
-| `run_terminal_cmd` | Execute a shell command | **Yes** |
+```bash
+champ setup
+```
 
-When a tool requires approval, a dialog appears in the chat asking you to confirm before execution. **YOLO mode** can disable approvals (`champ.yoloMode: true`) — use with caution.
+In VS Code, run **`Champ: Configure Provider`** (`Ctrl+Shift+P` / `Cmd+Shift+P`).
 
-### Safety layer
+Both store endpoints in `~/.champ/providers.json` (permissions `0600`) and keep secrets out of JSON:
+- **CLI secrets**: stored in OS keyring (`security` on macOS, `secret-tool` on Linux with D-Bus) with environment variable fallback (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OLLAMA_API_KEY`, `LLAMACPP_API_KEY`, `VLLM_API_KEY`, `OPENAI_COMPATIBLE_API_KEY`).
+- **VS Code secrets**: stored in encrypted `SecretStorage` using matching logical IDs (`champ.<provider>.apiKey`).
 
-All terminal commands pass through a sandbox that blocks obviously dangerous operations:
-- `rm -rf /` and variants
-- `mkfs`, `dd if=... of=/dev/...`
-- `curl ... | bash`, `wget ... | bash`
-- `sudo` (disabled by default)
-- Fork bombs and chmod 777 on root
+### Managing endpoints & models
 
-Before sending file contents or terminal output to the LLM, a secret scanner redacts:
-- PEM private keys
-- AWS access keys
-- Anthropic, OpenAI, Gemini, GitHub, Slack tokens
-- Password and API key assignments in env files
+```bash
+champ provider list                          # list endpoints (keys never printed)
+champ provider add | edit <id> | remove <id>
+champ provider test <id>                     # check connectivity & latency
+champ provider discover <id>                 # refresh models from /v1/models or /api/tags
+champ models [refresh] [--endpoint <id>]     # list or refresh models
+champ model use <id>/<model> [--workspace]   # set default globally or in .champ/provider.json
+champ config show                            # redacted config view
+champ config migrate [--dry-run]             # import URLs/models from ~/.champ/config.yaml
+```
 
----
+### Local backend quick commands
 
-## Inline autocomplete
-
-As you type in any file, Champ sends the surrounding context to a small fast local model and displays the suggestion as ghost text after the cursor. Press `Tab` to accept, `Esc` to dismiss.
-
-Configuration:
-- `champ.autocomplete.enabled` — master switch (default `true`)
-- `champ.autocomplete.debounceMs` — pause before triggering (default `300`)
-- `champ.autocomplete.model` — small model name (default `qwen2.5-coder:1.5b`)
-
-Autocomplete is routed separately from chat via the `ModelRouter` — you can use Claude for agent chat and a local Qwen model for autocomplete simultaneously.
+- **Ollama**: `ollama serve`, then `ollama pull qwen3:8b` and `ollama pull qwen2.5-coder:1.5b` (autocomplete) / `nomic-embed-text` (embeddings). Default URL: `http://localhost:11434`.
+- **llama.cpp**: `./llama-server -m <model>.gguf --port 8080 --ctx-size 16384`. Default URL: `http://localhost:8080/v1`.
+- **vLLM / OpenAI-compatible (MLX, LM Studio)**: default ports `8000` / `8080` with `/v1`.
 
 ---
 
-## @-symbols for context
+## VS Code Extension
 
-Type `@` in the chat input to inject context references into your message:
+Open the **Champ** Activity Bar sidebar (chat toolbar with mode selector & New Chat, message stream with inline tool cards, textarea with `Cmd/Ctrl + Enter` to send).
 
-| Symbol | Example | Resolves to |
-|--------|---------|-------------|
-| `@Files(path)` | `@Files(src/main.ts)` | File contents |
-| `@Folders(path)` | `@Folders(src/utils)` | Recursive directory listing |
-| `@Code` | `@Code` | Current editor selection |
-| `@Symbols(name)` | `@Symbols(AuthService)` | Workspace symbol |
-| `@Codebase` | `@Codebase how does auth work?` | Semantic vector search |
-| `@Web` | `@Web latest React patterns` | Web search results |
-| `@Git` | `@Git show recent changes` | Git diff / history |
-| `@Docs(name)` | `@Docs(react-router)` | Library documentation *(coming soon — not yet active)* |
+### Modes
 
-Multiple references can be mixed in one message: `Compare @Files(a.ts) with @Files(b.ts) using @Codebase search`.
+Switch modes from the dropdown or `Cmd/Ctrl + Shift + M`:
+- **Agent** *(default)*: autonomous multi-step tool loop with approval for writes/commands.
+- **Ask**: read-only Q&A (`read_file`, `list_directory`, `grep_search`, `file_search`, `codebase_search`).
+- **Manual**: prompts before every single action.
+- **Plan**: read-only research that produces a structured step-by-step plan.
+- **Composer**: multi-file Plan → Diff → Apply workflow with git integration.
+
+### Tools & Safety
+
+19 tools cover file I/O (`read_file`, `edit_file`, `create_file`, `delete_file`, `list_directory`), search (`grep_search`, `file_search`, `codebase_search`, `web_search`), shell/git/browser (`run_terminal_cmd`, `run_tests`, `git_tool`, `browser`), SSH (`remote_run_terminal`, `remote_edit_file`), diagrams/docs (`generate_diagram`, `generate_doc`), delegation (`delegate_task`), and MCP (`mcp_<server>_<tool>`).
+
+All writes and shell calls prompt unless `agent.yoloMode: true`. Terminal execution passes through `CommandSandbox`, outbound tool results pass through `SecretScanner` + `PromptGuard`, and file paths are symlink-guarded.
+
+### @-Context Symbols, Autocomplete, Diffs & Checkpoints
+
+- **@-mentions**: `@Files(path)`, `@Folders(path)`, `@Code` (selection), `@Symbols(name)`, `@Codebase` (RAG vector search), `@Web` (Brave Search via `Champ: Set Brave API Key`), `@Git` (`diff`/`log`), `@Terminal`, `@GitBlame`, `@TestFor`, `@PR(123)`, `@Issue(456)`, `@Docs`, `@MCP(server:uri)`.
+- **Inline autocomplete**: ghost text after typing pauses (`autocomplete.debounceMs`); `Tab` accepts, `Esc` rejects.
+- **Hunk diff overlay**: CodeLens + gutter markers to accept/reject individual edits.
+- **Checkpoints & Sessions**: `Champ: Save Checkpoint` / `Champ: Restore Checkpoint` snapshot files independently of git; `MemoryBank` (`.champ/memory.json`) tracks pinned and recent session facts; `AgentManager` provides tabbed parallel sessions with status indicators.
 
 ---
 
-## Checkpoints
+## Headless CLI
 
-Before any destructive agent action (file edit, create, delete, terminal command), Champ snapshots the affected files. You can restore to any prior checkpoint via the **Restore Checkpoint** command.
+```bash
+champ "<task>"                             # one-shot run
+champ -y "Fix the tests"                   # auto-approve writes
+champ                                      # interactive REPL
+champ --repl                               # force REPL (even with piped input)
+echo "Explain src/cli.ts" | champ          # read prompt from stdin (same as `champ -`)
+champ --session <id> "Continue task"       # create/resume append-only JSONL session
+champ --sessions                           # list workspace sessions
+```
 
-Snapshots are kept in memory per session and do not touch your git history, so they work even in non-git repositories.
+Key flags: `--cwd <dir>`, `--provider <name>`, `--base-url <url>`, `--model <id>`, `--api-key <key>`, `--max-iter <n>`, `--skill <name>`, `--file <path>`, `--list-skills`, `--no-skills`, `-h`/`--help`, `-v`/`--version`.
+
+REPL commands: `/skills`, `/<skill> [args]`, `/session`, `/sessions`, `/checkpoint [label]`, `/compact`, `/help`, `/exit`.
+
+Contracts: replies write to `stdout`; traces, prompts, and warnings write to `stderr`. Non-interactive runs (piped stdin or `--yes`) auto-approve writes. Exit codes: `0` success, `1` runtime/provider failure, `2` usage/config error, `130` aborted (`SIGINT`).
 
 ---
 
-## Rules
+## Skills & Project Rules
 
-Project-level rules live in `.champ/rules/*.md`. Each file is a Markdown document with optional YAML frontmatter:
+### Skills (`.champ/skills/*.md` and `~/.champ/skills/*.md`)
+
+Precedence: **workspace > user > built-in**. 8 built-ins ship out of the box: `/explain`, `/test`, `/refactor`, `/review`, `/commit`, `/doc`, `/fix`, `/optimize`.
 
 ```markdown
 ---
-name: typescript-style
-type: auto-attached
-glob: "*.ts"
+name: api-check
+description: Review API handler validation and error codes
+mode: ask
+allowedTools: [read_file, grep_search]
 ---
-
-Use 2-space indentation.
-Prefer `const` over `let`.
-Always write JSDoc for exported functions.
+Inspect `{{currentFile}}` ({{language}}). Focus on: {{userInput}}
 ```
 
-Rule types:
-- `always` — attached to every request
-- `auto-attached` — attached when the current file matches `glob`
-- `agent-requested` — not auto-attached; the agent fetches by name
+Template variables: `{{userInput}}`, `{{workspaceRoot}}`, `{{date}}`, `{{currentFile}}`, `{{language}}`, `{{selection}}`, `{{cursorLine}}`, `{{branch}}`. Unknown `{{vars}}` are preserved literally.
 
-User-wide rules are a single free-form string in `champ.userRules`.
+CLI notes: editor-only variables (`{{selection}}`, `{{cursorLine}}`) resolve to empty strings (pass `--file <path>` for `{{currentFile}}`/`{{language}}`); `/commit` warns in CLI because `run_terminal_cmd` is extension-only; `/fix` expects editor diagnostics.
 
+### Project Rules (`.champ/rules/*.md`)
+
+```markdown
 ---
-
-## MCP servers
-
-Champ supports [Model Context Protocol](https://modelcontextprotocol.io) servers for extending the agent with external tools (GitHub, Slack, databases, internal APIs).
-
-Configure via `champ.mcp.servers`:
-
-```json
-{
-  "champ.mcp.servers": [
-    {
-      "name": "github",
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": { "GITHUB_TOKEN": "${env:GITHUB_TOKEN}" }
-    }
-  ]
-}
+name: ts-strict
+type: auto-attached   # always | auto-attached | agent-requested
+glob: "src/**/*.ts"
+---
+Prefer composition and early returns.
 ```
 
-Registered MCP tools appear alongside built-in tools with the prefix `mcp_<servername>_<toolname>`.
+Global `userRules` in `~/.champ/config.yaml` apply alongside `always` and matching `auto-attached` rules.
 
 ---
 
-## Keyboard shortcuts
+## Agent Teams & Custom Agents
+
+### Custom Agents (`.champ/agents/*.md`)
+
+Define reusable agents with YAML frontmatter (`name`, `role`, optional `outputKey`). Loaded automatically at startup and runnable via `Champ: Run Multi-Agent Workflow` or file-save `triggers:` in config.
+
+### Agent Teams (`.champ/teams/*.yaml`)
+
+Create from template (`DevOps Platform`, `Fullstack Feature`, `Code Review`, `Incident Response`) via **`Champ: Create Team from Template`** or run via **`Champ: Run Agent Team`**:
+
+- Top-level keys: `name`, `description`, `version`, `defaults` (`model`, `maxTokens`, `temperature`), `execution` (`maxParallel`, `totalTokenBudget`, `timeoutSeconds`, `retries`, `checkpoints`, `mode: auto | safe | supervised`), and `agents[]`.
+- Agent fields: `id`, `name`, `role`, `systemPrompt` (supports `{{outputKey}}` / `{{key.path}}`), `dependsOn`, `condition` (`== null`, `!= null`, `== true`, `== false`), `tools`, `model`, `maxTokens`, `outputKey`, `outputFormat: text | json | files`, `selfCritique`.
+- Anti-hallucination protocol: agents unable to proceed respond with `BLOCKED: <reason>` (surfaced for Skip/Retry), wrap output in `<reasoning>...</reasoning><output>...</output>`, and can spawn dynamic helpers via `SPAWN:`.
+
+Built-in DevOps workflows under `.champ/teams/devops-*.yaml`: Daily Standup (`devops-standup`), Task Routing (`devops-task-routing`), Incident Response (`devops-incident-response`, SEV1–SEV4), and Deployment/PR Review (`devops-deployment-review`).
+
+---
+
+## MCP Servers
+
+Configure stdio/SSE servers in `~/.champ/config.yaml` under `mcp.servers` (`name`, `command`, `args`, `env: { KEY: "${env:KEY}" }`). Discovered tools appear as `mcp_<server>_<tool>`. Manage connections from the chat footer MCP panel or `Champ: Reload MCP Server`.
+
+---
+
+## Keyboard Shortcuts
 
 | Action | Shortcut |
-|--------|----------|
-| New chat | `Cmd/Ctrl + Shift + L` |
-| Toggle mode | `Cmd/Ctrl + Shift + M` |
-| Send message | `Cmd/Ctrl + Enter` in the chat input |
-| Accept inline completion | `Tab` |
-| Dismiss inline completion | `Esc` |
-| Open settings | `Champ: Settings` command |
+|---|---|
+| Toggle Mode | `Cmd/Ctrl + Shift + M` |
+| Inline Edit | `Cmd/Ctrl + K Cmd/Ctrl + I` |
+| Send Chat Message | `Cmd/Ctrl + Enter` (in input) |
+| Accept / Dismiss Autocomplete | `Tab` / `Esc` |
 
 ---
 
 ## Troubleshooting
 
-### "Champ: failed to initialize LLM provider"
-- For Claude/OpenAI/Gemini: verify the API key is stored in SecretStorage.
-- For Ollama: ensure `ollama serve` is running (`curl http://localhost:11434/api/tags`).
-- For llama.cpp: ensure the server started with `./llama-server -m <model>.gguf`.
-
-### Chat shows "Connection refused"
-- Local model isn't running. Check the `baseUrl` setting matches your server.
-
-### Agent loops or hangs
-- Press **Cancel** in the input area, or run `Champ: New Chat`.
-- Check the model supports tool calling (see the [provider support matrix](ARCHITECTURE.md)).
-- For small local models without native tool use, the XML fallback kicks in automatically but may be slower to parse.
-
-### Inline autocomplete doesn't appear
-- Check `champ.autocomplete.enabled` is `true`.
-- Verify the small model is pulled (`ollama list`).
-- Wait for the debounce delay (default 300ms after typing stops).
-
-### Too many false secrets redacted
-- The secret scanner uses regex patterns that can false-positive on long base64 strings. If this is a problem, file an issue with the specific pattern that's misfiring.
-
-### High latency on local models
-- Try a smaller quantization (Q4_K_M vs Q8_0).
-- Use `qwen2.5-coder:1.5b` for autocomplete instead of a large chat model.
-- On Apple Silicon, ensure Metal acceleration is enabled in your Ollama/llama.cpp build.
-
-### The extension doesn't activate
-- Check the VS Code Output panel → "Champ" for activation errors.
-- Run `Developer: Toggle Developer Tools` to see webview console errors.
-
----
-
-## Feedback
-
-File issues or feature requests at the project's GitHub repository. Include:
-- Champ version (`champ-0.1.0`)
-- VS Code version
-- Provider name and model
-- Reproduction steps
+- **`champ: command not found`**: run `export PATH="$(npm config get prefix)/bin:$PATH"`.
+- **`Cannot find module dist/cli.js`**: run `node esbuild.mjs`.
+- **`no provider configured`**: run `champ setup`, migrate with `champ config migrate`, or pass `--provider`/`--base-url`.
+- **Unreachable endpoint / 401**: run `champ provider test <id>`; check `baseUrl` (include `/v1` for OpenAI-compatible/vLLM/llama.cpp) and keyring/env credentials.
+- **Model talks instead of calling tools**: ensure you selected an **Instruct** model ($\ge$7B for tool calling), not a base/tiny completion model (see [CONFIG.md](CONFIG.md#model-selection--hardware-guide)).
+- **Tool calls repeat endlessly**: set `supportsTools: false` on endpoints that advertise tool schemas without compliant `tool_calls`.
+- **Extension logs**: check VS Code **Output → Champ** or `Developer: Toggle Developer Tools`.

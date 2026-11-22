@@ -6,7 +6,7 @@
  * fields are optional. The body of the markdown is the prompt template
  * (with {{variables}} substituted at invocation time).
  *
- * See docs/PLAN_SKILLS.md for the schema.
+ * See docs/USER_GUIDE.md for the schema.
  */
 import { describe, it, expect } from "vitest";
 import { SkillLoader } from "@/skills/skill-loader";

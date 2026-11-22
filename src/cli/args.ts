@@ -9,6 +9,7 @@
  */
 import { isValidSessionId } from "../session/ids";
 import type { ProviderCommand } from "./provider-commands";
+import { validateRepoOrRef, type UpdateCommandOptions } from "./update";
 
 /** How the CLI should run: one task, an interactive session, or piped input. */
 export type CliMode = "oneshot" | "repl" | "stdin";
@@ -47,6 +48,16 @@ export interface CliFlags {
   workspace: boolean;
   /** Preview `champ config migrate` without writing changes. */
   dryRun: boolean;
+  /** Check for a newer CLI version without installing (`champ update --check`). */
+  check: boolean;
+  /** Reinstall even when already at the latest version (`champ update --force`). */
+  force: boolean;
+  /** Git ref/branch/tag for `champ update --ref <ref>`. */
+  ref?: string;
+  /** Git repository URL for `champ update --repo <url>`. */
+  repo?: string;
+  /** Custom npm global prefix for `champ update --prefix <dir>`. */
+  prefix?: string;
 }
 
 export interface CliOptions {
@@ -62,6 +73,7 @@ export type CliParseResult =
   | { kind: "sessions"; cwd: string }
   | { kind: "list-skills"; cwd: string; noSkills: boolean }
   | { kind: "provider-command"; command: ProviderCommand; cwd: string }
+  | { kind: "update"; options: UpdateCommandOptions }
   | { kind: "error"; message: string }
   | { kind: "run"; options: CliOptions };
 
@@ -86,6 +98,7 @@ Usage:
   champ models [refresh]  List or refresh discovered models
   champ model use <id/m>  Select default or workspace model
   champ config <cmd>      show | migrate [--dry-run]
+  champ update            Update the champ CLI installation from upstream git
 
 Options:
   -h, --help              Show this help
@@ -105,7 +118,12 @@ Options:
       --no-skills         Ignore workspace/user skill directories
       --endpoint <id>     Filter \`models\` / \`models refresh\` by endpoint
       --workspace         Write \`model use\` selection to workspace .champ/provider.json
-      --dry-run           Preview \`config migrate\` without writing changes
+      --dry-run           Preview \`config migrate\` or \`update\` without writing changes
+      --check             Check if a newer CLI update is available without installing
+      --force             Reinstall CLI even when already on the latest commit
+      --ref <ref>         Branch or tag to install during \`champ update\`
+      --repo <url>        Git repository URL for \`champ update\`
+      --prefix <dir>      Custom npm global prefix for \`champ update\`
 
 Sessions are append-only JSONL logs in <workspace>/.champ/sessions. The REPL
 keeps one automatically; --session does the same for one-shot runs. Resuming
@@ -130,6 +148,9 @@ const VALUE_FLAGS: Record<string, keyof CliFlags> = {
   "--skill": "skill",
   "--file": "file",
   "--endpoint": "endpoint",
+  "--ref": "ref",
+  "--repo": "repo",
+  "--prefix": "prefix",
 };
 
 function error(message: string): CliParseResult {
@@ -156,6 +177,8 @@ export function parseCliArgs(
     noSkills: false,
     workspace: false,
     dryRun: false,
+    check: false,
+    force: false,
     cwd: env.cwd ?? process.cwd(),
   };
   const positionals: string[] = [];
@@ -208,6 +231,14 @@ export function parseCliArgs(
     }
     if (arg === "--dry-run") {
       flags.dryRun = true;
+      continue;
+    }
+    if (arg === "--check") {
+      flags.check = true;
+      continue;
+    }
+    if (arg === "--force") {
+      flags.force = true;
       continue;
     }
 
@@ -279,6 +310,24 @@ export function parseCliArgs(
           break;
         case "endpoint":
           flags.endpoint = value;
+          break;
+        case "ref": {
+          const refErr = validateRepoOrRef(value, "ref");
+          if (refErr) return error(refErr);
+          flags.ref = value.trim();
+          break;
+        }
+        case "repo": {
+          const repoErr = validateRepoOrRef(value, "repo");
+          if (repoErr) return error(repoErr);
+          flags.repo = value.trim();
+          break;
+        }
+        case "prefix":
+          if (!value.trim()) {
+            return error("prefix cannot be empty");
+          }
+          flags.prefix = value;
           break;
         default:
           // Boolean flags never appear in VALUE_FLAGS.
@@ -488,6 +537,24 @@ function parseProviderCommand(
         };
       }
       return error(`unknown config subcommand "${sub ?? ""}"`);
+    }
+
+    case "update": {
+      if (positionals.length > 1) {
+        return error(
+          `unexpected arguments for "update": ${positionals.slice(1).join(" ")}`,
+        );
+      }
+      return {
+        kind: "update",
+        options: {
+          check: flags.check || flags.dryRun,
+          force: flags.force,
+          ref: flags.ref,
+          repo: flags.repo,
+          prefix: flags.prefix,
+        },
+      };
     }
 
     default:

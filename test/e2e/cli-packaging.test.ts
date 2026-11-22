@@ -1,7 +1,7 @@
 /**
  * End-to-end packaging tests for the headless CLI — issue #139.
  *
- * The deliverable is the tarball a Mac Mini installs, so these tests measure
+ * The deliverable is the standalone CLI tarball, so these tests measure
  * the tarball itself: exactly what `npm pack` puts in it, that the extracted
  * bundle runs with no VS Code and no `node_modules` around it, and that a real
  * `npm install -g` of it yields a working `champ` command.

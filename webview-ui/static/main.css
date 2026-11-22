@@ -1372,7 +1372,7 @@ html, body {
 }
 
 /* -------------------------------------------------------------------
- * Model picker popup (Cursor-style)
+ * Model picker popup (floating overlay)
  * ---------------------------------------------------------------- */
 
 .model-picker-popup {

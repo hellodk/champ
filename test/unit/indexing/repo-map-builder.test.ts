@@ -4,9 +4,9 @@
  * The repo map is a compact tree-sitter-style outline of the workspace
  * (top-level files + symbols, no bodies) injected into the agent's
  * first turn so the model has factual grounding instead of guessing
- * function/class names. Aider's most effective hallucination defense.
+ * function/class names, providing factual codebase grounding.
  *
- * See docs/HALLUCINATION_MITIGATION.md.
+ * See docs/ARCHITECTURE.md#hallucination-mitigation.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { RepoMapBuilder } from "@/indexing/repo-map-builder";

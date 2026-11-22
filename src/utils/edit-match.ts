@@ -86,7 +86,7 @@ export function findFuzzyMatch(
 /**
  * Format the "old_content not found" error with the actual file content
  * (capped) so the model can self-correct without burning another turn.
- * See docs/HALLUCINATION_MITIGATION.md for the rationale.
+ * See docs/ARCHITECTURE.md#hallucination-mitigation for the rationale.
  */
 export function formatNotFoundError(
   relativePath: string,

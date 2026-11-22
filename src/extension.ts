@@ -700,7 +700,7 @@ export async function activate(
   // ---- Indexing services for grounding -------------------------------
   // Repo map: built lazily on first chat turn from the workspace's
   // top-level files. The cached result is invalidated when the user
-  // starts a new chat. See docs/HALLUCINATION_MITIGATION.md.
+  // starts a new chat. See docs/ARCHITECTURE.md#hallucination-mitigation.
   const chunkingService = new ChunkingService();
   const repoMapBuilder = new RepoMapBuilder(chunkingService);
   agentController.setRepoMapProvider({
@@ -1232,8 +1232,7 @@ export async function activate(
   if (memoryBank) chatViewProvider.setMemoryBank(memoryBank);
 
   // ---- Chat participant (VS Code native Chat view) -------------------
-  // Registers Champ as @champ in VS Code's built-in Chat view,
-  // alongside Continue, Codex, Claude, etc. Uses the stable
+  // Registers Champ as @champ in VS Code's built-in Chat view using the stable
   // vscode.chat.createChatParticipant API (available since 1.93).
   try {
     const chatApi = (

@@ -254,8 +254,8 @@ First marketplace release. Full-featured AI coding agent with local
 LLM support, multi-session chat history, and UI.
 
 ### Added
-- **VS Code Chat participant** — `@champ` now appears in the built-in
-  Chat view alongside Continue, Codex, and GitHub Copilot Chat.
+- **VS Code Chat participant** — `@champ` now appears in VS Code's built-in
+  Chat view.
 - **History icon** in the chat header — toggles the session overflow
   menu showing all past conversations.
 - **Tabbed session UI** — browser-style tabs, time-grouped history,
@@ -346,10 +346,8 @@ dropdown, all expandable in the chat input.
 ## [0.1.5] — 2026-04-08
 
 The "Skills" release. Adds reusable named prompt templates triggered
-with `/<name>` from the chat input. Modeled after Claude Skills and
-Continue.dev slash commands. Implements Phases A, B, and C of the
-plan in `docs/PLAN_SKILLS.md`. Phase D (slash autocomplete dropdown)
-is deferred to a follow-up.
+with `/<name>` from the chat input. Implements Phases A, B, and C of the
+skills design. Phase D (slash autocomplete dropdown) is deferred to a follow-up.
 
 ### Added — Skills system
 
@@ -467,22 +465,18 @@ keep working unchanged.
 ## [0.1.3] — 2026-04-06
 
 The "anti-hallucination + close the gap" release. Adds documentation
-about what's currently shipped vs aspirational, and closes the highest-
-priority integration gaps from `docs/GAP_ANALYSIS.md` plus the
-P0 hallucination mitigations from `docs/HALLUCINATION_MITIGATION.md`.
+about shipped vs pending capabilities, and closes high-priority
+integration gaps plus the P0 hallucination mitigations.
 
 ### Documentation
 
-- **`docs/GAP_ANALYSIS.md`** — honest assessment of which Cursor-parity
-  features are wired vs built-but-unwired vs missing. 22-item table
-  with priority order for closure.
-- **`docs/MODEL_GUIDE.md`** — practical guide to picking open models
-  for Champ's local agent workflow. Tier 1 / Tier 2 / Tier 0 (autocomplete)
-  recommendations with Apple Silicon hardware notes.
-- **`docs/HALLUCINATION_MITIGATION.md`** — deep analysis of why coding
-  agents hallucinate and how Aider, Continue.dev, Cline, and
-  Codeium address it. Maps each pattern to Champ's implementation
-  priority.
+- **Gap analysis** — assessment of which target agent features are wired
+  vs built-but-unwired vs missing, with priority order for closure.
+- **Model selection guide** — practical guide to picking open models for
+  Champ's local agent workflow (Tier 1 / Tier 2 / Tier 0 autocomplete).
+- **Hallucination mitigation notes** — analysis of why coding agents
+  hallucinate and Champ's mitigation architecture (now consolidated in
+  `docs/ARCHITECTURE.md`).
 
 ### Added — anti-hallucination
 
@@ -494,7 +488,7 @@ P0 hallucination mitigations from `docs/HALLUCINATION_MITIGATION.md`.
   a compact tree-sitter-style outline of the workspace's top-level
   files and symbols (function/class names, no bodies) and prepends it
   to every chat session as a grounding preamble. Cached per session,
-  re-fetched on `reset()`. Aider's most effective hallucination defense.
+  re-fetched on `reset()` for factual grounding.
 - **Verbose `edit_file` errors** — when `old_content` doesn't match,
   the tool returns the actual file content (numbered, capped at 80
   lines) so the model can self-correct on the next turn instead of

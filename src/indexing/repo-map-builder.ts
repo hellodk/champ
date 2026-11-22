@@ -3,7 +3,7 @@
  * workspace's top-level files and symbols. The result is injected into
  * the agent's first turn so the LLM has factual grounding instead of
  * guessing function/class names — the most effective hallucination
- * mitigation we have. See docs/HALLUCINATION_MITIGATION.md.
+ * mitigation we have. See docs/ARCHITECTURE.md#hallucination-mitigation.
  *
  * The map looks like:
  *

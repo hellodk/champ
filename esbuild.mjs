@@ -1,8 +1,23 @@
 import * as esbuild from 'esbuild';
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
+
+function readBuildCommit() {
+  try {
+    const out = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return out || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+const buildCommit = readBuildCommit();
 
 const shared = {
   bundle: true,
@@ -13,6 +28,9 @@ const shared = {
   platform: 'node',
   logLevel: 'info',
   target: 'node20',
+  define: {
+    __CHAMP_BUILD_COMMIT__: JSON.stringify(buildCommit),
+  },
   // Redirect polyfill packages to native Node 20 globals.
   // Removes ~500KB: node-fetch + tr46 + whatwg-url + web-streams-polyfill +
   // formdata-node + abort-controller + event-target-shim.

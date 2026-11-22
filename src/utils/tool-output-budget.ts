@@ -4,7 +4,7 @@
  *
  * A single `read_file` on a large file, a wide `grep_search`, or a chatty
  * command can return hundreds of kilobytes. Those results are appended to the
- * conversation verbatim, and on a 4B model running in a 16 GB Mac Mini a couple
+ * conversation verbatim, and on a 4B model running on a constrained host a couple
  * of them overflow the window long before the tool loop's iteration cap is
  * reached — after which nothing the model says is grounded in the request.
  *

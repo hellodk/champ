@@ -1,147 +1,114 @@
-# Champ Configuration Reference
+# Configuration & Model Selection Reference
 
-Champ separates **provider endpoint management** (stored automatically in `~/.champ/providers.json`) from **non-provider settings** (`userRules`, `agent`, `routing`, `indexing`, `mcp`, stored in `~/.champ/config.yaml`).
+Champ separates **provider endpoint management** (`~/.champ/providers.json`) from **non-provider settings** (`~/.champ/config.yaml`).
 
-## Locations and precedence
+## Index
 
-For **provider and model selection** (highest wins):
+1. [Locations & Precedence](#locations--precedence)
+2. [YAML Schema](#yaml-schema)
+3. [SSH Configuration](#ssh-configuration)
+4. [Environment Variables & Secrets](#environment-variables--secrets)
+5. [YAML Migration & Validation](#yaml-migration--validation)
+6. [Model Selection & Hardware Guide](#model-selection--hardware-guide)
 
-1. **CLI flags** — `--provider`, `--base-url`, `--model`, `--api-key`
-2. **Workspace endpoint reference (`<workspace>/.champ/provider.json`)** — optional non-secret `{ "endpoint": "<id>", "model": "<model-id>" }` created by `champ model use --workspace`
-3. **User endpoint registry (`~/.champ/providers.json`)** — managed by `champ setup`, `champ provider ...`, and VS Code `Champ: Configure Provider`
-4. **Built-in defaults** (or legacy `~/.champ/config.yaml` / `CHAMP_CONFIG` when `~/.champ/providers.json` is not yet created)
+---
 
-For **non-provider settings** (`userRules`, `agent`, `mcp`, `indexing`, `routing`, `telemetry`), Champ reads the single user-level YAML file **`~/.champ/config.yaml`** (or `CHAMP_CONFIG` on the CLI). No workspace `.champ/config.yaml` is read; workspace-level overrides use `.champ/rules/*.md`, `.champ/skills/*.md`, and `.champ/provider.json`.
+## Locations & Precedence
 
-Existing YAML `provider:` / `providers:` sections remain supported as an **import/migration format** (`champ config migrate`), not the primary live provider store.
+### Provider & model selection (highest wins)
 
-## Quick start
+1. **CLI flags**: `--provider`, `--base-url`, `--model`, `--api-key`
+2. **Workspace endpoint reference (`<workspace>/.champ/provider.json`)**: non-secret `{ "endpoint": "<id>", "model": "<model-id>", "taskModels": { ... } }` created by `champ model use <id>/<model> --workspace`
+3. **User endpoint registry (`~/.champ/providers.json`)**: managed by `champ setup`, `champ provider ...`, and `Champ: Configure Provider`
+4. **Built-in defaults** (or legacy `~/.champ/config.yaml` / `CHAMP_CONFIG` when `providers.json` is absent)
 
-In the CLI:
+### Non-provider settings
 
-```bash
-champ setup
-```
+`userRules`, `agent`, `autocomplete`, `indexing`, `mcp`, `triggers`, `routing`, `telemetry`, `fallback`, `rateLimit`, and `ssh` are read from the single user file `~/.champ/config.yaml` (or `CHAMP_CONFIG`). Workspace `.champ/config.yaml` is not read; workspace overrides use `.champ/provider.json`, `.champ/rules/*.md`, `.champ/skills/*.md`, `.champ/agents/*.md`, and `.champ/teams/*.yaml`.
 
-In VS Code: run **`Champ: Configure Provider`** from the command palette (`Ctrl+Shift+P` / `Cmd+Shift+P`). Both write to the same `~/.champ/providers.json` registry while keeping credentials in separate host stores (OS keyring/env for the CLI, VS Code `SecretStorage` for the extension).
+Saving `~/.champ/providers.json` or `~/.champ/config.yaml` triggers automatic hot reload in VS Code via `ConfigWatcher`.
 
-To create `~/.champ/config.yaml` for non-provider settings (`userRules`, `mcp`, `agent`, `indexing`), run **`Champ: Generate Config File`** in VS Code.
+---
 
-## YAML schema (non-provider settings + migration source)
+## YAML Schema
 
 ```yaml
-# Legacy/migration provider keys (use `champ setup` or `champ config migrate` instead):
-# Valid: claude, openai, gemini, ollama, llamacpp, vllm, openai-compatible
-provider: llamacpp
-
+# Optional legacy/migration provider block (prefer `champ setup` / `providers.json`):
+# Valid kinds: claude, openai, gemini, ollama, llamacpp, vllm, openai-compatible
+provider: ollama
 providers:
-  claude:
-    model: claude-sonnet-4-20250514
-
-  openai:
-    model: gpt-4o
-
-  gemini:
-    model: gemini-2.0-flash
-
   ollama:
     baseUrl: http://localhost:11434
-    model: llama3.1
+    model: qwen3:8b
+    contextWindow: 16384          # optional cap (#119)
+    supportsTools: true             # opt-in native tool_calls for OpenAI-spec servers
+    structuredOutput: false
+    cachePrompt: true
+    options:                        # decode overrides (#120)
+      temperature: 0.2
+      topP: 0.9
+      topK: 40
+      minP: 0.05
+      repeatPenalty: 1.1
+      presencePenalty: 0.0
+      frequencyPenalty: 0.0
+      seed: 42
+      stop: ["</s>"]
 
-  llamacpp:
-    baseUrl: http://localhost:8080/v1
-    model: <your-model-id>
-
-  vllm:
-    baseUrl: http://localhost:8000/v1
-    model: <your-model-id>
-
-  openai-compatible:
-    baseUrl: http://localhost:8080/v1
-    model: <your-model-id>
-
-# Inline ghost-text autocomplete (Ctrl+Space style suggestions as you type).
 autocomplete:
-  enabled: true        # default: true
-  debounceMs: 300      # default: 300
-  # Optional: use a different (smaller, faster) provider for autocomplete.
-  # If omitted, autocomplete uses the same provider as chat.
+  enabled: true
+  debounceMs: 300
   provider: ollama
   model: qwen2.5-coder:1.5b
 
-# Agent behavior knobs.
 agent:
-  # Skip approval prompts for destructive tools (rm, edit_file, etc).
-  # Use with extreme caution.
-  yoloMode: false      # default: false
-
-  # Default mode when a chat session starts.
-  # Valid: agent, ask, manual, plan, composer
-  defaultMode: agent   # default: agent
-
-  # Auto-fix loop after edits — re-prompts the model with LSP errors.
+  yoloMode: false
+  defaultMode: agent                # agent | ask | manual | plan | composer
   autoFix:
-    enabled: true        # default: true
-    maxIterations: 3     # default: 3
+    enabled: true
+    maxIterations: 3
+  promptGuard:
+    enabled: true                   # screen inbound/outbound text for injection
 
-# Codebase indexing for @Codebase semantic search.
 indexing:
-  enabled: true                    # default: true
-  embeddingProvider: ollama        # default: ollama
-  ignore:                          # gitignore-style patterns
-    - node_modules/**
-    - dist/**
-    - .git/**
+  enabled: true
+  embeddingProvider: ollama         # ollama | openai | vllm | openai-compatible
+  embeddingModel: nomic-embed-text
+  ignore:
+    - "node_modules/**"
+    - "dist/**"
+    - ".git/**"
 
-# Always-applied rules. Injected into every chat's system prompt.
+routing:
+  mode: smart                       # smart | manual
+  coding: qwen3:8b
+  chat: llama3.1:8b
+  completion: qwen2.5-coder:1.5b
+  embedding: nomic-embed-text
+  rules: []
+
+fallback:
+  providers: [ollama, claude]
+  maxRetries: 1
+
+rateLimit:
+  requestsPerMinute: 60
+
+telemetry:
+  enabled: false
+  endpoint: http://localhost:4318/v1/traces
+  format: otlp                      # otlp | json
+  flushIntervalMs: 5000
+
+triggers:
+  - name: "security scan on TS save"
+    glob: "src/**/*.ts"
+    on: save                        # save | change
+    run: security-auditor
+    debounceMs: 3000
+
 userRules: |
-  Always write tests first.
-  Use TypeScript strict mode.
-  Prefer composition over inheritance.
-
-# MCP (Model Context Protocol) servers — extend the agent with
-# external tools like GitHub, Slack, or your internal APIs.
-mcp:
-  servers:
-    - name: github
-      command: npx
-      args: ["-y", "@modelcontextprotocol/server-github"]
-      env:
-        GITHUB_TOKEN: ${env:GITHUB_TOKEN}
-```
-
-## Secrets handling
-
-**API keys are never stored in YAML.** They live in VS Code's encrypted `SecretStorage`, accessed via the **`Champ: Set API Key`** command.
-
-The schema validator actively rejects any config that tries to put a key under `providers.*.apiKey`:
-
-```yaml
-providers:
-  openai:
-    apiKey: sk-real-secret    # ERROR: rejected at parse time
-```
-
-This protects you from accidentally committing a key when you commit the config file.
-
-To set a key:
-
-1. `Ctrl+Shift+P` → `Champ: Set API Key`
-2. Pick the provider
-3. Paste the key
-4. The extension stores it in `SecretStorage` and reloads the provider
-
-To rotate or remove a key, repeat the command with the new value (or empty).
-
-## Environment variable substitution
-
-Any string in the config can reference an environment variable with `${env:VAR_NAME}`:
-
-```yaml
-providers:
-  llamacpp:
-    baseUrl: ${env:LLAMA_HOST}
-    model: ${env:LLAMA_MODEL}
+  Always write deterministic tests.
 
 mcp:
   servers:
@@ -152,34 +119,80 @@ mcp:
         GITHUB_TOKEN: ${env:GITHUB_TOKEN}
 ```
 
-If the variable is not set, the literal `${env:VAR_NAME}` text is left in place so you notice the misconfiguration rather than getting a silent empty string.
+---
 
-## Hot reload
+## SSH Configuration
 
-When you modify `~/.champ/providers.json` (from the CLI or VS Code) or `~/.champ/config.yaml`, the extension automatically reloads the active provider. No window restart is required.
+```yaml
+ssh:
+  defaults:
+    port: 22
+    connectTimeoutSeconds: 15
+  trustedHosts:
+    - host: build-host.internal
+      fingerprint: SHA256:...
+  targets:
+    - name: staging
+      host: build-host.internal
+      port: 22
+      username: deploy
+      authMethod: key               # key | password | agent
+      keyPath: ~/.ssh/id_ed25519
+      # password: ${env:SSH_PASS}   # only when authMethod: password
+```
 
-If you save invalid YAML, the extension shows the parse error and keeps the previous provider active.
+---
 
-## Workspace vs user files
+## Environment Variables & Secrets
 
-**Workspace** (`.champ/` inside the repo, safe to commit):
-- `.champ/provider.json` — non-secret endpoint/model reference (`{ "endpoint": "<id>", "model": "<model-id>" }`)
-- `.champ/rules/*.md` — project-specific rules
-- `.champ/skills/*.md` — team skills
+- Placeholders `${env:VAR_NAME}` in YAML resolve against `process.env` (unset vars stay literal so misconfiguration is obvious).
+- Cloud provider keys (`claude`, `openai`, `gemini`) are rejected if placed in YAML and must live in OS keyring / env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) or VS Code `SecretStorage` (`champ.<provider>.apiKey`).
+- `providers.json` and `.champ/provider.json` never contain API keys.
 
-**User** (`~/.champ/`, private — never commit):
-- `~/.champ/providers.json` — named endpoints, discovered models, and task assignments (no API keys)
-- `~/.champ/config.yaml` — personal `userRules`, `agent`, `mcp`, `indexing`, `routing`, and legacy YAML provider config
+---
 
-## Validation and inspection
+## YAML Migration & Validation
 
-Run **`champ config show`** on the CLI (secrets are redacted to `<keyring:...>` or `<env:...>`) or **`Champ: Show Effective Config`** in VS Code.
+Import existing YAML endpoints and routing assignments into `~/.champ/providers.json`:
 
-| Error | Cause | Fix |
-|-------|-------|-----|
-| `Invalid YAML: ...` | Syntactically broken YAML | Check indentation, quotes, list dashes |
-| `Invalid provider "X"` | `provider:` doesn't match a known name | Use one of: claude, openai, gemini, ollama, llamacpp, vllm, openai-compatible |
-| `Active provider "X" is not configured under providers:` | You set `provider: ollama` but no `providers.ollama:` block | Add the block |
-| `providers.X.apiKey is not allowed in YAML` | Tried to put a cloud secret in YAML | Use `Champ: Set API Key` or `champ setup` instead |
-| `agent.defaultMode must be one of: ...` | Invalid mode name | Use one of: agent, ask, manual, plan, composer |
-| `autocomplete.debounceMs must be a number` | Wrong type for a numeric field | Remove quotes from the number |
+```bash
+champ config migrate --dry-run
+champ config migrate
+```
+
+Migration preserves URLs, models, `supportsTools`, `contextWindow`, `options`, and routing tasks without modifying `~/.champ/config.yaml`, moves self-hosted inline keys to the keyring (or warns naming the env var when headless), and never writes keys to JSON. Inspect config with `champ config show` (secrets redacted to `<keyring:...>` / `<env:...>`) or VS Code `Champ: Show Effective Config`.
+
+---
+
+## Model Selection & Hardware Guide
+
+### Minimum requirements for agentic editing
+
+1. **Instruct-tuned model (`-Instruct`)**: base completion models explain instead of editing.
+2. **Sufficient parameter size**: $\ge$7B for reliable tool calling; 1–3B models fail structured edits and complex Mermaid diagrams.
+3. **Tool-calling format**: Ollama (`qwen3`, `llama3.1+`) and cloud models use native `tool_use`; other servers fall back to `<tool_call>` XML parsing.
+
+### Recommended Open Models
+
+| Tier | Model | Disk (Q4_K_M) | VRAM / RAM | Best For |
+|---|---|---|---|---|
+| Autocomplete | `qwen2.5-coder:1.5b` | ~1 GB | 2 GB | Inline ghost text (`autocomplete.model` only) |
+| Embedding | `nomic-embed-text` / `mxbai-embed-large` | <1 GB | 1–2 GB | `@Codebase` vector search |
+| General 8B | `qwen3:8b` | ~5 GB | 8 GB | Daily coding, native Ollama tools, good Mermaid |
+| Code 7B–14B | `Qwen2.5-Coder-7B` / `14B-Instruct` | 4.5–8 GB | 8–16 GB | File editing, refactoring, tests |
+| Generalist | `Llama-3.1-8B-Instruct` | ~5 GB | 8 GB+ | Multi-step planning & Q&A |
+| Vision | `gemma4:4b` / `gemma4:27b` | 3–16 GB | 4–24 GB+ | Screenshot analysis & structured docs |
+| MoE / Large | `DeepSeek-Coder-V2-Lite` / `Qwen2.5-Coder-32B` | 10–18 GB | 12–24 GB+ | Deep multi-file refactors |
+
+### Capability by Task Size
+
+| Task | Min Size | Notes |
+|---|---|---|
+| Simple Q&A / file summary | 3B+ | Fast responses |
+| Single-function edits / tests | 7B+ | Fewer hallucinations |
+| Architecture docs / Mermaid | 8B (`qwen3:8b`) / 27B | 3B breaks Mermaid syntax |
+| Multi-file refactoring / debugging | 14B+ or Cloud API | Needs larger context & chain-of-thought |
+
+### Tool-calling smoke test
+
+Send `create a hello world python file` — a properly tuned model emits a `create_file` tool card rather than prose. Follow with: `read package.json and tell me the version` (`read_file`), `find all files that import "vscode"` (`grep_search`), `read_file`+`edit_file` bug fix, and `run_terminal_cmd` (`run the tests`).

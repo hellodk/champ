@@ -21,7 +21,7 @@ import type { AgentMode } from "./agent-controller";
  * Base instructions injected at the top of every prompt-based system
  * message. Tells the model it has tools, explains the response shape
  * expected, and includes anti-hallucination directives based on
- * docs/HALLUCINATION_MITIGATION.md.
+ * docs/ARCHITECTURE.md#hallucination-mitigation.
  */
 export const PROMPT_BASED_BASE_INSTRUCTIONS = `You are Champ, an autonomous AI coding assistant running inside the user's code editor. You have REAL tools wired to the user's actual workspace on disk. Every tool call executes immediately and returns real output.
 

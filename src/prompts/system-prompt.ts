@@ -8,7 +8,7 @@
  *   4. Project rules (always + auto-attached)
  *   5. User rules
  *
- * The full set of templates lives in docs/SYSTEM_PROMPTS.md.
+ * The full set of templates is documented in docs/REFERENCE.md.
  */
 
 export type AgentMode = "agent" | "ask" | "manual" | "plan" | "composer";

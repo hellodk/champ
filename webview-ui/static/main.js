@@ -758,7 +758,7 @@
     modePickerPopup.append(hint);
   }
 
-  // Model picker — Cursor-style popup instead of native <select>.
+  // Model picker — floating popup instead of native <select>.
   const modelPickerBtn = el('button', { class: 'model-picker-btn', title: 'Switch model' }, ['Auto']);
   const modelPickerPopup = el('div', { class: 'model-picker-popup', hidden: 'true' });
   const modelSearchInput = el('input', { type: 'text', class: 'model-search', placeholder: 'Search models' });
@@ -1629,7 +1629,7 @@
     // We add the class here and the caller is responsible for it being
     // the active streaming message or removing it immediately.
 
-    // Per-message action bar (Continue.dev style) — floats on the right, visible on hover.
+    // Per-message action bar — floats on the right, visible on hover.
     const actions = el('div', { class: 'msg-actions' });
 
     if (role === 'user') {

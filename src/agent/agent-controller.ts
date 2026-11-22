@@ -120,7 +120,7 @@ export class AgentController {
    * Secret scanner used to redact API keys, passwords, and other
    * sensitive strings from tool outputs before they're added to the
    * conversation history (and therefore sent to the LLM on the next
-   * turn). See docs/HALLUCINATION_MITIGATION.md and src/safety/.
+   * turn). See docs/ARCHITECTURE.md#hallucination-mitigation and src/safety/.
    */
   private readonly secretScanner = new SecretScanner();
   private readonly piiScanner = new PiiScanner();
@@ -134,7 +134,7 @@ export class AgentController {
   private analyticsAgentName = "champ";
   /**
    * Files the model has read in this session. Used to enforce the
-   * "read before edit" rule from docs/HALLUCINATION_MITIGATION.md —
+   * "read before edit" rule from docs/ARCHITECTURE.md#hallucination-mitigation —
    * before edit_file is called on a path not in this set, the agent
    * auto-injects a read_file call first.
    */

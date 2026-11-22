@@ -44,6 +44,7 @@ import {
 } from "./cli/skills";
 import { applyAllowedTools } from "./cli/tool-scope";
 import { runProviderCommand } from "./cli/provider-commands";
+import { runUpdateCommand } from "./cli/update";
 import { ChainCredentialStore } from "./config/credential-store";
 import { EndpointRegistry } from "./config/endpoint-registry";
 import { discoverModels, testEndpoint } from "./config/model-discovery";
@@ -801,6 +802,9 @@ async function main(): Promise<number> {
     }
     process.stdout.write(`${formatSkillList(registry)}\n`);
     return EXIT_OK;
+  }
+  if (parsed.kind === "update") {
+    return runUpdateCommand(parsed.options);
   }
   if (parsed.kind === "provider-command") {
     const repository = new EndpointRepository();
