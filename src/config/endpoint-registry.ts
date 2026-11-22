@@ -52,6 +52,7 @@ export interface AddEndpointInput {
   maxTokens?: number;
   options?: Record<string, unknown>;
   credential?: CredentialRef;
+  models?: DiscoveredModel[];
 }
 
 export interface EndpointRegistryDeps {
@@ -172,7 +173,7 @@ export class EndpointRegistry {
         contextWindow: input.contextWindow,
         maxTokens: input.maxTokens,
         options: input.options,
-        models: [],
+        models: input.models ? [...input.models] : [],
       };
       doc.endpoints.push(endpoint);
       await this.deps.repository.write(doc);

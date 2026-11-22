@@ -43,6 +43,11 @@ import {
   type ResolvedInvocation,
 } from "./cli/skills";
 import { applyAllowedTools } from "./cli/tool-scope";
+import { runProviderCommand } from "./cli/provider-commands";
+import { ChainCredentialStore } from "./config/credential-store";
+import { EndpointRegistry } from "./config/endpoint-registry";
+import { discoverModels, testEndpoint } from "./config/model-discovery";
+import { EndpointRepository } from "./config/provider-repository";
 import type { RulesEngine } from "./rules/rules-engine";
 import type { SkillRegistry } from "./skills/skill-registry";
 import type { ToolRegistry } from "./tools/registry";
@@ -686,6 +691,23 @@ async function main(): Promise<number> {
     }
     process.stdout.write(`${formatSkillList(registry)}\n`);
     return EXIT_OK;
+  }
+  if (parsed.kind === "provider-command") {
+    const repository = new EndpointRepository();
+    const credentials = new ChainCredentialStore();
+    const registry = new EndpointRegistry({
+      repository,
+      credentials,
+      discovery: { discoverModels, testEndpoint },
+      now: () => new Date().toISOString(),
+    });
+    return runProviderCommand(parsed.command, {
+      registry,
+      credentials,
+      cwd: path.resolve(parsed.cwd),
+      stdout: (text) => process.stdout.write(text),
+      stderr: (text) => process.stderr.write(text),
+    });
   }
 
   const { mode, task: taskFromArgv, flags } = parsed.options;

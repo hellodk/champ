@@ -8,6 +8,7 @@
  * usage error, not a filesystem call.
  */
 import { isValidSessionId } from "../session/ids";
+import type { ProviderCommand } from "./provider-commands";
 
 /** How the CLI should run: one task, an interactive session, or piped input. */
 export type CliMode = "oneshot" | "repl" | "stdin";
@@ -40,6 +41,12 @@ export interface CliFlags {
   listSkills: boolean;
   /** Skip loading workspace/user skill directories (`--no-skills`). */
   noSkills: boolean;
+  /** Optional endpoint id/name filter for `champ models` commands. */
+  endpoint?: string;
+  /** Persist `champ model use` reference to `<workspace>/.champ/provider.json`. */
+  workspace: boolean;
+  /** Preview `champ config migrate` without writing changes. */
+  dryRun: boolean;
 }
 
 export interface CliOptions {
@@ -54,6 +61,7 @@ export type CliParseResult =
   | { kind: "version" }
   | { kind: "sessions"; cwd: string }
   | { kind: "list-skills"; cwd: string; noSkills: boolean }
+  | { kind: "provider-command"; command: ProviderCommand; cwd: string }
   | { kind: "error"; message: string }
   | { kind: "run"; options: CliOptions };
 
@@ -73,6 +81,11 @@ Usage:
   champ -                 Read the task from stdin
   echo "<t>" | champ      Same as above (piped stdin)
   champ --sessions        List stored sessions for the workspace
+  champ setup             Guided interactive provider setup
+  champ provider <cmd>    Manage endpoints: list | add | edit <id> | remove <id> | test <id> | discover <id>
+  champ models [refresh]  List or refresh discovered models
+  champ model use <id/m>  Select default or workspace model
+  champ config <cmd>      show | migrate [--dry-run]
 
 Options:
   -h, --help              Show this help
@@ -90,13 +103,17 @@ Options:
       --file <path>       The file skills and glob rules should assume
       --list-skills       Print available skills and exit
       --no-skills         Ignore workspace/user skill directories
+      --endpoint <id>     Filter \`models\` / \`models refresh\` by endpoint
+      --workspace         Write \`model use\` selection to workspace .champ/provider.json
+      --dry-run           Preview \`config migrate\` without writing changes
 
 Sessions are append-only JSONL logs in <workspace>/.champ/sessions. The REPL
 keeps one automatically; --session does the same for one-shot runs. Resuming
 replays the log bounded at the newest checkpoint, without re-summarising.
 REPL commands: /skills, /<skill> [args], /session, /sessions, /checkpoint [label], /help, /exit.
 
-Configuration is read from ~/.champ/config.yaml (or CHAMP_CONFIG).
+Configuration is read from ~/.champ/providers.json (managed by \`champ setup\`) and
+~/.champ/config.yaml (or CHAMP_CONFIG).
 Interactive runs prompt before destructive tools; non-interactive runs
 (--yes, or piped stdin) approve them automatically.
 `;
@@ -112,6 +129,7 @@ const VALUE_FLAGS: Record<string, keyof CliFlags> = {
   "--session": "session",
   "--skill": "skill",
   "--file": "file",
+  "--endpoint": "endpoint",
 };
 
 function error(message: string): CliParseResult {
@@ -136,6 +154,8 @@ export function parseCliArgs(
     listSessions: false,
     listSkills: false,
     noSkills: false,
+    workspace: false,
+    dryRun: false,
     cwd: env.cwd ?? process.cwd(),
   };
   const positionals: string[] = [];
@@ -180,6 +200,14 @@ export function parseCliArgs(
     }
     if (arg === "--no-skills") {
       flags.noSkills = true;
+      continue;
+    }
+    if (arg === "--workspace") {
+      flags.workspace = true;
+      continue;
+    }
+    if (arg === "--dry-run") {
+      flags.dryRun = true;
       continue;
     }
 
@@ -249,6 +277,9 @@ export function parseCliArgs(
         case "file":
           flags.file = value;
           break;
+        case "endpoint":
+          flags.endpoint = value;
+          break;
         default:
           // Boolean flags never appear in VALUE_FLAGS.
           break;
@@ -299,6 +330,13 @@ export function parseCliArgs(
     }
   }
 
+  if (!endOfFlags && !flags.skill) {
+    const commandResult = parseProviderCommand(positionals, flags);
+    if (commandResult) {
+      return commandResult;
+    }
+  }
+
   // Mode precedence: --repl forces an interactive session (a task makes the
   // combination ambiguous, so it is rejected); otherwise an explicit --skill
   // or task wins, then explicit `-`, then a non-terminal stdin means piped input,
@@ -324,4 +362,135 @@ export function parseCliArgs(
   }
 
   return { kind: "run", options: { mode, task, flags } };
+}
+
+function parseProviderCommand(
+  positionals: string[],
+  flags: CliFlags,
+): CliParseResult | null {
+  const head = positionals[0];
+  if (!head) return null;
+
+  switch (head) {
+    case "setup": {
+      if (positionals.length > 1) {
+        return error(
+          `unexpected arguments for "setup": ${positionals.slice(1).join(" ")}`,
+        );
+      }
+      return {
+        kind: "provider-command",
+        command: { name: "setup" },
+        cwd: flags.cwd,
+      };
+    }
+
+    case "provider": {
+      const sub = positionals[1];
+      if (!sub) {
+        return error(
+          'missing subcommand for "provider" (expected: list, add, edit, remove, test, discover)',
+        );
+      }
+      switch (sub) {
+        case "list":
+          return {
+            kind: "provider-command",
+            command: { name: "provider-list" },
+            cwd: flags.cwd,
+          };
+        case "add":
+          return {
+            kind: "provider-command",
+            command: { name: "provider-add" },
+            cwd: flags.cwd,
+          };
+        case "edit":
+        case "remove":
+        case "test":
+        case "discover": {
+          const id = positionals[2];
+          if (!id) {
+            return error(`missing endpoint id for "provider ${sub}"`);
+          }
+          const name = `provider-${sub}` as
+            | "provider-edit"
+            | "provider-remove"
+            | "provider-test"
+            | "provider-discover";
+          return {
+            kind: "provider-command",
+            command: { name, id },
+            cwd: flags.cwd,
+          };
+        }
+        default:
+          return error(`unknown provider subcommand "${sub}"`);
+      }
+    }
+
+    case "models": {
+      const sub = positionals[1];
+      if (!sub) {
+        return {
+          kind: "provider-command",
+          command: { name: "models", id: flags.endpoint },
+          cwd: flags.cwd,
+        };
+      }
+      if (sub === "refresh" && positionals.length === 2) {
+        return {
+          kind: "provider-command",
+          command: { name: "models-refresh", id: flags.endpoint },
+          cwd: flags.cwd,
+        };
+      }
+      return error(`unknown models subcommand "${sub}"`);
+    }
+
+    case "model": {
+      const sub = positionals[1];
+      if (sub === "use") {
+        const target = positionals[2];
+        if (!target) {
+          return error('missing <endpoint-id>/<model> for "model use"');
+        }
+        return {
+          kind: "provider-command",
+          command: {
+            name: "model-use",
+            endpointAndModel: target,
+            workspace: flags.workspace || undefined,
+          },
+          cwd: flags.cwd,
+        };
+      }
+      return error(`unknown model subcommand "${sub ?? ""}"`);
+    }
+
+    case "config": {
+      const sub = positionals[1];
+      if (sub === "show") {
+        return {
+          kind: "provider-command",
+          command: { name: "config-show" },
+          cwd: flags.cwd,
+        };
+      }
+      if (sub === "migrate") {
+        return {
+          kind: "provider-command",
+          command: {
+            name: "config-migrate",
+            dryRun: flags.dryRun || undefined,
+          },
+          cwd: flags.cwd,
+        };
+      }
+      return error(`unknown config subcommand "${sub ?? ""}"`);
+    }
+
+    default:
+      return null;
+  }
 }

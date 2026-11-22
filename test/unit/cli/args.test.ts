@@ -335,14 +335,105 @@ describe("cli arg parser — skills and file flags", () => {
   });
 });
 
+describe("cli arg parser — setup and provider commands", () => {
+  it("parses each provider command form cleanly", () => {
+    expect(parse(["setup"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "setup" },
+    });
+    expect(parse(["provider", "list"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "provider-list" },
+    });
+    expect(parse(["provider", "add"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "provider-add" },
+    });
+    expect(parse(["provider", "edit", "ep_1"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "provider-edit", id: "ep_1" },
+    });
+    expect(parse(["provider", "remove", "ep_1"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "provider-remove", id: "ep_1" },
+    });
+    expect(parse(["provider", "test", "ep_1"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "provider-test", id: "ep_1" },
+    });
+    expect(parse(["provider", "discover", "ep_1"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "provider-discover", id: "ep_1" },
+    });
+    expect(parse(["models"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "models" },
+    });
+    expect(parse(["models", "--endpoint", "ep_1"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "models", id: "ep_1" },
+    });
+    expect(parse(["models", "refresh", "--endpoint=ep_2"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "models-refresh", id: "ep_2" },
+    });
+    expect(parse(["model", "use", "ep_1/qwen", "--workspace"])).toMatchObject({
+      kind: "provider-command",
+      command: {
+        name: "model-use",
+        endpointAndModel: "ep_1/qwen",
+        workspace: true,
+      },
+    });
+    expect(parse(["config", "show"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "config-show" },
+    });
+    expect(parse(["config", "migrate", "--dry-run"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "config-migrate", dryRun: true },
+    });
+  });
+
+  it('keeps champ "setup the repo" in task mode', () => {
+    const opts = run(parse(["setup the repo"]));
+    expect(opts.mode).toBe("oneshot");
+    expect(opts.task).toBe("setup the repo");
+  });
+
+  it("rejects unknown subcommands with usage error", () => {
+    expect(parse(["provider", "bogus"]).kind).toBe("error");
+    expect(parse(["provider"]).kind).toBe("error");
+    expect(parse(["config", "bogus"]).kind).toBe("error");
+    expect(parse(["model", "bogus"]).kind).toBe("error");
+    expect(parse(["models", "bogus"]).kind).toBe("error");
+  });
+
+  it("USAGE includes setup and provider command lines", () => {
+    expect(USAGE).toContain("champ setup");
+    expect(USAGE).toContain("champ provider");
+    expect(USAGE).toContain("--endpoint <id>");
+    expect(USAGE).toContain("--workspace");
+    expect(USAGE).toContain("--dry-run");
+  });
+});
+
 describe("cli entry — no vscode on the CLI path (issue #136)", () => {
   it("never imports the vscode API", () => {
     const sources = [
       "src/cli.ts",
       "src/cli/args.ts",
+      "src/cli/setup.ts",
+      "src/cli/provider-commands.ts",
       "src/cli/rules.ts",
       "src/cli/skills.ts",
       "src/cli/tool-scope.ts",
+      "src/config/provider-model.ts",
+      "src/config/provider-repository.ts",
+      "src/config/credential-store.ts",
+      "src/config/provider-catalog.ts",
+      "src/config/model-discovery.ts",
+      "src/config/endpoint-registry.ts",
       "src/tools/headless/index.ts",
       "src/tools/headless/fs-tools.ts",
       "src/providers/factory.ts",

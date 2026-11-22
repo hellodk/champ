@@ -12,7 +12,8 @@ import { OllamaProvider } from "./ollama";
 import { LlamaCppProvider } from "./llamacpp";
 import { VLLMProvider } from "./vllm";
 import { OpenAICompatibleProvider } from "./openai-compatible";
-import type { ChampConfig } from "../config/config-loader";
+import type { ChampConfig, ProviderConfig } from "../config/config-loader";
+import type { Endpoint } from "../config/provider-model";
 
 /**
  * Narrow interface matching vscode.SecretStorage. Tests provide a fake.
@@ -123,6 +124,43 @@ export class ProviderFactory {
         throw new Error(`Unknown provider: "${_exhaustive as string}"`);
       }
     }
+  }
+
+  async createFromEndpoint(
+    endpoint: Endpoint,
+    opts: {
+      model: string;
+      secretProvider: SecretReader;
+      contextWindow?: number;
+    },
+  ): Promise<LLMProvider> {
+    const entry: ProviderConfig = {
+      baseUrl: endpoint.baseUrl,
+      model: opts.model,
+      supportsTools: endpoint.supportsTools,
+      contextWindow: opts.contextWindow ?? endpoint.contextWindow,
+      options: endpoint.options as ProviderConfig["options"],
+    };
+    const minimalConfig: ChampConfig = {
+      provider: endpoint.provider,
+      providers: {
+        [endpoint.provider]: entry,
+      },
+    };
+    const cred = endpoint.credential;
+    const mappedSecrets: SecretReader = {
+      get: async (fallbackKey: string) => {
+        if (cred?.kind === "keyring") {
+          const direct = await opts.secretProvider.get(cred.id);
+          if (direct !== undefined) return direct;
+        } else if (cred?.kind === "env") {
+          const fromEnv = process.env[cred.name];
+          if (fromEnv) return fromEnv;
+        }
+        return opts.secretProvider.get(fallbackKey);
+      },
+    };
+    return this.createFromChampConfig(minimalConfig, mappedSecrets);
   }
 
   private baseConfig(
