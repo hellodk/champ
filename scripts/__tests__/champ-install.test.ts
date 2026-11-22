@@ -8,62 +8,54 @@ import {
   readFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, delimiter } from "node:path";
+import { join } from "node:path";
 
 const REPO = join(__dirname, "..", "..");
 const SCRIPT = join(REPO, "scripts", "champ");
 
 let sandbox: string;
 let calls: string;
-
-function logHead() {
-  return `printf '%s|' "\${PATH}" >> "${calls}"; command -v code >> "${calls}"; printf '\\n' >> "${calls}";`;
-}
-
-function mock(name: string, body: string) {
-  writeFileSync(
-    join(sandbox, "bin", name),
-    `#!/usr/bin/env bash\n${logHead()}${body}`,
-  );
-  execFileSync("chmod", ["+x", join(sandbox, "bin", name)]);
-}
+let bashEnv: string;
 
 beforeAll(() => {
   sandbox = mkdtempSync(join(tmpdir(), "champ-install-test-"));
   calls = join(sandbox, "calls.log");
-  mkdirSync(join(sandbox, "bin"));
+  bashEnv = join(sandbox, "bash-env.sh");
   writeFileSync(calls, "");
 
-  // `gh release view ... -q` prints the resolved value, not the raw JSON.
-  mock(
-    "gh",
-    `case "$1" in api) printf 'v9.9.9\\n';; release) printf '%s\\n' 'https://github.com/hellodk/champ/releases/download/v9.9.9/champ-9.9.9.vsix';; esac`,
+  // Git Bash on Windows prepends its own bin directories to PATH, so PATH-based
+  // mocks can be shadowed by a real curl. BASH_ENV functions always win.
+  writeFileSync(
+    bashEnv,
+    [
+      `gh() { case "$1" in api) printf 'v9.9.9\\n';; release) printf '%s\\n' 'https://github.com/hellodk/champ/releases/download/v9.9.9/champ-9.9.9.vsix';; esac; }`,
+      `curl() { if [ "$1" = "-fL" ]; then p=""; for a in "$@"; do case "$a" in -o*) p="\${a#-o}";; esac; done; [ -n "$p" ] && printf 'MOCKVSIX' > "$p"; fi; return 0; }`,
+      `jq() { printf '%s\\n' 'champ-9.9.9.vsix'; }`,
+      `code() { printf 'MOCK-CODE args=[%s]\\n' "$*" >> '${bashPath(calls)}'; return 0; }`,
+      `pnpm() { return 0; }`,
+      `node() { if echo "$*" | grep -q process; then printf '2.0.2\\n'; fi; return 0; }`,
+    ].join("\n") + "\n",
   );
-  mock(
-    "curl",
-    `if [ "$1" = "-fL" ]; then p=""; for a in "$@"; do case "$a" in -o*) p="\${a#-o}";; esac; done; [ -n "$p" ] && printf 'MOCKVSIX' > "$p"; exit 0; fi; true`,
-  );
-  mock("jq", `printf '%s\\n' 'champ-9.9.9.vsix'`);
-  mock("code", `printf 'MOCK-CODE args=[%s]\\n' "$*" >> "${calls}"; exit 0`);
-  mock(
-    "node",
-    `if echo "$*" | grep -q process; then printf '2.0.2\\n'; fi; exit 0`,
-  );
-  mock("pnpm", `exit 0`);
 });
 
 afterAll(() => {
   rmSync(sandbox, { recursive: true, force: true });
 });
 
+/** Git Bash needs POSIX-style paths for BASH_ENV and for redirect targets. */
+function bashPath(p: string): string {
+  if (process.platform !== "win32") return p;
+  const normalized = p.replace(/\\/g, "/");
+  const drive = normalized.match(/^([A-Za-z]):/);
+  return drive
+    ? `/${drive[1].toLowerCase()}${normalized.slice(2)}`
+    : normalized;
+}
+
 function run(mode: "latest" | "build") {
-  const env = {
-    ...process.env,
-    PATH: join(sandbox, "bin") + delimiter + process.env.PATH,
-  };
   const out = execFileSync("bash", [SCRIPT, "install", mode], {
     cwd: REPO,
-    env,
+    env: { ...process.env, BASH_ENV: bashPath(bashEnv) },
     encoding: "utf8",
     timeout: 30000,
   });
