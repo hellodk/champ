@@ -11,7 +11,9 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as fs from "fs";
+import * as http from "http";
 import * as path from "path";
+import type { AddressInfo } from "net";
 import {
   buildCli,
   frames,
@@ -300,6 +302,38 @@ describe("champ CLI — one-shot agent turn (dist/cli.js)", () => {
         expect(s.mock.requests).toHaveLength(0);
       } finally {
         await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "exits non-zero when the provider reports a failed turn",
+    async () => {
+      const ws = makeWorkspace("cli-provider-error");
+      fixtures.push(ws);
+      const failing = http.createServer((_req, res) => {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "not found" }));
+      });
+      await new Promise<void>((resolve) =>
+        failing.listen(0, "127.0.0.1", resolve),
+      );
+      const { port } = failing.address() as AddressInfo;
+      const configPath = writeChampConfig(ws, {
+        baseUrl: `http://127.0.0.1:${port}/v1`,
+      });
+
+      try {
+        const result = await runCli(["-y", "do something"], {
+          cwd: ws,
+          configPath,
+        });
+        expect(result.timedOut).toBe(false);
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain("Request failed: 404");
+      } finally {
+        await new Promise<void>((resolve) => failing.close(() => resolve()));
       }
     },
     TIMEOUT,

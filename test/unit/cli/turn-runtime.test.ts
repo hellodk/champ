@@ -75,6 +75,24 @@ describe("executeTurn", () => {
     expect(text).toEqual(["final reply"]);
   });
 
+  it("returns the error delta as TurnOutcome.error so callers can fail the turn", async () => {
+    const controller = fakeController({}, [
+      { type: "text", text: "partial" },
+      { type: "error", error: "Request failed: 404 Not Found" },
+    ]);
+    const onError = vi.fn();
+
+    const outcome = await executeTurn({
+      controller,
+      text: "hi",
+      events: { onError },
+    });
+
+    expect(onError).toHaveBeenCalledWith("Request failed: 404 Not Found");
+    expect(outcome.error).toBe("Request failed: 404 Not Found");
+    expect(outcome.aborted).toBe(false);
+  });
+
   it("exposes and aborts the active turn signal", async () => {
     const seen: { signal?: AbortSignal } = {};
     const controller = fakeController([], seen);

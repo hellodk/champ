@@ -87,6 +87,10 @@ export async function executeTurn({
 }: ExecuteTurnOptions): Promise<TurnOutcome> {
   let sawText = false;
   let tools = 0;
+  // Error deltas are how providers and the budget enforcer report failures —
+  // processMessage returns normally in that case, so the only way a caller can
+  // tell the turn failed is by surfacing the delta here.
+  let streamError: string | undefined;
   const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
   const abort = new AbortController();
   activeAbort = abort;
@@ -102,6 +106,7 @@ export async function executeTurn({
         tools++;
         break;
       case "error":
+        streamError ??= delta.error;
         events.onError?.(delta.error);
         break;
       case "done":
@@ -126,7 +131,11 @@ export async function executeTurn({
     });
     if (!sawText && result.text) events.onText?.(result.text);
     events.onDone?.({ tools, usage });
-    return { text: result.text, aborted: abort.signal.aborted };
+    return {
+      text: result.text,
+      ...(streamError ? { error: streamError } : {}),
+      aborted: abort.signal.aborted,
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { text: "", error: message, aborted: abort.signal.aborted };
