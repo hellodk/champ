@@ -391,6 +391,7 @@
     "@testing-library/preact": "^3.2.4",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.11.0",
+    "@types/react": "18.3.31",
     "@types/vscode": "^1.95.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
@@ -399,6 +400,7 @@
     "esbuild": "^0.24.0",
     "eslint": "^9.0.0",
     "husky": "^9.0.0",
+    "ink-testing-library": "4.0.0",
     "jsdom": "^29.1.1",
     "lint-staged": "^15.0.0",
     "npm-run-all": "^4.1.5",
@@ -417,9 +419,11 @@
     "@google/generative-ai": "^0.21.0",
     "@vscode/codicons": "^0.0.45",
     "highlight.js": "^11.11.1",
+    "ink": "3.2.0",
     "js-yaml": "^4.1.1",
     "openai": "^4.77.0",
     "preact": "^10.29.1",
+    "react": "18.3.1",
     "tiktoken": "^1.0.0"
   },
   "lint-staged": {

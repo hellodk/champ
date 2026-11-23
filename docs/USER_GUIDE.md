@@ -152,8 +152,9 @@ All writes and shell calls prompt unless `agent.yoloMode: true`. Terminal execut
 ```bash
 champ "<task>"                             # one-shot run
 champ -y "Fix the tests"                   # auto-approve writes
-champ                                      # interactive REPL
-champ --repl                               # force REPL (even with piped input)
+champ                                      # full-screen TUI (when stdin is a terminal)
+champ --tui                                # force the full-screen TUI
+champ --repl                               # line REPL instead of the TUI (even with piped input)
 echo "Explain src/cli.ts" | champ          # read prompt from stdin (same as `champ -`)
 champ --session <id> "Continue task"       # create/resume append-only JSONL session
 champ --sessions                           # list workspace sessions
@@ -161,7 +162,9 @@ champ --sessions                           # list workspace sessions
 
 Key flags: `--cwd <dir>`, `--provider <name>`, `--base-url <url>`, `--model <id>`, `--api-key <key>`, `--max-iter <n>`, `--skill <name>`, `--file <path>`, `--list-skills`, `--no-skills`, `-h`/`--help`, `-v`/`--version`.
 
-REPL commands: `/skills`, `/<skill> [args]`, `/session`, `/sessions`, `/checkpoint [label]`, `/compact`, `/help`, `/exit`.
+The TUI has Chat, Providers, Config and Help screens. Press `Tab` to cycle screens, `Esc` to return to Chat, `Ctrl-C` to abort a turn or exit, and `A` on the Providers screen to add an endpoint. Config actions: `V` validate, `D` doctor, `E` redacted export.
+
+REPL and TUI commands: `/skills`, `/<skill> [args]`, `/session`, `/sessions`, `/checkpoint [label]`, `/compact`, `/help`, `/exit`.
 
 Contracts: replies write to `stdout`; traces, prompts, and warnings write to `stderr`. Non-interactive runs (piped stdin or `--yes`) auto-approve writes. Exit codes: `0` success, `1` runtime/provider failure, `2` usage/config error, `130` aborted (`SIGINT`).
 

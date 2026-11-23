@@ -44,7 +44,7 @@ describe("cli arg parser — informational flags", () => {
     expect(USAGE).toContain("--max-iter");
     expect(USAGE).toContain("--session <id>");
     expect(USAGE).toContain("--sessions");
-    expect(USAGE).toContain("Interactive REPL");
+    expect(USAGE).toContain("Full-screen TUI");
   });
 });
 
@@ -67,9 +67,9 @@ describe("cli arg parser — mode detection", () => {
     expect(opts.task).toBe("do this");
   });
 
-  it("selects the REPL when stdin is a terminal and no task is given", () => {
+  it("selects the TUI when stdin is a terminal and no task is given", () => {
     const opts = run(parse([]));
-    expect(opts.mode).toBe("repl");
+    expect(opts.mode).toBe("tui");
     expect(opts.task).toBeUndefined();
   });
 
@@ -140,6 +140,29 @@ describe("cli arg parser — flags", () => {
   it("defaults cwd to the current directory when unset", () => {
     const result = parseCliArgs([], { stdinIsTTY: true });
     expect(run(result).flags.cwd).toBe(process.cwd());
+  });
+
+  it("starts the full-screen TUI by default on a terminal", () => {
+    expect(parseCliArgs([], { stdinIsTTY: true })).toMatchObject({
+      kind: "run",
+      options: { mode: "tui" },
+    });
+    expect(parseCliArgs(["--tui"], { stdinIsTTY: true })).toMatchObject({
+      kind: "run",
+      options: { mode: "tui" },
+    });
+  });
+
+  it("keeps the line REPL available with --repl", () => {
+    expect(parseCliArgs(["--repl"], { stdinIsTTY: true })).toMatchObject({
+      kind: "run",
+      options: { mode: "repl" },
+    });
+    expect(
+      parseCliArgs(["--tui", "--repl"], { stdinIsTTY: true }),
+    ).toMatchObject({
+      kind: "error",
+    });
   });
 
   it("parses --max-iter as a positive integer", () => {

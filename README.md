@@ -89,11 +89,12 @@ code --install-extension champ-<version>.vsix
    ```bash
    champ setup
    ```
-2. Run a one-shot task, pipe stdin, or start an interactive REPL:
+2. Run a one-shot task, pipe stdin, or start the full-screen TUI:
    ```bash
    champ "find all TODOs under src/ and summarize"
    echo "explain src/cli.ts" | champ
-   champ                      # interactive REPL
+   champ                      # full-screen TUI (when stdin is a terminal)
+   champ --repl               # line REPL instead of the TUI
    champ --sessions           # list stored workspace sessions
    champ --list-skills        # list built-in, user, and workspace skills
    ```

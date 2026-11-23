@@ -12,15 +12,17 @@ import { isTaskAssignment } from "../config/provider-model";
 import type { ProviderCommand } from "./provider-commands";
 import { validateRepoOrRef, type UpdateCommandOptions } from "./update";
 
-/** How the CLI should run: one task, an interactive session, or piped input. */
-export type CliMode = "oneshot" | "repl" | "stdin";
+/** How the CLI should run: one task, the full-screen UI, a line REPL, or piped input. */
+export type CliMode = "oneshot" | "tui" | "repl" | "stdin";
 
 export interface CliFlags {
   help: boolean;
   version: boolean;
   /** Auto-approve destructive tools instead of prompting the user. */
   yes: boolean;
-  /** Force the interactive session even when stdin is not a terminal. */
+  /** Force the full-screen TUI even when stdin is not a terminal. */
+  tui: boolean;
+  /** Force the line REPL even when stdin is not a terminal. */
   repl: boolean;
   /** List stored sessions for the workspace instead of running a task. */
   listSessions: boolean;
@@ -93,8 +95,9 @@ export const USAGE = `champ — headless Champ agent CLI
 
 Usage:
   champ "<task>"          Run a single task and exit
-  champ                   Interactive REPL (when stdin is a terminal)
-  champ --repl            Force the REPL (also with piped input, for scripting)
+  champ                   Full-screen TUI (when stdin is a terminal)
+  champ --tui             Force the full-screen TUI
+  champ --repl            Line REPL instead of the TUI (also with piped input)
   champ -                 Read the task from stdin
   echo "<t>" | champ      Same as above (piped stdin)
   champ --sessions        List stored sessions for the workspace
@@ -110,7 +113,8 @@ Options:
   -h, --help              Show this help
   -v, --version           Print the version
   -y, --yes               Auto-approve destructive tools
-  -r, --repl              Force the interactive REPL
+      --tui               Force the full-screen TUI
+  -r, --repl              Force the line REPL instead of the TUI
       --cwd <dir>         Workspace root (default: current directory)
       --provider <name>   Override the provider configured in config.yaml
       --base-url <url>    Override the provider base URL
@@ -179,6 +183,7 @@ export function parseCliArgs(
     help: false,
     version: false,
     yes: false,
+    tui: false,
     repl: false,
     listSessions: false,
     listSkills: false,
@@ -217,6 +222,10 @@ export function parseCliArgs(
     }
     if (arg === "--yes" || arg === "-y") {
       flags.yes = true;
+      continue;
+    }
+    if (arg === "--tui") {
+      flags.tui = true;
       continue;
     }
     if (arg === "--repl" || arg === "-r") {
@@ -373,6 +382,9 @@ export function parseCliArgs(
     if (flags.repl) {
       return error("cannot combine --sessions with --repl");
     }
+    if (flags.tui) {
+      return error("cannot combine --sessions with --tui");
+    }
     return { kind: "sessions", cwd: flags.cwd };
   }
 
@@ -383,6 +395,9 @@ export function parseCliArgs(
     if (flags.repl) {
       return error("cannot combine --list-skills with --repl");
     }
+    if (flags.tui) {
+      return error("cannot combine --list-skills with --tui");
+    }
     return { kind: "list-skills", cwd: flags.cwd, noSkills: flags.noSkills };
   }
 
@@ -390,6 +405,11 @@ export function parseCliArgs(
     if (flags.repl) {
       return error(
         "--skill cannot be combined with --repl (use /<skill> inside the REPL)",
+      );
+    }
+    if (flags.tui) {
+      return error(
+        "--skill cannot be combined with --tui (use /<skill> inside the TUI)",
       );
     }
     if (positionals[0]?.startsWith("/")) {
@@ -404,17 +424,23 @@ export function parseCliArgs(
     }
   }
 
-  // Mode precedence: --repl forces an interactive session (a task makes the
-  // combination ambiguous, so it is rejected); otherwise an explicit --skill
-  // or task wins, then explicit `-`, then a non-terminal stdin means piped input,
-  // otherwise an interactive REPL.
-  if (flags.repl && (positionals.length > 0 || explicitStdin)) {
-    return error("cannot combine --repl with a task");
+  // Mode precedence: explicit interactive flags win (and are mutually
+  // exclusive); otherwise an explicit --skill or task wins, then explicit `-`,
+  // then a non-terminal stdin means piped input, otherwise the full-screen TUI.
+  if (flags.tui && flags.repl) {
+    return error("cannot combine --tui and --repl");
+  }
+  if ((flags.tui || flags.repl) && (positionals.length > 0 || explicitStdin)) {
+    return error(
+      `cannot combine ${flags.tui ? "--tui" : "--repl"} with a task`,
+    );
   }
 
   let mode: CliMode;
   let task: string | undefined;
-  if (flags.repl) {
+  if (flags.tui) {
+    mode = "tui";
+  } else if (flags.repl) {
     mode = "repl";
   } else if (flags.skill) {
     mode = "oneshot";
@@ -425,7 +451,7 @@ export function parseCliArgs(
   } else if (explicitStdin || !env.stdinIsTTY) {
     mode = "stdin";
   } else {
-    mode = "repl";
+    mode = "tui";
   }
 
   return { kind: "run", options: { mode, task, flags } };
