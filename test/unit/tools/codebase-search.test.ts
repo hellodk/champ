@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import * as path from "path";
 import { createCodebaseSearchTool } from "@/tools/codebase-search";
 import type { ToolExecutionContext } from "@/tools/types";
 
@@ -38,7 +39,7 @@ describe("createCodebaseSearchTool", () => {
 
     expect(result.success).toBe(true);
     expect(result.output).toContain("Semantic search results");
-    expect(result.output).toContain("src/auth.ts");
+    expect(result.output).toContain(path.join("src", "auth.ts"));
     expect(search).toHaveBeenCalledWith("authentication logic", 3);
   });
 });
