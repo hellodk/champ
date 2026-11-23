@@ -168,6 +168,8 @@ REPL and TUI commands: `/skills`, `/<skill> [args]`, `/session`, `/sessions`, `/
 
 Tools: all 17 non-SSH built-ins are available in the CLI, including terminal, git, browser, fetch, web search, codebase search, tests, docs and delegation. MCP servers from `mcp.servers` are connected at startup and their tools appear as `mcp_<server>_<tool>`. `web_search` needs `BRAVE_API_KEY` in the environment or the `brave-search-api-key` OS keyring entry.
 
+Semantic RAG: `codebase_search` uses the same embedding index as the extension. An endpoint with an `embedding` model (or `indexing.embeddingModel` in `~/.champ/config.yaml`) enables vector search; the index is initialized lazily on the first semantic query and `[rag] …` diagnostics go to `stderr`. Without an embedding model the tool falls back to ripgrep keyword search.
+
 Contracts: replies write to `stdout`; traces, prompts, and warnings write to `stderr`. Non-interactive runs without `--yes` deny actions that require approval; `--yes` opts in to auto-approval. Exit codes: `0` success, `1` runtime/provider failure, `2` usage/config error, `130` aborted (`SIGINT`).
 
 ---

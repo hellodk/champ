@@ -73,6 +73,7 @@ import {
 } from "./config/provider-model";
 import { EndpointRepository } from "./config/provider-repository";
 import { SmartRouter } from "./providers/smart-router";
+import { createCliIndexingService } from "./indexing/cli-indexing";
 import type { RulesEngine } from "./rules/rules-engine";
 import type { SkillRegistry } from "./skills/skill-registry";
 import type { ToolRegistry } from "./tools/registry";
@@ -936,9 +937,32 @@ async function main(): Promise<number> {
     }
   }
   let liveController: AgentController | null = null;
+  const indexingService = await createCliIndexingService({
+    workspaceRoot: workspace,
+    config,
+    endpoints: registryChoice?.endpoints ?? [],
+    credentials: {
+      get: (key: string) =>
+        endpointCredentials.get({ kind: "keyring", id: key }),
+    },
+    embeddingAssignment: registryChoice?.assignments.embedding?.model,
+    logger: (message) => process.stderr.write(`[rag] ${message}\n`),
+  });
+  process.once("exit", () => indexingService?.dispose());
   const toolRegistry = createHeadlessToolRegistry({
     credentials: endpointCredentials,
     getAgentController: () => liveController,
+    getIndexingService: indexingService
+      ? async () => {
+          const stats = await indexingService.initialize();
+          if (stats) {
+            process.stderr.write(
+              `[rag] indexed ${stats.chunksIndexed} chunks with ${stats.embeddingModel}\n`,
+            );
+          }
+          return indexingService.isReady() ? indexingService : null;
+        }
+      : undefined,
   });
   if (config.mcp?.servers?.length) {
     try {

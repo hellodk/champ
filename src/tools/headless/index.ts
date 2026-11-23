@@ -8,12 +8,14 @@
  *
  * Must not import `vscode` at runtime.
  */
-import type { IndexingService } from "../../indexing/indexing-service";
 import { MCPClientManager, type MCPServerConfig } from "../../mcp/mcp-client";
 import { McpRegistry } from "../../mcp/mcp-registry";
 import { ToolRegistry } from "../registry";
 import type { CredentialStore } from "../../config/credential-store";
-import { createCodebaseSearchTool } from "../codebase-search";
+import {
+  createCodebaseSearchTool,
+  type IndexingServiceGetter,
+} from "../codebase-search";
 import {
   createDelegateTaskTool,
   type SubAgentController,
@@ -38,7 +40,7 @@ export interface HeadlessToolRegistryOptions {
   /** CLI-flavoured guidance shown when the Brave key is missing. */
   missingBraveKeyHint?: string;
   /** Semantic index; when absent/null, codebase_search uses its rg fallback. */
-  getIndexingService?: () => IndexingService | null;
+  getIndexingService?: IndexingServiceGetter;
   /**
    * Live agent controller for `delegate_task`. Resolved per call so the
    * registry can be built before the controller exists.

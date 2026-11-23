@@ -3,8 +3,13 @@ import { spawnSync } from "child_process";
 import type { IndexingService } from "../indexing/indexing-service";
 import type { Tool } from "./types";
 
+export type IndexingServiceGetter = () =>
+  | IndexingService
+  | null
+  | PromiseLike<IndexingService | null>;
+
 export function createCodebaseSearchTool(
-  getIndexingService: () => IndexingService | null,
+  getIndexingService: IndexingServiceGetter,
 ): Tool {
   return {
     name: "codebase_search",
@@ -31,7 +36,7 @@ export function createCodebaseSearchTool(
       if (!query) return { output: "query is required", success: false };
 
       const topK = typeof args.topK === "number" ? Math.min(args.topK, 20) : 8;
-      const indexingService = getIndexingService();
+      const indexingService = await getIndexingService();
 
       // ── Semantic path ───────────────────────────────────────────────
       if (indexingService?.isReady()) {
