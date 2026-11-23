@@ -58,7 +58,10 @@ const cliOptions = {
   entryPoints: ['src/cli.ts'],
   outfile: 'dist/cli.js',
   external: ['playwright-core', 'chromium-bidi'],
-  banner: { js: '#!/usr/bin/env node' },
+  // yoga-layout-prebuilt's nbind bundle assigns to an undeclared `_a`; esbuild
+  // drops its `var _a` declaration while bundling. Declare it once so the
+  // bundled CLI loads instead of throwing ReferenceError at startup.
+  banner: { js: '#!/usr/bin/env node\nvar _a;' },
 };
 
 async function run(options) {

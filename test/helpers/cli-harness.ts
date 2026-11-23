@@ -37,7 +37,8 @@ export async function buildCli(): Promise<string> {
     logLevel: "silent",
     sourcemap: false,
     external: ["playwright-core", "chromium-bidi"],
-    banner: { js: "#!/usr/bin/env node" },
+    // Keep in sync with esbuild.mjs: yoga-layout-prebuilt needs a global `_a`.
+    banner: { js: "#!/usr/bin/env node\nvar _a;" },
     alias: {
       "node-fetch": "./shims/node-fetch.cjs",
       "formdata-node": "./shims/formdata-node/index.cjs",
