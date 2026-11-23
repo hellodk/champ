@@ -144,7 +144,7 @@ describe("packaging + repo hygiene (#102)", () => {
     // A tarball whose `bin` target is missing installs a command that cannot
     // run. `prepack` builds it, so no `--ignore-scripts` here (review 4c).
     expect(packed).toContain("dist/cli.js");
-  });
+  }, 30_000);
 
   it("declares the CLI-only npm payload and keeps vsce off it (#139)", () => {
     const npmignore = readLines(".npmignore");
