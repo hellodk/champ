@@ -10,6 +10,7 @@
 import { isValidSessionId } from "../session/ids";
 import { isTaskAssignment } from "../config/provider-model";
 import type { ProviderCommand } from "./provider-commands";
+import type { PolicyCommand } from "./policy-commands";
 import { validateRepoOrRef, type UpdateCommandOptions } from "./update";
 
 /** How the CLI should run: one task, the full-screen UI, a line REPL, or piped input. */
@@ -80,6 +81,7 @@ export type CliParseResult =
   | { kind: "sessions"; cwd: string }
   | { kind: "list-skills"; cwd: string; noSkills: boolean }
   | { kind: "provider-command"; command: ProviderCommand; cwd: string }
+  | { kind: "policy-command"; command: PolicyCommand; cwd: string }
   | { kind: "update"; options: UpdateCommandOptions }
   | { kind: "error"; message: string }
   | { kind: "run"; options: CliOptions };
@@ -107,6 +109,7 @@ Usage:
   champ model use <id/m>  Select default or workspace model
   champ model assign <t> <id/m>  Assign model to task: default | coding | chat | completion | embedding
   champ config <cmd>      show | validate | doctor | export --redact | migrate [--dry-run] | scrub-secrets [--dry-run] | routing <auto|manual>
+  champ policy <cmd>      show | validate   Inspect effective enterprise policy rules
   champ update            Update the champ CLI installation from upstream git
 
 Options:
@@ -144,8 +147,8 @@ REPL commands: /skills, /<skill> [args], /session, /sessions, /checkpoint [label
 
 Configuration is read from ~/.champ/providers.json (managed by \`champ setup\`) and
 ~/.champ/config.yaml (or CHAMP_CONFIG).
-Interactive runs prompt before destructive tools; non-interactive runs
-(--yes, or piped stdin) approve them automatically.
+Interactive runs prompt before destructive tools. Non-interactive runs without
+--yes deny actions that require approval; --yes opts in to auto-approval.
 `;
 
 /** Flags that take a separate value argument. */
@@ -663,6 +666,32 @@ function parseProviderCommand(
         };
       }
       return error(`unknown config subcommand "${sub ?? ""}"`);
+    }
+
+    case "policy": {
+      const sub = positionals[1];
+      if (positionals.length > 2) {
+        return error(
+          `unexpected arguments for "policy": ${positionals.slice(2).join(" ")}`,
+        );
+      }
+      if (sub === "show") {
+        return {
+          kind: "policy-command",
+          command: { name: "policy-show" },
+          cwd: flags.cwd,
+        };
+      }
+      if (sub === "validate") {
+        return {
+          kind: "policy-command",
+          command: { name: "policy-validate" },
+          cwd: flags.cwd,
+        };
+      }
+      return error(
+        `unknown policy subcommand "${sub ?? ""}" (expected: show, validate)`,
+      );
     }
 
     case "update": {

@@ -18,6 +18,7 @@ import type {
   CredentialRef,
   DiscoveredModel,
   ProviderKind,
+  TaskAssignment,
 } from "../config/provider-model";
 import { runWizard } from "../config/setup-wizard";
 import { resilientFetch } from "../providers/http-resilience";
@@ -31,6 +32,10 @@ export interface SetupPrompts {
   secret(label: string): Promise<string | undefined>;
   confirm(label: string, initial?: boolean): Promise<boolean>;
   pickModel(models: DiscoveredModel[]): Promise<string | undefined>;
+  /** Optional task-assignment step. Omitted by callers that keep the default routing. */
+  pickTasks?(
+    tasks: readonly TaskAssignment[],
+  ): Promise<readonly TaskAssignment[] | undefined>;
 }
 
 export interface RunSetupDeps {
@@ -45,6 +50,8 @@ export interface RunSetupDeps {
 export interface RunSetupResult {
   saved: boolean;
   endpointId?: string;
+  /** Result of the post-save connectivity/auth verification, when available. */
+  verified?: boolean;
 }
 
 export async function runSetup(deps: RunSetupDeps): Promise<RunSetupResult> {
@@ -61,6 +68,7 @@ export async function runSetup(deps: RunSetupDeps): Promise<RunSetupResult> {
     providers: PROVIDER_CATALOG.map((entry) => ({
       id: entry.kind,
       cloud: entry.cloud,
+      auth: entry.auth,
     })),
     pickProvider: async () =>
       deps.prompts.choose(
@@ -101,7 +109,9 @@ export async function runSetup(deps: RunSetupDeps): Promise<RunSetupResult> {
         return { status: undefined, ok: false };
       }
     },
-    hasStoredApiKey: async () => Boolean(capturedKey),
+    hasStoredApiKey: async (providerId) =>
+      Boolean(capturedKey) ||
+      deps.registry.hasStoredCredentialForProvider(providerId as ProviderKind),
     promptForApiKey: async (providerId) =>
       deps.prompts.secret(
         `API key for ${providerId} (stored in OS keyring/env, never in JSON)`,
@@ -218,6 +228,36 @@ export async function runSetup(deps: RunSetupDeps): Promise<RunSetupResult> {
     await deps.registry.setAssignment("default", savedEndpoint.id, chosenModel);
   }
 
+  const assignableTasks: TaskAssignment[] = [
+    "coding",
+    "chat",
+    "completion",
+    "embedding",
+  ];
+  const selectedTasks = await deps.prompts.pickTasks?.(assignableTasks);
+  if (selectedTasks) {
+    for (const task of selectedTasks) {
+      if (!assignableTasks.includes(task)) continue;
+      await deps.registry.setAssignment(task, savedEndpoint.id, chosenModel);
+    }
+  }
+
+  let verified: boolean | undefined;
+  try {
+    const testResult = await deps.registry.test(savedEndpoint.id, {
+      model: chosenModel,
+    });
+    verified = testResult.ok;
+    deps.writeLine(
+      `Verification: ${verified ? "ok" : "FAIL"}${testResult.statusCode ? ` status=${testResult.statusCode}` : ""}${testResult.latencyMs ? ` ${testResult.latencyMs}ms` : ""}`,
+    );
+  } catch (err) {
+    verified = false;
+    deps.writeLine(
+      `Verification: FAIL (${err instanceof Error ? err.message : String(err)})`,
+    );
+  }
+
   deps.writeLine(
     `Saved endpoint ${savedEndpoint.id} (${savedEndpoint.name}: ${savedEndpoint.provider} -> ${savedEndpoint.baseUrl ?? "default"}, model ${chosenModel})`,
   );
@@ -238,7 +278,7 @@ export async function runSetup(deps: RunSetupDeps): Promise<RunSetupResult> {
     }
   }
 
-  return { saved: true, endpointId: savedEndpoint.id };
+  return { saved: true, endpointId: savedEndpoint.id, verified };
 }
 
 function askLine(question: string): Promise<string | undefined> {
@@ -360,6 +400,28 @@ export function createTerminalSetupPrompts(): SetupPrompts {
       }
       const trimmed = raw.trim();
       return trimmed || undefined;
+    },
+    async pickTasks(tasks) {
+      for (let i = 0; i < tasks.length; i++) {
+        process.stderr.write(`  ${i + 1}) ${tasks[i]}\n`);
+      }
+      const raw = await askLine(
+        "Assign tasks (comma-separated numbers or names, blank for none): ",
+      );
+      if (raw === undefined || !raw.trim()) return [];
+      const chosen = new Set<TaskAssignment>();
+      for (const part of raw
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean)) {
+        const num = Number.parseInt(part, 10);
+        const match =
+          Number.isInteger(num) && num >= 1 && num <= tasks.length
+            ? tasks[num - 1]
+            : tasks.find((task) => task === part);
+        if (match) chosen.add(match);
+      }
+      return [...chosen];
     },
   };
 }

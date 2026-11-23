@@ -44,6 +44,7 @@ import {
 } from "./cli/skills";
 import { applyAllowedTools } from "./cli/tool-scope";
 import { runProviderCommand } from "./cli/provider-commands";
+import { runPolicyCommand } from "./cli/policy-commands";
 import {
   abortActiveTurn,
   activeAbortSignal,
@@ -773,6 +774,24 @@ async function main(): Promise<number> {
   }
   if (parsed.kind === "update") {
     return runUpdateCommand(parsed.options);
+  }
+  if (parsed.kind === "policy-command") {
+    let engine: PolicyEngine;
+    try {
+      engine = createPolicyEngine({
+        workspace: path.resolve(parsed.cwd),
+        workspaceTrusted: process.env.CHAMP_TRUST_WORKSPACE === "1",
+      });
+    } catch (err) {
+      fail(
+        `policy configuration rejected: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    return runPolicyCommand(parsed.command, {
+      engine,
+      stdout: (text) => process.stdout.write(text),
+      stderr: (text) => process.stderr.write(text),
+    });
   }
   if (parsed.kind === "provider-command") {
     const repository = new EndpointRepository();

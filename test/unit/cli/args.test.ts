@@ -23,6 +23,30 @@ function run(result: CliParseResult) {
   return result.options;
 }
 
+describe("champ policy commands", () => {
+  it("parses show and validate", () => {
+    expect(parse(["policy", "show"])).toEqual({
+      kind: "policy-command",
+      command: { name: "policy-show" },
+      cwd: "/tmp/ws",
+    });
+    expect(parse(["policy", "validate"])).toEqual({
+      kind: "policy-command",
+      command: { name: "policy-validate" },
+      cwd: "/tmp/ws",
+    });
+  });
+
+  it("rejects unknown and extra policy arguments", () => {
+    expect(parse(["policy", "bogus"]).kind).toBe("error");
+    expect(parse(["policy", "show", "extra"]).kind).toBe("error");
+  });
+
+  it("documents that headless runs deny approvals without --yes", () => {
+    expect(USAGE).toMatch(/without\s+--yes deny/i);
+  });
+});
+
 describe("cli arg parser — informational flags", () => {
   it("returns help for --help and -h", () => {
     expect(parse(["--help"]).kind).toBe("help");
