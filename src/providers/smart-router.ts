@@ -115,6 +115,31 @@ export class SmartRouter {
   }
 
   /**
+   * Seed already-discovered models (for example from a persisted CLI endpoint
+   * registry) without a network discovery pass. Duplicate provider/model pairs
+   * are ignored, so repeated calls are cheap.
+   */
+  seedDiscoveredModels(models: DiscoveredModel[]): void {
+    const merged = new Map(
+      this.models.map((model) => [`${model.providerName}:${model.id}`, model]),
+    );
+    for (const model of models) {
+      const key = `${model.providerName}:${model.id}`;
+      if (!merged.has(key)) merged.set(key, model);
+    }
+    if (merged.size === this.models.length) return;
+
+    this.models = Array.from(merged.values());
+    this.discovered = true;
+    this.routeCache.clear();
+    const sig = this.modelSignature(this.models);
+    if (sig !== this.lastModelsSig) {
+      this.lastModelsSig = sig;
+      this.emit();
+    }
+  }
+
+  /**
    * Discover models from all registered providers in parallel.
    * Non-blocking — call with `void`, don't await during activation.
    *
