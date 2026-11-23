@@ -85,7 +85,7 @@ Single technical architecture reference for the **Champ VS Code extension** (`di
 
 - **Model**: `ProviderKind → Endpoint → DiscoveredModel[] → TaskAssignment` (`default | coding | chat | completion | embedding`). Workspace overrides live in non-secret `<workspace>/.champ/provider.json`.
 - **Safety & Concurrency**: `EndpointRepository` writes atomically (`tmp` → `fsync` → `chmod 0600` → `rename`), refuses symlinks (`lstat`), skips malformed endpoints with warnings instead of losing the file, never writes secrets, and serializes writers via `mkdir` exclusive locks (30s stale detection, 5s timeout).
-- **Credential Isolation**: `ChainCredentialStore` (CLI: macOS `security -i`, Linux `secret-tool store` via stdin — never `argv`, env fallback) and `VsCodeSecretCredentialStore` (`context.secrets`, structural interface with zero `vscode` import) share logical ref IDs (`champ.<provider>.apiKey` or `ep_<id>`).
+- **Credential Isolation**: `ChainCredentialStore` (CLI: macOS `security -i`, Linux `secret-tool store` via stdin — never `argv`, env fallback) and `SharedCredentialStore` (extension: OS keyring first, `context.secrets` fallback) share logical ref IDs (`champ.<provider>.apiKey` or `ep_<id>`), so a credential written by one host resolves in the other.
 - **Discovery & Health Probes**: `model-discovery.ts` reuses `buildProbeUrl` and `resilientFetch` (5s per-request timeout, 15s discovery / 10s test deadline, concurrency $\le 4$, Bearer auth supported, timeouts reported `ok: false`).
 
 ### Smart Router (`src/providers/smart-router.ts`)

@@ -43,6 +43,7 @@ import { resilientFetch } from "./providers/http-resilience";
 import { runWizard } from "./config/setup-wizard";
 import { SharedCredentialStore } from "./config/credential-store";
 import { EndpointRegistry } from "./config/endpoint-registry";
+import { selectActiveModel } from "./config/active-model";
 import { discoverModels, testEndpoint } from "./config/model-discovery";
 import {
   ModelSelectionService,
@@ -1942,59 +1943,20 @@ export async function activate(
             );
           }
         }
-        // Surgically rewrite ~/.champ/config.yaml's top-level `provider:`
-        // line. Comments and the rest of the file are preserved. The file
-        // watcher fires loadProvider() which broadcasts a fresh
-        // providerStatus to the chat view.
-        const yamlPath = path.join(os.homedir(), ".champ", "config.yaml");
-        const yamlUri = vscode.Uri.file(yamlPath);
-        let text: string;
-        let configExisted = true;
-        try {
-          const data = await vscode.workspace.fs.readFile(yamlUri);
-          text = new TextDecoder().decode(data);
-        } catch {
-          // Config doesn't exist — create it with defaults so the user has
-          // a starting point, but only on first use (never overwrite existing).
-          configExisted = false;
-          const template = generateDefaultConfigYaml();
-          try {
-            await vscode.workspace.fs.createDirectory(
-              vscode.Uri.file(path.join(os.homedir(), ".champ")),
-            );
-          } catch {
-            /* dir already exists */
-          }
-          await vscode.workspace.fs.writeFile(
-            yamlUri,
-            new TextEncoder().encode(template),
-          );
-          text = template;
-        }
-        // If config already existed, never overwrite it wholesale —
-        // only the specific provider/model lines are updated below.
-        void configExisted; // used implicitly via the read path above
-        if (!/^provider:/m.test(text)) {
+        // Persist the choice in the endpoint registry — the single source of
+        // truth shared with the CLI. The registry change listener refreshes
+        // the chat footer status.
+        const selected = await selectActiveModel(
+          endpointRegistry,
+          providerName,
+          selectedModelId,
+        );
+        if (!selected.ok) {
           void vscode.window.showWarningMessage(
-            `Champ: no top-level \`provider:\` line found in ${yamlPath}.`,
+            `Champ: ${selected.reason}. Run "Champ: Configure Provider" first.`,
           );
           return;
         }
-        const updated = setActiveProviderInYaml(text, providerName);
-        if (updated === text) {
-          // Same provider already active — update the model line only.
-        }
-        // Also write the selected model name into providers.{name}.model so it
-        // persists through the next loadProvider() call.
-        const finalText = selectedModelId
-          ? setProviderModelInYaml(updated, providerName, selectedModelId)
-          : updated;
-        await vscode.workspace.fs.writeFile(
-          yamlUri,
-          new TextEncoder().encode(finalText),
-        );
-        // The file watcher will fire loadProvider() which broadcasts
-        // a fresh providerStatus. Nothing more to do here.
       },
     ),
     vscode.commands.registerCommand(
@@ -4932,55 +4894,6 @@ function buildAvailableModels(
     });
   }
   return out;
-}
-
-/**
- * Surgically rewrite the top-level `provider:` line in a YAML config
- * file. Comments, indentation, and the rest of the file are preserved
- * exactly — only the provider name on that one line changes. Returns
- * the original text unchanged if no top-level `provider:` line exists.
- *
- * The regex anchors to start-of-line so nested `provider:` keys (e.g.
- * `autocomplete.provider`) are never touched.
- */
-function setActiveProviderInYaml(
-  yamlText: string,
-  newProvider: string,
-): string {
-  return yamlText.replace(/^provider:[^\n]*$/m, `provider: ${newProvider}`);
-}
-
-/**
- * Rewrite the `model:` line under a specific provider section in YAML.
- * Preserves comments and all other content. Returns text unchanged if
- * the provider section or model line is not found.
- */
-function setProviderModelInYaml(
-  yamlText: string,
-  providerName: string,
-  modelId: string,
-): string {
-  const lines = yamlText.split("\n");
-  let inProvider = false;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (
-      /^\s{2}/.test(line) &&
-      line.trimStart().startsWith(`${providerName}:`)
-    ) {
-      inProvider = true;
-      continue;
-    }
-    if (inProvider) {
-      if (line.length > 0 && !/^\s/.test(line)) break;
-      if (/^\s{2}[^\s]/.test(line)) break;
-      if (/^\s{4,}model:\s*/.test(line)) {
-        lines[i] = line.replace(/^(\s+model:\s*).*$/, `$1${modelId}`);
-        break;
-      }
-    }
-  }
-  return lines.join("\n");
 }
 
 /**

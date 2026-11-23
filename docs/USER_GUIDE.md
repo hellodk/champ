@@ -67,7 +67,7 @@ In VS Code, run **`Champ: Configure Provider`** (`Ctrl+Shift+P` / `Cmd+Shift+P`)
 Both store endpoints in `~/.champ/providers.json` (permissions `0600`) and keep secrets out of JSON:
 
 - **CLI secrets**: stored in OS keyring (`security` on macOS, `secret-tool` on Linux with D-Bus) with environment variable fallback (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OLLAMA_API_KEY`, `LLAMACPP_API_KEY`, `VLLM_API_KEY`, `OPENAI_COMPATIBLE_API_KEY`).
-- **VS Code secrets**: stored in encrypted `SecretStorage` using matching logical IDs (`champ.<provider>.apiKey`).
+- **VS Code secrets**: the extension uses `SharedCredentialStore`, which reads the OS keyring first (same logical ref IDs as the CLI), then falls back to encrypted `SecretStorage` for legacy keys (`champ.<provider>.apiKey`).
 
 ### Managing endpoints & models
 
@@ -80,7 +80,10 @@ champ provider edit <id> | remove <id>       # manage an existing endpoint
 champ provider test <id> [--inference]       # connectivity/auth; --inference also runs a 1-token request
 champ provider discover <id>                 # refresh one endpoint's models from /v1/models or /api/tags
 champ models [refresh] [--endpoint <id>]     # list or refresh models as <endpoint-id>/<model-id>
-champ config show                            # redacted config view
+champ config show                            # effective settings from both stores, redacted
+champ config validate                        # report configuration problems (exit 1 on errors)
+champ config doctor                          # check endpoints, assignments and credentials
+champ config export --redact                 # machine-readable snapshot (flag required)
 champ config migrate [--dry-run]             # import URLs/models from ~/.champ/config.yaml
 ```
 
@@ -105,7 +108,7 @@ champ --provider <name> --base-url <url> --model <model> "task"
 
 Selection precedence, highest first: CLI flags → workspace `.champ/provider.json` → `~/.champ/providers.json` assignments → defaults.
 
-In VS Code, **`Champ: Configure Provider`** manages endpoints. The chat footer's model dropdown runs `champ.setActiveModel`, which edits the top-level `provider:` and `providers.<name>.model` lines of `~/.champ/config.yaml` (the legacy YAML path, not `providers.json`); the config watcher reloads the provider afterward.
+In VS Code, **`Champ: Configure Provider`** manages endpoints. The chat footer's model dropdown runs `champ.setActiveModel`, which writes the `default` task assignment to `~/.champ/providers.json` — the same registry the CLI reads. `~/.champ/config.yaml` is only a legacy migration source and is no longer written by model selection.
 
 ### Local backend quick commands
 
