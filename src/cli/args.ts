@@ -49,6 +49,8 @@ export interface CliFlags {
   workspace: boolean;
   /** Preview `champ config migrate` / `scrub-secrets` without writing changes. */
   dryRun: boolean;
+  /** Required for `champ config export` — redact all secret material. */
+  redact: boolean;
   /** Send a 1-token inference request during `champ provider test` (`--inference`). */
   inference: boolean;
   /** Check for a newer CLI version without installing (`champ update --check`). */
@@ -101,7 +103,7 @@ Usage:
   champ models [refresh]  List or refresh discovered models
   champ model use <id/m>  Select default or workspace model
   champ model assign <t> <id/m>  Assign model to task: default | coding | chat | completion | embedding
-  champ config <cmd>      show | migrate [--dry-run] | scrub-secrets [--dry-run] | routing <auto|manual>
+  champ config <cmd>      show | validate | doctor | export --redact | migrate [--dry-run] | scrub-secrets [--dry-run] | routing <auto|manual>
   champ update            Update the champ CLI installation from upstream git
 
 Options:
@@ -123,6 +125,7 @@ Options:
       --endpoint <id>     Filter \`models\` / \`models refresh\` by endpoint
       --workspace         Write \`model use\` selection to workspace .champ/provider.json
       --dry-run           Preview \`config migrate\`, \`config scrub-secrets\`, or \`update\` without writing
+      --redact            Required for \`config export\`; redacts all secret material
       --inference         Send a minimal inference request during \`champ provider test\`
       --check             Check if a newer CLI update is available without installing
       --force             Reinstall CLI even when already on the latest commit
@@ -182,6 +185,7 @@ export function parseCliArgs(
     noSkills: false,
     workspace: false,
     dryRun: false,
+    redact: false,
     inference: false,
     check: false,
     force: false,
@@ -237,6 +241,10 @@ export function parseCliArgs(
     }
     if (arg === "--dry-run") {
       flags.dryRun = true;
+      continue;
+    }
+    if (arg === "--redact") {
+      flags.redact = true;
       continue;
     }
     if (arg === "--inference") {
@@ -567,6 +575,33 @@ function parseProviderCommand(
         return {
           kind: "provider-command",
           command: { name: "config-show" },
+          cwd: flags.cwd,
+        };
+      }
+      if (sub === "validate") {
+        return {
+          kind: "provider-command",
+          command: { name: "config-validate" },
+          cwd: flags.cwd,
+        };
+      }
+      if (sub === "doctor") {
+        return {
+          kind: "provider-command",
+          command: { name: "config-doctor" },
+          cwd: flags.cwd,
+        };
+      }
+      if (sub === "export") {
+        if (!flags.redact) {
+          return error("config export requires --redact");
+        }
+        if (positionals.length !== 2) {
+          return error('unexpected arguments for "config export"');
+        }
+        return {
+          kind: "provider-command",
+          command: { name: "config-export", redact: true },
           cwd: flags.cwd,
         };
       }

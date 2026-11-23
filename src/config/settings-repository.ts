@@ -89,12 +89,12 @@ const SECRET_KEYS = new Set([
   "token",
   "password",
   "secret",
-  "credential",
   "authorization",
 ]);
 
 function redact(value: unknown, key?: string, hideRefs = true): unknown {
   if (key && SECRET_KEYS.has(key.toLowerCase())) return "<redacted>";
+  if (key === "credential" && hideRefs) return "<redacted>";
   if (Array.isArray(value))
     return value.map((item) => redact(item, undefined, hideRefs));
   if (value && typeof value === "object") {

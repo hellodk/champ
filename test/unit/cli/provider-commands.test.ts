@@ -9,6 +9,7 @@ import {
 import { EndpointRegistry } from "@/config/endpoint-registry";
 import { discoverModels, testEndpoint } from "@/config/model-discovery";
 import { EndpointRepository } from "@/config/provider-repository";
+import { SettingsRepository } from "@/config/settings-repository";
 import { runProviderCommand } from "@/cli/provider-commands";
 
 function makeInMemoryKeyring(): KeyringBackend & { map: Map<string, string> } {
@@ -54,6 +55,13 @@ describe("cli provider commands", () => {
       fetch: mockFetch,
     });
 
+    const settings = new SettingsRepository({
+      homeDir: home,
+      configPath: path.join(home, ".champ", "config.yaml"),
+      workspaceDir: workspace,
+      credentials,
+      repository,
+    });
     const out: string[] = [];
     const err: string[] = [];
     return {
@@ -63,11 +71,13 @@ describe("cli provider commands", () => {
       keyring,
       credentials,
       registry,
+      settings,
       out,
       err,
       deps: {
         registry,
         credentials,
+        settings,
         cwd: workspace,
         stdout: (s: string) => out.push(s),
         stderr: (s: string) => err.push(s),
@@ -158,6 +168,79 @@ describe("cli provider commands", () => {
     expect(text).toContain("<keyring:champ.openai.apiKey>");
     expect(text).toContain("<env:VLLM_TOKEN>");
     expect(text).not.toContain("sk-never-printed-1");
+    expect(JSON.parse(text)).toHaveProperty("config");
+    expect(JSON.parse(text)).toHaveProperty("selection");
+  });
+
+  it("config show includes effective settings from both stores", async () => {
+    const { deps, out, home } = createCmdHarness();
+    fs.mkdirSync(path.join(home, ".champ"), { recursive: true });
+    fs.writeFileSync(
+      path.join(home, ".champ", "config.yaml"),
+      'userRules: "Be terse."\n',
+    );
+
+    const code = await runProviderCommand({ name: "config-show" }, deps);
+    expect(code).toBe(0);
+    expect(JSON.parse(out.join("")).config.userRules).toBe("Be terse.");
+  });
+
+  it("config validate reports invalid YAML and exits 1", async () => {
+    const { deps, home, out } = createCmdHarness();
+    fs.mkdirSync(path.join(home, ".champ"), { recursive: true });
+    fs.writeFileSync(
+      path.join(home, ".champ", "config.yaml"),
+      "provider: [bad\n",
+    );
+
+    const code = await runProviderCommand({ name: "config-validate" }, deps);
+    expect(code).toBe(1);
+    expect(out.join("")).toContain("yaml-invalid");
+  });
+
+  it("config doctor fails when the active credential is missing", async () => {
+    const { deps, registry, out } = createCmdHarness();
+    await registry.add({
+      name: "NeedsKey",
+      provider: "openai",
+      credential: { kind: "keyring", id: "ep_missing" },
+    });
+
+    const code = await runProviderCommand({ name: "config-doctor" }, deps);
+    expect(code).toBe(1);
+    const text = out.join("");
+    expect(text).toContain("credentials");
+    expect(text).toContain("credential-missing");
+  });
+
+  it("config export requires --redact and never prints secrets", async () => {
+    const { deps, home, out, err } = createCmdHarness();
+    fs.mkdirSync(path.join(home, ".champ"), { recursive: true });
+    fs.writeFileSync(
+      path.join(home, ".champ", "config.yaml"),
+      [
+        "provider: openai-compatible",
+        "providers:",
+        "  openai-compatible:",
+        "    apiKey: never-export-me",
+      ].join("\n"),
+    );
+
+    const refused = await runProviderCommand(
+      { name: "config-export", redact: false },
+      deps,
+    );
+    expect(refused).toBe(2);
+    expect(err.join("")).toContain("--redact");
+
+    const code = await runProviderCommand(
+      { name: "config-export", redact: true },
+      deps,
+    );
+    expect(code).toBe(0);
+    const text = out.join("");
+    expect(text).not.toContain("never-export-me");
+    expect(JSON.parse(text)).toHaveProperty("config");
   });
 
   it("config migrate --dry-run writes nothing", async () => {

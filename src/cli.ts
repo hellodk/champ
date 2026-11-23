@@ -52,6 +52,7 @@ import { createPolicyEngine, type PolicyEngine } from "./policy/engine";
 import { EndpointRegistry } from "./config/endpoint-registry";
 import { discoverModels, testEndpoint } from "./config/model-discovery";
 import { migrateFromYaml, scrubYamlSecrets } from "./config/provider-migration";
+import { SettingsRepository } from "./config/settings-repository";
 import {
   ModelSelectionService,
   type SelectionTask,
@@ -793,9 +794,16 @@ async function main(): Promise<number> {
       discovery: { discoverModels, testEndpoint },
       now: () => new Date().toISOString(),
     });
+    const settings = new SettingsRepository({
+      configPath: configPath(),
+      workspaceDir: path.resolve(parsed.cwd),
+      credentials,
+      repository,
+    });
     return runProviderCommand(parsed.command, {
       registry,
       credentials,
+      settings,
       cwd: path.resolve(parsed.cwd),
       stdout: (text) => process.stdout.write(text),
       stderr: (text) => process.stderr.write(text),

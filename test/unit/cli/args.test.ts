@@ -389,6 +389,21 @@ describe("cli arg parser — setup and provider commands", () => {
       kind: "provider-command",
       command: { name: "config-show" },
     });
+    expect(parse(["config", "validate"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "config-validate" },
+    });
+    expect(parse(["config", "doctor"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "config-doctor" },
+    });
+    expect(parse(["config", "export", "--redact"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "config-export", redact: true },
+    });
+    expect(parse(["config", "export"])).toMatchObject({
+      kind: "error",
+    });
     expect(parse(["config", "migrate", "--dry-run"])).toMatchObject({
       kind: "provider-command",
       command: { name: "config-migrate", dryRun: true },

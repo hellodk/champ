@@ -22,6 +22,7 @@ import {
 } from "./setup";
 
 import type { ScrubSecretsResult } from "../config/provider-migration";
+import type { SettingsRepository } from "../config/settings-repository";
 
 export type ProviderCommand =
   | { name: "setup" }
@@ -36,6 +37,9 @@ export type ProviderCommand =
   | { name: "model-use"; endpointAndModel: string; workspace?: boolean }
   | { name: "model-assign"; task: TaskAssignment; endpointAndModel: string }
   | { name: "config-show" }
+  | { name: "config-validate" }
+  | { name: "config-doctor" }
+  | { name: "config-export"; redact: boolean }
   | { name: "config-migrate"; dryRun?: boolean }
   | { name: "config-scrub-secrets"; dryRun?: boolean }
   | { name: "config-routing"; mode: "auto" | "manual" };
@@ -43,6 +47,7 @@ export type ProviderCommand =
 export interface CommandDeps {
   registry: EndpointRegistry;
   credentials: CredentialStore;
+  settings?: SettingsRepository;
   cwd: string;
   stdout: (text: string) => void;
   stderr: (text: string) => void;
@@ -95,6 +100,13 @@ function writeWorkspaceProviderRef(
   };
   fs.writeFileSync(target, `${JSON.stringify(ref, null, 2)}\n`, "utf8");
   return target;
+}
+
+function requireSettings(deps: CommandDeps): SettingsRepository {
+  if (!deps.settings) {
+    throw new Error("settings repository is not wired in this build");
+  }
+  return deps.settings;
 }
 
 export async function runProviderCommand(
@@ -288,17 +300,62 @@ export async function runProviderCommand(
       }
 
       case "config-show": {
-        const doc = await deps.registry.readDocument();
+        const settings = requireSettings(deps);
+        const exported = JSON.parse(
+          await settings.export({ redact: false }),
+        ) as Record<string, unknown>;
+        const registryDoc = exported.registry as {
+          endpoints: Array<Record<string, unknown> & { credential?: unknown }>;
+        };
         const redacted = {
-          version: doc.version,
-          routingMode: doc.routingMode,
-          assignments: doc.assignments,
-          endpoints: doc.endpoints.map((ep) => ({
-            ...ep,
-            credential: redactCredentialRef(ep.credential),
-          })),
+          ...exported,
+          registry: {
+            ...registryDoc,
+            endpoints: registryDoc.endpoints.map((ep) => ({
+              ...ep,
+              credential: redactCredentialRef(ep.credential as never),
+            })),
+          },
         };
         deps.stdout(`${JSON.stringify(redacted, null, 2)}\n`);
+        return 0;
+      }
+
+      case "config-validate": {
+        const diagnostics = await requireSettings(deps).validate();
+        for (const diagnostic of diagnostics) {
+          deps.stdout(
+            `${diagnostic.level}\t${diagnostic.code}\t${diagnostic.message}\n`,
+          );
+        }
+        return diagnostics.some((d) => d.level === "error") ? 1 : 0;
+      }
+
+      case "config-doctor": {
+        const report = await requireSettings(deps).doctor();
+        for (const check of report.checks) {
+          deps.stdout(
+            `${check.ok ? "ok" : "FAIL"}\t${check.name}\t${check.detail}\n`,
+          );
+        }
+        for (const diagnostic of report.diagnostics.filter(
+          (d) => d.level !== "info",
+        )) {
+          deps.stdout(
+            `${diagnostic.level}\t${diagnostic.code}\t${diagnostic.message}\n`,
+          );
+        }
+        return report.healthy ? 0 : 1;
+      }
+
+      case "config-export": {
+        if (!cmd.redact) {
+          deps.stderr(
+            "champ: config export requires --redact so secrets are never printed\n",
+          );
+          return 2;
+        }
+        deps.stdout(await requireSettings(deps).export({ redact: true }));
         return 0;
       }
 
