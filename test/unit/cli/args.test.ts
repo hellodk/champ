@@ -574,3 +574,57 @@ describe("cli entry — no vscode on the CLI path (issue #136)", () => {
     }
   });
 });
+
+describe("cli arg parser — index management", () => {
+  it("defaults champ index to status", () => {
+    expect(parse(["index"])).toMatchObject({
+      kind: "index-command",
+      command: { name: "status" },
+      cwd: "/tmp/ws",
+    });
+    expect(parse(["index", "--status", "--cwd", "/elsewhere"])).toMatchObject({
+      kind: "index-command",
+      command: { name: "status" },
+      cwd: "/elsewhere",
+    });
+  });
+
+  it("parses each index action", () => {
+    for (const [flag, name] of [
+      ["--rebuild", "rebuild"],
+      ["--clear", "clear"],
+      ["--watch", "watch"],
+    ] as const) {
+      expect(parse(["index", flag])).toMatchObject({
+        kind: "index-command",
+        command: { name },
+      });
+    }
+  });
+
+  it("rejects conflicting and misplaced index flags", () => {
+    expect(parse(["index", "--rebuild", "--clear"])).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("only one of"),
+    });
+    expect(parse(["--rebuild", "task"])).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("require the `champ index` command"),
+    });
+    expect(parse(["index", "task"])).toMatchObject({ kind: "error" });
+  });
+
+  it("passes embedding overrides through index flags", () => {
+    const result = parse([
+      "index",
+      "--embedding-model",
+      "nomic-embed-text",
+      "--embedding-provider=ollama",
+    ]);
+    expect(result.kind).toBe("index-command");
+    if (result.kind === "index-command") {
+      expect(result.flags.embeddingModel).toBe("nomic-embed-text");
+      expect(result.flags.embeddingProvider).toBe("ollama");
+    }
+  });
+});

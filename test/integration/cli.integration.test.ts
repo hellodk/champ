@@ -308,6 +308,91 @@ describe("champ CLI — one-shot agent turn (dist/cli.js)", () => {
   );
 
   it(
+    "reports index status and clears the cache without a task",
+    async () => {
+      const s = await scenario(() => []);
+      try {
+        const status = await s.run(["index", "--status"]);
+        expect(status.code).toBe(0);
+        expect(status.stdout).toContain("Status: stale");
+        expect(status.stdout).toContain("Reason: no persisted index");
+        expect(status.stdout).toContain("Last indexed: never");
+
+        const cleared = await s.run(["index", "--clear"]);
+        expect(cleared.code).toBe(0);
+        expect(cleared.stdout).toContain("Index cache cleared.");
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "rejects conflicting index actions with a usage error",
+    async () => {
+      const s = await scenario(() => []);
+      try {
+        const result = await s.run(["index", "--status", "--clear"]);
+        expect(result.code).toBe(2);
+        expect(result.stderr).toContain("only one of");
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "attaches repo map and memory banks to the outbound system prompt",
+    async () => {
+      const s = await scenario((_body, index) => [
+        frames.text(`reply ${index}`),
+        frames.finish("stop"),
+        frames.done,
+      ]);
+      try {
+        fs.writeFileSync(
+          path.join(s.ws, "widget.ts"),
+          "export function findWidgetSentinel() { return 1; }\n",
+          "utf8",
+        );
+        const champDir = path.join(s.ws, ".champ");
+        fs.mkdirSync(champDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(champDir, "memory.json"),
+          JSON.stringify([
+            {
+              id: "mem-test",
+              timestamp: Date.now(),
+              userQuery: "remember this",
+              assistantSummary: "PINNED_MEMORY_SENTINEL_42",
+              sessionId: "manual",
+              pinned: true,
+            },
+          ]),
+          "utf8",
+        );
+
+        const result = await s.run(["--yes", "hello"]);
+        expect(result.code).toBe(0);
+        const messages = s.mock.requests[0]?.messages as
+          | Array<{ role: string; content: string }>
+          | undefined;
+        const system = (messages ?? [])
+          .filter((m) => m.role === "system")
+          .map((m) => m.content)
+          .join("\n");
+        expect(system).toContain("findWidgetSentinel");
+        expect(system).toContain("PINNED_MEMORY_SENTINEL_42");
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
     "exits non-zero when the provider reports a failed turn",
     async () => {
       const ws = makeWorkspace("cli-provider-error");

@@ -1,6 +1,6 @@
 # Champ User Guide
 
-Complete guide for the **Champ VS Code extension** and the **headless `champ` CLI**. Requires **Node.js 20+**; no root access is needed.
+Complete guide for the **Champ VS Code extension** and the **headless `champ` CLI**. The extension needs VS Code 1.95+ (its embedded Node is used); running `champ` directly needs Node.js 20+ (`engines.node` in `package.json`). No root access is needed.
 
 ## Index
 
@@ -158,9 +158,14 @@ champ --repl                               # line REPL instead of the TUI (even 
 echo "Explain src/cli.ts" | champ          # read prompt from stdin (same as `champ -`)
 champ --session <id> "Continue task"       # create/resume append-only JSONL session
 champ --sessions                           # list workspace sessions
+champ index                                # semantic index status (default)
+champ index --status                       # same, explicitly
+champ index --rebuild                      # force a full rebuild
+champ index --clear                        # delete vectors and manifest
+champ index --watch                        # rebuild when content hashes change
 ```
 
-Key flags: `--cwd <dir>`, `--provider <name>`, `--base-url <url>`, `--model <id>`, `--api-key <key>`, `--max-iter <n>`, `--skill <name>`, `--file <path>`, `--list-skills`, `--no-skills`, `-h`/`--help`, `-v`/`--version`.
+Key flags: `--cwd <dir>`, `--provider <name>`, `--base-url <url>`, `--model <id>`, `--api-key <key>`, `--max-iter <n>`, `--skill <name>`, `--file <path>`, `--list-skills`, `--no-skills`, `--embedding-model <id>`, `--embedding-provider <name>`, `-h`/`--help`, `-v`/`--version`.
 
 The TUI has Chat, Providers, Config and Help screens. Press `Tab` to cycle screens, `Esc` to return to Chat, `Ctrl-C` to abort a turn or exit, and `A` on the Providers screen to add an endpoint. Config actions: `V` validate, `D` doctor, `E` redacted export.
 
@@ -168,7 +173,9 @@ REPL and TUI commands: `/skills`, `/<skill> [args]`, `/session`, `/sessions`, `/
 
 Tools: all 17 non-SSH built-ins are available in the CLI, including terminal, git, browser, fetch, web search, codebase search, tests, docs and delegation. MCP servers from `mcp.servers` are connected at startup and their tools appear as `mcp_<server>_<tool>`. `web_search` needs `BRAVE_API_KEY` in the environment or the `brave-search-api-key` OS keyring entry.
 
-Semantic RAG: `codebase_search` uses the same embedding index as the extension. An endpoint with an `embedding` model (or `indexing.embeddingModel` in `~/.champ/config.yaml`) enables vector search; the index is initialized lazily on the first semantic query and `[rag] …` diagnostics go to `stderr`. Without an embedding model the tool falls back to ripgrep keyword search.
+Semantic RAG: `codebase_search` uses the same embedding index as the extension. An endpoint with an `embedding` model (or `indexing.embeddingModel` in `~/.champ/config.yaml` / `--embedding-model`) enables vector search; the index is initialized lazily on the first semantic query and `[rag] …` diagnostics go to `stderr`. Without an embedding model the tool falls back to ripgrep keyword search.
+
+Index freshness is content-addressed. The manifest beside the vector cache (`~/.champ/index/<workspace-hash>.idx.manifest.json`, or under `CHAMP_HOME`) records the embedding model id, ignore-pattern fingerprint, per-file SHA256, size and chunk count. Touching a file or moving the cache does not invalidate it; a same-size edit with an unchanged mtime does. `champ index --status` prints the model, file/chunk counts, last indexed time (IST) and the exact stale reason. `champ index --clear` removes both the cache and manifest. `champ index --watch` polls content hashes and rebuilds only when the manifest reports a change; stop it with `Ctrl-C`.
 
 Contracts: replies write to `stdout`; traces, prompts, and warnings write to `stderr`. Non-interactive runs without `--yes` deny actions that require approval; `--yes` opts in to auto-approval. Exit codes: `0` success, `1` runtime/provider failure, `2` usage/config error, `130` aborted (`SIGINT`).
 

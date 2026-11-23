@@ -11,6 +11,7 @@ import { isValidSessionId } from "../session/ids";
 import { isTaskAssignment } from "../config/provider-model";
 import type { ProviderCommand } from "./provider-commands";
 import type { PolicyCommand } from "./policy-commands";
+import type { IndexCommand } from "./index-commands";
 import { validateRepoOrRef, type UpdateCommandOptions } from "./update";
 
 /** How the CLI should run: one task, the full-screen UI, a line REPL, or piped input. */
@@ -66,6 +67,15 @@ export interface CliFlags {
   repo?: string;
   /** Custom npm global prefix for `champ update --prefix <dir>`. */
   prefix?: string;
+  /** Override the embedding model used by `champ index`. */
+  embeddingModel?: string;
+  /** Override the provider name used for explicit embedding models. */
+  embeddingProvider?: string;
+  /** `champ index` action flags. */
+  indexStatus: boolean;
+  indexRebuild: boolean;
+  indexClear: boolean;
+  indexWatch: boolean;
 }
 
 export interface CliOptions {
@@ -83,6 +93,12 @@ export type CliParseResult =
   | { kind: "provider-command"; command: ProviderCommand; cwd: string }
   | { kind: "policy-command"; command: PolicyCommand; cwd: string }
   | { kind: "update"; options: UpdateCommandOptions }
+  | {
+      kind: "index-command";
+      command: IndexCommand;
+      cwd: string;
+      flags: CliFlags;
+    }
   | { kind: "error"; message: string }
   | { kind: "run"; options: CliOptions };
 
@@ -110,6 +126,7 @@ Usage:
   champ model assign <t> <id/m>  Assign model to task: default | coding | chat | completion | embedding
   champ config <cmd>      show | validate | doctor | export --redact | migrate [--dry-run] | scrub-secrets [--dry-run] | routing <auto|manual>
   champ policy <cmd>      show | validate   Inspect effective enterprise policy rules
+  champ index [--status|--rebuild|--clear|--watch]  Inspect or manage the semantic index
   champ update            Update the champ CLI installation from upstream git
 
 Options:
@@ -139,6 +156,8 @@ Options:
       --ref <ref>         Branch or tag to install during \`champ update\`
       --repo <url>        Git repository URL for \`champ update\`
       --prefix <dir>      Custom npm global prefix for \`champ update\`
+      --embedding-model <id>   Override the embedding model for indexing
+      --embedding-provider <name>  Provider name for an explicit embedding model
 
 Sessions are append-only JSONL logs in <workspace>/.champ/sessions. The REPL
 keeps one automatically; --session does the same for one-shot runs. Resuming
@@ -166,6 +185,8 @@ const VALUE_FLAGS: Record<string, keyof CliFlags> = {
   "--ref": "ref",
   "--repo": "repo",
   "--prefix": "prefix",
+  "--embedding-model": "embeddingModel",
+  "--embedding-provider": "embeddingProvider",
 };
 
 function error(message: string): CliParseResult {
@@ -197,6 +218,10 @@ export function parseCliArgs(
     inference: false,
     check: false,
     force: false,
+    indexStatus: false,
+    indexRebuild: false,
+    indexClear: false,
+    indexWatch: false,
     cwd: env.cwd ?? process.cwd(),
   };
   const positionals: string[] = [];
@@ -269,6 +294,22 @@ export function parseCliArgs(
     }
     if (arg === "--force") {
       flags.force = true;
+      continue;
+    }
+    if (arg === "--status") {
+      flags.indexStatus = true;
+      continue;
+    }
+    if (arg === "--rebuild") {
+      flags.indexRebuild = true;
+      continue;
+    }
+    if (arg === "--clear") {
+      flags.indexClear = true;
+      continue;
+    }
+    if (arg === "--watch") {
+      flags.indexWatch = true;
       continue;
     }
 
@@ -359,6 +400,18 @@ export function parseCliArgs(
           }
           flags.prefix = value;
           break;
+        case "embeddingModel":
+          if (!value.trim()) {
+            return error("--embedding-model cannot be empty");
+          }
+          flags.embeddingModel = value.trim();
+          break;
+        case "embeddingProvider":
+          if (!value.trim()) {
+            return error("--embedding-provider cannot be empty");
+          }
+          flags.embeddingProvider = value.trim();
+          break;
         default:
           // Boolean flags never appear in VALUE_FLAGS.
           break;
@@ -420,6 +473,21 @@ export function parseCliArgs(
     }
   }
 
+  const indexActions = [
+    flags.indexStatus && "status",
+    flags.indexRebuild && "rebuild",
+    flags.indexClear && "clear",
+    flags.indexWatch && "watch",
+  ].filter(Boolean) as IndexCommand["name"][];
+  if (indexActions.length > 1) {
+    return error(
+      "only one of --status, --rebuild, --clear, --watch is allowed",
+    );
+  }
+  if (indexActions.length > 0 && positionals[0] !== "index") {
+    return error("index flags require the `champ index` command");
+  }
+
   if (!endOfFlags && !flags.skill) {
     const commandResult = parseProviderCommand(positionals, flags);
     if (commandResult) {
@@ -468,6 +536,27 @@ function parseProviderCommand(
   if (!head) return null;
 
   switch (head) {
+    case "index": {
+      if (positionals.length > 1) {
+        return error(
+          `unexpected arguments for "index": ${positionals.slice(1).join(" ")}`,
+        );
+      }
+      if (flags.repl) return error("cannot combine index with --repl");
+      if (flags.tui) return error("cannot combine index with --tui");
+      const action =
+        (flags.indexRebuild && "rebuild") ||
+        (flags.indexClear && "clear") ||
+        (flags.indexWatch && "watch") ||
+        "status";
+      return {
+        kind: "index-command",
+        command: { name: action },
+        cwd: flags.cwd,
+        flags,
+      };
+    }
+
     case "setup": {
       if (positionals.length > 1) {
         return error(

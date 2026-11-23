@@ -2,6 +2,17 @@ import * as fsp from "fs/promises";
 import * as crypto from "crypto";
 import * as path from "path";
 import { champConfigDir } from "../config/home";
+import {
+  checkManifestFreshness,
+  ignoreFingerprint,
+  indexingIgnorePatterns,
+  INDEX_MANIFEST_VERSION,
+  manifestPathFor,
+  readIndexManifest,
+  sha256,
+  writeIndexManifest,
+  type IndexFileState,
+} from "./index-manifest";
 import { EmbeddingService } from "./embedding-service";
 import { VectorStore, type VectorSearchResult } from "./vector-store";
 import { ChunkingService } from "./chunking-service";
@@ -59,11 +70,15 @@ export class IndexingService {
   private embeddingModelId: string | null = null;
   private indexingPromise: Promise<IndexingStats | null> | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private fileStates = new Map<string, IndexFileState>();
+  private manifestComplete = false;
 
   constructor(
     private readonly workspaceRoot: string,
     private readonly smartRouter: SmartRouter,
     private readonly config: ChampConfig,
+    /** Override the index cache directory (tests and `champ index`). */
+    private readonly cacheDirectory?: string,
   ) {
     // embeddingModelId is not known until _initialize() resolves; VectorStore
     // is re-created there once the model is confirmed. This placeholder holds
@@ -85,28 +100,9 @@ export class IndexingService {
   }
 
   private async _initialize(): Promise<IndexingStats | null> {
-    // Prefer explicit config, fall back to SmartRouter auto-detection.
-    let baseUrl = "http://localhost:11434";
-    let modelId: string | null = null;
-    let providerFormat: "ollama" | "openai" = "ollama";
-
-    // Check if user explicitly configured an embedding model in config.
-    if (this.config.indexing?.embeddingModel) {
-      modelId = this.config.indexing.embeddingModel;
-      if (this.config.indexing.embeddingProvider === "openai") {
-        providerFormat = "openai";
-      }
-    }
-
-    // Auto-detect via SmartRouter if not explicitly configured.
-    if (!modelId) {
-      const result = this.smartRouter.select("embedding");
-      if (!result) return null;
-      modelId = result.model.id;
-      providerFormat =
-        result.model.providerType === "ollama" ? "ollama" : "openai";
-      baseUrl = result.provider.config.baseUrl ?? baseUrl;
-    }
+    const embedding = this.resolveEmbedding();
+    if (!embedding) return null;
+    const { baseUrl, apiKey, modelId, providerFormat } = embedding;
 
     this.embeddingModelId = modelId;
     // Re-create the VectorStore now that we know the embedding model, so that
@@ -124,6 +120,7 @@ export class IndexingService {
       if (loaded) {
         this.embeddingService = new EmbeddingService(providerFormat, {
           baseUrl,
+          apiKey,
           model: modelId,
         });
         await this.embeddingService.loadCache();
@@ -137,6 +134,7 @@ export class IndexingService {
 
     this.embeddingService = new EmbeddingService(providerFormat, {
       baseUrl,
+      apiKey,
       model: modelId,
     });
     // Load the content-hash embedding cache to skip redundant API calls.
@@ -203,7 +201,12 @@ export class IndexingService {
       await this.vectorStore.deleteByFile(filePath);
       const content = await fsp.readFile(filePath, "utf8");
       const chunks = await this.indexFile(filePath, content);
-      if (chunks > 0) this.scheduleSaveIndex();
+      this.fileStates.set(this.relativeKey(filePath), {
+        sha256: sha256(content),
+        size: Buffer.byteLength(content),
+        chunks,
+      });
+      this.scheduleSaveIndex();
     } catch {
       // Silently skip — file may have been deleted.
     }
@@ -216,6 +219,7 @@ export class IndexingService {
   async deleteByFile(filePath: string): Promise<number> {
     if (!this.embeddingService) return 0;
     const removed = await this.vectorStore.deleteByFile(filePath);
+    this.fileStates.delete(this.relativeKey(filePath));
     if (removed > 0) this.scheduleSaveIndex();
     return removed;
   }
@@ -230,17 +234,37 @@ export class IndexingService {
 
   // ── Private helpers ──────────────────────────────────────────────────
 
+  /**
+   * Resolve the embedding route without network I/O. An explicit model fixes
+   * identity; the selected route still supplies base URL, key and wire format.
+   */
+  private resolveEmbedding(): {
+    baseUrl: string;
+    apiKey: string | undefined;
+    modelId: string;
+    providerFormat: "ollama" | "openai";
+  } | null {
+    const route = this.smartRouter.select("embedding");
+    const explicitModel = this.config.indexing?.embeddingModel;
+    if (!explicitModel && !route) return null;
+    const provider =
+      this.config.indexing?.embeddingProvider ??
+      route?.model.providerType ??
+      "ollama";
+    return {
+      baseUrl: route?.provider.config.baseUrl ?? "http://localhost:11434",
+      apiKey: route?.provider.config.apiKey,
+      modelId: explicitModel ?? route!.model.id,
+      providerFormat: provider === "ollama" ? "ollama" : "openai",
+    };
+  }
+
   private async indexWorkspace(): Promise<IndexingStats> {
-    const ignore = this.config.indexing?.ignore ?? [
-      "node_modules/**",
-      "dist/**",
-      ".git/**",
-      "*.min.js",
-      "package-lock.json",
-      "yarn.lock",
-      "pnpm-lock.yaml",
-    ];
-    const files = await this.collectFiles(this.workspaceRoot, ignore);
+    const files = await this.collectFiles(
+      this.workspaceRoot,
+      indexingIgnorePatterns(this.config),
+    );
+    this.fileStates.clear();
     let filesIndexed = 0;
     let chunksIndexed = 0;
 
@@ -254,6 +278,11 @@ export class IndexingService {
         try {
           const content = await fsp.readFile(filePath, "utf8");
           const indexed = await this.indexFile(filePath, content);
+          this.fileStates.set(this.relativeKey(filePath), {
+            sha256: sha256(content),
+            size: Buffer.byteLength(content),
+            chunks: indexed,
+          });
           if (indexed > 0) {
             filesIndexed++;
             chunksIndexed += indexed;
@@ -268,6 +297,7 @@ export class IndexingService {
       () => next(),
     );
     await Promise.all(workers);
+    this.manifestComplete = true;
 
     console.log(
       `Champ: indexed ${filesIndexed} files, ${chunksIndexed} chunks`,
@@ -294,12 +324,69 @@ export class IndexingService {
       .update(this.workspaceRoot)
       .digest("hex")
       .slice(0, 12);
-    return path.join(champConfigDir(), "index", `${hash}.idx`);
+    const dir = this.cacheDirectory ?? path.join(champConfigDir(), "index");
+    return path.join(dir, `${hash}.idx`);
+  }
+
+  private relativeKey(absolutePath: string): string {
+    return path
+      .relative(this.workspaceRoot, absolutePath)
+      .split(path.sep)
+      .join("/");
+  }
+
+  /**
+   * Hash every indexable file in the workspace. Chunk counts are computed
+   * only when needed (a full build or migration of a legacy cache).
+   */
+  private async scanWorkspaceFiles(
+    withChunkCounts = false,
+  ): Promise<Map<string, IndexFileState>> {
+    const files = await this.collectFiles(
+      this.workspaceRoot,
+      indexingIgnorePatterns(this.config),
+    );
+    const states = new Map<string, IndexFileState>();
+    for (const file of files) {
+      try {
+        const content = await fsp.readFile(file, "utf8");
+        states.set(this.relativeKey(file), {
+          sha256: sha256(content),
+          size: Buffer.byteLength(content),
+          chunks: withChunkCounts
+            ? (await this.chunkingService.chunkFile(file, content)).length
+            : 0,
+        });
+      } catch {
+        // Skip files that disappeared or became unreadable during the scan.
+      }
+    }
+    return states;
   }
 
   private async saveIndex(): Promise<void> {
+    const cachePath = this.indexCachePath();
+    const modelId = this.embeddingModelId ?? this.resolveEmbedding()?.modelId;
     try {
-      await this.vectorStore.save(this.indexCachePath());
+      await this.vectorStore.save(cachePath);
+      if (modelId) {
+        if (!this.manifestComplete) {
+          // Migrating a pre-manifest cache: derive complete file state now so
+          // an incremental update never writes a partial manifest.
+          this.fileStates = await this.scanWorkspaceFiles(true);
+        }
+        await writeIndexManifest(cachePath, {
+          version: INDEX_MANIFEST_VERSION,
+          embeddingModelId: modelId,
+          ignoreFingerprint: ignoreFingerprint(
+            indexingIgnorePatterns(this.config),
+          ),
+          chunkCount: this.vectorStore.size(),
+          files: Object.fromEntries(this.fileStates),
+          createdAt: new Date().toISOString(),
+        });
+        this.manifestComplete = true;
+      }
       console.log(
         `Champ: index persisted to disk (${this.vectorStore.size()} chunks)`,
       );
@@ -321,18 +408,47 @@ export class IndexingService {
   }
 
   /**
-   * Try to load a previously saved index from disk. Returns true if the
-   * index was loaded successfully and indexing can be skipped.
+   * Try to load a previously saved index from disk. Content hashes decide
+   * freshness when a manifest exists; caches written by older versions fall
+   * back to the legacy mtime rule until they are rebuilt.
    */
   async tryLoadIndex(): Promise<boolean> {
     try {
       const cachePath = this.indexCachePath();
-      // Only load if the cache file is less than 24 hours old
       const stat = await fsp.stat(cachePath);
-      const ageMs = Date.now() - stat.mtimeMs;
-      if (ageMs > 24 * 60 * 60 * 1000) return false;
+      const manifest = await readIndexManifest(cachePath);
+      const modelId = this.embeddingModelId ?? this.resolveEmbedding()?.modelId;
+
+      let currentFiles: Map<string, IndexFileState> | undefined;
+      if (manifest && modelId) {
+        currentFiles = await this.scanWorkspaceFiles();
+        const result = checkManifestFreshness(manifest, {
+          modelId,
+          ignoreFingerprint: ignoreFingerprint(
+            indexingIgnorePatterns(this.config),
+          ),
+          files: currentFiles,
+        });
+        if (!result.fresh) {
+          console.log(`Champ: rebuilding index — ${result.reason}`);
+          return false;
+        }
+      } else if (Date.now() - stat.mtimeMs > 24 * 60 * 60 * 1000) {
+        // Legacy cache without manifest: retain the old 24h safety net.
+        return false;
+      }
+
       const loaded = await this.vectorStore.load(cachePath);
       if (loaded > 0) {
+        if (manifest && currentFiles) {
+          this.fileStates = new Map(
+            [...currentFiles].map(([key, state]) => [
+              key,
+              { ...state, chunks: manifest.files[key]?.chunks ?? 0 },
+            ]),
+          );
+          this.manifestComplete = true;
+        }
         console.log(`Champ: loaded persisted index (${loaded} chunks)`);
         return true;
       }
@@ -342,15 +458,87 @@ export class IndexingService {
     return false;
   }
 
-  /**
-   * Invalidate the disk cache (called when files change significantly).
-   */
-  async invalidateIndex(): Promise<void> {
+  /** Serve a human-readable status report without touching the provider. */
+  async indexStatus(): Promise<{
+    indexPath: string;
+    model: string | null;
+    files: number;
+    chunks: number;
+    lastIndexed: string | null;
+    fresh: boolean;
+    reason: string;
+  }> {
+    const indexPath = this.indexCachePath();
+    const manifest = await readIndexManifest(indexPath);
+    const modelId =
+      this.embeddingModelId ?? this.resolveEmbedding()?.modelId ?? null;
+    let lastIndexed: string | null = manifest?.createdAt ?? null;
     try {
-      await fsp.unlink(this.indexCachePath());
+      const stat = await fsp.stat(indexPath);
+      lastIndexed ??= stat.mtime.toISOString();
     } catch {
-      // Already gone
+      // No cache on disk.
     }
+    if (!manifest) {
+      return {
+        indexPath,
+        model: modelId,
+        files: 0,
+        chunks: 0,
+        lastIndexed,
+        fresh: false,
+        reason: lastIndexed
+          ? "legacy index without content manifest — run --rebuild"
+          : "no persisted index",
+      };
+    }
+    if (!modelId) {
+      return {
+        indexPath,
+        model: manifest.embeddingModelId,
+        files: Object.keys(manifest.files).length,
+        chunks: manifest.chunkCount,
+        lastIndexed,
+        fresh: false,
+        reason: "no embedding model configured",
+      };
+    }
+    const result = checkManifestFreshness(manifest, {
+      modelId,
+      ignoreFingerprint: ignoreFingerprint(indexingIgnorePatterns(this.config)),
+      files: await this.scanWorkspaceFiles(),
+    });
+    return {
+      indexPath,
+      model: manifest.embeddingModelId,
+      files: Object.keys(manifest.files).length,
+      chunks: manifest.chunkCount,
+      lastIndexed,
+      fresh: result.fresh,
+      reason: result.reason ?? "index is current",
+    };
+  }
+
+  /** Discard vectors and manifest, then rebuild from scratch. */
+  async rebuildIndex(): Promise<IndexingStats | null> {
+    await this.invalidateIndex();
+    this.embeddingService = null;
+    this.embeddingModelId = null;
+    this.fileStates.clear();
+    this.manifestComplete = false;
+    this.indexingPromise = null;
+    return this.initialize();
+  }
+
+  /** Remove the persisted index and its manifest. */
+  async invalidateIndex(): Promise<void> {
+    const indexPath = this.indexCachePath();
+    await Promise.allSettled([
+      fsp.unlink(indexPath),
+      fsp.unlink(manifestPathFor(indexPath)),
+    ]);
+    this.fileStates.clear();
+    this.manifestComplete = false;
   }
 
   private async indexFile(filePath: string, content: string): Promise<number> {

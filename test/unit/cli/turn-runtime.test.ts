@@ -4,6 +4,7 @@ import {
   abortActiveTurn,
   activeAbortSignal,
   executeTurn,
+  turnStatus,
 } from "@/cli/turn-runtime";
 
 function fakeController(
@@ -91,6 +92,20 @@ describe("executeTurn", () => {
     expect(onError).toHaveBeenCalledWith("Request failed: 404 Not Found");
     expect(outcome.error).toBe("Request failed: 404 Not Found");
     expect(outcome.aborted).toBe(false);
+    expect(outcome.status).toBe("partial");
+  });
+
+  it("classifies failed, cancelled and successful outcomes", () => {
+    expect(turnStatus({ text: "ok", aborted: false })).toBe("success");
+    expect(turnStatus({ text: "", error: "boom", aborted: false })).toBe(
+      "failed",
+    );
+    expect(turnStatus({ text: "some", error: "boom", aborted: false })).toBe(
+      "partial",
+    );
+    expect(turnStatus({ text: "", error: "boom", aborted: true })).toBe(
+      "cancelled",
+    );
   });
 
   it("exposes and aborts the active turn signal", async () => {

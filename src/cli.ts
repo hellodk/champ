@@ -44,12 +44,15 @@ import {
 import { applyAllowedTools } from "./cli/tool-scope";
 import { runProviderCommand } from "./cli/provider-commands";
 import { runPolicyCommand } from "./cli/policy-commands";
+import { createCliContext } from "./cli/context";
+import { runIndexCommand } from "./cli/index-commands";
 import {
   abortActiveTurn,
   activeAbortSignal,
   executeTurn,
   parseApprovalAnswer,
   type TurnOutcome,
+  type TurnStatus,
 } from "./cli/turn-runtime";
 import { runUpdateCommand } from "./cli/update";
 import { ChainCredentialStore } from "./config/credential-store";
@@ -189,6 +192,22 @@ function buildConfig(flags: CliFlags): ChampConfig {
     if (flags.model) entry.model = flags.model;
     if (flags.apiKey) entry.apiKey = flags.apiKey;
     config.providers = { ...(config.providers ?? {}), [name]: entry };
+  }
+  if (flags.embeddingModel || flags.embeddingProvider) {
+    config.indexing = {
+      ...(config.indexing ?? {}),
+      ...(flags.embeddingModel ? { embeddingModel: flags.embeddingModel } : {}),
+      ...(flags.embeddingProvider
+        ? (() => {
+            if (!isProviderName(flags.embeddingProvider)) {
+              fail(
+                `unknown embedding provider "${flags.embeddingProvider}" — valid providers: ${VALID_PROVIDERS.join(", ")}`,
+              );
+            }
+            return { embeddingProvider: flags.embeddingProvider };
+          })()
+        : {}),
+    };
   }
 
   return config;
@@ -844,6 +863,30 @@ async function main(): Promise<number> {
     });
   }
 
+  if (parsed.kind === "index-command") {
+    const workspace = path.resolve(parsed.cwd);
+    const config = buildConfig(parsed.flags);
+    const registryChoice = await resolveProviderFromRegistry(
+      parsed.flags,
+      workspace,
+      "embedding",
+      config,
+    );
+    const credentials =
+      registryChoice?.credentials ?? new ChainCredentialStore();
+    return runIndexCommand(parsed.command, {
+      workspace,
+      config,
+      endpoints: registryChoice?.endpoints ?? [],
+      credentials: {
+        get: (key: string) => credentials.get({ kind: "keyring", id: key }),
+      },
+      embeddingAssignment: registryChoice?.assignments.embedding?.model,
+      stdout: (text) => process.stdout.write(text),
+      stderr: (text) => process.stderr.write(text),
+    });
+  }
+
   const { mode, task: taskFromArgv, flags } = parsed.options;
 
   // ── Resolve the task ──────────────────────────────────────────────────
@@ -977,6 +1020,8 @@ async function main(): Promise<number> {
   }
   const controller = new AgentController(provider, toolRegistry, workspace);
   liveController = controller;
+  const cliContext = createCliContext(workspace);
+
   let policy: PolicyEngine;
   try {
     policy = createPolicyEngine({
@@ -1073,6 +1118,7 @@ async function main(): Promise<number> {
   // `--session <id>` opts a run into the append-only session log, resuming
   // when the log exists. The REPL always keeps one: the user is in it.
   let sessionLog: SessionLog | null = null;
+  let isResuming = false;
   try {
     if (flags.session) {
       sessionLog =
@@ -1104,6 +1150,7 @@ async function main(): Promise<number> {
   if (sessionLog) {
     const replay = sessionLog.replay();
     if (flags.session && replay.recorded > 0) {
+      isResuming = true;
       controller.setHistory(resumedHistory(replay));
       const elided = replay.elided > 0 ? `, ${replay.elided} elided` : "";
       const at = replay.checkpoint
@@ -1119,6 +1166,19 @@ async function main(): Promise<number> {
     }
     onTurnEnd = createSessionRecorder(controller, sessionLog);
   }
+
+  // Same grounding the extension attaches: a lazy workspace outline plus the
+  // workspace-local and user-level memory banks. Loading is best-effort — a
+  // corrupt memory file must never prevent a turn from running. On a resumed
+  // session the checkpoint is the context boundary, so workspace memory (which
+  // may contain pre-checkpoint turns) is deliberately not re-injected.
+  await Promise.allSettled([
+    cliContext.memoryBank.load(),
+    cliContext.globalMemoryBank.load(),
+  ]);
+  controller.setRepoMapProvider(cliContext.repoMapProvider);
+  if (!isResuming) controller.setMemoryBank(cliContext.memoryBank);
+  controller.setGlobalMemoryBank(cliContext.globalMemoryBank);
 
   const onSigint = () => {
     if (!abortActiveTurn()) process.exit(EXIT_ABORTED);
@@ -1159,22 +1219,35 @@ async function main(): Promise<number> {
         askApproval: (description: string) => Promise<boolean>,
       ) => {
         const trimmed = text.trim();
-        if (!trimmed) return { text: "", aborted: false };
+        if (!trimmed)
+          return { text: "", aborted: false, status: "success" as TurnStatus };
 
         if (trimmed.startsWith("/")) {
           const [command, ...rest] = trimmed.split(/\s+/);
           if (command === "/session") {
             events.onText?.(`[champ] ${sessionInfo(sessionLog)}\n`);
-            return { text: "", aborted: false };
+            return {
+              text: "",
+              aborted: false,
+              status: "success" as TurnStatus,
+            };
           }
           if (command === "/sessions") {
             events.onText?.(await sessionsReport(workspace));
-            return { text: "", aborted: false };
+            return {
+              text: "",
+              aborted: false,
+              status: "success" as TurnStatus,
+            };
           }
           if (command === "/checkpoint") {
             if (!sessionLog) {
               events.onError?.("no session for this run");
-              return { text: "", aborted: false };
+              return {
+                text: "",
+                aborted: false,
+                status: "success" as TurnStatus,
+              };
             }
             const checkpoint = await sessionLog.markCheckpoint({
               label: rest.join(" ") || undefined,
@@ -1182,24 +1255,40 @@ async function main(): Promise<number> {
             events.onText?.(
               `[champ] checkpoint "${checkpoint.label}" at ${checkpoint.upTo} messages\n`,
             );
-            return { text: "", aborted: false };
+            return {
+              text: "",
+              aborted: false,
+              status: "success" as TurnStatus,
+            };
           }
           if (command === "/compact") {
             if (!sessionLog?.checkpoint) {
               events.onError?.(
                 "nothing to compact — record a /checkpoint first",
               );
-              return { text: "", aborted: false };
+              return {
+                text: "",
+                aborted: false,
+                status: "success" as TurnStatus,
+              };
             }
             await sessionLog.compact();
             events.onText?.(
               `[champ] compacted ${sessionLog.id} to "${sessionLog.checkpoint.label}"\n`,
             );
-            return { text: "", aborted: false };
+            return {
+              text: "",
+              aborted: false,
+              status: "success" as TurnStatus,
+            };
           }
           if (command === "/skills") {
             events.onText?.(`${formatSkillList(skills.registry)}\n`);
-            return { text: "", aborted: false };
+            return {
+              text: "",
+              aborted: false,
+              status: "success" as TurnStatus,
+            };
           }
         }
 
@@ -1213,7 +1302,7 @@ async function main(): Promise<number> {
             ? ` Did you mean ${resolved.suggestions.map((s) => `/${s}`).join(", ")}?`
             : "";
           events.onError?.(`unknown command /${resolved.name}.${suggestion}`);
-          return { text: "", aborted: false };
+          return { text: "", aborted: false, status: "success" as TurnStatus };
         }
 
         const turnOptions = {
@@ -1449,9 +1538,9 @@ async function main(): Promise<number> {
             policy,
           });
         }
-        if (outcome.aborted) code = EXIT_ABORTED;
-        else if (outcome.error) {
-          process.stderr.write(`champ: ${outcome.error}\n`);
+        if (outcome.status === "cancelled") code = EXIT_ABORTED;
+        else if (outcome.status === "failed" || outcome.status === "partial") {
+          process.stderr.write(`champ: ${outcome.error ?? "turn failed"}\n`);
           code = EXIT_FAILURE;
         } else code = EXIT_OK;
       }

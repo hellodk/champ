@@ -45,10 +45,25 @@ export interface ExecuteTurnOptions {
   onBeforeMutation?: (paths: string[]) => Promise<void>;
 }
 
+/** Additive outcome classification; exit codes are derived from this. */
+export type TurnStatus = "success" | "partial" | "failed" | "cancelled";
+
 export interface TurnOutcome {
   text: string;
   error?: string;
   aborted: boolean;
+  status: TurnStatus;
+}
+
+/** Classify a turn so every frontend maps the same outcome the same way. */
+export function turnStatus(outcome: {
+  text: string;
+  error?: string;
+  aborted: boolean;
+}): TurnStatus {
+  if (outcome.aborted) return "cancelled";
+  if (!outcome.error) return "success";
+  return outcome.text.trim() ? "partial" : "failed";
 }
 
 let activeAbort: AbortController | null = null;
@@ -131,14 +146,20 @@ export async function executeTurn({
     });
     if (!sawText && result.text) events.onText?.(result.text);
     events.onDone?.({ tools, usage });
-    return {
+    const outcome = {
       text: result.text,
       ...(streamError ? { error: streamError } : {}),
       aborted: abort.signal.aborted,
     };
+    return { ...outcome, status: turnStatus(outcome) };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { text: "", error: message, aborted: abort.signal.aborted };
+    const outcome = {
+      text: "",
+      error: streamError ?? message,
+      aborted: abort.signal.aborted,
+    };
+    return { ...outcome, status: turnStatus(outcome) };
   } finally {
     activeAbort = null;
     dispose();
