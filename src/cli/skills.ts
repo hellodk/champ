@@ -1,6 +1,6 @@
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
+import { champHome } from "../config/home";
 import { BUILT_IN_SKILL_TEXTS } from "../skills/built-in";
 import { SkillLoader } from "../skills/skill-loader";
 import { SkillRegistry } from "../skills/skill-registry";
@@ -14,7 +14,7 @@ import type { Skill, SkillSource } from "../skills/types";
 export interface CliSkillsOptions {
   /** Absolute workspace root. */
   workspaceRoot: string;
-  /** Injected in tests; defaults to os.homedir(). */
+  /** Injected in tests; defaults to `CHAMP_HOME` or os.homedir(). */
   homeDir?: string;
   /** `--no-skills`: register built-ins only. */
   skipDisk?: boolean;
@@ -115,7 +115,7 @@ export function loadCliSkills(opts: CliSkillsOptions): LoadedCliSkills {
     const wsDir =
       opts.workspaceSkillsDir ??
       path.join(opts.workspaceRoot, ".champ", "skills");
-    const home = opts.homeDir ?? os.homedir();
+    const home = opts.homeDir ?? champHome();
     const userDir = path.join(home, ".champ", "skills");
 
     loadSkillsFromDir(wsDir, "workspace", registry, problems);

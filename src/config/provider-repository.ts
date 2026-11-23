@@ -11,8 +11,8 @@
  */
 import { randomUUID } from "crypto";
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
+import { champHome } from "./home";
 import {
   emptyProvidersDocument,
   isProviderKind,
@@ -207,7 +207,7 @@ export class EndpointRepository {
   private readonly onBeforeRename?: (tmpPath: string) => Promise<void>;
 
   constructor(opts?: EndpointRepositoryOptions) {
-    const home = opts?.homeDir ?? (opts?.resolveHomeDir ?? os.homedir)();
+    const home = opts?.homeDir ?? opts?.resolveHomeDir?.() ?? champHome();
     this.dirPath = path.join(home, ".champ");
     this.filePath = path.join(this.dirPath, opts?.fileName ?? "providers.json");
     this.warn =

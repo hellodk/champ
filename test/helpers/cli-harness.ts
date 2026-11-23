@@ -6,7 +6,7 @@
  *   buildCli()      — bundle src/cli.ts → dist/cli.js (the `bin` artifact)
  *   startMockOpenAI — a local OpenAI-compatible server speaking SSE, scripted
  *                     per request so tests can drive read → edit → reply turns
- *   writeChampConfig — a hermetic ~/.champ/config.yaml stand-in (CHAMP_CONFIG)
+ *   writeChampConfig — hermetic legacy config.yaml + canonical providers.json
  *   runCli()        — spawn `node dist/cli.js …` and capture the result
  *
  * Not a test file itself (vitest only collects *.test.ts).
@@ -167,10 +167,22 @@ export const frames = {
   done: "[DONE]",
 };
 
+/** Credential name used by the harness-generated canonical endpoint. */
+export const HARNESS_CREDENTIAL_ENV = "CHAMP_TEST_API_KEY";
+
+const HARNESS_TASKS = [
+  "default",
+  "coding",
+  "chat",
+  "completion",
+  "embedding",
+] as const;
+
 /**
- * Write a minimal config.yaml for `provider: openai-compatible` and return
- * its path — passed to the CLI via CHAMP_CONFIG so the developer's real
- * ~/.champ/config.yaml can never leak into a test.
+ * Write both configuration sources under a throwaway `CHAMP_HOME`:
+ * - legacy `config.yaml` for settings/budget assertions;
+ * - canonical `providers.json` so the CLI never falls back to the developer's
+ *   real `~/.champ/providers.json`.
  */
 export function writeChampConfig(
   dir: string,
@@ -184,12 +196,38 @@ export function writeChampConfig(
   const configDir = path.join(dir, ".champ");
   fs.mkdirSync(configDir, { recursive: true });
   const file = path.join(configDir, "config.yaml");
+  const model = opts.model ?? "mock-model";
+  const providers = {
+    version: 1,
+    endpoints: [
+      {
+        id: "ep_harness",
+        name: "Harness Mock",
+        provider: "openai-compatible",
+        baseUrl: opts.baseUrl,
+        credential: { kind: "env", name: HARNESS_CREDENTIAL_ENV },
+        enabled: true,
+        isDefault: true,
+        supportsTools: opts.supportsTools ?? true,
+        models: [{ id: model }],
+      },
+    ],
+    assignments: Object.fromEntries(
+      HARNESS_TASKS.map((task) => [task, { endpointId: "ep_harness", model }]),
+    ),
+    routingMode: "manual",
+  };
+  fs.writeFileSync(
+    path.join(configDir, "providers.json"),
+    `${JSON.stringify(providers, null, 2)}\n`,
+    "utf8",
+  );
   const lines = [
     "provider: openai-compatible",
     "providers:",
     "  openai-compatible:",
     `    baseUrl: "${opts.baseUrl}"`,
-    `    model: "${opts.model ?? "mock-model"}"`,
+    `    model: "${model}"`,
     "    apiKey: test-key",
     `    supportsTools: ${opts.supportsTools ?? true}`,
   ];
@@ -245,9 +283,15 @@ export interface DialogStep {
 
 /** Spawn `node dist/cli.js …` and capture exit code, stdout and stderr. */
 export function runCli(args: string[], opts: RunCliOptions): Promise<CliRun> {
+  // Isolate the canonical registry/credentials/index from the developer's real
+  // ~/.champ. Tests that explicitly set HOME (historically how .champ was
+  // redirected) or CHAMP_HOME must keep controlling where .champ lives.
+  const explicitHome = opts.env?.CHAMP_HOME ?? opts.env?.HOME;
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    CHAMP_HOME: explicitHome ?? opts.cwd,
     CHAMP_CONFIG: opts.configPath ?? path.join(opts.cwd, "no-such-config.yaml"),
+    [HARNESS_CREDENTIAL_ENV]: "test-key",
     ...opts.env,
   };
 

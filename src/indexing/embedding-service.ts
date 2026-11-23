@@ -17,8 +17,8 @@
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
+import { champConfigDir } from "../config/home";
 
 export type EmbeddingProvider =
   | "ollama"
@@ -128,7 +128,7 @@ export class EmbeddingService {
    */
   async loadCache(): Promise<void> {
     try {
-      const cacheDir = path.join(os.homedir(), ".champ", "embed-cache");
+      const cacheDir = path.join(champConfigDir(), "embed-cache");
       // Try binary format first (preferred)
       const binPath = path.join(cacheDir, `${this.config.model}.bin`);
       try {
@@ -183,7 +183,7 @@ export class EmbeddingService {
    */
   async saveCache(): Promise<void> {
     try {
-      const cacheDir = path.join(os.homedir(), ".champ", "embed-cache");
+      const cacheDir = path.join(champConfigDir(), "embed-cache");
       await fs.mkdir(cacheDir, { recursive: true });
       const binPath = path.join(cacheDir, `${this.config.model}.bin`);
       const dim = this.dimensions ?? 0;

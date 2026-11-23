@@ -286,10 +286,13 @@ describe("champ CLI — one-shot agent turn (dist/cli.js)", () => {
           'unknown provider "not-a-provider"',
         );
 
-        // No CHAMP_CONFIG → no provider configured anywhere.
+        // No CHAMP_CONFIG and an empty CHAMP_HOME → no provider anywhere.
+        const emptyHome = path.join(s.ws, "empty-home-errors");
+        fs.mkdirSync(emptyHome, { recursive: true });
         const noConfig = await runCli(["do something"], {
           cwd: s.ws,
           configPath: path.join(s.ws, "missing.yaml"),
+          env: { CHAMP_HOME: emptyHome },
         });
         expect(noConfig.code).toBe(2);
         expect(noConfig.stderr).toContain("no provider configured");
@@ -298,6 +301,26 @@ describe("champ CLI — one-shot agent turn (dist/cli.js)", () => {
       } finally {
         await s.close();
       }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "ignores the developer's real ~/.champ/providers.json",
+    async () => {
+      const ws = makeWorkspace("cli-no-home-leak");
+      fixtures.push(ws);
+      const emptyHome = path.join(ws, "empty-home");
+      fs.mkdirSync(emptyHome, { recursive: true });
+
+      const result = await runCli(["do something"], {
+        cwd: ws,
+        configPath: path.join(ws, "missing.yaml"),
+        env: { CHAMP_HOME: emptyHome },
+      });
+
+      expect(result.code).toBe(2);
+      expect(result.stderr).toContain("no provider configured");
     },
     TIMEOUT,
   );

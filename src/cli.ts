@@ -29,7 +29,6 @@
  * 130 aborted (SIGINT).
  */
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
 import { createInterface, type Interface as Readline } from "readline";
 import { format } from "util";
@@ -54,6 +53,7 @@ import {
 } from "./cli/turn-runtime";
 import { runUpdateCommand } from "./cli/update";
 import { ChainCredentialStore } from "./config/credential-store";
+import { champConfigDir } from "./config/home";
 import { BudgetEnforcer } from "./config/budget";
 import { FileBudgetLedger } from "./config/budget-ledger";
 import { createPolicyEngine, type PolicyEngine } from "./policy/engine";
@@ -145,9 +145,7 @@ function cliVersion(): string {
  * fleet provisioning) — the file format itself is unchanged.
  */
 function configPath(): string {
-  return (
-    process.env.CHAMP_CONFIG ?? path.join(os.homedir(), ".champ", "config.yaml")
-  );
+  return process.env.CHAMP_CONFIG ?? path.join(champConfigDir(), "config.yaml");
 }
 
 function readConfigText(): string | null {

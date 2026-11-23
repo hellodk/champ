@@ -1,7 +1,7 @@
 import * as fsp from "fs/promises";
 import * as crypto from "crypto";
-import * as os from "os";
 import * as path from "path";
+import { champConfigDir } from "../config/home";
 import { EmbeddingService } from "./embedding-service";
 import { VectorStore, type VectorSearchResult } from "./vector-store";
 import { ChunkingService } from "./chunking-service";
@@ -294,7 +294,7 @@ export class IndexingService {
       .update(this.workspaceRoot)
       .digest("hex")
       .slice(0, 12);
-    return path.join(os.homedir(), ".champ", "index", `${hash}.idx`);
+    return path.join(champConfigDir(), "index", `${hash}.idx`);
   }
 
   private async saveIndex(): Promise<void> {

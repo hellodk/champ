@@ -8,8 +8,8 @@
  * format.
  */
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
+import { champHome } from "./home";
 import { ConfigLoader, type ChampConfig } from "./config-loader";
 import type { CredentialStore } from "./credential-store";
 import {
@@ -118,7 +118,7 @@ export class SettingsRepository {
   private readonly now: () => string;
 
   constructor(opts: SettingsRepositoryOptions = {}) {
-    this.homeDir = opts.homeDir ?? os.homedir();
+    this.homeDir = opts.homeDir ?? champHome(opts.env ?? process.env);
     this.configPath =
       opts.configPath ??
       opts.env?.CHAMP_CONFIG ??
