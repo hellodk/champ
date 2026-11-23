@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-master
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Bump version and publish release
+    # A bot push must never create another release. GITHUB_TOKEN pushes do not
+    # start new workflow runs, but this guard also covers PAT-based pushes.
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare release metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          current="$(scripts/champ version | sed 's/^champ //')"
+          latest_tag="$(git tag --list 'v[0-9]*' --sort=-v:refname | head -n 1 || true)"
+          next="$(scripts/champ version next "$current" "$latest_tag")"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=$latest_tag" >> "$GITHUB_OUTPUT"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "tag=v$next" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if this release already exists
+        id: skip
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Release ${TAG} already exists — nothing to do."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump version
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          NEXT: ${{ steps.meta.outputs.next }}
+        run: pnpm version "$NEXT" --no-git-tag-version
+
+      - name: Commit, tag and push
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          NEXT: ${{ steps.meta.outputs.next }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "chore(release): ${NEXT}"
+          git tag "${TAG}"
+          git push origin HEAD:master
+          git push origin "${TAG}"
+
+      - name: Build VSIX
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          pnpm run compile
+          pnpm exec vsce package --no-dependencies
+
+      - name: Verify CLI and extension versions
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          NEXT: ${{ steps.meta.outputs.next }}
+        run: |
+          set -euo pipefail
+          test "$(node dist/cli.js --version)" = "champ ${NEXT}"
+          node -e "const p=require('./package.json'); if (p.version !== process.env.NEXT) { process.stderr.write('package.json version mismatch\n'); process.exit(1); }"
+
+      - name: Publish GitHub release
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          NEXT: ${{ steps.meta.outputs.next }}
+          LATEST_TAG: ${{ steps.meta.outputs.latest_tag }}
+          VSIX: champ-${{ steps.meta.outputs.next }}.vsix
+        run: |
+          set -euo pipefail
+          args=(--title "Champ v${NEXT}" --target "$(git rev-parse HEAD)" --generate-notes)
+          if [[ -n "${LATEST_TAG}" ]]; then
+            args+=(--notes-start-tag "${LATEST_TAG}")
+          fi
+          gh release create "${TAG}" "${VSIX}" "${args[@]}"

@@ -5,12 +5,13 @@
 #   scripts/champ build                   # compile + package VSIX
 #   scripts/champ install                 # install latest GitHub release
 #   scripts/champ install build           # build current checkout + install
-#   scripts/champ release                 # build + push + create GitHub release
+#   scripts/champ release                 # push master; workflow publishes release
 #   scripts/champ watch                   # dev watch (extension + webview)
 #   scripts/champ test [unit|int|e2e|all] # run tests
 #   scripts/champ test report             # print test report summary
 #   scripts/champ lint                    # eslint + type-check
 #   scripts/champ version                 # print current version
+#   scripts/champ version next [cur] [tag] # compute the next patch version
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,6 +22,39 @@ cd "$ROOT"
 
 _version() {
   node -e "process.stdout.write(require('./package.json').version)"
+}
+
+# Next patch version, taking the greater of the current version and the latest
+# release tag. Used by the release workflow before it bumps package.json.
+_next_version() {
+  local current="${1:-$(_version)}"
+  local latest_tag="${2:-}"
+  node - "$current" "$latest_tag" <<'NODE'
+const [, , currentRaw, latestTagRaw] = process.argv;
+try {
+  const parse = (raw, label) => {
+    const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(String(raw ?? "").trim());
+    if (!match) throw new Error(`invalid ${label}: ${raw}`);
+    return {
+      major: Number(match[1]),
+      minor: Number(match[2]),
+      patch: Number(match[3]),
+    };
+  };
+  const compare = (a, b) =>
+    a.major - b.major || a.minor - b.minor || a.patch - b.patch;
+  const current = parse(currentRaw, "current version");
+  const latest =
+    String(latestTagRaw ?? "").trim() === ""
+      ? { major: 0, minor: 0, patch: 0 }
+      : parse(latestTagRaw, "latest tag");
+  const base = compare(current, latest) >= 0 ? current : latest;
+  process.stdout.write(`${base.major}.${base.minor}.${base.patch + 1}\n`);
+} catch (err) {
+  process.stderr.write(`champ: ${err instanceof Error ? err.message : err}\n`);
+  process.exit(1);
+}
+NODE
 }
 
 _require_cmds() {
@@ -48,6 +82,11 @@ _ok()      { echo "  ✓ $*"; }
 # ── commands ─────────────────────────────────────────────────────────────────
 
 cmd_version() {
+  if [[ "${1:-}" == "next" ]]; then
+    shift
+    _next_version "${1:-$(_version)}" "${2:-}"
+    return
+  fi
   echo "champ $(_version)"
 }
 
@@ -94,59 +133,16 @@ cmd_install() {
 }
 
 cmd_release() {
-  _require_cmds git gh node pnpm
-  local ver vsix tag
+  _require_cmds git node
+  local ver latest_tag next
   ver=$(_version)
-  vsix="${ROOT}/champ-${ver}.vsix"
-  tag="v${ver}"
-
-  # Build VSIX if not already present
-  if [[ ! -f "$vsix" ]]; then
-    cmd_build
-  else
-    _section "VSIX already built"
-    _ok "${vsix##*/} exists — skipping build"
-  fi
+  latest_tag=$(git tag --list 'v[0-9]*' --sort=-v:refname 2>/dev/null | head -n 1 || true)
+  next=$(_next_version "$ver" "$latest_tag")
 
   _section "push to GitHub"
   git push github master
   _ok "master pushed"
-
-  _section "create GitHub release ${tag}"
-  # Nearest reachable tag behind HEAD (never the tag being created) drives the notes range.
-  local prev_tag=""
-  local t d
-  while read -r t; do
-    [[ -z "$t" ]] && continue
-    d=$(git rev-list --count "${t}..HEAD" 2>/dev/null || echo "")
-    [[ "$d" == "0" ]] && continue
-    prev_tag="$t"
-    break
-  done < <(git tag --sort=-creatordate | grep '^v')
-
-  local notes
-  if [[ -n "$prev_tag" ]]; then
-    notes=$(git log "${prev_tag}..HEAD" --pretty=format:"- %s" --no-merges 2>/dev/null | head -20 || echo "- See commit history for changes")
-  else
-    notes=$(git log --pretty=format:"- %s" --no-merges -20 2>/dev/null || echo "- Initial release")
-  fi
-
-  gh release create "$tag" \
-    "$vsix" \
-    --title "Champ ${tag}" \
-    --notes "$(cat <<NOTES
-## Champ ${tag}
-
-${notes}
-
----
-Install: download \`champ-${ver}.vsix\` and run:
-\`\`\`
-code --install-extension champ-${ver}.vsix
-\`\`\`
-NOTES
-)"
-  _ok "release ${tag} created — $(gh release view "$tag" --json url -q .url)"
+  _ok "Release workflow will publish v${next} with the VSIX attached"
 }
 
 cmd_watch() {
@@ -237,7 +233,7 @@ _menu() {
   echo ""
   echo "  1) build     — compile + package VSIX"
   echo "  2) install   — install latest GitHub release"
-  echo "  3) release   — build + push + create GitHub release"
+  echo "  3) release   — push master (workflow publishes release)"
   echo "  4) watch     — dev watch mode"
   echo "  5) test      — run unit tests"
   echo "  6) test all  — unit + integration tests"
@@ -278,9 +274,9 @@ case "$1" in
   watch)           cmd_watch ;;
   test)            shift; cmd_test "${1:-unit}" ;;
   lint)            cmd_lint ;;
-  version|-v|--version) cmd_version ;;
+  version|-v|--version) shift; cmd_version "$@" ;;
   help|-h|--help)
-    grep '^#   ' "$0" | sed 's/^# //' | head -15
+    grep '^#   ' "$0" | sed 's/^# //' | head -20
     ;;
   *)
     echo "Unknown command: $1  (run 'scripts/champ help')" >&2
