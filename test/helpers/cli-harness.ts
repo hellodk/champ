@@ -27,13 +27,17 @@ export type SseFrame = Record<string, unknown> | string;
 
 /** Build the CLI entry exactly the way `node esbuild.mjs` does. */
 export async function buildCli(): Promise<string> {
+  // Vitest runs integration files in parallel workers, all calling buildCli().
+  // Build to a worker-specific file and rename atomically so a child CLI can
+  // never observe a half-written bundle.
+  const tempOutfile = path.join(ROOT, "dist", `.cli.${process.pid}.js`);
   await esbuild.build({
     entryPoints: ["src/cli.ts"],
     bundle: true,
     format: "cjs",
     platform: "node",
     target: "node20",
-    outfile: "dist/cli.js",
+    outfile: tempOutfile,
     logLevel: "silent",
     sourcemap: false,
     external: ["playwright-core", "chromium-bidi"],
@@ -47,6 +51,7 @@ export async function buildCli(): Promise<string> {
       "abort-controller": "./shims/abort-controller.cjs",
     },
   });
+  fs.renameSync(tempOutfile, CLI_PATH);
   // Same as esbuild.mjs: npm sets +x for `bin` installs, so do it locally.
   fs.chmodSync(CLI_PATH, 0o755);
   return CLI_PATH;
