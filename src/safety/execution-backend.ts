@@ -24,6 +24,8 @@ export interface ExecutionIsolation {
   mechanism?: string;
   /** True only when the platform mechanism was successfully probed. */
   verified: boolean;
+  /** Honest report of whether memory/CPU/file-size limits can be enforced. */
+  resourceLimits: "enforced" | "none";
   reason?: string;
 }
 
@@ -102,6 +104,64 @@ type SpawnFn = (
   options: SpawnOptions,
 ) => ChildProcess;
 
+type CommandExistsFn = (command: string) => boolean;
+
+function commandAvailable(
+  commandExists: CommandExistsFn | undefined,
+  name: string,
+): boolean {
+  if (commandExists) return commandExists(name);
+  try {
+    execFileSync("which", [name], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resourcesRequested(limits: ExecutionLimits): boolean {
+  return (
+    limits.memoryMb !== undefined ||
+    limits.cpuSeconds !== undefined ||
+    limits.fileSizeMb !== undefined
+  );
+}
+
+function prlimitArgs(limits: ExecutionLimits): string[] {
+  const args: string[] = [];
+  if (limits.memoryMb !== undefined)
+    args.push(`--as=${Math.floor(limits.memoryMb * 1024 * 1024)}`);
+  if (limits.cpuSeconds !== undefined)
+    args.push(`--cpu=${Math.floor(limits.cpuSeconds)}`);
+  if (limits.fileSizeMb !== undefined)
+    args.push(`--fsize=${Math.floor((limits.fileSizeMb * 1024 * 1024) / 512)}`);
+  return args;
+}
+
+/**
+ * Wrap a command in `prlimit` when memory/CPU/file-size caps are requested.
+ * A requested limit that cannot be enforced is an error, never a silent pass.
+ */
+function withResourceLimits(
+  command: string,
+  args: string[],
+  request: ExecutionRequest,
+  platform: NodeJS.Platform,
+  commandExists?: CommandExistsFn,
+): { command: string; args: string[] } | string {
+  if (!resourcesRequested(request.limits)) return { command, args };
+  if (platform !== "linux") {
+    return `resource limits (memory/CPU/file size) are not enforced on ${platform}`;
+  }
+  if (!commandAvailable(commandExists, "prlimit")) {
+    return "resource limits requested but prlimit is unavailable";
+  }
+  return {
+    command: "prlimit",
+    args: [...prlimitArgs(request.limits), "--", command, ...args],
+  };
+}
+
 function failure(
   message: string,
   isolation: ExecutionIsolation,
@@ -169,6 +229,16 @@ function validateRequest(request: ExecutionRequest): string | null {
     limits.maxOutputBytes > MAX_OUTPUT_BYTES
   ) {
     return "invalid output limit";
+  }
+  for (const [name, value, max] of [
+    ["memory limit", limits.memoryMb, 64 * 1024],
+    ["CPU limit", limits.cpuSeconds, MAX_TIMEOUT_MS / 1000],
+    ["file-size limit", limits.fileSizeMb, 100 * 1024],
+  ] as const) {
+    if (value === undefined) continue;
+    if (!Number.isFinite(value) || value <= 0 || value > max) {
+      return `invalid ${name}`;
+    }
   }
   return null;
 }
@@ -318,6 +388,7 @@ export interface LocalBackendOptions {
   platform?: NodeJS.Platform;
   baseEnv?: Record<string, string | undefined>;
   spawn?: SpawnFn;
+  commandExists?: CommandExistsFn;
 }
 
 export class LocalExecutionBackend implements ExecutionBackend {
@@ -326,11 +397,13 @@ export class LocalExecutionBackend implements ExecutionBackend {
   private readonly platform: NodeJS.Platform;
   private readonly baseEnv: Record<string, string | undefined>;
   private readonly spawnFn: SpawnFn;
+  private readonly commandExists?: CommandExistsFn;
 
   constructor(opts: LocalBackendOptions = {}) {
     this.platform = opts.platform ?? process.platform;
     this.baseEnv = opts.baseEnv ?? process.env;
     this.spawnFn = opts.spawn ?? spawn;
+    this.commandExists = opts.commandExists;
     this.isolation = {
       // A detached process group is not OS isolation: the child still has
       // ambient filesystem and credential access.
@@ -338,6 +411,11 @@ export class LocalExecutionBackend implements ExecutionBackend {
       mechanism:
         this.platform === "win32" ? "taskkill /T" : "detached process group",
       verified: false,
+      resourceLimits:
+        this.platform === "linux" &&
+        commandAvailable(opts.commandExists, "prlimit")
+          ? "enforced"
+          : "none",
       reason:
         "process-tree termination only; no filesystem, network or syscall isolation",
     };
@@ -347,7 +425,22 @@ export class LocalExecutionBackend implements ExecutionBackend {
     const invalid = validateRequest(request);
     if (invalid) return failure(invalid, this.isolation);
 
-    const child = this.spawnFn(argvFor(request)[0], argvFor(request).slice(1), {
+    const argv = argvFor(request);
+    const wrapped = withResourceLimits(
+      argv[0],
+      argv.slice(1),
+      request,
+      this.platform,
+      this.commandExists,
+    );
+    if (typeof wrapped === "string") {
+      return failure(
+        `cannot enforce resource limits: ${wrapped}`,
+        this.isolation,
+      );
+    }
+
+    const child = this.spawnFn(wrapped.command, wrapped.args, {
       cwd: request.cwd,
       env: buildEnv(request, this.baseEnv),
       detached: this.platform !== "win32",
@@ -359,7 +452,6 @@ export class LocalExecutionBackend implements ExecutionBackend {
 }
 
 export interface BubblewrapBackendOptions extends LocalBackendOptions {
-  commandExists?: (command: string) => boolean;
   probeVersion?: () => string | null;
   /** Explicit downgrade. The returned isolation level stays "none". */
   allowFallback?: boolean;
@@ -372,12 +464,14 @@ export class BubblewrapExecutionBackend implements ExecutionBackend {
   private readonly baseEnv: Record<string, string | undefined>;
   private readonly spawnFn: SpawnFn;
   private readonly allowFallback: boolean;
+  private readonly commandExists?: CommandExistsFn;
 
   constructor(opts: BubblewrapBackendOptions = {}) {
     this.platform = opts.platform ?? process.platform;
     this.baseEnv = opts.baseEnv ?? process.env;
     this.spawnFn = opts.spawn ?? spawn;
     this.allowFallback = opts.allowFallback ?? false;
+    this.commandExists = opts.commandExists;
     this.isolation = probeBubblewrap(this.platform, opts);
   }
 
@@ -428,7 +522,21 @@ export class BubblewrapExecutionBackend implements ExecutionBackend {
     args.push("--chdir", request.cwd, "--");
     args.push(...argvFor(request));
 
-    const child = this.spawnFn("bwrap", args, {
+    const wrapped = withResourceLimits(
+      "bwrap",
+      args,
+      request,
+      this.platform,
+      this.commandExists,
+    );
+    if (typeof wrapped === "string") {
+      return failure(
+        `cannot enforce resource limits: ${wrapped}`,
+        this.isolation,
+      );
+    }
+
+    const child = this.spawnFn(wrapped.command, wrapped.args, {
       cwd: request.cwd,
       env: {},
       detached: true,
@@ -447,6 +555,9 @@ function probeBubblewrap(
     return {
       level: "none",
       verified: false,
+      resourceLimits: commandAvailable(opts.commandExists, "prlimit")
+        ? "enforced"
+        : "none",
       reason: `bubblewrap is not supported on ${platform}`,
     };
   }
@@ -464,6 +575,9 @@ function probeBubblewrap(
     return {
       level: "none",
       verified: false,
+      resourceLimits: commandAvailable(opts.commandExists, "prlimit")
+        ? "enforced"
+        : "none",
       reason: "bwrap binary not found",
     };
   }
@@ -478,6 +592,9 @@ function probeBubblewrap(
       return {
         level: "none",
         verified: false,
+        resourceLimits: commandAvailable(opts.commandExists, "prlimit")
+          ? "enforced"
+          : "none",
         reason: "bwrap --version probe did not identify bubblewrap",
       };
     }
@@ -485,6 +602,9 @@ function probeBubblewrap(
     return {
       level: "none",
       verified: false,
+      resourceLimits: commandAvailable(opts.commandExists, "prlimit")
+        ? "enforced"
+        : "none",
       reason: `bwrap version probe failed: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
@@ -492,6 +612,9 @@ function probeBubblewrap(
     level: "os",
     mechanism: "bubblewrap --unshare-all",
     verified: true,
+    resourceLimits: commandAvailable(opts.commandExists, "prlimit")
+      ? "enforced"
+      : "none",
   };
 }
 

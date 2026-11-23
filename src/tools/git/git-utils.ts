@@ -56,6 +56,33 @@ export class GitUtils {
    * @param workspaceRoot The git repository root
    * @returns Array of file paths that are staged
    */
+  static async getHeadCommit(workspaceRoot: string): Promise<string> {
+    try {
+      return run(workspaceRoot, ["rev-parse", "HEAD"]).trim();
+    } catch (error) {
+      throw new Error(
+        `Failed to get HEAD commit: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * Parse a GitHub remote URL into owner/repo. Handles SSH, HTTPS, a `.git`
+   * suffix and trailing slashes. Returns empty strings for non-GitHub URLs.
+   */
+  static parseGitHubUrl(url: string): { owner: string; repo: string } {
+    const cleaned = url
+      .trim()
+      .replace(/\/+$/, "")
+      .replace(/\.git$/, "");
+    const match = cleaned.match(
+      /(?:https?:\/\/|git@)github\.com[:/]([^/]+)\/([^/]+)$/,
+    );
+    return match
+      ? { owner: match[1], repo: match[2] }
+      : { owner: "", repo: "" };
+  }
+
   static async getStagedChanges(workspaceRoot: string): Promise<string[]> {
     try {
       const result = run(workspaceRoot, [
@@ -220,19 +247,7 @@ export class GitUtils {
       // Parse URL - handle both HTTPS and SSH formats
       // HTTPS: https://github.com/owner/repo.git
       // SSH: git@github.com:owner/repo.git
-      let owner = "";
-      let repo = "";
-
-      if (url.includes("github.com")) {
-        const match = url.match(
-          /(?:https:\/\/|git@)github\.com[:/]([^/]+)\/(.+?)(?:\.git)?$/,
-        );
-        if (match) {
-          [, owner, repo] = match;
-          repo = repo.replace(/\.git$/, "");
-        }
-      }
-
+      const { owner, repo } = GitUtils.parseGitHubUrl(url);
       return { url, owner, repo };
     } catch {
       return null;

@@ -83,9 +83,16 @@ describe("LocalExecutionBackend", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "champ-tree-"));
     const marker = path.join(dir, "survived");
     const backend = new LocalExecutionBackend();
+    // Node-only argv keeps this test portable: no bash or `touch` on Windows.
+    // The grandchild inherits the process group (Linux) / parent (Windows) so
+    // it only survives if killTree fails.
+    const grandchild = `setTimeout(() => require('fs').writeFileSync(${JSON.stringify(marker)}, 'survived'), 5000)`;
+    const parent =
+      `require('child_process').spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}], { stdio: 'ignore' });` +
+      `setInterval(() => {}, 1000);`;
     const result = await backend.execute(
       request({
-        argv: ["bash", "-c", `(sleep 5; touch ${marker}) & echo $!; wait`],
+        argv: [process.execPath, "-e", parent],
         limits: { timeoutMs: 300, maxOutputBytes: 1000 },
       }),
     );
@@ -166,6 +173,109 @@ describe("BubblewrapExecutionBackend", () => {
     const result = await backend.execute(request());
     expect(result.exitCode).not.toBe(0);
     expect(result.output).toMatch(/isolation|unavailable/i);
+  });
+});
+
+describe("execution resource limits", () => {
+  const fakeChild = (captured: { cmd?: string; args?: string[] }) => {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: EventEmitter;
+      stderr: EventEmitter;
+      pid: number;
+      kill: () => boolean;
+    };
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.pid = 1;
+    child.kill = () => true;
+    setImmediate(() => {
+      child.stdout.emit("data", Buffer.from("ok"));
+      child.emit("close", 0, null);
+    });
+    void captured;
+    return child as never;
+  };
+
+  it("rejects memory/CPU/file limits that cannot be enforced", async () => {
+    const spawn = vi.fn();
+    const backend = new LocalExecutionBackend({
+      platform: "linux",
+      commandExists: () => false,
+      spawn: spawn as never,
+    });
+    const result = await backend.execute(
+      request({
+        limits: { timeoutMs: 5_000, maxOutputBytes: 10_000, memoryMb: 256 },
+      }),
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toMatch(/resource limit|prlimit/i);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("wraps a local command with prlimit when resource limits are available", async () => {
+    const captured: { cmd?: string; args?: string[] } = {};
+    const backend = new LocalExecutionBackend({
+      platform: "linux",
+      commandExists: () => true,
+      spawn: ((cmd: string, args: string[]) => {
+        captured.cmd = cmd;
+        captured.args = args;
+        return fakeChild(captured);
+      }) as never,
+    });
+    await backend.execute(
+      request({
+        limits: {
+          timeoutMs: 5_000,
+          maxOutputBytes: 10_000,
+          memoryMb: 256,
+          cpuSeconds: 3,
+          fileSizeMb: 8,
+        },
+      }),
+    );
+    expect(captured.cmd).toBe("prlimit");
+    expect(captured.args).toContain("--as=268435456");
+    expect(captured.args).toContain("--cpu=3");
+    expect(captured.args).toContain("--fsize=16384");
+    expect(captured.args).toContain("--");
+  });
+
+  it("wraps bubblewrap itself so resource limits cover the whole sandbox", async () => {
+    const captured: { cmd?: string; args?: string[] } = {};
+    const backend = new BubblewrapExecutionBackend({
+      platform: "linux",
+      commandExists: () => true,
+      probeVersion: () => "bubblewrap 0.8.0",
+      spawn: ((cmd: string, args: string[]) => {
+        captured.cmd = cmd;
+        captured.args = args;
+        return fakeChild(captured);
+      }) as never,
+    });
+    await backend.execute(
+      request({
+        limits: { timeoutMs: 5_000, maxOutputBytes: 10_000, memoryMb: 128 },
+      }),
+    );
+    expect(captured.cmd).toBe("prlimit");
+    expect(captured.args).toContain("bwrap");
+    expect(captured.args).toContain("--unshare-all");
+  });
+
+  it("rejects invalid resource limit values", async () => {
+    const backend = new LocalExecutionBackend({
+      platform: "linux",
+      commandExists: () => true,
+    });
+    const result = await backend.execute(
+      request({
+        limits: { timeoutMs: 5_000, maxOutputBytes: 10_000, memoryMb: -1 },
+      }),
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toMatch(/memory limit|resource limit/i);
   });
 });
 

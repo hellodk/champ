@@ -22,6 +22,34 @@ const readLines = (rel: string): string[] =>
     .split("\n")
     .map((l) => l.trim());
 
+/**
+ * execFileSync does not apply PATHEXT on Windows. Also fall back to corepack
+ * so the test works in a plain shell where only `corepack pnpm` is available.
+ */
+function findOnPath(name: string): string | null {
+  const exts =
+    process.platform === "win32"
+      ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";")
+      : [""];
+  for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
+    for (const ext of exts) {
+      const candidate = path.join(dir, `${name}${ext}`);
+      if (statSync(candidate, { throwIfNoEntry: false })?.isFile()) {
+        return candidate;
+      }
+    }
+  }
+  return null;
+}
+
+function pnpmInvocation(): [string, ...string[]] {
+  const pnpm = findOnPath("pnpm");
+  if (pnpm) return [pnpm];
+  const corepack = findOnPath("corepack");
+  if (corepack) return [corepack, "pnpm"];
+  return ["pnpm"];
+}
+
 describe("packaging + repo hygiene (#102)", () => {
   it("never tracks graphify-out, .champ/team-runs or .superpowers in git", () => {
     const tracked = execFileSync("git", ["ls-files"], {
@@ -78,14 +106,29 @@ describe("packaging + repo hygiene (#102)", () => {
   });
 
   it("packs the CLI tarball without repository or user state (#139)", () => {
-    const report = JSON.parse(
-      execFileSync(
-        "npm",
-        ["pack", "--dry-run", "--json", "--pack-destination", ROOT],
-        { cwd: ROOT, encoding: "utf8" },
-      ),
-    ) as Array<{ files: Array<{ path: string }> }>;
-    const packed = report[0].files.map((f) => f.path);
+    const [pm, ...pmPrefix] = pnpmInvocation();
+    const isWin = process.platform === "win32";
+    // Node refuses to spawn a .CMD shim without a shell on Windows.
+    const quote = (value: string) =>
+      isWin && /\s/.test(value) ? `"${value}"` : value;
+    const stdout = execFileSync(
+      pm,
+      [
+        ...pmPrefix,
+        "pack",
+        "--dry-run",
+        "--json",
+        "--pack-destination",
+        quote(ROOT),
+      ],
+      { cwd: ROOT, encoding: "utf8", shell: isWin },
+    );
+    // pnpm prints lifecycle-script output before the JSON, and emits one object
+    // rather than npm's one-element array.
+    const report = JSON.parse(stdout.slice(stdout.indexOf("{"))) as {
+      files: Array<{ path: string }>;
+    };
+    const packed = report.files.map((f) => f.path.replace(/\\/g, "/"));
 
     // The published artifact is the standalone CLI bundle plus the manifest and
     // licence/readme npm always includes. Everything else is dead weight, and

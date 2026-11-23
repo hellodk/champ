@@ -7,11 +7,16 @@
  * - ASK becomes DENY in headless mode
  * - malformed policy files never grant access
  */
-import { describe, it, expect } from "vitest";
+import { afterAll, describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { PolicyEngine, loadPolicyFile, type PolicyRule } from "@/policy/engine";
+import {
+  PolicyEngine,
+  createPolicyEngine,
+  loadPolicyFile,
+  type PolicyRule,
+} from "@/policy/engine";
 
 describe("PolicyEngine", () => {
   const rule = (
@@ -139,5 +144,92 @@ describe("loadPolicyFile", () => {
     expect(rules).toHaveLength(1);
     expect(rules[0].scope).toBe("project");
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("createPolicyEngine hardening", () => {
+  const dirs: string[] = [];
+  const tempDir = (): string => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "champ-policy-harden-"));
+    dirs.push(dir);
+    return dir;
+  };
+  const isolationEnv = (dir: string): Record<string, string> => ({
+    HOME: dir,
+    USERPROFILE: dir,
+  });
+  afterAll(() => {
+    for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("fails closed when the managed policy file is malformed", () => {
+    const dir = tempDir();
+    const managed = path.join(dir, "managed.json");
+    fs.writeFileSync(managed, "{not-json");
+    expect(() =>
+      createPolicyEngine({
+        managedPolicyPath: managed,
+        userPolicyPath: path.join(dir, "user.json"),
+        env: isolationEnv(dir),
+      }),
+    ).toThrow(/managed policy/i);
+  });
+
+  it("fails closed when a managed policy rule is invalid", () => {
+    const dir = tempDir();
+    const managed = path.join(dir, "managed.json");
+    fs.writeFileSync(
+      managed,
+      JSON.stringify({
+        rules: [{ kind: "bogus", target: "*", decision: "ALLOW" }],
+      }),
+    );
+    expect(() =>
+      createPolicyEngine({
+        managedPolicyPath: managed,
+        userPolicyPath: path.join(dir, "user.json"),
+        env: isolationEnv(dir),
+      }),
+    ).toThrow(/managed policy/i);
+  });
+
+  it("ignores project ALLOW rules unless the workspace is trusted", () => {
+    const dir = tempDir();
+    const champDir = path.join(dir, ".champ");
+    fs.mkdirSync(champDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(champDir, "policy.json"),
+      JSON.stringify({
+        rules: [
+          { kind: "tool", target: "dangerous_tool", decision: "ALLOW" },
+          { kind: "tool", target: "blocked_tool", decision: "DENY" },
+        ],
+      }),
+    );
+    const base = {
+      workspace: dir,
+      userPolicyPath: path.join(dir, "user.json"),
+      env: isolationEnv(dir),
+    };
+    const untrusted = createPolicyEngine({ ...base, workspaceTrusted: false });
+    expect(
+      untrusted.evaluate({
+        kind: "tool",
+        id: "dangerous_tool",
+        requiresApproval: true,
+      }).decision,
+    ).toBe("ASK");
+    expect(
+      untrusted.evaluate({ kind: "tool", id: "blocked_tool" }).decision,
+    ).toBe("DENY");
+
+    const trusted = createPolicyEngine({ ...base, workspaceTrusted: true });
+    expect(
+      trusted.evaluate({
+        kind: "tool",
+        id: "dangerous_tool",
+        requiresApproval: true,
+      }).decision,
+    ).toBe("ALLOW");
   });
 });

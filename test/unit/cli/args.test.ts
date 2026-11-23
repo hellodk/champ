@@ -23,6 +23,30 @@ function run(result: CliParseResult) {
   return result.options;
 }
 
+describe("champ policy commands", () => {
+  it("parses show and validate", () => {
+    expect(parse(["policy", "show"])).toEqual({
+      kind: "policy-command",
+      command: { name: "policy-show" },
+      cwd: "/tmp/ws",
+    });
+    expect(parse(["policy", "validate"])).toEqual({
+      kind: "policy-command",
+      command: { name: "policy-validate" },
+      cwd: "/tmp/ws",
+    });
+  });
+
+  it("rejects unknown and extra policy arguments", () => {
+    expect(parse(["policy", "bogus"]).kind).toBe("error");
+    expect(parse(["policy", "show", "extra"]).kind).toBe("error");
+  });
+
+  it("documents that headless runs deny approvals without --yes", () => {
+    expect(USAGE).toMatch(/without\s+--yes deny/i);
+  });
+});
+
 describe("cli arg parser — informational flags", () => {
   it("returns help for --help and -h", () => {
     expect(parse(["--help"]).kind).toBe("help");
@@ -44,7 +68,7 @@ describe("cli arg parser — informational flags", () => {
     expect(USAGE).toContain("--max-iter");
     expect(USAGE).toContain("--session <id>");
     expect(USAGE).toContain("--sessions");
-    expect(USAGE).toContain("Interactive REPL");
+    expect(USAGE).toContain("Full-screen TUI");
   });
 });
 
@@ -67,9 +91,9 @@ describe("cli arg parser — mode detection", () => {
     expect(opts.task).toBe("do this");
   });
 
-  it("selects the REPL when stdin is a terminal and no task is given", () => {
+  it("selects the TUI when stdin is a terminal and no task is given", () => {
     const opts = run(parse([]));
-    expect(opts.mode).toBe("repl");
+    expect(opts.mode).toBe("tui");
     expect(opts.task).toBeUndefined();
   });
 
@@ -140,6 +164,29 @@ describe("cli arg parser — flags", () => {
   it("defaults cwd to the current directory when unset", () => {
     const result = parseCliArgs([], { stdinIsTTY: true });
     expect(run(result).flags.cwd).toBe(process.cwd());
+  });
+
+  it("starts the full-screen TUI by default on a terminal", () => {
+    expect(parseCliArgs([], { stdinIsTTY: true })).toMatchObject({
+      kind: "run",
+      options: { mode: "tui" },
+    });
+    expect(parseCliArgs(["--tui"], { stdinIsTTY: true })).toMatchObject({
+      kind: "run",
+      options: { mode: "tui" },
+    });
+  });
+
+  it("keeps the line REPL available with --repl", () => {
+    expect(parseCliArgs(["--repl"], { stdinIsTTY: true })).toMatchObject({
+      kind: "run",
+      options: { mode: "repl" },
+    });
+    expect(
+      parseCliArgs(["--tui", "--repl"], { stdinIsTTY: true }),
+    ).toMatchObject({
+      kind: "error",
+    });
   });
 
   it("parses --max-iter as a positive integer", () => {
@@ -388,6 +435,21 @@ describe("cli arg parser — setup and provider commands", () => {
     expect(parse(["config", "show"])).toMatchObject({
       kind: "provider-command",
       command: { name: "config-show" },
+    });
+    expect(parse(["config", "validate"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "config-validate" },
+    });
+    expect(parse(["config", "doctor"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "config-doctor" },
+    });
+    expect(parse(["config", "export", "--redact"])).toMatchObject({
+      kind: "provider-command",
+      command: { name: "config-export", redact: true },
+    });
+    expect(parse(["config", "export"])).toMatchObject({
+      kind: "error",
     });
     expect(parse(["config", "migrate", "--dry-run"])).toMatchObject({
       kind: "provider-command",

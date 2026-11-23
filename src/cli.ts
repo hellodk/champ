@@ -44,17 +44,33 @@ import {
 } from "./cli/skills";
 import { applyAllowedTools } from "./cli/tool-scope";
 import { runProviderCommand } from "./cli/provider-commands";
+import { runPolicyCommand } from "./cli/policy-commands";
+import {
+  abortActiveTurn,
+  activeAbortSignal,
+  executeTurn,
+  parseApprovalAnswer,
+  type TurnOutcome,
+} from "./cli/turn-runtime";
 import { runUpdateCommand } from "./cli/update";
 import { ChainCredentialStore } from "./config/credential-store";
 import { BudgetEnforcer } from "./config/budget";
+import { FileBudgetLedger } from "./config/budget-ledger";
+import { createPolicyEngine, type PolicyEngine } from "./policy/engine";
 import { EndpointRegistry } from "./config/endpoint-registry";
 import { discoverModels, testEndpoint } from "./config/model-discovery";
 import { migrateFromYaml, scrubYamlSecrets } from "./config/provider-migration";
+import { SettingsRepository } from "./config/settings-repository";
+import { selectActiveModel } from "./config/active-model";
 import {
   ModelSelectionService,
   type SelectionTask,
 } from "./config/model-selection";
-import type { Endpoint, TaskAssignment } from "./config/provider-model";
+import {
+  isProviderKind,
+  type Endpoint,
+  type TaskAssignment,
+} from "./config/provider-model";
 import { EndpointRepository } from "./config/provider-repository";
 import { SmartRouter } from "./providers/smart-router";
 import type { RulesEngine } from "./rules/rules-engine";
@@ -68,14 +84,21 @@ import {
 } from "./config/config-loader";
 import { ProviderFactory, type SecretReader } from "./providers/factory";
 import { AgentController } from "./agent/agent-controller";
-import { createHeadlessToolRegistry } from "./tools/headless";
+import {
+  createCliMcpSecretResolver,
+  createHeadlessToolRegistry,
+  loadHeadlessMcpServers,
+} from "./tools/headless";
 import {
   CorruptSessionLogError,
   SessionLog,
   type SessionReplay,
 } from "./session/session-log";
 import { newSessionId } from "./session/ids";
-import type { LLMMessage, StreamDelta, TokenUsage } from "./providers/types";
+import type { LLMMessage, TokenUsage } from "./providers/types";
+import { runTui } from "./tui/app";
+import type { EndpointSummary } from "./tui/state";
+import type { TuiRuntime, TuiTurnEvents } from "./tui/runtime";
 
 export const EXIT_OK = 0;
 export const EXIT_FAILURE = 1;
@@ -95,9 +118,6 @@ console.log = (...args: unknown[]) => {
 const REPL_EOF = Symbol("repl-eof");
 /** Marker pushed when the user interrupts (Ctrl-C) while idle. */
 const REPL_INTERRUPT = Symbol("repl-interrupt");
-
-/** The turn currently in flight, if any — Ctrl-C aborts it when set. */
-let activeAbort: AbortController | null = null;
 
 /**
  * Version reported by --version and the REPL banner. Read from the package
@@ -243,10 +263,6 @@ function fail(message: string): never {
   process.exit(EXIT_USAGE);
 }
 
-function parseApprovalAnswer(answer: string): boolean {
-  return /^(y|yes)$/i.test(answer.trim());
-}
-
 /**
  * Approval prompt on an existing readline (the REPL's). Resolves `false` if
  * the turn is aborted while the prompt is up, so a Ctrl-C cannot wedge the
@@ -254,7 +270,7 @@ function parseApprovalAnswer(answer: string): boolean {
  */
 function askOn(rl: Readline, description: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const signal = activeAbort?.signal;
+    const signal = activeAbortSignal();
     if (signal?.aborted) {
       resolve(false);
       return;
@@ -271,17 +287,22 @@ function askOn(rl: Readline, description: string): Promise<boolean> {
 /** Approval prompt on a one-off interface (non-REPL interactive runs). */
 function askFresh(description: string): Promise<boolean> {
   return new Promise((resolve) => {
+    const signal = activeAbortSignal();
     const rl = createInterface({
       input: process.stdin,
       output: process.stderr,
     });
     const finish = (approved: boolean) => {
-      activeAbort?.signal.removeEventListener("abort", onAbort);
+      signal?.removeEventListener("abort", onAbort);
       rl.close();
       resolve(approved);
     };
     const onAbort = () => finish(false);
-    activeAbort?.signal.addEventListener("abort", onAbort, { once: true });
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) {
+      finish(false);
+      return;
+    }
     rl.question(`\n${description}\nAllow? [y/N] `, (answer) =>
       finish(parseApprovalAnswer(answer)),
     );
@@ -308,6 +329,8 @@ interface TurnOptions {
   headless?: boolean;
   /** Shared per-process budget, enforced from actual provider usage. */
   budget?: BudgetEnforcer;
+  /** Managed/user/project/session policy shared by both clients. */
+  policy?: PolicyEngine;
 }
 
 /** Shared per-turn options for an interactive session (REPL). */
@@ -329,6 +352,8 @@ interface SessionOptions {
   onTurnEnd: () => Promise<void>;
   /** Shared per-process budget, enforced from actual provider usage. */
   budget?: BudgetEnforcer;
+  /** Managed/user/project/session policy shared by both clients. */
+  policy?: PolicyEngine;
 }
 
 function warnMissingTools(
@@ -381,15 +406,10 @@ async function runSkillTurn(
   }
 }
 
-interface TurnOutcome {
-  text: string;
-  error?: string;
-  aborted: boolean;
-}
-
 /**
  * Run one user message through the controller: assistant text streams to
- * stdout (machine-readable), tool and token traces go to stderr.
+ * stdout (machine-readable), tool and token traces go to stderr. Shared with
+ * the full-screen TUI through `executeTurn`.
  */
 async function runTurn(
   controller: AgentController,
@@ -397,69 +417,34 @@ async function runTurn(
   options: TurnOptions,
 ): Promise<TurnOutcome> {
   let sawText = false;
-  let tools = 0;
-  const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
-  const abort = new AbortController();
-  activeAbort = abort;
-
-  const dispose = controller.onStreamDelta((delta: StreamDelta) => {
-    switch (delta.type) {
-      case "text":
-        process.stdout.write(delta.text);
+  return executeTurn({
+    controller,
+    text,
+    requestApproval: options.requestApproval,
+    maxIterations: options.maxIterations,
+    headless: options.headless,
+    budget: options.budget,
+    policy: options.policy,
+    onTurnEnd: options.onTurnEnd,
+    events: {
+      onText: (chunk) => {
+        process.stdout.write(chunk);
         sawText = true;
-        break;
-      case "tool_call_start": {
-        const args = JSON.stringify(delta.toolCall.arguments ?? {});
+      },
+      onTool: (call) => {
+        const args = JSON.stringify(call.arguments ?? {});
         const shown = args.length > 200 ? `${args.slice(0, 200)}…` : args;
-        process.stderr.write(`\n[tool] ${delta.toolCall.name} ${shown}\n`);
-        tools++;
-        break;
-      }
-      case "error":
-        process.stderr.write(`\n[error] ${delta.error}\n`);
-        break;
-      case "done":
-        usage.inputTokens = delta.usage.inputTokens;
-        usage.outputTokens = delta.usage.outputTokens;
-        break;
-      default:
-        // reasoning / terminal_chunk: not rendered by the CLI (v1).
-        break;
-    }
+        process.stderr.write(`\n[tool] ${call.name} ${shown}\n`);
+      },
+      onError: (message) => process.stderr.write(`\n[error] ${message}\n`),
+      onDone: (summary) => {
+        if (sawText) process.stdout.write("\n");
+        options.onDone(summary);
+      },
+      onPersistError: (message) =>
+        process.stderr.write(`[champ] session save failed: ${message}\n`),
+    },
   });
-
-  try {
-    const result = await controller.processMessage(text, {
-      maxIterations: options.maxIterations,
-      requestApproval: options.requestApproval,
-      abortSignal: abort.signal,
-      headless: options.headless,
-      budget: options.budget,
-    });
-    if (sawText) {
-      process.stdout.write("\n");
-    } else if (result.text) {
-      process.stdout.write(`${result.text}\n`);
-    }
-    options.onDone({ tools, usage });
-    return { text: result.text, aborted: abort.signal.aborted };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { text: "", error: message, aborted: abort.signal.aborted };
-  } finally {
-    activeAbort = null;
-    dispose();
-    if (options.onTurnEnd) {
-      // A failure to persist must not fail the turn that just succeeded, but
-      // it must be visible: the history is in memory only until it lands.
-      try {
-        await options.onTurnEnd();
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[champ] session save failed: ${message}\n`);
-      }
-    }
-  }
 }
 
 /** One line per turn on stderr: how much work the agent did. */
@@ -541,6 +526,26 @@ function sessionInfo(log: SessionLog | null): string {
   return `${log.id} — ${replay.recorded} messages${checkpoint}\n  ${log.path}`;
 }
 
+/** Translate registry endpoints into the read-only view consumed by the TUI. */
+async function endpointSummaries(
+  registry: EndpointRegistry,
+  credentials: ChainCredentialStore,
+): Promise<EndpointSummary[]> {
+  const endpoints = await registry.list();
+  return Promise.all(
+    endpoints.map(async (endpoint) => ({
+      id: endpoint.id,
+      name: endpoint.name,
+      provider: endpoint.provider,
+      baseUrl: endpoint.baseUrl ?? "",
+      hasCredential: endpoint.credential
+        ? Boolean(await credentials.get(endpoint.credential))
+        : false,
+      models: endpoint.models.map((model) => model.id),
+    })),
+  );
+}
+
 /**
  * REPL line source: a queue fed by readline events, so a message typed while
  * a turn is running is held (not lost), Ctrl-D ends the session, and Ctrl-C
@@ -565,12 +570,9 @@ function createLineQueue(rl: Readline): {
     push(REPL_EOF);
   });
   // Idle Ctrl-C: closing readline ends the queue, so the loop exits. A
-  // turn in flight aborts first (see runTurn / activeAbort).
+  // turn in flight aborts first (see executeTurn / abortActiveTurn).
   rl.on("SIGINT", () => {
-    if (activeAbort && !activeAbort.signal.aborted) {
-      activeAbort.abort();
-      return;
-    }
+    if (abortActiveTurn()) return;
     push(REPL_INTERRUPT);
   });
 
@@ -726,6 +728,7 @@ async function runRepl(
       onTurnEnd: opts.onTurnEnd,
       onDone: printSummary,
       budget: opts.budget,
+      policy: opts.policy,
     });
 
     if (outcome.aborted) {
@@ -776,6 +779,24 @@ async function main(): Promise<number> {
   if (parsed.kind === "update") {
     return runUpdateCommand(parsed.options);
   }
+  if (parsed.kind === "policy-command") {
+    let engine: PolicyEngine;
+    try {
+      engine = createPolicyEngine({
+        workspace: path.resolve(parsed.cwd),
+        workspaceTrusted: process.env.CHAMP_TRUST_WORKSPACE === "1",
+      });
+    } catch (err) {
+      fail(
+        `policy configuration rejected: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    return runPolicyCommand(parsed.command, {
+      engine,
+      stdout: (text) => process.stdout.write(text),
+      stderr: (text) => process.stderr.write(text),
+    });
+  }
   if (parsed.kind === "provider-command") {
     const repository = new EndpointRepository();
     const credentials = new ChainCredentialStore();
@@ -785,9 +806,16 @@ async function main(): Promise<number> {
       discovery: { discoverModels, testEndpoint },
       now: () => new Date().toISOString(),
     });
+    const settings = new SettingsRepository({
+      configPath: configPath(),
+      workspaceDir: path.resolve(parsed.cwd),
+      credentials,
+      repository,
+    });
     return runProviderCommand(parsed.command, {
       registry,
       credentials,
+      settings,
       cwd: path.resolve(parsed.cwd),
       stdout: (text) => process.stdout.write(text),
       stderr: (text) => process.stderr.write(text),
@@ -832,15 +860,35 @@ async function main(): Promise<number> {
   // Budgets are optional; when configured they are enforced from actual
   // provider usage across the whole process (all REPL turns / one shot).
   const budget = config.agent?.budget
-    ? new BudgetEnforcer(config.agent.budget)
+    ? new BudgetEnforcer(config.agent.budget, {
+        ledger: new FileBudgetLedger(
+          path.join(path.dirname(configPath()), "budget-ledger.json"),
+        ),
+        project: workspace,
+      })
     : undefined;
   const hasExplicitEndpointOverride = Boolean(flags.provider || flags.baseUrl);
+  const endpointRepository = new EndpointRepository();
+  const endpointCredentials = new ChainCredentialStore();
+  const endpointRegistry = new EndpointRegistry({
+    repository: endpointRepository,
+    credentials: endpointCredentials,
+    discovery: { discoverModels, testEndpoint },
+    now: () => new Date().toISOString(),
+  });
+  const settings = new SettingsRepository({
+    configPath: configPath(),
+    workspaceDir: workspace,
+    credentials: endpointCredentials,
+    repository: endpointRepository,
+  });
+  const interactive = mode === "tui" || mode === "repl";
   const registryChoice = hasExplicitEndpointOverride
     ? null
     : await resolveProviderFromRegistry(
         flags,
         workspace,
-        mode === "repl" ? "default" : "coding",
+        interactive ? "default" : "coding",
         config,
       );
 
@@ -887,8 +935,39 @@ async function main(): Promise<number> {
       );
     }
   }
-  const toolRegistry = createHeadlessToolRegistry();
+  let liveController: AgentController | null = null;
+  const toolRegistry = createHeadlessToolRegistry({
+    credentials: endpointCredentials,
+    getAgentController: () => liveController,
+  });
+  if (config.mcp?.servers?.length) {
+    try {
+      await loadHeadlessMcpServers(toolRegistry, config.mcp.servers, {
+        secrets: createCliMcpSecretResolver(endpointCredentials),
+        onError: (server, error) =>
+          process.stderr.write(`[mcp] ${server}: ${error}\n`),
+      });
+    } catch (err) {
+      process.stderr.write(
+        `[mcp] could not load servers: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
+  }
   const controller = new AgentController(provider, toolRegistry, workspace);
+  liveController = controller;
+  let policy: PolicyEngine;
+  try {
+    policy = createPolicyEngine({
+      workspace,
+      // No CLI workspace-trust UI exists: project grants require an explicit
+      // opt-in, while managed/user DENY rules always apply.
+      workspaceTrusted: process.env.CHAMP_TRUST_WORKSPACE === "1",
+    });
+  } catch (err) {
+    fail(
+      `policy configuration rejected: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   controller.setMode(config.agent?.defaultMode ?? "agent");
   if (
     registryChoice &&
@@ -981,7 +1060,7 @@ async function main(): Promise<number> {
           model: provider.config.model,
           mode: controller.getMode(),
         }));
-    } else if (mode === "repl") {
+    } else if (interactive) {
       sessionLog = await SessionLog.create(workspace, {
         id: newSessionId(),
         model: provider.config.model,
@@ -1020,8 +1099,7 @@ async function main(): Promise<number> {
   }
 
   const onSigint = () => {
-    if (activeAbort && !activeAbort.signal.aborted) activeAbort.abort();
-    else process.exit(EXIT_ABORTED);
+    if (!abortActiveTurn()) process.exit(EXIT_ABORTED);
   };
   process.on("SIGINT", onSigint);
 
@@ -1030,7 +1108,7 @@ async function main(): Promise<number> {
   // approval requires an explicit opt-in (`--yes` or yoloMode), so a piped
   // run cannot accidentally gain destructive access.
   const canPrompt =
-    mode === "repl" || (mode === "oneshot" && Boolean(process.stdin.isTTY));
+    interactive || (mode === "oneshot" && Boolean(process.stdin.isTTY));
   const yolo = config.agent?.yoloMode === true;
   const autoApprove = flags.yes || yolo;
   const headless = !canPrompt && !autoApprove;
@@ -1047,7 +1125,229 @@ async function main(): Promise<number> {
 
   let code: number;
   try {
-    if (mode === "repl") {
+    if (mode === "tui") {
+      const initialEndpoints = await endpointSummaries(
+        endpointRegistry,
+        endpointCredentials,
+      );
+
+      const submitFromTui = async (
+        text: string,
+        events: TuiTurnEvents,
+        askApproval: (description: string) => Promise<boolean>,
+      ) => {
+        const trimmed = text.trim();
+        if (!trimmed) return { text: "", aborted: false };
+
+        if (trimmed.startsWith("/")) {
+          const [command, ...rest] = trimmed.split(/\s+/);
+          if (command === "/session") {
+            events.onText?.(`[champ] ${sessionInfo(sessionLog)}\n`);
+            return { text: "", aborted: false };
+          }
+          if (command === "/sessions") {
+            events.onText?.(await sessionsReport(workspace));
+            return { text: "", aborted: false };
+          }
+          if (command === "/checkpoint") {
+            if (!sessionLog) {
+              events.onError?.("no session for this run");
+              return { text: "", aborted: false };
+            }
+            const checkpoint = await sessionLog.markCheckpoint({
+              label: rest.join(" ") || undefined,
+            });
+            events.onText?.(
+              `[champ] checkpoint "${checkpoint.label}" at ${checkpoint.upTo} messages\n`,
+            );
+            return { text: "", aborted: false };
+          }
+          if (command === "/compact") {
+            if (!sessionLog?.checkpoint) {
+              events.onError?.(
+                "nothing to compact — record a /checkpoint first",
+              );
+              return { text: "", aborted: false };
+            }
+            await sessionLog.compact();
+            events.onText?.(
+              `[champ] compacted ${sessionLog.id} to "${sessionLog.checkpoint.label}"\n`,
+            );
+            return { text: "", aborted: false };
+          }
+          if (command === "/skills") {
+            events.onText?.(`${formatSkillList(skills.registry)}\n`);
+            return { text: "", aborted: false };
+          }
+        }
+
+        const { context, notes } = buildSkillContext(workspace, "", {
+          file: flags.file,
+        });
+        for (const note of notes) events.onText?.(`${note}\n`);
+        const resolved = resolveInvocation(skills.registry, trimmed, context);
+        if (resolved.kind === "unknown") {
+          const suggestion = resolved.suggestions.length
+            ? ` Did you mean ${resolved.suggestions.map((s) => `/${s}`).join(", ")}?`
+            : "";
+          events.onError?.(`unknown command /${resolved.name}.${suggestion}`);
+          return { text: "", aborted: false };
+        }
+
+        const turnOptions = {
+          requestApproval: autoApprove ? async () => true : askApproval,
+          maxIterations: flags.maxIterations,
+          budget,
+          policy,
+          onTurnEnd,
+        };
+        const runEvents = {
+          onText: events.onText,
+          onTool: (call: {
+            name: string;
+            arguments?: Record<string, unknown>;
+          }) => {
+            const args = JSON.stringify(call.arguments ?? {});
+            const shown = args.length > 200 ? `${args.slice(0, 200)}…` : args;
+            events.onTool?.(call.name, shown);
+          },
+          onError: events.onError,
+          onDone: (summary: { tools: number; usage: TokenUsage }) =>
+            events.onDone?.({
+              tools: summary.tools,
+              inputTokens: summary.usage.inputTokens,
+              outputTokens: summary.usage.outputTokens,
+            }),
+        };
+
+        if (resolved.kind === "skill") {
+          const scope = applyAllowedTools(
+            toolRegistry,
+            resolved.invocation.skill.metadata.allowedTools,
+          );
+          warnMissingTools(
+            scope.missing,
+            resolved.invocation.skill.metadata.name,
+            toolRegistry,
+          );
+          const previousMode = controller.getMode();
+          try {
+            if (resolved.invocation.mode) {
+              controller.setMode(resolved.invocation.mode);
+            }
+            return await executeTurn({
+              controller,
+              text: resolved.invocation.prompt,
+              ...turnOptions,
+              events: runEvents,
+            });
+          } finally {
+            scope.restore();
+            controller.setMode(previousMode);
+          }
+        }
+
+        controller.setProjectRules(
+          rulesPrompt(rulesEngine, {
+            mode: controller.getMode(),
+            currentFile: context.currentFile,
+          }),
+        );
+        return executeTurn({
+          controller,
+          text: trimmed,
+          ...turnOptions,
+          events: runEvents,
+        });
+      };
+
+      const tuiRuntime: TuiRuntime = {
+        header: {
+          version: cliVersion(),
+          model: provider.config.model ?? "unknown",
+          workspace,
+          sessionId: sessionLog?.id,
+          routingMode: registryChoice?.routingMode ?? "auto",
+        },
+        initialEndpoints,
+        initialScreen: initialEndpoints.length === 0 ? "providers" : "chat",
+        submit: submitFromTui,
+        abort: () => {
+          abortActiveTurn();
+        },
+        refreshEndpoints: () =>
+          endpointSummaries(endpointRegistry, endpointCredentials),
+        addEndpoint: async (input) => {
+          if (!isProviderKind(input.provider)) {
+            throw new Error(`unknown provider "${input.provider}"`);
+          }
+          const endpoint = await endpointRegistry.add({
+            name: input.name,
+            provider: input.provider,
+            baseUrl: input.baseUrl,
+            credential: input.credentialId
+              ? { kind: "keyring", id: input.credentialId }
+              : undefined,
+            models: input.model ? [{ id: input.model }] : undefined,
+          });
+          if (input.apiKey) {
+            const status = await endpointRegistry.setCredential(
+              endpoint.id,
+              input.apiKey,
+            );
+            if (!status.persisted) {
+              process.stderr.write(
+                `[champ] credential not persisted: ${status.reason ?? "unknown"}\n`,
+              );
+            }
+          }
+          try {
+            await endpointRegistry.discover(endpoint.id);
+          } catch {
+            // Manual model entry still works when discovery is unavailable.
+          }
+          return `Added ${endpoint.name} (${endpoint.id})`;
+        },
+        selectModel: async (endpointId, model) => {
+          const selected = await selectActiveModel(
+            endpointRegistry,
+            endpointId,
+            model,
+          );
+          if (!selected.ok) throw new Error(selected.reason);
+          return `Model ${selected.model} is now active`;
+        },
+        testEndpoint: async (endpointId) => {
+          const result = await endpointRegistry.test(endpointId);
+          const detail = result.error ?? result.detail ?? "";
+          return `${result.ok ? "ok" : "FAIL"} ${endpointId}${result.statusCode ? ` status=${result.statusCode}` : ""}${result.latencyMs ? ` ${result.latencyMs}ms` : ""}${detail ? ` — ${detail}` : ""}`;
+        },
+        validate: async () => {
+          const diagnostics = await settings.validate();
+          return diagnostics.map((d) => `${d.level}\t${d.code}\t${d.message}`);
+        },
+        doctor: async () => {
+          const report = await settings.doctor();
+          const lines = [
+            ...report.checks.map(
+              (check) =>
+                `${check.ok ? "ok" : "FAIL"}\t${check.name}\t${check.detail}`,
+            ),
+            ...report.diagnostics
+              .filter((d) => d.level !== "info")
+              .map((d) => `${d.level}\t${d.code}\t${d.message}`),
+          ];
+          return { healthy: report.healthy, lines };
+        },
+        exportRedacted: () => settings.export({ redact: true }),
+        exit: () => {
+          process.exitCode = EXIT_OK;
+        },
+      };
+
+      await runTui(tuiRuntime);
+      code = EXIT_OK;
+    } else if (mode === "repl") {
       code = await runRepl(
         controller,
         {
@@ -1060,6 +1360,7 @@ async function main(): Promise<number> {
           file: flags.file,
           onTurnEnd,
           budget,
+          policy,
         },
         `Champ ${cliVersion()} — model ${provider.config.model ?? "?"}. /help for commands.`,
       );
@@ -1106,6 +1407,7 @@ async function main(): Promise<number> {
               onDone: printSummary,
               headless,
               budget,
+              policy,
             },
           );
         } else {
@@ -1122,6 +1424,7 @@ async function main(): Promise<number> {
             onDone: printSummary,
             headless,
             budget,
+            policy,
           });
         }
         if (outcome.aborted) code = EXIT_ABORTED;

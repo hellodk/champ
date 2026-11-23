@@ -250,10 +250,13 @@ describe("EndpointRepository", () => {
       routingMode: "auto",
     });
 
-    const dirMode = fs.statSync(champDir).mode & 0o777;
-    const fileMode = fs.statSync(repo.path()).mode & 0o777;
-    expect(dirMode).toBe(0o700);
-    expect(fileMode).toBe(0o600);
+    // Windows does not implement POSIX permission bits on these calls.
+    if (process.platform !== "win32") {
+      const dirMode = fs.statSync(champDir).mode & 0o777;
+      const fileMode = fs.statSync(repo.path()).mode & 0o777;
+      expect(dirMode).toBe(0o700);
+      expect(fileMode).toBe(0o600);
+    }
   });
 
   it("refuses to write through a symlink at providers.json or ~/.champ", async () => {

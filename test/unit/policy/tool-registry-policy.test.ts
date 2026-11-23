@@ -84,6 +84,75 @@ describe("ToolRegistry policy enforcement", () => {
     expect(executed).toEqual([]);
   });
 
+  it("denies a blocked subcommand inside a compound shell command", async () => {
+    const executed: string[] = [];
+    const registry = new ToolRegistry();
+    registry.register(tool("run_terminal_cmd", executed));
+    const policy = new PolicyEngine({
+      project: [
+        {
+          scope: "project",
+          kind: "shell",
+          target: "rm -rf *",
+          decision: "DENY",
+        },
+      ],
+    });
+    const result = await registry.execute(
+      "run_terminal_cmd",
+      { command: "echo safe && rm -rf /tmp/data" },
+      context({ policy }),
+    );
+    expect(result.success).toBe(false);
+    expect(executed).toEqual([]);
+  });
+
+  it("denies an MCP tool when its server is blocked by policy", async () => {
+    const executed: string[] = [];
+    const registry = new ToolRegistry();
+    registry.register(tool("mcp_evil_server_fetch", executed));
+    const policy = new PolicyEngine({
+      managed: [
+        {
+          scope: "managed",
+          kind: "mcp",
+          target: "evil_server",
+          decision: "DENY",
+        },
+      ],
+    });
+    const result = await registry.execute(
+      "mcp_evil_server_fetch",
+      {},
+      context({ policy }),
+    );
+    expect(result.success).toBe(false);
+    expect(executed).toEqual([]);
+  });
+
+  it("denies delegation to a subagent blocked by policy", async () => {
+    const executed: string[] = [];
+    const registry = new ToolRegistry();
+    registry.register(tool("delegate_task", executed));
+    const policy = new PolicyEngine({
+      project: [
+        {
+          scope: "project",
+          kind: "subagent",
+          target: "rogue",
+          decision: "DENY",
+        },
+      ],
+    });
+    const result = await registry.execute(
+      "delegate_task",
+      { task: "do something", scope: "file", model: "rogue" },
+      context({ policy }),
+    );
+    expect(result.success).toBe(false);
+    expect(executed).toEqual([]);
+  });
+
   it("denies paths blocked by policy", async () => {
     const executed: string[] = [];
     const registry = new ToolRegistry();

@@ -168,6 +168,13 @@ describe("CheckpointStore", () => {
 
     const loaded = await store.loadAll();
     expect(loaded).toHaveLength(1);
-    expect(loaded[0].snapshots[0].content).toEqual(largeContent);
+    const loadedContent = loaded[0].snapshots[0].content;
+    expect(loadedContent).not.toBeNull();
+    expect(loadedContent).toHaveLength(largeContent.length);
+    // Buffer.equals is a native byte comparison; Vitest's deep equality over
+    // a 1 MiB Uint8Array is what made this test time out on slower runners.
+    expect(Buffer.from(loadedContent!).equals(Buffer.from(largeContent))).toBe(
+      true,
+    );
   });
 });

@@ -10,6 +10,8 @@ export interface WizardProviderOption {
   id: string;
   /** Cloud providers keep their configured model when a key is stored. */
   cloud: boolean;
+  /** When absent, auth is assumed to be possible. */
+  auth?: "none" | "optional" | "required";
 }
 
 export interface WizardOutcomeCancelled {
@@ -70,11 +72,15 @@ export async function runWizard(deps: WizardDeps): Promise<WizardOutcome> {
   };
 
   if (probeStatus === 401 || probeStatus === 403) {
-    const apiKey = await deps.promptForApiKey(providerId);
-    if (!apiKey) return { status: "cancelled" };
-    await deps.storeKey(providerId, apiKey);
-    outcome.apiKey = apiKey;
-    outcome.keyStored = true;
+    const needsKey = provider?.auth !== "none";
+    const alreadyStored = needsKey && (await deps.hasStoredApiKey(providerId));
+    if (needsKey && !alreadyStored) {
+      const apiKey = await deps.promptForApiKey(providerId);
+      if (!apiKey) return { status: "cancelled" };
+      await deps.storeKey(providerId, apiKey);
+      outcome.apiKey = apiKey;
+      outcome.keyStored = true;
+    }
   }
 
   // Cloud + stored key → keep the configured model, skip discovery picking.

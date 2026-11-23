@@ -228,6 +228,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private readonly extensionUri: vscode.Uri,
     private agent: AgentController,
     private readonly extensionVersion: string = "",
+    private readonly policy?: import("../policy/engine").PolicyEngine,
   ) {
     console.log(
       `[champ] activated v${extensionVersion || "(unknown)"} (host=${os.hostname()})`,
@@ -1123,6 +1124,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       await this.agent.processMessage(enrichedContent, {
         abortSignal: controller.signal,
         requestApproval: this.buildApprovalCallback(),
+        policy: this.policy,
         onBeforeMutation: this.mutationCheckpointer,
         onPiiRedacted: (summary) => {
           this.postMessage(createPiiNotice(summary));

@@ -281,6 +281,18 @@ export class EndpointRegistry {
     return this.deps.credentials.unavailableReason?.();
   }
 
+  /** True when any enabled endpoint for the provider already has a usable credential. */
+  async hasStoredCredentialForProvider(
+    provider: ProviderKind,
+  ): Promise<boolean> {
+    const endpoints = await this.list();
+    for (const ep of endpoints) {
+      if (ep.provider !== provider || !ep.enabled) continue;
+      if (await this.deps.credentials.get(ep.credential)) return true;
+    }
+    return false;
+  }
+
   async setCredential(
     id: string,
     secret: string,

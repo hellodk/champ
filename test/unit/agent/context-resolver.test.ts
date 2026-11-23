@@ -3,6 +3,7 @@
  * @-symbol resolution: @Files, @Folders, @Code, @Symbols, @Codebase, @Web, @Git, @Docs.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import * as path from "path";
 import { ContextResolver } from "@/agent/context-resolver";
 
 describe("ContextResolver", () => {
@@ -127,8 +128,9 @@ describe("ContextResolver", () => {
 
   it("should resolve @Files to actual file content when fileReader is provided", async () => {
     const mockReadFile = vi.fn().mockResolvedValue("export const x = 1;");
+    const workspaceRoot = path.resolve("/ws");
     const resolver = new ContextResolver({
-      workspaceRoot: "/ws",
+      workspaceRoot,
       indexingService: { search: vi.fn().mockResolvedValue([]) },
       webSearchTool: { execute: vi.fn() },
       fileReader: {
@@ -140,7 +142,9 @@ describe("ContextResolver", () => {
       { type: "file", value: "src/index.ts", start: 0, end: 0 },
     ]);
     expect(resolved[0].content).toBe("export const x = 1;");
-    expect(mockReadFile).toHaveBeenCalledWith("/ws/src/index.ts");
+    expect(mockReadFile).toHaveBeenCalledWith(
+      path.join(workspaceRoot, "src/index.ts"),
+    );
   });
 
   it("should resolve @Folders to directory listing when fileReader is provided", async () => {

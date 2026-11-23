@@ -10,17 +10,20 @@
 import { isValidSessionId } from "../session/ids";
 import { isTaskAssignment } from "../config/provider-model";
 import type { ProviderCommand } from "./provider-commands";
+import type { PolicyCommand } from "./policy-commands";
 import { validateRepoOrRef, type UpdateCommandOptions } from "./update";
 
-/** How the CLI should run: one task, an interactive session, or piped input. */
-export type CliMode = "oneshot" | "repl" | "stdin";
+/** How the CLI should run: one task, the full-screen UI, a line REPL, or piped input. */
+export type CliMode = "oneshot" | "tui" | "repl" | "stdin";
 
 export interface CliFlags {
   help: boolean;
   version: boolean;
   /** Auto-approve destructive tools instead of prompting the user. */
   yes: boolean;
-  /** Force the interactive session even when stdin is not a terminal. */
+  /** Force the full-screen TUI even when stdin is not a terminal. */
+  tui: boolean;
+  /** Force the line REPL even when stdin is not a terminal. */
   repl: boolean;
   /** List stored sessions for the workspace instead of running a task. */
   listSessions: boolean;
@@ -49,6 +52,8 @@ export interface CliFlags {
   workspace: boolean;
   /** Preview `champ config migrate` / `scrub-secrets` without writing changes. */
   dryRun: boolean;
+  /** Required for `champ config export` — redact all secret material. */
+  redact: boolean;
   /** Send a 1-token inference request during `champ provider test` (`--inference`). */
   inference: boolean;
   /** Check for a newer CLI version without installing (`champ update --check`). */
@@ -76,6 +81,7 @@ export type CliParseResult =
   | { kind: "sessions"; cwd: string }
   | { kind: "list-skills"; cwd: string; noSkills: boolean }
   | { kind: "provider-command"; command: ProviderCommand; cwd: string }
+  | { kind: "policy-command"; command: PolicyCommand; cwd: string }
   | { kind: "update"; options: UpdateCommandOptions }
   | { kind: "error"; message: string }
   | { kind: "run"; options: CliOptions };
@@ -91,8 +97,9 @@ export const USAGE = `champ — headless Champ agent CLI
 
 Usage:
   champ "<task>"          Run a single task and exit
-  champ                   Interactive REPL (when stdin is a terminal)
-  champ --repl            Force the REPL (also with piped input, for scripting)
+  champ                   Full-screen TUI (when stdin is a terminal)
+  champ --tui             Force the full-screen TUI
+  champ --repl            Line REPL instead of the TUI (also with piped input)
   champ -                 Read the task from stdin
   echo "<t>" | champ      Same as above (piped stdin)
   champ --sessions        List stored sessions for the workspace
@@ -101,14 +108,16 @@ Usage:
   champ models [refresh]  List or refresh discovered models
   champ model use <id/m>  Select default or workspace model
   champ model assign <t> <id/m>  Assign model to task: default | coding | chat | completion | embedding
-  champ config <cmd>      show | migrate [--dry-run] | scrub-secrets [--dry-run] | routing <auto|manual>
+  champ config <cmd>      show | validate | doctor | export --redact | migrate [--dry-run] | scrub-secrets [--dry-run] | routing <auto|manual>
+  champ policy <cmd>      show | validate   Inspect effective enterprise policy rules
   champ update            Update the champ CLI installation from upstream git
 
 Options:
   -h, --help              Show this help
   -v, --version           Print the version
   -y, --yes               Auto-approve destructive tools
-  -r, --repl              Force the interactive REPL
+      --tui               Force the full-screen TUI
+  -r, --repl              Force the line REPL instead of the TUI
       --cwd <dir>         Workspace root (default: current directory)
       --provider <name>   Override the provider configured in config.yaml
       --base-url <url>    Override the provider base URL
@@ -123,6 +132,7 @@ Options:
       --endpoint <id>     Filter \`models\` / \`models refresh\` by endpoint
       --workspace         Write \`model use\` selection to workspace .champ/provider.json
       --dry-run           Preview \`config migrate\`, \`config scrub-secrets\`, or \`update\` without writing
+      --redact            Required for \`config export\`; redacts all secret material
       --inference         Send a minimal inference request during \`champ provider test\`
       --check             Check if a newer CLI update is available without installing
       --force             Reinstall CLI even when already on the latest commit
@@ -137,8 +147,8 @@ REPL commands: /skills, /<skill> [args], /session, /sessions, /checkpoint [label
 
 Configuration is read from ~/.champ/providers.json (managed by \`champ setup\`) and
 ~/.champ/config.yaml (or CHAMP_CONFIG).
-Interactive runs prompt before destructive tools; non-interactive runs
-(--yes, or piped stdin) approve them automatically.
+Interactive runs prompt before destructive tools. Non-interactive runs without
+--yes deny actions that require approval; --yes opts in to auto-approval.
 `;
 
 /** Flags that take a separate value argument. */
@@ -176,12 +186,14 @@ export function parseCliArgs(
     help: false,
     version: false,
     yes: false,
+    tui: false,
     repl: false,
     listSessions: false,
     listSkills: false,
     noSkills: false,
     workspace: false,
     dryRun: false,
+    redact: false,
     inference: false,
     check: false,
     force: false,
@@ -215,6 +227,10 @@ export function parseCliArgs(
       flags.yes = true;
       continue;
     }
+    if (arg === "--tui") {
+      flags.tui = true;
+      continue;
+    }
     if (arg === "--repl" || arg === "-r") {
       flags.repl = true;
       continue;
@@ -237,6 +253,10 @@ export function parseCliArgs(
     }
     if (arg === "--dry-run") {
       flags.dryRun = true;
+      continue;
+    }
+    if (arg === "--redact") {
+      flags.redact = true;
       continue;
     }
     if (arg === "--inference") {
@@ -365,6 +385,9 @@ export function parseCliArgs(
     if (flags.repl) {
       return error("cannot combine --sessions with --repl");
     }
+    if (flags.tui) {
+      return error("cannot combine --sessions with --tui");
+    }
     return { kind: "sessions", cwd: flags.cwd };
   }
 
@@ -375,6 +398,9 @@ export function parseCliArgs(
     if (flags.repl) {
       return error("cannot combine --list-skills with --repl");
     }
+    if (flags.tui) {
+      return error("cannot combine --list-skills with --tui");
+    }
     return { kind: "list-skills", cwd: flags.cwd, noSkills: flags.noSkills };
   }
 
@@ -382,6 +408,11 @@ export function parseCliArgs(
     if (flags.repl) {
       return error(
         "--skill cannot be combined with --repl (use /<skill> inside the REPL)",
+      );
+    }
+    if (flags.tui) {
+      return error(
+        "--skill cannot be combined with --tui (use /<skill> inside the TUI)",
       );
     }
     if (positionals[0]?.startsWith("/")) {
@@ -396,17 +427,23 @@ export function parseCliArgs(
     }
   }
 
-  // Mode precedence: --repl forces an interactive session (a task makes the
-  // combination ambiguous, so it is rejected); otherwise an explicit --skill
-  // or task wins, then explicit `-`, then a non-terminal stdin means piped input,
-  // otherwise an interactive REPL.
-  if (flags.repl && (positionals.length > 0 || explicitStdin)) {
-    return error("cannot combine --repl with a task");
+  // Mode precedence: explicit interactive flags win (and are mutually
+  // exclusive); otherwise an explicit --skill or task wins, then explicit `-`,
+  // then a non-terminal stdin means piped input, otherwise the full-screen TUI.
+  if (flags.tui && flags.repl) {
+    return error("cannot combine --tui and --repl");
+  }
+  if ((flags.tui || flags.repl) && (positionals.length > 0 || explicitStdin)) {
+    return error(
+      `cannot combine ${flags.tui ? "--tui" : "--repl"} with a task`,
+    );
   }
 
   let mode: CliMode;
   let task: string | undefined;
-  if (flags.repl) {
+  if (flags.tui) {
+    mode = "tui";
+  } else if (flags.repl) {
     mode = "repl";
   } else if (flags.skill) {
     mode = "oneshot";
@@ -417,7 +454,7 @@ export function parseCliArgs(
   } else if (explicitStdin || !env.stdinIsTTY) {
     mode = "stdin";
   } else {
-    mode = "repl";
+    mode = "tui";
   }
 
   return { kind: "run", options: { mode, task, flags } };
@@ -570,6 +607,33 @@ function parseProviderCommand(
           cwd: flags.cwd,
         };
       }
+      if (sub === "validate") {
+        return {
+          kind: "provider-command",
+          command: { name: "config-validate" },
+          cwd: flags.cwd,
+        };
+      }
+      if (sub === "doctor") {
+        return {
+          kind: "provider-command",
+          command: { name: "config-doctor" },
+          cwd: flags.cwd,
+        };
+      }
+      if (sub === "export") {
+        if (!flags.redact) {
+          return error("config export requires --redact");
+        }
+        if (positionals.length !== 2) {
+          return error('unexpected arguments for "config export"');
+        }
+        return {
+          kind: "provider-command",
+          command: { name: "config-export", redact: true },
+          cwd: flags.cwd,
+        };
+      }
       if (sub === "migrate") {
         return {
           kind: "provider-command",
@@ -602,6 +666,32 @@ function parseProviderCommand(
         };
       }
       return error(`unknown config subcommand "${sub ?? ""}"`);
+    }
+
+    case "policy": {
+      const sub = positionals[1];
+      if (positionals.length > 2) {
+        return error(
+          `unexpected arguments for "policy": ${positionals.slice(2).join(" ")}`,
+        );
+      }
+      if (sub === "show") {
+        return {
+          kind: "policy-command",
+          command: { name: "policy-show" },
+          cwd: flags.cwd,
+        };
+      }
+      if (sub === "validate") {
+        return {
+          kind: "policy-command",
+          command: { name: "policy-validate" },
+          cwd: flags.cwd,
+        };
+      }
+      return error(
+        `unknown policy subcommand "${sub ?? ""}" (expected: show, validate)`,
+      );
     }
 
     case "update": {

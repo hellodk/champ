@@ -133,7 +133,12 @@ interface Claim {
 }
 
 function normalize(filePath: string): string {
-  return path.resolve(filePath).replace(/\/+$/, "");
+  // Use one separator style for comparison so `C:\repo\src` and
+  // `C:\repo\src\file.ts` are recognised as overlapping on Windows too.
+  return path
+    .resolve(filePath)
+    .replace(/[\\/]+$/, "")
+    .replace(/\\/g, "/");
 }
 
 function overlaps(a: string, b: string): boolean {
