@@ -84,7 +84,11 @@ import {
 } from "./config/config-loader";
 import { ProviderFactory, type SecretReader } from "./providers/factory";
 import { AgentController } from "./agent/agent-controller";
-import { createHeadlessToolRegistry } from "./tools/headless";
+import {
+  createCliMcpSecretResolver,
+  createHeadlessToolRegistry,
+  loadHeadlessMcpServers,
+} from "./tools/headless";
 import {
   CorruptSessionLogError,
   SessionLog,
@@ -931,8 +935,26 @@ async function main(): Promise<number> {
       );
     }
   }
-  const toolRegistry = createHeadlessToolRegistry();
+  let liveController: AgentController | null = null;
+  const toolRegistry = createHeadlessToolRegistry({
+    credentials: endpointCredentials,
+    getAgentController: () => liveController,
+  });
+  if (config.mcp?.servers?.length) {
+    try {
+      await loadHeadlessMcpServers(toolRegistry, config.mcp.servers, {
+        secrets: createCliMcpSecretResolver(endpointCredentials),
+        onError: (server, error) =>
+          process.stderr.write(`[mcp] ${server}: ${error}\n`),
+      });
+    } catch (err) {
+      process.stderr.write(
+        `[mcp] could not load servers: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
+  }
   const controller = new AgentController(provider, toolRegistry, workspace);
+  liveController = controller;
   let policy: PolicyEngine;
   try {
     policy = createPolicyEngine({

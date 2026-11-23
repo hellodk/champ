@@ -106,13 +106,16 @@ describe("headless tool layer", () => {
     }
   });
 
-  it("registers every tool into a ToolRegistry", () => {
+  it("registers every fs tool into a ToolRegistry", () => {
     const registry = createHeadlessToolRegistry();
-    expect(registry.getAll()).toHaveLength(7);
+    const names = registry.getAll().map((t) => t.name);
+    // The registry now also carries the non-fs built-ins used by the CLI.
+    expect(names.length).toBeGreaterThan(headlessFsTools.length);
+    for (const tool of headlessFsTools) {
+      expect(names).toContain(tool.name);
+    }
     const defs = registry.getDefinitions();
-    expect(defs.map((d) => d.name).sort()).toEqual(
-      headlessFsTools.map((t) => t.name).sort(),
-    );
+    expect(defs.map((d) => d.name).sort()).toEqual([...names].sort());
     for (const def of defs) {
       expect(def.parameters.type).toBe("object");
     }

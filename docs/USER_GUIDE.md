@@ -134,7 +134,7 @@ Switch modes from the dropdown or `Cmd/Ctrl + Shift + M`:
 
 ### Tools & Safety
 
-19 tools cover file I/O (`read_file`, `edit_file`, `create_file`, `delete_file`, `list_directory`), search (`grep_search`, `file_search`, `codebase_search`, `web_search`), shell/git/browser (`run_terminal_cmd`, `run_tests`, `git_tool`, `browser`), SSH (`remote_run_terminal`, `remote_edit_file`), diagrams/docs (`generate_diagram`, `generate_doc`), delegation (`delegate_task`), and MCP (`mcp_<server>_<tool>`).
+19 tools cover file I/O (`read_file`, `edit_file`, `create_file`, `delete_file`, `list_directory`), search (`grep_search`, `file_search`, `codebase_search`, `web_search`), shell/git/browser (`run_terminal_cmd`, `run_tests`, `git_tool`, `browser_tool`), SSH (`remote_run_terminal`, `remote_edit_file`), diagrams/docs (`generate_diagram`, `generate_doc`), delegation (`delegate_task`), and MCP (`mcp_<server>_<tool>`). The CLI and TUI expose the same set except the two SSH tools, which require the extension's connection pool.
 
 All writes and shell calls prompt unless `agent.yoloMode: true`. Terminal execution passes through `CommandSandbox`, outbound tool results pass through `SecretScanner` + `PromptGuard`, and file paths are symlink-guarded.
 
@@ -166,7 +166,9 @@ The TUI has Chat, Providers, Config and Help screens. Press `Tab` to cycle scree
 
 REPL and TUI commands: `/skills`, `/<skill> [args]`, `/session`, `/sessions`, `/checkpoint [label]`, `/compact`, `/help`, `/exit`.
 
-Contracts: replies write to `stdout`; traces, prompts, and warnings write to `stderr`. Non-interactive runs (piped stdin or `--yes`) auto-approve writes. Exit codes: `0` success, `1` runtime/provider failure, `2` usage/config error, `130` aborted (`SIGINT`).
+Tools: all 17 non-SSH built-ins are available in the CLI, including terminal, git, browser, fetch, web search, codebase search, tests, docs and delegation. MCP servers from `mcp.servers` are connected at startup and their tools appear as `mcp_<server>_<tool>`. `web_search` needs `BRAVE_API_KEY` in the environment or the `brave-search-api-key` OS keyring entry.
+
+Contracts: replies write to `stdout`; traces, prompts, and warnings write to `stderr`. Non-interactive runs without `--yes` deny actions that require approval; `--yes` opts in to auto-approval. Exit codes: `0` success, `1` runtime/provider failure, `2` usage/config error, `130` aborted (`SIGINT`).
 
 ---
 
@@ -189,7 +191,7 @@ Inspect `{{currentFile}}` ({{language}}). Focus on: {{userInput}}
 
 Template variables: `{{userInput}}`, `{{workspaceRoot}}`, `{{date}}`, `{{currentFile}}`, `{{language}}`, `{{selection}}`, `{{cursorLine}}`, `{{branch}}`. Unknown `{{vars}}` are preserved literally.
 
-CLI notes: editor-only variables (`{{selection}}`, `{{cursorLine}}`) resolve to empty strings (pass `--file <path>` for `{{currentFile}}`/`{{language}}`); `/commit` warns in CLI because `run_terminal_cmd` is extension-only; `/fix` expects editor diagnostics.
+CLI notes: editor-only variables (`{{selection}}`, `{{cursorLine}}`) resolve to empty strings (pass `--file <path>` for `{{currentFile}}`/`{{language}}`); `/fix` expects editor diagnostics.
 
 ### Project Rules (`.champ/rules/*.md`)
 
@@ -228,6 +230,8 @@ Built-in DevOps workflows under `.champ/teams/devops-*.yaml`: Daily Standup (`de
 ## MCP Servers
 
 Configure stdio/SSE servers in `~/.champ/config.yaml` under `mcp.servers` (`name`, `command`, `args`, `env: { KEY: "${env:KEY}" }`). Discovered tools appear as `mcp_<server>_<tool>`. Manage connections from the chat footer MCP panel or `Champ: Reload MCP Server`.
+
+The CLI/TUI read the same `mcp.servers` list at startup. `${{ secrets.KEY }}` tokens in `env` resolve from environment variables first, then the OS keyring; a failed server logs `[mcp] <name>: ...` to stderr and does not block the other tools.
 
 ---
 

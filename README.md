@@ -99,7 +99,9 @@ code --install-extension champ-<version>.vsix
    champ --list-skills        # list built-in, user, and workspace skills
    ```
 
-Approvals prompt when a human is attached to the terminal. Non-interactive runs (`-y` or piped stdin) auto-approve and report that on `stderr`. Model replies go to `stdout` and diagnostics go to `stderr`, so `champ "..." > plan.md` captures only the answer.
+Approvals prompt when a human is attached to the terminal. Non-interactive runs without `--yes` deny approval-requiring actions; `-y` opts in to auto-approval. Model replies go to `stdout` and diagnostics go to `stderr`, so `champ "..." > plan.md` captures only the answer.
+
+The CLI exposes the same 17 non-SSH built-in tools as the extension (terminal, git, web search, URL fetch, browser, codebase search, docs, delegation and more) plus MCP tools from `mcp.servers`. `web_search` reads its Brave key from `BRAVE_API_KEY` or the OS keyring entry `brave-search-api-key`.
 
 ### VS Code Extension
 

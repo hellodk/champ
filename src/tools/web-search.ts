@@ -52,9 +52,12 @@ interface BraveSearchResponse {
  * The tool uses the Brave Search API to query the internet. The API key
  * is read from SecretStorage (stored via the 'Champ: Set Brave API Key' command).
  */
-export function createWebSearchTool(secretStorage: {
-  get: (key: string) => PromiseLike<string | undefined>;
-}): Tool {
+export function createWebSearchTool(
+  secretStorage: {
+    get: (key: string) => PromiseLike<string | undefined>;
+  },
+  options: { missingKeyHint?: string } = {},
+): Tool {
   return {
     name: "web_search",
     description:
@@ -109,14 +112,15 @@ export function createWebSearchTool(secretStorage: {
         count = Math.min(Math.max(count, 1), MAX_RESULTS);
       }
 
-      // Get API key from SecretStorage
+      // Get API key from SecretStorage (or the CLI's env/keyring adapter)
       const apiKey = await secretStorage.get("brave-search-api-key");
       if (!apiKey) {
         return {
           success: false,
           output:
             "Error: Brave API key not configured. " +
-            "Please run the 'Champ: Set Brave API Key' command to configure it.",
+            (options.missingKeyHint ??
+              "Please run the 'Champ: Set Brave API Key' command to configure it."),
         };
       }
 

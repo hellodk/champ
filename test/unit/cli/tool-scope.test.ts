@@ -65,9 +65,9 @@ describe("applyAllowedTools", () => {
       "read_file",
       "grep_search",
       "edit_file",
-      "run_terminal_cmd",
+      "remote_run_terminal",
     ]);
-    expect(scope.missing).toEqual(["run_terminal_cmd"]);
+    expect(scope.missing).toEqual(["remote_run_terminal"]);
     expect(
       registry
         .getAll()
@@ -78,8 +78,8 @@ describe("applyAllowedTools", () => {
 
   it("filters to zero when nothing declared is available", () => {
     const registry = createHeadlessToolRegistry();
-    const scope = applyAllowedTools(registry, ["run_terminal_cmd"]);
-    expect(scope.missing).toEqual(["run_terminal_cmd"]);
+    const scope = applyAllowedTools(registry, ["remote_run_terminal"]);
+    expect(scope.missing).toEqual(["remote_run_terminal"]);
     expect(registry.getAll()).toEqual([]);
 
     scope.restore();
