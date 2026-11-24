@@ -65,5 +65,7 @@ export interface TuiRuntime {
   validate(): Promise<string[]>;
   doctor(): Promise<TuiDoctorReport>;
   exportRedacted(): Promise<string>;
+  /** Handle a defined slash command; returns null when it is not one of ours. */
+  command?(text: string): Promise<string | null>;
   exit(): void;
 }

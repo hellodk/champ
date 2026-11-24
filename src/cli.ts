@@ -47,6 +47,8 @@ import { runPolicyCommand } from "./cli/policy-commands";
 import { createCliContext } from "./cli/context";
 import { CliCheckpointManager } from "./cli/checkpoint-manager";
 import { runIndexCommand } from "./cli/index-commands";
+import { CHAT_COMMAND_HELP } from "./cli/commands";
+import { importLegacySession } from "./session/legacy-import";
 import {
   abortActiveTurn,
   activeAbortSignal,
@@ -377,6 +379,14 @@ interface SessionOptions {
   policy?: PolicyEngine;
   /** Recovery snapshot callback shared by every turn in the session. */
   onBeforeMutation?: (paths: string[]) => Promise<void>;
+  /** Output of `champ provider list` for `/model`. */
+  onModel?: () => Promise<string>;
+  /** Output of `champ config export --redact` for `/export`. */
+  onExport?: () => Promise<string>;
+  /** Output of `champ index` for `/index`. */
+  onIndex?: () => Promise<string>;
+  /** Active model id for `/status`. */
+  model?: string;
 }
 
 function warnMissingTools(
@@ -646,9 +656,15 @@ async function runRepl(
       }
 
       switch (command) {
-        case "/help":
-          process.stderr.write(`${USAGE}`);
+        case "/help": {
+          const lines = Object.entries(CHAT_COMMAND_HELP).map(
+            ([name, desc]) => `  ${name.padEnd(12)} ${desc}`,
+          );
+          process.stderr.write(
+            `${USAGE}\nChamp chat commands:\n${lines.join("\n")}\n\n`,
+          );
           break;
+        }
         case "/session":
           process.stderr.write(`[champ] ${sessionInfo(opts.log)}\n`);
           break;
@@ -682,6 +698,46 @@ async function runRepl(
           );
           break;
         }
+        case "/model":
+          if (opts.onModel) {
+            process.stderr.write(await opts.onModel());
+          } else {
+            process.stderr.write("[champ] model information unavailable\n");
+          }
+          break;
+        case "/mode": {
+          const name = rest[0];
+          const modes = ["agent", "ask", "manual", "plan", "composer"];
+          if (!name) {
+            process.stderr.write(`[champ] mode: ${controller.getMode()}\n`);
+          } else if (!modes.includes(name)) {
+            process.stderr.write(`[champ] unknown mode "${name}"\n`);
+          } else {
+            controller.setMode(
+              name as import("./agent/agent-controller").AgentMode,
+            );
+            process.stderr.write(`[champ] mode: ${controller.getMode()}\n`);
+          }
+          break;
+        }
+        case "/status":
+          process.stderr.write(
+            `[champ] mode=${controller.getMode()} model=${opts.model ?? "unknown"}\n` +
+              `[champ] ${sessionInfo(opts.log)}\n`,
+          );
+          break;
+        case "/index":
+          if (opts.onIndex) process.stderr.write(await opts.onIndex());
+          else process.stderr.write("[champ] use `champ index --status`\n");
+          break;
+        case "/export":
+          if (opts.onExport) process.stderr.write(await opts.onExport());
+          else process.stderr.write("[champ] export unavailable\n");
+          break;
+        case "/clear":
+          controller.setHistory([]);
+          process.stderr.write("[champ] conversation cleared\n");
+          break;
         case "/skills":
           process.stderr.write(`${formatSkillList(opts.registry)}\n`);
           break;
@@ -870,6 +926,24 @@ async function main(): Promise<number> {
     });
   }
 
+  if (parsed.kind === "run" && parsed.options.flags.importSession) {
+    try {
+      const result = await importLegacySession(
+        path.resolve(parsed.options.flags.cwd),
+        parsed.options.flags.importSession,
+      );
+      process.stdout.write(
+        `Imported ${result.messages} messages into session ${result.id}\n${result.path}\n`,
+      );
+      return 0;
+    } catch (err) {
+      process.stderr.write(
+        `champ: import failed: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      return 1;
+    }
+  }
+
   if (parsed.kind === "index-command") {
     const workspace = path.resolve(parsed.cwd);
     const config = buildConfig(parsed.flags);
@@ -984,6 +1058,56 @@ async function main(): Promise<number> {
       );
     }
   }
+  const commandDeps = {
+    registry: endpointRegistry,
+    credentials: endpointCredentials,
+    settings,
+    cwd: workspace,
+    stdout: (text: string) => process.stdout.write(text),
+    stderr: (text: string) => process.stderr.write(text),
+  };
+  const captureCommand = async (
+    run: (out: (s: string) => void) => Promise<number>,
+  ) => {
+    let captured = "";
+    await run((s) => {
+      captured += s;
+    });
+    return captured || "[champ] no output\n";
+  };
+  const onModel = () =>
+    captureCommand((out) =>
+      runProviderCommand(
+        { name: "provider-list" },
+        { ...commandDeps, stdout: out },
+      ),
+    );
+  const onExport = () =>
+    captureCommand((out) =>
+      runProviderCommand(
+        { name: "config-export", redact: true },
+        { ...commandDeps, stdout: out },
+      ),
+    );
+  const onIndex = () =>
+    captureCommand((out) =>
+      runIndexCommand(
+        { name: "status" },
+        {
+          workspace,
+          config,
+          endpoints: registryChoice?.endpoints ?? [],
+          credentials: {
+            get: (key: string) =>
+              endpointCredentials.get({ kind: "keyring", id: key }),
+          },
+          embeddingAssignment: registryChoice?.assignments.embedding?.model,
+          stdout: out,
+          stderr: () => {},
+        },
+      ),
+    );
+
   let liveController: AgentController | null = null;
   const indexingService = await createCliIndexingService({
     workspaceRoot: workspace,
@@ -1467,6 +1591,47 @@ async function main(): Promise<number> {
           return { healthy: report.healthy, lines };
         },
         exportRedacted: () => settings.export({ redact: true }),
+        command: async (text) => {
+          const [name, ...args] = text.trim().split(/\s+/);
+          switch (name) {
+            case "/status":
+              return `mode=${liveController?.getMode() ?? config.agent?.defaultMode ?? "agent"} model=${provider.config.model ?? "unknown"} session=${sessionLog?.id ?? "none"}`;
+            case "/index":
+              return onIndex();
+            case "/export":
+              return onExport();
+            case "/sessions":
+              return sessionsReport(workspace);
+            case "/session":
+              return sessionInfo(sessionLog);
+            case "/checkpoint": {
+              if (!sessionLog) return "no session for this run";
+              const cp = await sessionLog.markCheckpoint({
+                label: args.join(" ") || undefined,
+              });
+              return `checkpoint "${cp.label}" at ${cp.upTo} messages`;
+            }
+            case "/compact": {
+              const cp = sessionLog?.checkpoint;
+              if (!sessionLog || !cp)
+                return "nothing to compact — record a /checkpoint first";
+              await sessionLog.compact();
+              return `compacted to "${cp.label}"`;
+            }
+            case "/mode": {
+              const mode = args[0];
+              const modes = ["agent", "ask", "manual", "plan", "composer"];
+              if (!mode) return `mode=${liveController?.getMode() ?? "agent"}`;
+              if (!modes.includes(mode)) return `unknown mode "${mode}"`;
+              liveController?.setMode(
+                mode as import("./agent/agent-controller").AgentMode,
+              );
+              return `mode=${mode}`;
+            }
+            default:
+              return null;
+          }
+        },
         exit: () => {
           process.exitCode = EXIT_OK;
         },
@@ -1489,6 +1654,10 @@ async function main(): Promise<number> {
           budget,
           policy,
           onBeforeMutation,
+          onModel,
+          onExport,
+          onIndex,
+          model: provider.config.model,
         },
         `Champ ${cliVersion()} — model ${provider.config.model ?? "?"}. /help for commands.`,
       );

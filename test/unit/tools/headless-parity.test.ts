@@ -4,7 +4,8 @@
  * The headless registry must expose every built-in tool that does not require
  * VS Code APIs, and must be able to load MCP servers from the same config the
  * extension reads. The two remote-SSH tools stay extension-only: they need a
- * live SSH pool that the CLI does not own.
+ * live SSH pool that the CLI does not own. The simulated browser tool is
+ * deliberately excluded until a real, url-guarded implementation exists.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -27,7 +28,6 @@ const HEADLESS_BUILTINS = [
   "generate_diagram",
   "generate_doc",
   "fetch_url",
-  "browser_tool",
   "web_search",
   "codebase_search",
   "git",
@@ -56,6 +56,10 @@ describe("headless CLI tool parity", () => {
         .map((tool) => tool.name)
         .sort(),
     ).toEqual([...HEADLESS_BUILTINS].sort());
+  });
+
+  it("does not advertise the simulated browser tool", () => {
+    expect(createHeadlessToolRegistry().get("browser_tool")).toBeUndefined();
   });
 
   it("reports a CLI-specific Brave key hint instead of a VS Code command", async () => {

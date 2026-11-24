@@ -251,6 +251,22 @@ describe("cli arg parser — sessions (issue #72)", () => {
     );
   });
 
+  it("parses --import-session as an absolute path", () => {
+    const opts = run(parse(["--import-session", "old.json"]));
+    expect(opts.flags.importSession).toBe("/tmp/ws/old.json");
+    expect(run(parse(["--import-session=old.json"])).flags.importSession).toBe(
+      "/tmp/ws/old.json",
+    );
+    expect(USAGE).toContain("--import-session <file>");
+  });
+
+  it("rejects an empty --import-session value", () => {
+    expect(parse(["--import-session", ""])).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("--import-session cannot be empty"),
+    });
+  });
+
   it("rejects ids that could escape the sessions directory", () => {
     for (const bad of ["../etc/passwd", "a/b", "..", ".", ""]) {
       expect(

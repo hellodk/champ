@@ -20,7 +20,6 @@ import {
   createDelegateTaskTool,
   type SubAgentController,
 } from "../delegate-task";
-import { BrowserTool } from "../browser-tool";
 import { fetchUrlTool } from "../fetch-url";
 import { generateDiagramTool } from "../generate-diagram";
 import { generateDocTool } from "../generate-doc";
@@ -73,7 +72,9 @@ export function createHeadlessToolRegistry(
   registry.register(generateDiagramTool);
   registry.register(generateDocTool);
   registry.register(fetchUrlTool);
-  registry.register(new BrowserTool());
+  // The simulated BrowserTool is deliberately not registered: no headless
+  // browser functionality is shipped until a real, url-guarded implementation
+  // exists. Web access goes through fetchUrlTool.
   registry.register(gitTool);
   registry.register(
     createCodebaseSearchTool(options.getIndexingService ?? (() => null)),

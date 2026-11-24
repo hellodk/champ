@@ -651,3 +651,39 @@ describe("champ CLI — interactive REPL (--repl)", () => {
     TIMEOUT,
   );
 });
+
+describe("champ CLI — canonical sessions", () => {
+  it(
+    "imports a legacy extension JSON session into a JSONL log",
+    async () => {
+      const s = await scenario(() => [frames.text("unused"), frames.done]);
+      try {
+        const legacy = path.join(s.ws, "legacy.json");
+        fs.writeFileSync(
+          legacy,
+          JSON.stringify({
+            version: 1,
+            metadata: { id: "old", mode: "agent" },
+            history: [{ role: "user", content: "remember me" }],
+          }),
+        );
+
+        const result = await s.run(["--import-session", legacy]);
+        expect(result.timedOut).toBe(false);
+        expect(result.code).toBe(0);
+        expect(result.stdout).toContain(
+          "Imported 1 messages into session legacy-old",
+        );
+        const log = fs.readFileSync(
+          path.join(s.ws, ".champ", "sessions", "legacy-old.jsonl"),
+          "utf8",
+        );
+        expect(log).toContain("remember me");
+        expect(s.mock.requests).toHaveLength(0);
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+});

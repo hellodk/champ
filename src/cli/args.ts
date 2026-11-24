@@ -7,6 +7,7 @@
  * Session ids are validated here too (issue #72) so a traversal attempt is a
  * usage error, not a filesystem call.
  */
+import * as path from "path";
 import { isValidSessionId } from "../session/ids";
 import { isTaskAssignment } from "../config/provider-model";
 import type { ProviderCommand } from "./provider-commands";
@@ -32,6 +33,8 @@ export interface CliFlags {
   cwd: string;
   /** Stored session to resume (created when it does not exist). */
   session?: string;
+  /** Import a legacy extension session JSON file into the JSONL store. */
+  importSession?: string;
   /** Overrides for the active provider block in config.yaml. */
   provider?: string;
   model?: string;
@@ -142,6 +145,7 @@ Options:
       --api-key <key>     Override the API key
       --max-iter <n>      Maximum tool-call iterations per message
       --session <id>      Resume a stored session (created when it is new)
+      --import-session <file>  Import a legacy extension session JSON file
       --skill <name>      Run a skill (same as /<name>) in one-shot mode
       --file <path>       The file skills and glob rules should assume
       --list-skills       Print available skills and exit
@@ -179,6 +183,7 @@ const VALUE_FLAGS: Record<string, keyof CliFlags> = {
   "--api-key": "apiKey",
   "--max-iter": "maxIterations",
   "--session": "session",
+  "--import-session": "importSession",
   "--skill": "skill",
   "--file": "file",
   "--endpoint": "endpoint",
@@ -367,6 +372,12 @@ export function parseCliArgs(
             );
           }
           flags.session = value;
+          break;
+        case "importSession":
+          if (!value.trim()) {
+            return error("--import-session cannot be empty");
+          }
+          flags.importSession = path.resolve(flags.cwd, value);
           break;
         case "skill":
           if (!/^[A-Za-z][\w-]*$/.test(value)) {

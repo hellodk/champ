@@ -21,6 +21,7 @@ import {
   type TuiScreen,
 } from "./state";
 import type { TuiRuntime } from "./runtime";
+import { CHAT_COMMAND_HELP } from "../cli/commands";
 
 const SCREENS: Array<{ id: TuiScreen; label: string }> = [
   { id: "chat", label: "Chat" },
@@ -126,6 +127,17 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
     if (text === "/model" || text === "/providers") {
       dispatch({ type: "screen/set", screen: "providers" });
       return;
+    }
+    if (text.startsWith("/") && runtime.command) {
+      const output = await runtime.command(text);
+      if (output !== null) {
+        dispatch({
+          type: "message/add",
+          role: "system",
+          text: output,
+        });
+        return;
+      }
     }
 
     dispatch({ type: "turn/start" });
@@ -546,9 +558,11 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
           <Text color="#D1D5DB">Tab — cycle screens</Text>
           <Text color="#D1D5DB">Esc — return to chat</Text>
           <Text color="#D1D5DB">Ctrl-C — abort turn or exit</Text>
-          <Text color="#D1D5DB">/clear — clear transcript</Text>
-          <Text color="#D1D5DB">/model — open provider selection</Text>
-          <Text color="#D1D5DB">/exit — leave Champ</Text>
+          {Object.entries(CHAT_COMMAND_HELP).map(([name, desc]) => (
+            <Text key={name} color="#D1D5DB">
+              {name} — {desc}
+            </Text>
+          ))}
         </Panel>
       )}
 
