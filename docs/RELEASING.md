@@ -18,18 +18,22 @@ Every push to `master` runs `.github/workflows/release.yml`. The workflow:
 2. finds the newest reachable `v*` git tag;
 3. computes the next patch version as
    `max(current version, newest tag) + 1`;
-4. skips if that tag already exists remotely (safe re-runs);
+4. skips if that tag already exists remotely or HEAD is a `chore(release):`
+   commit (safe re-runs);
 5. runs `pnpm version <next> --no-git-tag-version`;
-6. commits `package.json` as `chore(release): <next>`;
-7. tags `v<next>` and pushes both the commit and the tag;
+6. commits `package.json` as `chore(release): <next>` with Husky hooks disabled
+   (tests run in CI, not during an automated commit);
+7. tags `v<next>` and pushes the tag only — the protected `master` branch is
+   updated separately, after its required checks pass;
 8. builds the VSIX from the bumped commit;
 9. verifies `node dist/cli.js --version` equals `champ <next>`;
 10. publishes a GitHub release titled `Champ v<next>` with the VSIX as the
     first and only asset.
 
-The workflow ignores pushes whose actor is `github-actions[bot]`, so the release
-commit cannot trigger another release. `concurrency` serialises releases if
-multiple commits reach `master` close together.
+The workflow ignores pushes whose actor is `github-actions[bot]` and skips any
+HEAD whose subject starts with `chore(release):`, so a release commit cannot
+trigger another release. `concurrency` serialises releases if multiple commits
+reach `master` close together.
 
 ## Local commands
 

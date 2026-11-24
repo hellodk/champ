@@ -20,6 +20,9 @@ import {
 import type { CodeChunk } from "@/indexing/chunking-service";
 
 const ROOT = path.resolve("/eval-workspace");
+/** Fixture keys use POSIX separators; normalise Windows path.relative output. */
+const relativeKey = (filePath: string): string =>
+  path.relative(ROOT, filePath).split(path.sep).join("/");
 const FILES: Record<string, string> = {
   "src/auth/session.ts": [
     "export interface Session { userId: string; expiresAt: number }",
@@ -163,12 +166,12 @@ async function recallAt3(query: string, hybrid: boolean): Promise<number> {
       keywordRunner: (q) => fixtureKeywordRunner(q),
       chunker: {
         chunkFile: async (filePath: string) => {
-          const rel = path.relative(ROOT, filePath);
+          const rel = relativeKey(filePath);
           return CHUNKS[rel] ?? [];
         },
       },
       readFile: async (filePath: string) => {
-        const rel = path.relative(ROOT, filePath);
+        const rel = relativeKey(filePath);
         if (!(rel in FILES)) throw new Error(`missing fixture: ${rel}`);
         return FILES[rel];
       },
@@ -176,7 +179,7 @@ async function recallAt3(query: string, hybrid: boolean): Promise<number> {
     },
   );
   const retrieved = new Set(
-    result.hits.map((hit) => path.relative(ROOT, hit.filePath)),
+    result.hits.map((hit) => relativeKey(hit.filePath)),
   );
   const expected = QUERIES.find((q) => q.query === query)!.expected;
   return (

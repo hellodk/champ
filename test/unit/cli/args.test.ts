@@ -293,9 +293,9 @@ describe("cli arg parser — sessions (issue #72)", () => {
 
   it("parses --import-session as an absolute path", () => {
     const opts = run(parse(["--import-session", "old.json"]));
-    expect(opts.flags.importSession).toBe("/tmp/ws/old.json");
+    expect(opts.flags.importSession).toBe(path.resolve("/tmp/ws/old.json"));
     expect(run(parse(["--import-session=old.json"])).flags.importSession).toBe(
-      "/tmp/ws/old.json",
+      path.resolve("/tmp/ws/old.json"),
     );
     expect(USAGE).toContain("--import-session <file>");
   });

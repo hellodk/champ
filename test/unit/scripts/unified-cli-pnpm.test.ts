@@ -30,7 +30,10 @@ async function runLint(path: string, env: Record<string, string>) {
   });
 }
 
-describe("unified CLI pnpm resolution (#152)", () => {
+// The unified CLI is a Bash script; `/bin/bash` is unavailable on Windows CI.
+const describePosix = process.platform === "win32" ? describe.skip : describe;
+
+describePosix("unified CLI pnpm resolution (#152)", () => {
   it("falls back to corepack pnpm when pnpm is not on PATH", async () => {
     const dir = await mkdtemp(join(tmpdir(), "champ-corepack-"));
     const log = join(dir, "corepack.log");

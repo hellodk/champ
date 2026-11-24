@@ -22,6 +22,20 @@ describe("release automation", () => {
     expect(workflow).toContain("cancel-in-progress: false");
   });
 
+  it("does not run Husky hooks for the automated version commit", () => {
+    expect(workflow).toMatch(/HUSKY:\s*"0"/);
+  });
+
+  it("publishes the tag without pushing to protected master first", () => {
+    expect(workflow).toContain('git push origin "${TAG}"');
+    expect(workflow).not.toContain("git push origin HEAD:master");
+  });
+
+  it("skips a release when HEAD is its own version commit", () => {
+    expect(workflow).toContain("git log -1 --pretty=%s");
+    expect(workflow).toContain("^chore(release):");
+  });
+
   it("computes the next patch version through the unified script", () => {
     expect(workflow).toContain("scripts/champ version next");
     expect(script).toContain("cmd_version()");

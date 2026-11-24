@@ -18,6 +18,9 @@ jobs:
     # start new workflow runs, but this guard also covers PAT-based pushes.
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    env:
+      # The version commit is automated; Husky's test hooks belong in CI.
+      HUSKY: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,7 +57,10 @@ jobs:
           TAG: ${{ steps.meta.outputs.tag }}
         run: |
           set -euo pipefail
-          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+          if git log -1 --pretty=%s | grep -q '^chore(release):'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Release commit — nothing to do."
+          elif git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "Release ${TAG} already exists — nothing to do."
           else
@@ -79,7 +85,6 @@ jobs:
           git add package.json
           git commit -m "chore(release): ${NEXT}"
           git tag "${TAG}"
-          git push origin HEAD:master
           git push origin "${TAG}"
 
       - name: Build VSIX
