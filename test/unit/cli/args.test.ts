@@ -670,3 +670,59 @@ describe("cli arg parser — index management", () => {
     }
   });
 });
+
+describe("champ team commands", () => {
+  it("parses list and history without a task", () => {
+    expect(parse(["team", "list"])).toMatchObject({
+      kind: "team-command",
+      command: { name: "list" },
+      cwd: "/tmp/ws",
+    });
+    expect(parse(["team", "history"])).toMatchObject({
+      kind: "team-command",
+      command: { name: "history" },
+    });
+  });
+
+  it("parses run with the team name and the full task text", () => {
+    expect(
+      parse(["team", "run", "devops", "fix", "the", "build"]),
+    ).toMatchObject({
+      kind: "team-command",
+      command: { name: "run", team: "devops", task: "fix the build" },
+    });
+  });
+
+  it("parses resume with a validated run id", () => {
+    expect(parse(["team", "resume", "team-abc_123"])).toMatchObject({
+      kind: "team-command",
+      command: { name: "resume", runId: "team-abc_123" },
+    });
+    expect(parse(["team", "resume", "../etc/passwd"]).kind).toBe("error");
+  });
+
+  it("rejects missing, extra, and unknown team arguments", () => {
+    expect(parse(["team"]).kind).toBe("error");
+    expect(parse(["team", "bogus"]).kind).toBe("error");
+    expect(parse(["team", "list", "extra"]).kind).toBe("error");
+    expect(parse(["team", "run", "devops"]).kind).toBe("error");
+    expect(parse(["team", "run", "bad/name", "task"]).kind).toBe("error");
+  });
+
+  it("rejects interactive modes for team commands", () => {
+    expect(parse(["team", "list", "--tui"]).kind).toBe("error");
+    expect(parse(["team", "list", "--repl"]).kind).toBe("error");
+    expect(parse(["team", "list", "--rpc"]).kind).toBe("error");
+  });
+
+  it("documents all four team commands in USAGE", () => {
+    for (const command of [
+      "team list",
+      "team run",
+      "team history",
+      "team resume",
+    ]) {
+      expect(USAGE).toContain(`champ ${command}`);
+    }
+  });
+});

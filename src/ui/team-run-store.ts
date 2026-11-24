@@ -15,34 +15,55 @@ export interface TeamRunRecord {
   savedAt: number;
 }
 
+/** Run ids are used as file names, so they must never contain path separators. */
+const SAFE_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
 export class TeamRunStore {
   private readonly dir: string;
+  /** Serialise writes per run: TeamRunner emits many states without awaiting. */
+  private readonly pendingWrites = new Map<string, Promise<unknown>>();
 
   constructor(workspaceRoot: string) {
     this.dir = path.join(workspaceRoot, ".champ", "team-runs");
   }
 
+  private serialize<T>(key: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.pendingWrites.get(key) ?? Promise.resolve();
+    const next = previous.then(work, work);
+    const tail = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.pendingWrites.set(key, tail);
+    return next;
+  }
+
   async save(state: TeamRunState): Promise<boolean> {
-    try {
-      await fs.mkdir(this.dir, { recursive: true });
-      const record: TeamRunRecord = { state, savedAt: Date.now() };
-      await fs.writeFile(
-        path.join(this.dir, `${state.runId}.json`),
-        JSON.stringify(record, null, 2),
-        "utf-8",
-      );
-      await this.pruneIfNeeded();
-      return true;
-    } catch (error) {
-      console.warn(
-        `Champ TeamRunStore: failed to save run ${state.runId}:`,
-        error,
-      );
-      return false;
-    }
+    if (!SAFE_RUN_ID.test(state.runId)) return false;
+    return this.serialize(state.runId, async () => {
+      try {
+        await fs.mkdir(this.dir, { recursive: true });
+        const record: TeamRunRecord = { state, savedAt: Date.now() };
+        const file = path.join(this.dir, `${state.runId}.json`);
+        // Write to a temporary file first: a reader must never observe a
+        // half-written JSON state from a concurrent emit.
+        const temp = `${file}.${process.pid}.tmp`;
+        await fs.writeFile(temp, JSON.stringify(record, null, 2), "utf-8");
+        await fs.rename(temp, file);
+        await this.pruneIfNeeded();
+        return true;
+      } catch (error) {
+        console.warn(
+          `Champ TeamRunStore: failed to save run ${state.runId}:`,
+          error,
+        );
+        return false;
+      }
+    });
   }
 
   async loadAll(): Promise<TeamRunRecord[]> {
+    await Promise.all([...this.pendingWrites.values()]);
     let entries: string[];
     try {
       entries = await fs.readdir(this.dir);
@@ -67,6 +88,8 @@ export class TeamRunStore {
   }
 
   async load(runId: string): Promise<TeamRunRecord | null> {
+    if (!SAFE_RUN_ID.test(runId)) return null;
+    await this.pendingWrites.get(runId);
     try {
       const filePath = path.join(this.dir, `${runId}.json`);
       if (!path.resolve(filePath).startsWith(path.resolve(this.dir) + path.sep))

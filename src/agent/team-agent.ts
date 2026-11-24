@@ -299,12 +299,17 @@ export class TeamAgent implements Agent {
       usage = result.usage;
       error = result.error;
     } else {
-      // LLM-only path (no tools)
+      // LLM-only path (no tools). The abort signal comes from the team
+      // runner's per-agent timeout / the user's stop request — without it a
+      // hung provider would never be cancelled.
       const result = await streamToString(
         this.provider,
         messages,
         this.streamCallback,
-        this.def.outputFormat === "json" ? { jsonFormat: true } : undefined,
+        {
+          ...(this.def.outputFormat === "json" ? { jsonFormat: true } : {}),
+          ...(this.abortSignal ? { abortSignal: this.abortSignal } : {}),
+        },
       );
       this._auditLog?.record(
         "llm_call",

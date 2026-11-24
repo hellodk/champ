@@ -91,6 +91,7 @@ export class TeamLoader {
 
     const rawAgents = doc.agents as Record<string, unknown>[];
     const ids = new Set<string>();
+    const fileOwnership: Record<string, string[]> = {};
     const agents: Required<TeamAgentDefinition>[] = rawAgents.map((a, i) => {
       if (!a || typeof a !== "object") {
         throw new Error(
@@ -140,6 +141,13 @@ export class TeamLoader {
 
       const subscribes: string[] = Array.isArray(a.subscribes)
         ? (a.subscribes as unknown[]).map(String)
+        : [];
+
+      if (a.owns !== undefined && !Array.isArray(a.owns)) {
+        throw new Error(`Agent "${id}" owns must be an array of path patterns`);
+      }
+      fileOwnership[id] = Array.isArray(a.owns)
+        ? a.owns.map((pattern) => String(pattern).trim()).filter(Boolean)
         : [];
 
       return {
@@ -231,6 +239,7 @@ export class TeamLoader {
       execution,
       defaults,
       sourcePath,
+      fileOwnership,
     };
   }
 

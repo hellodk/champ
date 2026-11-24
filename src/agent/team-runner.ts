@@ -798,7 +798,15 @@ export class TeamRunner {
       }
     }
 
-    const pendingAgents = this.getPendingAgents(team.agents, completedIds);
+    // Dependencies on already-completed agents are satisfied by the restored
+    // checkpoints. Drop them so the resumed DAG does not reference agents that
+    // are no longer part of the run.
+    const pendingAgents = this.getPendingAgents(team.agents, completedIds).map(
+      (agent) => ({
+        ...agent,
+        dependsOn: agent.dependsOn.filter((id) => !completedIds.has(id)),
+      }),
+    );
     if (pendingAgents.length === 0) {
       throw new Error(
         `Run ${runId} is already complete — all agents have checkpoints.`,

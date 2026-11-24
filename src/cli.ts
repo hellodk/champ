@@ -32,7 +32,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { createInterface, type Interface as Readline } from "readline";
 import { format } from "util";
-import { parseCliArgs, USAGE, type CliFlags } from "./cli/args";
+import { parseCliArgs, USAGE, type CliFlags, type CliMode } from "./cli/args";
 import { loadCliRules, rulesPrompt } from "./cli/rules";
 import {
   buildSkillContext,
@@ -47,6 +47,7 @@ import { runPolicyCommand } from "./cli/policy-commands";
 import { createCliContext } from "./cli/context";
 import { CliCheckpointManager } from "./cli/checkpoint-manager";
 import { runIndexCommand } from "./cli/index-commands";
+import { runTeamCommand } from "./cli/team-commands";
 import { CHAT_COMMAND_HELP } from "./cli/commands";
 import { JsonlEventSink } from "./cli/jsonl-events";
 import { runRpcServer, type RpcTurnEvents } from "./cli/rpc";
@@ -932,6 +933,18 @@ async function main(): Promise<number> {
     plainStdout(await sessionsReport(path.resolve(parsed.cwd)));
     return EXIT_OK;
   }
+  if (
+    parsed.kind === "team-command" &&
+    (parsed.command.name === "list" || parsed.command.name === "history")
+  ) {
+    // Read-only queries: they must work before any provider is configured.
+    return runTeamCommand(parsed.command, {
+      workspace: path.resolve(parsed.cwd),
+      stdout: plainStdout,
+      stderr: (text) => process.stderr.write(text),
+      yes: parsed.flags.yes,
+    });
+  }
   if (parsed.kind === "list-skills") {
     const { registry, problems } = loadCliSkills({
       workspaceRoot: path.resolve(parsed.cwd),
@@ -1054,7 +1067,25 @@ async function main(): Promise<number> {
     });
   }
 
-  const { mode, task: taskFromArgv, flags } = parsed.options;
+  // Team run/resume need the provider built below; list/history returned earlier.
+  const pendingTeamCommand =
+    parsed.kind === "team-command" ? parsed.command : undefined;
+  const runOptions = parsed.kind === "run" ? parsed.options : undefined;
+  let mode: CliMode;
+  let taskFromArgv: string | undefined;
+  let flags: CliFlags;
+  if (runOptions) {
+    ({ mode, task: taskFromArgv, flags } = runOptions);
+  } else if (parsed.kind === "team-command") {
+    // Team run/resume continue through provider setup below and are dispatched
+    // once the shared provider and tool registry exist.
+    mode = "oneshot";
+    taskFromArgv = undefined;
+    flags = parsed.flags;
+  } else {
+    process.stderr.write("champ: unsupported command\n");
+    return EXIT_USAGE;
+  }
 
   // ── Resolve the task ──────────────────────────────────────────────────
   let task = taskFromArgv;
@@ -1235,6 +1266,17 @@ async function main(): Promise<number> {
       );
     }
   }
+  if (pendingTeamCommand) {
+    return runTeamCommand(pendingTeamCommand, {
+      workspace,
+      provider,
+      toolRegistry,
+      stdout: plainStdout,
+      stderr: (text) => process.stderr.write(text),
+      yes: flags.yes,
+    });
+  }
+
   const controller = new AgentController(provider, toolRegistry, workspace);
   liveController = controller;
   const cliContext = createCliContext(workspace);

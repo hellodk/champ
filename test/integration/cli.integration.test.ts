@@ -1079,3 +1079,118 @@ describe("champ CLI — subprocess RPC", () => {
     TIMEOUT,
   );
 });
+
+describe("champ CLI — team commands (dist/cli.js)", () => {
+  function writeTeam(ws: string, name: string, yaml: string): void {
+    const dir = path.join(ws, ".champ", "teams");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${name}.yaml`), yaml.trim() + "\n");
+  }
+
+  const basicTeam = `
+name: basic
+description: Basic two-agent team
+execution:
+  checkpoints: true
+  retries: 0
+agents:
+  - id: planner
+    name: Planner
+    role: plans
+    systemPrompt: You are the planner.
+  - id: coder
+    name: Coder
+    role: codes
+    systemPrompt: You are the coder.
+    dependsOn: [planner]
+`;
+
+  it(
+    "lists teams and recorded runs without making provider calls",
+    async () => {
+      const s = await scenario(() => [frames.text("unused"), frames.done]);
+      try {
+        writeTeam(s.ws, "basic", basicTeam);
+        const list = await s.run(["team", "list"]);
+        expect(list.code).toBe(0);
+        expect(list.stdout).toContain("basic");
+        expect(s.mock.requests).toHaveLength(0);
+
+        const history = await s.run(["team", "history"]);
+        expect(history.code).toBe(0);
+        expect(history.stdout).toContain("No team runs recorded");
+        expect(s.mock.requests).toHaveLength(0);
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "runs a team through the shared provider and records history",
+    async () => {
+      const s = await scenario(() => [
+        frames.text("agent output"),
+        frames.finish("stop"),
+        frames.usage(10, 5),
+        frames.done,
+      ]);
+      try {
+        writeTeam(s.ws, "basic", basicTeam);
+        const run = await s.run(["team", "run", "basic", "build the feature"]);
+        expect(run.timedOut).toBe(false);
+        expect(run.code).toBe(0);
+        expect(run.stdout).toContain("[planner] done");
+        expect(run.stdout).toContain("[coder] done");
+        expect(run.stdout).toMatch(/Team run team-[^\s:]+: completed/);
+        expect(s.mock.requests.length).toBeGreaterThanOrEqual(2);
+
+        const history = await s.run(["team", "history"]);
+        expect(history.code).toBe(0);
+        expect(history.stdout).toContain("completed");
+        expect(history.stdout).toContain("IST");
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "refuses conflicting file ownership before contacting the provider",
+    async () => {
+      const s = await scenario(() => [frames.text("unused"), frames.done]);
+      try {
+        writeTeam(
+          s.ws,
+          "unsafe",
+          `
+name: unsafe
+description: Conflicting writers
+agents:
+  - id: a
+    name: A
+    role: writes
+    systemPrompt: A
+    tools: [edit_file]
+    owns: [src/**]
+  - id: b
+    name: B
+    role: writes
+    systemPrompt: B
+    tools: [create_file]
+    owns: [src/file.ts]
+`,
+        );
+        const result = await s.run(["team", "run", "unsafe", "do it"]);
+        expect(result.code).toBe(2);
+        expect(result.stderr).toContain("own overlapping paths");
+        expect(s.mock.requests).toHaveLength(0);
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+});

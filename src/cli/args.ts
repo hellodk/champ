@@ -13,6 +13,7 @@ import { isTaskAssignment } from "../config/provider-model";
 import type { ProviderCommand } from "./provider-commands";
 import type { PolicyCommand } from "./policy-commands";
 import type { IndexCommand } from "./index-commands";
+import type { TeamCommand } from "./team-commands";
 import { validateRepoOrRef, type UpdateCommandOptions } from "./update";
 
 /** How the CLI should run: one task, the full-screen UI, a line REPL, or piped input. */
@@ -106,6 +107,12 @@ export type CliParseResult =
       cwd: string;
       flags: CliFlags;
     }
+  | {
+      kind: "team-command";
+      command: TeamCommand;
+      cwd: string;
+      flags: CliFlags;
+    }
   | { kind: "error"; message: string }
   | { kind: "run"; options: CliOptions };
 
@@ -135,6 +142,10 @@ Usage:
   champ config <cmd>      show | validate | doctor | export --redact | migrate [--dry-run] | scrub-secrets [--dry-run] | routing <auto|manual>
   champ policy <cmd>      show | validate   Inspect effective enterprise policy rules
   champ index [--status|--rebuild|--clear|--watch]  Inspect or manage the semantic index
+  champ team list         List team definitions in .champ/teams
+  champ team run <name> "<task>"  Run a team definition
+  champ team history      List recorded team runs
+  champ team resume <runId>  Resume a team run from its checkpoints
   champ update            Update the champ CLI installation from upstream git
 
 Options:
@@ -611,6 +622,58 @@ function parseProviderCommand(
         cwd: flags.cwd,
         flags,
       };
+    }
+
+    case "team": {
+      if (flags.repl) return error("cannot combine team with --repl");
+      if (flags.tui) return error("cannot combine team with --tui");
+      const sub = positionals[1];
+      const namePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+      if (sub === "list" || sub === "history") {
+        if (positionals.length > 2) {
+          return error(`unexpected arguments for "team ${sub}"`);
+        }
+        return {
+          kind: "team-command",
+          command: { name: sub },
+          cwd: flags.cwd,
+          flags,
+        };
+      }
+      if (sub === "run") {
+        const team = positionals[2];
+        const task = positionals.slice(3).join(" ").trim();
+        if (!team || !namePattern.test(team)) {
+          return error(
+            '"team run" requires a team name like "devops-platform"',
+          );
+        }
+        if (!task) return error('"team run" requires a task description');
+        return {
+          kind: "team-command",
+          command: { name: "run", team, task },
+          cwd: flags.cwd,
+          flags,
+        };
+      }
+      if (sub === "resume") {
+        const runId = positionals[2];
+        if (!runId || !namePattern.test(runId)) {
+          return error('"team resume" requires a run id');
+        }
+        if (positionals.length > 3) {
+          return error('unexpected arguments for "team resume"');
+        }
+        return {
+          kind: "team-command",
+          command: { name: "resume", runId },
+          cwd: flags.cwd,
+          flags,
+        };
+      }
+      return error(
+        `unknown team subcommand "${sub ?? ""}" (expected: list, run, history, resume)`,
+      );
     }
 
     case "setup": {

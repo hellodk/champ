@@ -130,6 +130,12 @@ export interface TeamDefinition {
   defaults: TeamDefaults;
   /** Absolute path to the source YAML file. */
   sourcePath: string;
+  /**
+   * Workspace-relative file ownership patterns, keyed by agent id.
+   * Parsed from each agent's optional `owns` field. The CLI refuses to run
+   * parallel agents that can mutate overlapping paths.
+   */
+  fileOwnership?: Record<string, string[]>;
 }
 
 /** Live state of one agent during a team run. */
