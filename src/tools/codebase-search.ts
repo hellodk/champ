@@ -1,20 +1,31 @@
+/**
+ * codebase_search: fused semantic + keyword + symbol retrieval.
+ *
+ * Previously this tool chose either vector search or ripgrep, never both.
+ * Hybrid retrieval runs all available channels and merges overlapping hits so
+ * a natural-language query and an exact symbol name can reinforce each other.
+ */
 import * as path from "path";
-import { spawnSync } from "child_process";
-import type { IndexingService } from "../indexing/indexing-service";
+import {
+  hybridRetrieve,
+  type SemanticIndexGetter,
+  type SemanticIndex,
+} from "../retrieval/hybrid-retrieval";
 import type { Tool } from "./types";
 
-export type IndexingServiceGetter = () =>
-  | IndexingService
-  | null
-  | PromiseLike<IndexingService | null>;
+export type {
+  SemanticIndex,
+  SemanticIndexGetter,
+  SemanticIndexGetter as IndexingServiceGetter,
+};
 
 export function createCodebaseSearchTool(
-  getIndexingService: IndexingServiceGetter,
+  getIndexingService: SemanticIndexGetter,
 ): Tool {
   return {
     name: "codebase_search",
     description:
-      "Search the codebase by meaning, not just keywords. Uses semantic vector search when an embedding model is available; falls back to fast keyword search (ripgrep) otherwise. Use this to find code by concept, e.g. 'authentication logic', 'rate limiting', 'database connection handling'.",
+      "Search the codebase by meaning and by exact terms. Combines semantic vector search (when an embedding model is available), ripgrep keyword hits and symbol metadata, then de-duplicates overlapping results. Use queries like 'authentication logic' or an exact symbol such as 'verifyToken'.",
     parameters: {
       type: "object",
       properties: {
@@ -36,71 +47,55 @@ export function createCodebaseSearchTool(
       if (!query) return { output: "query is required", success: false };
 
       const topK = typeof args.topK === "number" ? Math.min(args.topK, 20) : 8;
-      const indexingService = await getIndexingService();
+      const result = await hybridRetrieve(
+        query,
+        context.workspaceRoot,
+        getIndexingService,
+        {
+          topK,
+          semanticTopK: topK,
+        },
+      );
 
-      // ── Semantic path ───────────────────────────────────────────────
-      if (indexingService?.isReady()) {
-        const results = await indexingService.search(query, topK);
-        if (results.length === 0) {
-          return {
-            output:
-              "No semantic matches found. Try a different query or use grep_search for exact keywords.",
-            success: true,
-          };
-        }
+      const channels = [
+        result.semanticUsed ? "vector" : null,
+        result.keywordUsed ? "keyword" : null,
+        result.hits.some((hit) => hit.sources.includes("symbol"))
+          ? "symbols"
+          : null,
+      ].filter(Boolean);
+      const channelText = channels.length ? channels.join(" + ") : "no index";
 
-        const lines: string[] = [`Semantic search results for: "${query}"\n`];
-        for (const r of results) {
-          const rel = path.relative(context.workspaceRoot, r.filePath);
-          const loc = r.symbolName
-            ? `${rel}:${r.startLine} (${r.chunkType} ${r.symbolName})`
-            : `${rel}:${r.startLine}-${r.endLine}`;
-          lines.push(`### ${loc}`);
-          lines.push("```");
-          lines.push(
-            r.chunkText.slice(0, 400) +
-              (r.chunkText.length > 400 ? "\n… (truncated)" : ""),
-          );
-          lines.push("```");
-          lines.push("");
-        }
+      const lines: string[] = [
+        `Semantic search results for: "${query}" (hybrid: ${channelText})\n`,
+      ];
+      if (result.hits.length === 0) {
+        lines.push(
+          "No matches found. Try a different query or pull an embedding model for semantic search.",
+        );
+        for (const warning of result.warnings) lines.push(`Note: ${warning}`);
         return { output: lines.join("\n"), success: true };
       }
 
-      // ── Keyword fallback ────────────────────────────────────────────
-      // No embedding index available — use ripgrep keyword search.
-      const rgArgs = [
-        "--line-number",
-        "--with-filename",
-        "--max-count=5",
-        "--max-filesize=500K",
-        "--type-not=lock",
-        "-i", // case-insensitive
-        "--",
-        query,
-        context.workspaceRoot,
-      ];
-
-      const rg = spawnSync("rg", rgArgs, {
-        encoding: "utf8",
-        maxBuffer: 512 * 1024,
-        timeout: 10_000,
+      result.hits.forEach((hit, index) => {
+        const rel = path.relative(context.workspaceRoot, hit.filePath);
+        const loc = hit.symbolName
+          ? `${rel}:${hit.startLine}-${hit.endLine} (${hit.chunkType ?? "symbol"} ${hit.symbolName})`
+          : `${rel}:${hit.startLine}${hit.endLine !== hit.startLine ? `-${hit.endLine}` : ""}`;
+        lines.push(
+          `### [${index + 1}] ${loc} — sources: ${hit.sources.join(", ")}; score: ${hit.score.toFixed(2)}`,
+        );
+        lines.push("```");
+        lines.push(
+          hit.snippet.slice(0, 400) +
+            (hit.snippet.length > 400 ? "\n… (truncated)" : ""),
+        );
+        lines.push("```");
+        lines.push("");
       });
+      for (const warning of result.warnings) lines.push(`Note: ${warning}`);
 
-      const raw = (rg.stdout ?? "").trim();
-      if (!raw) {
-        return {
-          output: `No matches found for "${query}". (Tip: pull an embedding model like nomic-embed-text for semantic search.)`,
-          success: true,
-        };
-      }
-
-      const truncated =
-        raw.length > 8000 ? raw.slice(0, 8000) + "\n…(truncated)" : raw;
-      return {
-        output: `Keyword search results for "${query}" (no embedding index — pull nomic-embed-text for semantic search):\n\n${truncated}`,
-        success: true,
-      };
+      return { output: lines.join("\n"), success: true };
     },
   };
 }

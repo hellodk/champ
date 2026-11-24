@@ -5,6 +5,12 @@
  * context and provide current data. Requires a Brave Search API key stored
  * in VS Code's SecretStorage.
  */
+import { PromptGuard } from "../safety/prompt-guard";
+import {
+  formatIstTimestamp,
+  WebSourceRegistry,
+  type WebSource,
+} from "./web-sources";
 import type { Tool, ToolResult, ToolExecutionContext } from "./types";
 
 const BRAVE_SEARCH_API_ENDPOINT =
@@ -46,17 +52,28 @@ interface BraveSearchResponse {
   error?: string;
 }
 
+export interface WebSearchToolOptions {
+  missingKeyHint?: string;
+  /** Guards untrusted snippets before they enter the model's context. */
+  guard?: Pick<PromptGuard, "check">;
+  /** Shared registry so fetch_url can reuse the same [S#] citation ids. */
+  sources?: WebSourceRegistry;
+  /** Injectable for tests. */
+  fetchImpl?: typeof fetch;
+  now?: () => number;
+}
+
 /**
- * Creates a web search tool with access to the VS Code SecretStorage.
+ * Creates a web search tool with access to the canonical credential store.
  *
- * The tool uses the Brave Search API to query the internet. The API key
- * is read from SecretStorage (stored via the 'Champ: Set Brave API Key' command).
+ * The tool uses the Brave Search API. The key comes from SecretStorage in the
+ * extension and from env/OS keyring in the CLI (see createHeadlessToolRegistry).
  */
 export function createWebSearchTool(
   secretStorage: {
     get: (key: string) => PromiseLike<string | undefined>;
   },
-  options: { missingKeyHint?: string } = {},
+  options: WebSearchToolOptions = {},
 ): Tool {
   return {
     name: "web_search",
@@ -139,15 +156,19 @@ export function createWebSearchTool(
         // Make the API request
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-        const response = await fetch(url.toString(), {
-          signal: controller.signal,
-          headers: {
-            "Accept-Encoding": "gzip",
-            "X-Subscription-Token": apiKey,
-          },
-        });
-        clearTimeout(timer);
+        const doFetch = options.fetchImpl ?? fetch;
+        let response: Response;
+        try {
+          response = await doFetch(url.toString(), {
+            signal: controller.signal,
+            headers: {
+              "Accept-Encoding": "gzip",
+              "X-Subscription-Token": apiKey,
+            },
+          });
+        } finally {
+          clearTimeout(timer);
+        }
 
         // Handle HTTP errors
         if (!response.ok) {
@@ -176,7 +197,8 @@ export function createWebSearchTool(
           };
         }
 
-        // Extract and format results
+        // Extract, guard and register results. Untrusted snippets never reach
+        // the model verbatim when PromptGuard identifies an injection attempt.
         const results = data.web ?? [];
         if (results.length === 0) {
           return {
@@ -185,24 +207,52 @@ export function createWebSearchTool(
           };
         }
 
-        // Format results for output
-        const formattedResults = results
-          .slice(0, count)
-          .map((result, index) => {
-            const lines = [
-              `${index + 1}. ${result.title}`,
-              `   URL: ${result.url}`,
-              `   ${result.description}`,
-            ];
-            return lines.join("\n");
+        const guard = options.guard ?? new PromptGuard();
+        const registry = options.sources ?? new WebSourceRegistry();
+        const now = options.now ?? Date.now;
+        const sources: WebSource[] = [];
+        const blocked: string[] = [];
+
+        for (const result of results.slice(0, count)) {
+          const verdict = guard.check(
+            `${result.title}\n${result.description ?? ""}\n${result.url}`,
+          );
+          if (!verdict.safe) {
+            blocked.push(verdict.category ?? "prompt_injection");
+            continue;
+          }
+          const source = registry.register({
+            title: result.title,
+            url: result.url,
+            snippet: result.description ?? "",
+            retrievedAt: new Date(now()).toISOString(),
           });
+          sources.push(source);
+        }
+
+        const formattedResults = sources.map((source) =>
+          [
+            `[${source.id}] ${source.title} — ${source.domain}`,
+            `   URL: ${source.url}`,
+            `   ${source.snippet}`,
+            `   Retrieved: ${formatIstTimestamp(source.retrievedAt)}`,
+          ].join("\n"),
+        );
 
         const output = [
           `Search results for: "${query}"`,
-          `Found ${results.length} result(s)${offset > 0 ? ` (starting from offset ${offset})` : ""}`,
+          `Found ${sources.length} usable result(s)${offset > 0 ? ` (starting from offset ${offset})` : ""}`,
           "",
           formattedResults.join("\n\n"),
-        ].join("\n");
+          ...(blocked.length
+            ? [
+                `Blocked ${blocked.length} result(s) by PromptGuard (${[...new Set(blocked)].join(", ")}).`,
+              ]
+            : []),
+          registry.formatCitations(sources),
+        ]
+          .filter(Boolean)
+          .join("\n");
 
         return { success: true, output };
       } catch (err) {
@@ -226,6 +276,9 @@ export function createWebSearchTool(
  * Create a default web search tool (exported for convenient registration).
  * Note: In production, this requires injecting the actual VS Code SecretStorage.
  */
-export const createDefaultWebSearchTool = (secretStorage: {
-  get: (key: string) => PromiseLike<string | undefined>;
-}): Tool => createWebSearchTool(secretStorage);
+export const createDefaultWebSearchTool = (
+  secretStorage: {
+    get: (key: string) => PromiseLike<string | undefined>;
+  },
+  options: WebSearchToolOptions = {},
+): Tool => createWebSearchTool(secretStorage, options);

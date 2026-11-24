@@ -205,6 +205,15 @@ cmd_test_report() {
     printf "%-40s  %-8s  %-8s  %s\n" "$suite" "$passed" "$failed" "$skipped"
   done
 
+  if [[ -f "$dir/eval/retrieval.json" ]]; then
+    local baseline hybrid delta
+    baseline=$(node -e "const r=require('$dir/eval/retrieval.json'); process.stdout.write(r.baselineRecallAt3.toFixed(3))" 2>/dev/null || echo "?")
+    hybrid=$(node -e "const r=require('$dir/eval/retrieval.json'); process.stdout.write(r.hybridRecallAt3.toFixed(3))" 2>/dev/null || echo "?")
+    delta=$(node -e "const r=require('$dir/eval/retrieval.json'); process.stdout.write(r.delta.toFixed(3))" 2>/dev/null || echo "?")
+    echo ""
+    echo "Retrieval eval (recall@3): baseline=$baseline hybrid=$hybrid delta=$delta"
+  fi
+
   echo ""
   if [[ -f "$dir/typecheck.txt" ]]; then
     local errs

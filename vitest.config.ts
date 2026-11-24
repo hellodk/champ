@@ -6,6 +6,7 @@ export default defineConfig({
     include: [
       "test/unit/**/*.test.ts",
       "test/unit/**/*.test.tsx",
+      "test/eval/**/*.test.ts",
       "src/**/__tests__/**/*.test.ts",
       "scripts/__tests__/**/*.test.ts",
     ],

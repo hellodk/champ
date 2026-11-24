@@ -41,5 +41,15 @@ describe("createCodebaseSearchTool", () => {
     expect(result.output).toContain("Semantic search results");
     expect(result.output).toContain(path.join("src", "auth.ts"));
     expect(search).toHaveBeenCalledWith("authentication logic", 3);
+    // The wrapped tool now runs the fused pipeline, not a single channel.
+    expect(result.output).toContain("hybrid: vector");
+    expect(result.output).toContain("sources: semantic");
+  });
+
+  it("does not fail when no semantic index is available", async () => {
+    const tool = createCodebaseSearchTool(() => null);
+    const result = await tool.execute({ query: "verifyToken" }, context());
+    expect(result.success).toBe(true);
+    expect(result.output).toContain("hybrid: no index");
   });
 });

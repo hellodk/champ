@@ -20,13 +20,14 @@ import {
   createDelegateTaskTool,
   type SubAgentController,
 } from "../delegate-task";
-import { fetchUrlTool } from "../fetch-url";
+import { createFetchUrlTool } from "../fetch-url";
 import { generateDiagramTool } from "../generate-diagram";
 import { generateDocTool } from "../generate-doc";
 import { gitTool } from "../git-tool";
 import { runTerminalTool } from "../run-terminal";
 import { runTestsTool } from "../run-tests";
 import { createWebSearchTool } from "../web-search";
+import { WebSourceRegistry } from "../web-sources";
 import { headlessFsTools } from "./fs-tools";
 
 export * from "./fs-tools";
@@ -71,7 +72,8 @@ export function createHeadlessToolRegistry(
   registry.register(runTestsTool);
   registry.register(generateDiagramTool);
   registry.register(generateDocTool);
-  registry.register(fetchUrlTool);
+  const webSources = new WebSourceRegistry();
+  registry.register(createFetchUrlTool({ sources: webSources }));
   // The simulated BrowserTool is deliberately not registered: no headless
   // browser functionality is shipped until a real, url-guarded implementation
   // exists. Web access goes through fetchUrlTool.
@@ -94,6 +96,7 @@ export function createHeadlessToolRegistry(
   registry.register(
     createWebSearchTool(braveSecrets, {
       missingKeyHint: options.missingBraveKeyHint ?? DEFAULT_BRAVE_HINT,
+      sources: webSources,
     }),
   );
 
