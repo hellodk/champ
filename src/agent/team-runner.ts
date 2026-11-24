@@ -73,6 +73,8 @@ export interface TeamRunOptions {
     preview?: { type: "diff" | "command"; content: string; label?: string },
   ) => Promise<boolean>;
   auditLog?: import("../observability/audit-log").AuditLog;
+  /** Operator-set permission profile applied to every team agent's tools. */
+  permissionProfile?: import("../policy/profiles").PermissionProfile;
 }
 
 async function writeCheckpoint(
@@ -472,6 +474,7 @@ export class TeamRunner {
                           )
                       : undefined,
                   options.auditLog,
+                  options.permissionProfile,
                 );
 
                 let output: import("./agents/types").AgentOutput;

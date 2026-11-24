@@ -74,6 +74,8 @@ export interface ProcessMessageOptions {
   onBeforeMutation?: (paths: string[]) => Promise<void>;
   policy?: import("../policy/engine").PolicyEngine;
   sessionPolicy?: import("../policy/engine").PolicyRule[];
+  /** Operator-selected permission profile, never derived from model output. */
+  permissionProfile?: import("../policy/profiles").PermissionProfile;
   executionBackend?: import("../safety/execution-backend").ExecutionBackend;
 }
 
@@ -947,6 +949,7 @@ export class AgentController {
             onBeforeMutation: options.onBeforeMutation,
             policy: options.policy,
             sessionPolicy: options.sessionPolicy,
+            permissionProfile: options.permissionProfile,
             executionBackend: options.executionBackend,
           };
 
@@ -1021,7 +1024,7 @@ export class AgentController {
           // A denied approval is an expected headless outcome, not an
           // execution failure — the model is told why and may continue.
           const denial =
-            /requires approval|User denied execution|denied by policy/i.test(
+            /requires approval|User denied execution|denied by policy|denied by permission profile/i.test(
               result.output,
             );
           if (!result.success && !denial) toolFailures++;

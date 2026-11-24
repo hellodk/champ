@@ -136,6 +136,17 @@ agent:
       expect(() => ConfigLoader.parseYaml(yaml)).toThrow(/defaultmode/i);
     });
 
+    it("rejects invalid agent.permissionProfile values", () => {
+      const yaml = `
+provider: ollama
+agent:
+  permissionProfile: yolo
+`;
+      expect(() => ConfigLoader.parseYaml(yaml)).toThrow(
+        /agent\.permissionprofile/i,
+      );
+    });
+
     it("never accepts apiKey under providers (secrets must use SecretStorage)", () => {
       const yaml = `
 provider: openai

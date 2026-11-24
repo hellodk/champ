@@ -266,6 +266,15 @@
           "default": false,
           "markdownDescription": "Skip approval prompts for terminal commands and file edits. **Use with caution.**"
         },
+        "champ.permissionProfile": {
+          "type": "string",
+          "enum": [
+            "read-only",
+            "supervised",
+            "autonomous"
+          ],
+          "markdownDescription": "Operator-set permission floor. `read-only` blocks state changes, `supervised` requires approval, `autonomous` allows them without a prompt. An explicit setting takes precedence over `champ.yoloMode` and `--yes`; leave unset for the default."
+        },
         "champ.autoFix.enabled": {
           "type": "boolean",
           "default": true,

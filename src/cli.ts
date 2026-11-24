@@ -66,6 +66,11 @@ import { champConfigDir } from "./config/home";
 import { BudgetEnforcer } from "./config/budget";
 import { FileBudgetLedger } from "./config/budget-ledger";
 import { createPolicyEngine, type PolicyEngine } from "./policy/engine";
+import {
+  PERMISSION_PROFILE_ENV,
+  resolvePermissionProfile,
+  type PermissionProfile,
+} from "./policy/profiles";
 import { EndpointRegistry } from "./config/endpoint-registry";
 import { discoverModels, testEndpoint } from "./config/model-discovery";
 import { migrateFromYaml, scrubYamlSecrets } from "./config/provider-migration";
@@ -355,6 +360,8 @@ interface TurnOptions {
   budget?: BudgetEnforcer;
   /** Managed/user/project/session policy shared by both clients. */
   policy?: PolicyEngine;
+  /** Operator-set permission profile enforced by ToolRegistry. */
+  permissionProfile?: PermissionProfile;
   /** Recovery snapshot callback invoked before mutating tools write. */
   onBeforeMutation?: (paths: string[]) => Promise<void>;
   /** Structured stdout emitter; when present, plain stdout is suppressed. */
@@ -389,6 +396,8 @@ interface SessionOptions {
   budget?: BudgetEnforcer;
   /** Managed/user/project/session policy shared by both clients. */
   policy?: PolicyEngine;
+  /** Operator-set permission profile enforced by ToolRegistry. */
+  permissionProfile?: PermissionProfile;
   /** Recovery snapshot callback shared by every turn in the session. */
   onBeforeMutation?: (paths: string[]) => Promise<void>;
   /** Output of `champ provider list` for `/model`. */
@@ -492,6 +501,7 @@ async function runTurn(
     headless: options.headless,
     budget: options.budget,
     policy: options.policy,
+    permissionProfile: options.permissionProfile,
     onBeforeMutation: options.onBeforeMutation,
     onTurnEnd: options.onTurnEnd,
     events: {
@@ -881,6 +891,7 @@ async function runRepl(
       onDone: printSummary,
       budget: opts.budget,
       policy: opts.policy,
+      permissionProfile: opts.permissionProfile,
       onBeforeMutation: opts.onBeforeMutation,
     });
 
@@ -1097,6 +1108,23 @@ async function main(): Promise<number> {
   // ── Build the agent ───────────────────────────────────────────────────
   const workspace = path.resolve(flags.cwd);
   const config = buildConfig(flags);
+
+  // Permission profile: an operator-set floor resolved before any turn. Model
+  // output is never consulted. An explicit profile outranks --yes/yoloMode.
+  let permissionProfile: PermissionProfile;
+  try {
+    permissionProfile = resolvePermissionProfile({
+      flag: flags.permissionProfile,
+      config: config.agent?.permissionProfile,
+      env: process.env[PERMISSION_PROFILE_ENV],
+      autoApprove: flags.yes || config.agent?.yoloMode === true,
+    });
+  } catch (err) {
+    fail(
+      `permission profile rejected: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // Budgets are optional; when configured they are enforced from actual
   // provider usage across the whole process (all REPL turns / one shot).
   const budget = config.agent?.budget
@@ -1274,6 +1302,7 @@ async function main(): Promise<number> {
       stdout: plainStdout,
       stderr: (text) => process.stderr.write(text),
       yes: flags.yes,
+      permissionProfile,
     });
   }
 
@@ -1453,13 +1482,11 @@ async function main(): Promise<number> {
   process.on("SIGINT", onSigint);
 
   // Approval policy: a human can answer only in the REPL or a TTY one-shot.
-  // In headless runs ASK is DENIED — it is never silently approved. Auto-
-  // approval requires an explicit opt-in (`--yes` or yoloMode), so a piped
-  // run cannot accidentally gain destructive access.
+  // In headless runs ASK is DENIED — it is never silently approved. The profile
+  // resolved above decides whether auto-approval is permitted at all.
   const canPrompt =
     interactive || (mode === "oneshot" && Boolean(process.stdin.isTTY));
-  const yolo = config.agent?.yoloMode === true;
-  const autoApprove = flags.yes || yolo;
+  const autoApprove = permissionProfile === "autonomous";
   const headless = !canPrompt && !autoApprove;
   const requestApproval = async (description: string): Promise<boolean> => {
     if (headless) return false;
@@ -1468,7 +1495,7 @@ async function main(): Promise<number> {
 
   if (headless) {
     process.stderr.write(
-      "[champ] non-interactive run without --yes: actions requiring approval are denied (pass --yes to auto-approve)\n",
+      `[champ] non-interactive run with ${permissionProfile} profile: actions requiring approval are denied\n`,
     );
   }
 
@@ -1566,6 +1593,7 @@ async function main(): Promise<number> {
             headless: false,
             budget,
             policy,
+            permissionProfile,
             onBeforeMutation,
             onTurnEnd,
           }),
@@ -1708,6 +1736,7 @@ async function main(): Promise<number> {
           maxIterations: flags.maxIterations,
           budget,
           policy,
+          permissionProfile,
           onBeforeMutation,
           onTurnEnd,
         };
@@ -1912,6 +1941,7 @@ async function main(): Promise<number> {
           onTurnEnd,
           budget,
           policy,
+          permissionProfile,
           onBeforeMutation,
           onModel,
           onExport,
@@ -1964,6 +1994,7 @@ async function main(): Promise<number> {
               headless,
               budget,
               policy,
+              permissionProfile,
               onBeforeMutation,
               jsonl,
               jsonlSession: {
@@ -1989,6 +2020,7 @@ async function main(): Promise<number> {
             headless,
             budget,
             policy,
+            permissionProfile,
             onBeforeMutation,
             jsonl,
             jsonlSession: {

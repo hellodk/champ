@@ -435,7 +435,9 @@ agents:
       deps({ provider: makeProvider().provider, runner: runner as never }),
     );
     expect(await captured!.onApprovalRequired!("A")).toBe(false);
-    expect(err.join("")).toContain("pass --yes to allow");
+    expect(err.join("")).toContain(
+      "pass --permission-profile autonomous or --yes to allow",
+    );
 
     err.length = 0;
     await runTeamCommand(
@@ -449,6 +451,39 @@ agents:
     expect(await captured!.onApprovalRequired!("A")).toBe(true);
     expect(await captured!.requestApproval!("create a file")).toBe(true);
     expect(err.join("")).toBe("");
+  });
+
+  it("read-only profile overrides --yes in team approval gates", async () => {
+    await writeTeam("supervised", supervisedTeam);
+    let captured: TeamRunOptions | undefined;
+    const runner = {
+      computeExecutionGroups: () => [],
+      run: vi.fn(
+        (
+          _team: unknown,
+          _task: string,
+          _provider: unknown,
+          _tools: unknown,
+          options: TeamRunOptions,
+        ) => {
+          captured = options;
+          return Promise.resolve(state({ status: "completed" }));
+        },
+      ),
+      resumeFromCheckpoint: vi.fn(),
+    };
+    await runTeamCommand(
+      { name: "run", team: "supervised", task: "do it" },
+      deps({
+        provider: makeProvider().provider,
+        runner: runner as never,
+        yes: true,
+        permissionProfile: "read-only",
+      }),
+    );
+    expect(await captured!.onApprovalRequired!("A")).toBe(false);
+    expect(await captured!.requestApproval!("create a file")).toBe(false);
+    expect(captured!.permissionProfile).toBe("read-only");
   });
 
   it("resumes a recorded run from its checkpoints", async () => {

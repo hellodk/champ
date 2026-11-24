@@ -204,6 +204,59 @@ describe("champ CLI — one-shot agent turn (dist/cli.js)", () => {
   );
 
   it(
+    "read-only profile blocks a mutation even when --yes is supplied",
+    async () => {
+      const s = await scenario((_body, index) => {
+        if (index === 0) {
+          return [
+            frames.toolCall("call_edit", "edit_file", {
+              path: "hello.txt",
+              old_content: "before",
+              new_content: "after",
+            }),
+            frames.finish("tool_calls"),
+            frames.usage(100, 5),
+            frames.done,
+          ];
+        }
+        return [
+          frames.text("I could not change the file in a read-only session."),
+          frames.finish("stop"),
+          frames.usage(100, 5),
+          frames.done,
+        ];
+      });
+
+      try {
+        const file = path.join(s.ws, "hello.txt");
+        fs.writeFileSync(file, "before\n", "utf8");
+
+        const result = await s.run([
+          "--yes",
+          "--permission-profile",
+          "read-only",
+          "replace before with after in hello.txt",
+        ]);
+
+        expect(result.timedOut).toBe(false);
+        expect(result.code).toBe(0);
+        expect(fs.readFileSync(file, "utf8")).toBe("before\n");
+        expect(result.stderr).toContain("read-only profile");
+
+        const followUp = s.mock.requests[1] as {
+          messages: Array<{ role: string; content: unknown }>;
+        };
+        expect(JSON.stringify(followUp.messages)).toContain(
+          "read-only profile denies",
+        );
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
     "reads the task from stdin with `-` and prints only the reply",
     async () => {
       const s = await scenario(() => [

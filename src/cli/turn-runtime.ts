@@ -48,6 +48,7 @@ export interface ExecuteTurnOptions {
   headless?: boolean;
   budget?: BudgetEnforcer;
   policy?: PolicyEngine;
+  permissionProfile?: import("../policy/profiles").PermissionProfile;
   onTurnEnd?: () => Promise<void>;
   /** Snapshot paths before mutating tools write. */
   onBeforeMutation?: (paths: string[]) => Promise<void>;
@@ -105,6 +106,7 @@ export async function executeTurn({
   headless,
   budget,
   policy,
+  permissionProfile,
   onTurnEnd,
   onBeforeMutation,
 }: ExecuteTurnOptions): Promise<TurnOutcome> {
@@ -158,6 +160,7 @@ export async function executeTurn({
       headless,
       budget,
       policy,
+      permissionProfile,
       onBeforeMutation,
     });
     if (!sawText && result.text) events.onText?.(result.text);

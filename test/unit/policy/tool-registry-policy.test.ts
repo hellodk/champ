@@ -218,3 +218,113 @@ describe("ToolRegistry policy enforcement", () => {
     expect(approval).not.toHaveBeenCalled();
   });
 });
+
+describe("ToolRegistry permission profile enforcement", () => {
+  it("blocks a mutating tool under read-only before policy or approval", async () => {
+    const executed: string[] = [];
+    const registry = new ToolRegistry();
+    registry.register(tool("edit_file", executed));
+    const approval = vi.fn().mockResolvedValue(true);
+    const policy = new PolicyEngine({
+      user: [
+        {
+          scope: "user",
+          kind: "tool",
+          target: "edit_file",
+          decision: "ALLOW",
+        },
+      ],
+    });
+    const result = await registry.execute(
+      "edit_file",
+      {},
+      context({
+        permissionProfile: "read-only",
+        policy,
+        requestApproval: approval,
+      }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.output).toMatch(/permission profile/i);
+    expect(executed).toEqual([]);
+    expect(approval).not.toHaveBeenCalled();
+  });
+
+  it("denies supervised profile in headless mode without prompting", async () => {
+    const executed: string[] = [];
+    const registry = new ToolRegistry();
+    registry.register(tool("edit_file", executed));
+    const approval = vi.fn().mockResolvedValue(true);
+    const result = await registry.execute(
+      "edit_file",
+      {},
+      context({
+        permissionProfile: "supervised",
+        headless: true,
+        requestApproval: approval,
+      }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.output).toMatch(/permission profile/i);
+    expect(executed).toEqual([]);
+    expect(approval).not.toHaveBeenCalled();
+  });
+
+  it("autonomous profile suppresses the approval prompt", async () => {
+    const executed: string[] = [];
+    const registry = new ToolRegistry();
+    registry.register(tool("edit_file", executed));
+    const approval = vi.fn().mockResolvedValue(false);
+    const result = await registry.execute(
+      "edit_file",
+      {},
+      context({ permissionProfile: "autonomous", requestApproval: approval }),
+    );
+    expect(approval).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(executed).toEqual(["edit_file"]);
+  });
+
+  it("autonomous profile still honours an explicit policy ASK", async () => {
+    const executed: string[] = [];
+    const registry = new ToolRegistry();
+    registry.register(tool("edit_file", executed));
+    const approval = vi.fn().mockResolvedValue(false);
+    const policy = new PolicyEngine({
+      managed: [
+        {
+          scope: "managed",
+          kind: "tool",
+          target: "edit_file",
+          decision: "ASK",
+        },
+      ],
+    });
+    const result = await registry.execute(
+      "edit_file",
+      {},
+      context({
+        permissionProfile: "autonomous",
+        policy,
+        requestApproval: approval,
+      }),
+    );
+    expect(approval).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(false);
+    expect(executed).toEqual([]);
+  });
+
+  it("never lets an injected tool argument change the profile", async () => {
+    const executed: string[] = [];
+    const registry = new ToolRegistry();
+    registry.register(tool("edit_file", executed));
+    const result = await registry.execute(
+      "edit_file",
+      { permissionProfile: "autonomous" },
+      context({ permissionProfile: "read-only" }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.output).toMatch(/permission profile/i);
+    expect(executed).toEqual([]);
+  });
+});

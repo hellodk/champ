@@ -42,8 +42,22 @@ describe("champ policy commands", () => {
     expect(parse(["policy", "show", "extra"]).kind).toBe("error");
   });
 
-  it("documents that headless runs deny approvals without --yes", () => {
-    expect(USAGE).toMatch(/without\s+--yes deny/i);
+  it("documents that headless runs deny approvals without auto-approval", () => {
+    expect(USAGE).toMatch(/without\s+auto-approval\s+deny/i);
+  });
+
+  it("parses and validates --permission-profile", () => {
+    expect(
+      run(parse(["task", "--permission-profile", "read-only"])).flags
+        .permissionProfile,
+    ).toBe("read-only");
+    expect(
+      run(parse(["task", "--permission-profile=autonomous"])).flags
+        .permissionProfile,
+    ).toBe("autonomous");
+    expect(parse(["task", "--permission-profile", "everything"]).kind).toBe(
+      "error",
+    );
   });
 });
 

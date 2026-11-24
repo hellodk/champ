@@ -94,6 +94,7 @@ import {
   type EditRecord,
 } from "../agent/edit-review-tracker";
 import type { StreamDelta, ContentBlock } from "../providers/types";
+import { parseOptionalPermissionProfile } from "../policy/profiles";
 import { ThinkingTagRouter } from "../providers/thinking-tag-router";
 
 /**
@@ -1125,6 +1126,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         abortSignal: controller.signal,
         requestApproval: this.buildApprovalCallback(),
         policy: this.policy,
+        permissionProfile: parseOptionalPermissionProfile(
+          vscode.workspace.getConfiguration("champ").get("permissionProfile"),
+          "champ.permissionProfile",
+        ),
         onBeforeMutation: this.mutationCheckpointer,
         onPiiRedacted: (summary) => {
           this.postMessage(createPiiNotice(summary));

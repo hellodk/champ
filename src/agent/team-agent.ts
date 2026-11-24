@@ -139,6 +139,7 @@ export class TeamAgent implements Agent {
       preview?: { type: "diff" | "command"; content: string; label?: string },
     ) => Promise<boolean>,
     private readonly _auditLog?: import("../observability/audit-log").AuditLog,
+    private readonly permissionProfile?: import("../policy/profiles").PermissionProfile,
   ) {
     this.name = def.id;
     this.role = def.role;
@@ -287,6 +288,7 @@ export class TeamAgent implements Agent {
           // decision made by the runner (auto mode), never a silent
           // fallback here (issue #105).
           requestApproval: this.requestApprovalCallback ?? (async () => false),
+          permissionProfile: this.permissionProfile,
         },
         this.metrics,
       );

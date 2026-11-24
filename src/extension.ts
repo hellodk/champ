@@ -74,6 +74,7 @@ import { estimateCost } from "./config/token-cost";
 import { BudgetEnforcer } from "./config/budget";
 import { FileBudgetLedger } from "./config/budget-ledger";
 import { createPolicyEngine } from "./policy/engine";
+import { parseOptionalPermissionProfile } from "./policy/profiles";
 import {
   FIRST_RUN_COMPLETE_KEY,
   ONBOARDING_DISMISSED_KEY,
@@ -1316,6 +1317,12 @@ export async function activate(
           try {
             await controller.processMessage(request.prompt, {
               abortSignal: abort.signal,
+              permissionProfile: parseOptionalPermissionProfile(
+                vscode.workspace
+                  .getConfiguration("champ")
+                  .get("permissionProfile"),
+                "champ.permissionProfile",
+              ),
               // yoloMode is the single kill-switch for destructive-tool
               // prompts. Without it, approval-required tools are denied in
               // the @champ participant — the sidebar chat view is where

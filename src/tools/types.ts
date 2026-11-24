@@ -43,6 +43,11 @@ export interface ToolExecutionContext {
   /** True when no human can answer an approval prompt. */
   headless?: boolean;
   /**
+   * Operator-selected permission profile. Enforced by ToolRegistry before any
+   * policy evaluation or approval prompt; never derived from model output.
+   */
+  permissionProfile?: import("../policy/profiles").PermissionProfile;
+  /**
    * Called before a mutating tool writes to disk. Implementations should
    * create a recovery checkpoint of the returned paths. Throwing aborts the
    * mutation. A missing callback means no automatic checkpoint is taken.

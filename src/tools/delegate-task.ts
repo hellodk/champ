@@ -55,6 +55,12 @@ export interface SubAgentController {
     options?: {
       abortSignal?: AbortSignal;
       maxIterations?: number;
+      /** Parent permission floor must be inherited by sub-agents. */
+      permissionProfile?: import("../policy/profiles").PermissionProfile;
+      policy?: import("../policy/engine").PolicyEngine;
+      sessionPolicy?: import("../policy/engine").PolicyRule[];
+      headless?: boolean;
+      requestApproval?: (description: string) => Promise<boolean>;
     },
   ): Promise<{
     text: string;
@@ -192,6 +198,12 @@ class DelegateTaskToolImpl implements Tool {
         {
           abortSignal: context.abortSignal,
           maxIterations: 10, // Sub-agents get a smaller iteration limit
+          // A sub-agent must never escape the parent's permission floor.
+          permissionProfile: context.permissionProfile,
+          policy: context.policy,
+          sessionPolicy: context.sessionPolicy,
+          headless: context.headless,
+          requestApproval: context.requestApproval,
         },
       );
 

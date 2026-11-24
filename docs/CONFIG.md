@@ -76,6 +76,7 @@ autocomplete:
 
 agent:
   yoloMode: false
+  permissionProfile: supervised # read-only | supervised | autonomous
   defaultMode: agent # agent | ask | manual | plan | composer
   budget: # optional; enforced from actual provider usage
     maxTokensPerRun: 100000

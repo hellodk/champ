@@ -136,7 +136,7 @@ Switch modes from the dropdown or `Cmd/Ctrl + Shift + M`:
 
 19 tools cover file I/O (`read_file`, `edit_file`, `create_file`, `delete_file`, `list_directory`), search (`grep_search`, `file_search`, `codebase_search`, `web_search`), shell/git/browser (`run_terminal_cmd`, `run_tests`, `git_tool`, `browser_tool`), SSH (`remote_run_terminal`, `remote_edit_file`), diagrams/docs (`generate_diagram`, `generate_doc`), delegation (`delegate_task`), and MCP (`mcp_<server>_<tool>`). The CLI and TUI expose the same set except the two SSH tools, which require the extension's connection pool.
 
-All writes and shell calls prompt unless `agent.yoloMode: true`. Terminal execution passes through `CommandSandbox`, outbound tool results pass through `SecretScanner` + `PromptGuard`, and file paths are symlink-guarded.
+Permission profiles are an operator-set security floor: `read-only` denies every state-changing tool, `supervised` prompts for them, and `autonomous` allows them without a prompt. The profile comes from `--permission-profile`, `agent.permissionProfile`, `CHAMP_PERMISSION_PROFILE`, then `--yes`/`agent.yoloMode`, in that order. An explicit profile cannot be weakened by model output, project policy, or a sub-agent. Terminal execution passes through `CommandSandbox`, outbound tool results pass through `SecretScanner` + `PromptGuard`, and file paths are symlink-guarded.
 
 ### @-Context Symbols, Autocomplete, Diffs & Checkpoints
 
@@ -177,7 +177,7 @@ Semantic RAG: `codebase_search` uses the same embedding index as the extension. 
 
 Index freshness is content-addressed. The manifest beside the vector cache (`~/.champ/index/<workspace-hash>.idx.manifest.json`, or under `CHAMP_HOME`) records the embedding model id, ignore-pattern fingerprint, per-file SHA256, size and chunk count. Touching a file or moving the cache does not invalidate it; a same-size edit with an unchanged mtime does. `champ index --status` prints the model, file/chunk counts, last indexed time (IST) and the exact stale reason. `champ index --clear` removes both the cache and manifest. `champ index --watch` polls content hashes and rebuilds only when the manifest reports a change; stop it with `Ctrl-C`.
 
-Contracts: replies write to `stdout`; traces, prompts, and warnings write to `stderr`. Non-interactive runs without `--yes` deny actions that require approval; `--yes` opts in to auto-approval. Exit codes: `0` success, `1` runtime/provider failure, `2` usage/config error, `130` aborted (`SIGINT`).
+Contracts: replies write to `stdout`; traces, prompts, and warnings write to `stderr`. Non-interactive runs deny approval-required actions unless `--permission-profile autonomous` or `--yes` selects auto-approval. Exit codes: `0` success, `1` runtime/provider failure, `2` usage/config error, `130` aborted (`SIGINT`).
 
 ---
 

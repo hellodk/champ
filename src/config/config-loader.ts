@@ -23,6 +23,7 @@
  */
 import * as yaml from "js-yaml";
 import type { BudgetLimits } from "./budget";
+import { isPermissionProfile, PERMISSION_PROFILES } from "../policy/profiles";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -95,6 +96,8 @@ export interface AutoFixConfig {
 
 export interface AgentConfig {
   yoloMode?: boolean;
+  /** Operator-set permission floor: read-only | supervised | autonomous. */
+  permissionProfile?: string;
   defaultMode?: AgentModeName;
   /** Optional per-run and per-day token/USD budgets, enforced from actual usage. */
   budget?: BudgetLimits;
@@ -591,6 +594,15 @@ export class ConfigLoader {
             pushError("agent.yoloMode must be a boolean");
           } else {
             out.yoloMode = a.yoloMode;
+          }
+        }
+        if ("permissionProfile" in a) {
+          if (!isPermissionProfile(a.permissionProfile)) {
+            pushError(
+              `agent.permissionProfile must be one of ${PERMISSION_PROFILES.join(", ")}`,
+            );
+          } else {
+            out.permissionProfile = a.permissionProfile;
           }
         }
         if ("defaultMode" in a) {

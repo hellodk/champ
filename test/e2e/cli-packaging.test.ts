@@ -169,6 +169,7 @@ describe("champ CLI packaging (#139)", () => {
     });
     expect(setupHelp).toContain("champ setup");
     expect(setupHelp).toContain("champ provider");
+    expect(setupHelp).toContain("--permission-profile");
   });
 
   it("installs globally and exposes a working champ bin", () => {

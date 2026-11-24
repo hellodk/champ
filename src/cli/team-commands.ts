@@ -34,6 +34,8 @@ export interface TeamCommandDeps {
   stderr: (text: string) => void;
   /** `--yes`: answer team approval gates affirmatively. */
   yes: boolean;
+  /** Operator-set permission profile applied to every team agent's tools. */
+  permissionProfile?: import("../policy/profiles").PermissionProfile;
   /** Injectable for tests; defaults to real filesystem-backed components. */
   loader?: TeamLoader;
   runner?: TeamRunner;
@@ -208,9 +210,15 @@ export async function runTeamCommand(
   };
 
   const approve = async (description: string): Promise<boolean> => {
-    if (deps.yes) return true;
+    if (deps.permissionProfile === "read-only") return false;
+    if (
+      deps.permissionProfile === "autonomous" ||
+      (deps.permissionProfile === undefined && deps.yes)
+    ) {
+      return true;
+    }
     deps.stderr(
-      `champ: approval required (${description}) — pass --yes to allow\n`,
+      `champ: approval required (${description}) — pass --permission-profile autonomous or --yes to allow\n`,
     );
     return false;
   };
@@ -222,6 +230,7 @@ export async function runTeamCommand(
     onEvent,
     onApprovalRequired: (agentName: string) => approve(`agent ${agentName}`),
     requestApproval: (description: string) => approve(description),
+    permissionProfile: deps.permissionProfile,
   };
 
   const state = await (async (): Promise<TeamRunState> => {

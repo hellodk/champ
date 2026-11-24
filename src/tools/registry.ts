@@ -8,6 +8,7 @@
 import type { Tool, ToolResult, ToolExecutionContext } from "./types";
 import type { ToolDefinition } from "../providers/types";
 import { PolicyEngine, type PolicyEvaluation } from "../policy/engine";
+import { evaluateProfileGate } from "../policy/profiles";
 
 const PATH_ARG_KEYS = [
   "filePath",
@@ -275,6 +276,20 @@ export class ToolRegistry {
       };
     }
 
+    // Permission profiles are an operator-set floor. This gate runs before
+    // policy rules and approval prompts so neither a model instruction, a
+    // project policy file nor `--yes` can grant a state-changing tool in a
+    // read-only session.
+    const profileGate = evaluateProfileGate(context.permissionProfile, tool, {
+      headless: context.headless === true,
+    });
+    if (profileGate.denied) {
+      return {
+        success: false,
+        output: `Action denied by permission profile: ${profileGate.reason}`,
+      };
+    }
+
     const policyDecision = evaluatePolicy(name, tool, args, context);
     if (policyDecision?.decision === "DENY") {
       return {
@@ -295,7 +310,9 @@ export class ToolRegistry {
     }
     const needsApproval = policyDecision
       ? policyDecision.decision === "ASK"
-      : tool.requiresApproval;
+      : context.permissionProfile === "autonomous"
+        ? false
+        : profileGate.decision === "ASK" || tool.requiresApproval;
     if (needsApproval) {
       const preview = tool.getPreview?.(args);
       const approved = await context.requestApproval(

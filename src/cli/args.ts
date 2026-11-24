@@ -10,6 +10,7 @@
 import * as path from "path";
 import { isValidSessionId } from "../session/ids";
 import { isTaskAssignment } from "../config/provider-model";
+import { isPermissionProfile, PERMISSION_PROFILES } from "../policy/profiles";
 import type { ProviderCommand } from "./provider-commands";
 import type { PolicyCommand } from "./policy-commands";
 import type { IndexCommand } from "./index-commands";
@@ -24,6 +25,8 @@ export interface CliFlags {
   version: boolean;
   /** Auto-approve destructive tools instead of prompting the user. */
   yes: boolean;
+  /** Explicit operator-set permission profile (`--permission-profile`). */
+  permissionProfile?: string;
   /** Force the full-screen TUI even when stdin is not a terminal. */
   tui: boolean;
   /** Force the line REPL even when stdin is not a terminal. */
@@ -152,6 +155,7 @@ Options:
   -h, --help              Show this help
   -v, --version           Print the version
   -y, --yes               Auto-approve destructive tools
+      --permission-profile <name>  read-only | supervised | autonomous
       --json              Emit structured JSONL events on stdout (one-shot runs)
       --rpc               Newline-delimited JSON RPC on stdin/stdout
       --tui               Force the full-screen TUI
@@ -189,7 +193,10 @@ REPL commands: /skills, /<skill> [args], /session, /sessions, /checkpoint [label
 Configuration is read from ~/.champ/providers.json (managed by \`champ setup\`) and
 ~/.champ/config.yaml (or CHAMP_CONFIG).
 Interactive runs prompt before destructive tools. Non-interactive runs without
---yes deny actions that require approval; --yes opts in to auto-approval.
+auto-approval deny actions that require approval. Permission profiles are an
+operator-set floor: read-only denies state changes, supervised prompts for them,
+autonomous allows them. An explicit --permission-profile takes precedence over
+--yes / yoloMode; --yes alone selects the autonomous profile.
 `;
 
 /** Flags that take a separate value argument. */
@@ -199,6 +206,7 @@ const VALUE_FLAGS: Record<string, keyof CliFlags> = {
   "--model": "model",
   "--base-url": "baseUrl",
   "--api-key": "apiKey",
+  "--permission-profile": "permissionProfile",
   "--max-iter": "maxIterations",
   "--session": "session",
   "--import-session": "importSession",
@@ -375,6 +383,15 @@ export function parseCliArgs(
           return error(`--max-iter must be a positive integer, got "${value}"`);
         }
         flags.maxIterations = parsed;
+        continue;
+      }
+      if (valueKey === "permissionProfile") {
+        if (!isPermissionProfile(value)) {
+          return error(
+            `--permission-profile must be one of ${PERMISSION_PROFILES.join(", ")}, got "${value}"`,
+          );
+        }
+        flags.permissionProfile = value;
         continue;
       }
       switch (valueKey) {

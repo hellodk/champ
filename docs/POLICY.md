@@ -6,12 +6,12 @@ layer wins.
 
 ## Precedence
 
-| Layer | Source | Can grant? |
-|---|---|---|
-| `managed` | File at `CHAMP_MANAGED_POLICY` | Yes — administrator-controlled |
-| `user` | `~/.champ/policy.json` | Yes |
+| Layer     | Source                           | Can grant?                         |
+| --------- | -------------------------------- | ---------------------------------- |
+| `managed` | File at `CHAMP_MANAGED_POLICY`   | Yes — administrator-controlled     |
+| `user`    | `~/.champ/policy.json`           | Yes                                |
 | `project` | `<workspace>/.champ/policy.json` | Only when the workspace is trusted |
-| `session` | Runtime session rules | Yes |
+| `session` | Runtime session rules            | Yes                                |
 
 Decisions are `ALLOW`, `ASK`, and `DENY`. `ASK` becomes `DENY` in headless runs.
 If no rule matches, approval-requiring tools produce `ASK` and all other tools
@@ -21,6 +21,25 @@ invalid rule prevents activation instead of being treated as an empty layer.
 Project `ALLOW` rules are ignored unless the workspace is trusted. In the CLI,
 trust requires `CHAMP_TRUST_WORKSPACE=1`; in VS Code it follows workspace trust.
 Project `DENY` and `ASK` rules always apply.
+
+## Permission profiles
+
+A permission profile is an operator-set floor enforced **before** policy rules
+and approval prompts. It is never derived from model output, tool arguments,
+project policy, or `--yes`.
+
+| Profile      | State-changing tools                                |
+| ------------ | --------------------------------------------------- |
+| `read-only`  | Denied outright                                     |
+| `supervised` | Denied in headless runs; otherwise require approval |
+| `autonomous` | Allowed without an approval prompt                  |
+
+Resolution order: `--permission-profile` → `agent.permissionProfile` →
+`CHAMP_PERMISSION_PROFILE` → `--yes`/`agent.yoloMode` → `supervised`. An unknown
+value is a usage/config error. Admin and user policy `DENY` rules still win.
+
+In VS Code the profile is `champ.permissionProfile`. Sub-agents and team agents
+inherit the caller's profile.
 
 ## Rule format
 
