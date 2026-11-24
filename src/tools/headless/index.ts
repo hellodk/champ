@@ -21,6 +21,7 @@ import {
   type SubAgentController,
 } from "../delegate-task";
 import { createFetchUrlTool } from "../fetch-url";
+import { browserTool } from "../browser";
 import { generateDiagramTool } from "../generate-diagram";
 import { generateDocTool } from "../generate-doc";
 import { gitTool } from "../git-tool";
@@ -72,11 +73,12 @@ export function createHeadlessToolRegistry(
   registry.register(runTestsTool);
   registry.register(generateDiagramTool);
   registry.register(generateDocTool);
+  // The real Playwright tool is loaded lazily inside browser.ts, so registering
+  // it here does not pull Playwright into CLI startup or published bundles.
+  // Its own URL guard rejects private/loopback/file targets before launch.
+  registry.register(browserTool);
   const webSources = new WebSourceRegistry();
   registry.register(createFetchUrlTool({ sources: webSources }));
-  // The simulated BrowserTool is deliberately not registered: no headless
-  // browser functionality is shipped until a real, url-guarded implementation
-  // exists. Web access goes through fetchUrlTool.
   registry.register(gitTool);
   registry.register(
     createCodebaseSearchTool(options.getIndexingService ?? (() => null)),

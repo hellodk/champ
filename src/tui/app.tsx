@@ -9,6 +9,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useReducer,
   useState,
   type ReactNode,
@@ -17,17 +18,27 @@ import { Box, render, Text, useApp, useInput } from "ink";
 import {
   initialTuiState,
   tuiReducer,
+  TRANSCRIPT_PAGE_SIZE,
   type EndpointSummary,
+  type TuiReviewSummary,
   type TuiScreen,
+  type TuiSessionSummary,
 } from "./state";
-import type { TuiRuntime } from "./runtime";
-import { CHAT_COMMAND_HELP } from "../cli/commands";
+import type { TuiConfigEntry, TuiRuntime } from "./runtime";
+import {
+  canonicalChatCommand,
+  CHAT_COMMAND_HELP,
+  commandSuggestions,
+} from "../cli/commands";
+import { CONFIG_KEYS } from "../cli/config-editor";
 
 const SCREENS: Array<{ id: TuiScreen; label: string }> = [
   { id: "chat", label: "Chat" },
   { id: "providers", label: "Providers" },
   { id: "config", label: "Config" },
   { id: "help", label: "Help" },
+  { id: "sessions", label: "Sessions" },
+  { id: "review", label: "Review" },
 ];
 
 const SETUP_FIELDS = [
@@ -96,6 +107,13 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [setupField, setSetupField] = useState<SetupField>("name");
   const [doctorLines, setDoctorLines] = useState<string[]>([]);
+  const [completionIndex, setCompletionIndex] = useState(0);
+  const [configDraft, setConfigDraft] = useState<{
+    key: string;
+    value: string;
+    open: boolean;
+  }>({ key: CONFIG_KEYS[0].key, value: "", open: false });
+  const [configEntries, setConfigEntries] = useState<TuiConfigEntry[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -106,6 +124,34 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       alive = false;
     };
   }, [runtime]);
+
+  useEffect(() => {
+    let alive = true;
+    if (state.screen === "sessions" && runtime.listSessions) {
+      void runtime.listSessions().then((sessions) => {
+        if (alive) dispatch({ type: "sessions/set", sessions });
+      });
+    }
+    if (state.screen === "review" && runtime.listReviews) {
+      void runtime.listReviews().then((reviews) => {
+        if (alive) dispatch({ type: "reviews/set", reviews });
+      });
+    }
+    if (state.screen === "config" && runtime.listConfig) {
+      void runtime.listConfig().then((entries) => {
+        if (alive) setConfigEntries(entries);
+      });
+    }
+    return () => {
+      alive = false;
+    };
+  }, [runtime, state.screen]);
+
+  const suggestions = useMemo(
+    () =>
+      /^\/[^\s]*$/.test(state.input) ? commandSuggestions(state.input) : [],
+    [state.input],
+  );
 
   const submit = useCallback(async () => {
     const text = state.input.trim();
@@ -124,12 +170,21 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       dispatch({ type: "screen/set", screen: "help" });
       return;
     }
-    if (text === "/model" || text === "/providers") {
+    const canonical = canonicalChatCommand(text);
+    if (text === "/providers" || canonical === "/model") {
       dispatch({ type: "screen/set", screen: "providers" });
       return;
     }
+    if (canonical === "/sessions") {
+      dispatch({ type: "screen/set", screen: "sessions" });
+      return;
+    }
     if (text.startsWith("/") && runtime.command) {
-      const output = await runtime.command(text);
+      const canonical = canonicalChatCommand(text);
+      const commandText = canonical
+        ? [canonical, ...text.trim().split(/\s+/).slice(1)].join(" ")
+        : text;
+      const output = await runtime.command(commandText);
       if (output !== null) {
         dispatch({
           type: "message/add",
@@ -216,6 +271,70 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
     }
   }, [runtime, state.setup]);
 
+  const resumeSession = useCallback(
+    async (id: string) => {
+      if (!runtime.resumeSession) return;
+      try {
+        const message = await runtime.resumeSession(id);
+        dispatch({ type: "status/set", text: message });
+        if (runtime.listSessions) {
+          dispatch({
+            type: "sessions/set",
+            sessions: await runtime.listSessions(),
+          });
+        }
+      } catch (err) {
+        dispatch({
+          type: "status/set",
+          text: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [runtime],
+  );
+
+  const reviewAction = useCallback(
+    async (kind: "accept" | "reject", id: string) => {
+      const action =
+        kind === "accept" ? runtime.acceptReview : runtime.rejectReview;
+      if (!action) return;
+      try {
+        const message = await action(id);
+        dispatch({ type: "status/set", text: message });
+        if (runtime.listReviews) {
+          dispatch({
+            type: "reviews/set",
+            reviews: await runtime.listReviews(),
+          });
+        }
+      } catch (err) {
+        dispatch({
+          type: "status/set",
+          text: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [runtime],
+  );
+
+  const saveConfig = useCallback(async () => {
+    if (!runtime.setConfig) return;
+    try {
+      const message = await runtime.setConfig(
+        configDraft.key,
+        configDraft.value,
+      );
+      dispatch({ type: "status/set", text: message });
+      setConfigDraft({ ...configDraft, value: "", open: false });
+      if (runtime.listConfig) setConfigEntries(await runtime.listConfig());
+    } catch (err) {
+      dispatch({
+        type: "status/set",
+        text: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [runtime, configDraft]);
+
   useInput((input, key) => {
     if (approval) {
       const answer = input.trim().toLowerCase();
@@ -245,12 +364,41 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
     }
 
     if (key.escape) {
+      if (configDraft.open) {
+        setConfigDraft({ ...configDraft, open: false, value: "" });
+        return;
+      }
+      if (state.screen === "chat" && suggestions.length > 0) {
+        dispatch({ type: "input/set", value: "" });
+        setCompletionIndex(0);
+        return;
+      }
       if (state.setup.open) {
         dispatch({ type: "setup/cancel" });
         return;
       }
       dispatch({ type: "screen/set", screen: "chat" });
       return;
+    }
+
+    if (state.screen === "chat" && suggestions.length > 0) {
+      const selected =
+        suggestions[Math.min(completionIndex, suggestions.length - 1)];
+      if (key.upArrow) {
+        setCompletionIndex(
+          (index) => (index + suggestions.length - 1) % suggestions.length,
+        );
+        return;
+      }
+      if (key.downArrow) {
+        setCompletionIndex((index) => (index + 1) % suggestions.length);
+        return;
+      }
+      if (key.tab || (key.return && state.input.trim() !== selected.name)) {
+        dispatch({ type: "input/set", value: `${selected.name} ` });
+        setCompletionIndex(0);
+        return;
+      }
     }
 
     const setupOpen = state.screen === "providers" && state.setup.open;
@@ -286,19 +434,37 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       return;
     }
 
-    if (key.tab) {
+    if (key.tab && !(state.screen === "config" && configDraft.open)) {
       dispatch({ type: "screen/next" });
       return;
     }
 
     if (state.screen === "chat") {
+      if (key.pageUp) {
+        dispatch({ type: "transcript/scroll", delta: -5 });
+        return;
+      }
+      if (key.pageDown) {
+        dispatch({ type: "transcript/scroll", delta: 5 });
+        return;
+      }
       if (state.busy) return;
       if (key.return) {
         void submit();
       } else if (key.backspace || key.delete) {
         dispatch({ type: "input/set", value: state.input.slice(0, -1) });
+      } else if (key.upArrow || key.downArrow) {
+        if (state.input === "") {
+          dispatch({
+            type: "transcript/scroll",
+            delta: key.upArrow ? -1 : 1,
+          });
+        } else {
+          dispatch({ type: key.upArrow ? "history/prev" : "history/next" });
+        }
       } else if (input.length === 1 && !key.ctrl && !key.meta) {
         dispatch({ type: "input/set", value: state.input + input });
+        setCompletionIndex(0);
       }
       return;
     }
@@ -339,6 +505,49 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
     }
 
     if (state.screen === "config") {
+      if (configDraft.open) {
+        const index = CONFIG_KEYS.findIndex(
+          (entry) => entry.key === configDraft.key,
+        );
+        if (key.tab) {
+          const next = CONFIG_KEYS[(index + 1) % CONFIG_KEYS.length];
+          setConfigDraft({ ...configDraft, key: next.key, value: "" });
+          return;
+        }
+        if (key.return) {
+          void saveConfig();
+          return;
+        }
+        if (key.backspace || key.delete) {
+          setConfigDraft({
+            ...configDraft,
+            value: configDraft.value.slice(0, -1),
+          });
+          return;
+        }
+        if (input.length === 1 && !key.ctrl && !key.meta) {
+          setConfigDraft({ ...configDraft, value: configDraft.value + input });
+        }
+        return;
+      }
+      if (input.toLowerCase() === "s") {
+        setConfigDraft({ key: CONFIG_KEYS[0].key, value: "", open: true });
+        return;
+      }
+      if (input.toLowerCase() === "i") {
+        if (runtime.editConfig) {
+          void runtime
+            .editConfig()
+            .then((message) => dispatch({ type: "status/set", text: message }))
+            .catch((err: unknown) =>
+              dispatch({
+                type: "status/set",
+                text: err instanceof Error ? err.message : String(err),
+              }),
+            );
+        }
+        return;
+      }
       if (input.toLowerCase() === "v") {
         void runtime
           .validate()
@@ -391,9 +600,39 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
           );
       }
     }
+
+    if (state.screen === "sessions") {
+      if (key.upArrow) dispatch({ type: "sessions/cursor", delta: -1 });
+      else if (key.downArrow) dispatch({ type: "sessions/cursor", delta: 1 });
+      else if (key.return) {
+        const selected = state.sessions[state.sessionCursor];
+        if (selected) void resumeSession(selected.id);
+      }
+      return;
+    }
+
+    if (state.screen === "review") {
+      if (key.upArrow) dispatch({ type: "reviews/cursor", delta: -1 });
+      else if (key.downArrow) dispatch({ type: "reviews/cursor", delta: 1 });
+      else if (input.toLowerCase() === "a") {
+        const selected = state.reviews[state.reviewCursor];
+        if (selected) void reviewAction("accept", selected.id);
+      } else if (input.toLowerCase() === "r") {
+        const selected = state.reviews[state.reviewCursor];
+        if (selected) void reviewAction("reject", selected.id);
+      }
+    }
   });
 
-  const visible = state.messages.slice(-18);
+  const transcriptStart = Math.max(
+    0,
+    state.messages.length - TRANSCRIPT_PAGE_SIZE - state.scrollOffset,
+  );
+  const transcriptEnd = Math.min(
+    state.messages.length,
+    transcriptStart + TRANSCRIPT_PAGE_SIZE,
+  );
+  const visible = state.messages.slice(transcriptStart, transcriptEnd);
   const endpoint = state.endpoints[state.cursor];
   const session = runtime.header.sessionId;
 
@@ -455,6 +694,11 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
                 </Box>
               ))
             )}
+            <Text color="#6B7280">
+              {state.messages.length === 0
+                ? "line 0 of 0 · PgUp/PgDn scroll"
+                : `line ${transcriptStart + 1}-${transcriptEnd} of ${state.messages.length}${state.scrollOffset > 0 ? " (scrolled)" : ""}`}
+            </Text>
           </Panel>
           {approval && (
             <Box borderStyle="round" borderColor="#D97706" paddingX={1}>
@@ -469,6 +713,27 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
               {state.busy ? "working…" : state.input || "type a message"}
             </Text>
           </Box>
+          {suggestions.length > 0 && (
+            <Box
+              flexDirection="column"
+              borderStyle="round"
+              borderColor="#444CE7"
+              paddingX={1}
+            >
+              <Text bold color="#89DDFF">
+                Commands — ↑↓ select · Tab/Enter accept · Esc dismiss
+              </Text>
+              {suggestions.slice(0, 8).map((suggestion, index) => (
+                <Text
+                  key={suggestion.name}
+                  color={index === completionIndex ? "#FFFFFF" : "#6B7280"}
+                  bold={index === completionIndex}
+                >
+                  {`${index === completionIndex ? "▸" : " "} ${suggestion.name} — ${suggestion.description}`}
+                </Text>
+              ))}
+            </Box>
+          )}
         </Box>
       )}
 
@@ -531,13 +796,45 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       {state.screen === "config" && (
         <Panel title="Configuration">
           <Text color="#6B7280">
-            V validate · D doctor · E redacted export · Tab screen
+            S set value · I open editor · V validate · D doctor · E redacted
+            export · Tab screen
           </Text>
           <Text color="#D1D5DB">{`workspace: ${runtime.header.workspace}`}</Text>
           <Text color="#D1D5DB">{`routing:   ${runtime.header.routingMode ?? "auto"}`}</Text>
           <Text color="#D1D5DB">{`model:     ${runtime.header.model}`}</Text>
           <Text color="#D1D5DB">{`registry:  ~/.champ/providers.json`}</Text>
-          <Text color="#D1D5DB">{`yaml:      ~/.champ/config.yaml (legacy)`}</Text>
+          <Text color="#D1D5DB">{`yaml:      ~/.champ/config.yaml`}</Text>
+          {configEntries.slice(0, 12).map((entry) => (
+            <Text key={entry.key} color="#A6ACCD">
+              {`${entry.key} = ${entry.value || "(unset)"}`}
+            </Text>
+          ))}
+          {configDraft.open && (
+            <Box
+              flexDirection="column"
+              marginTop={1}
+              borderStyle="round"
+              borderColor="#444CE7"
+              paddingX={1}
+            >
+              <Text bold color="#89DDFF">
+                Set config value
+              </Text>
+              {CONFIG_KEYS.slice(0, 12).map((entry) => (
+                <Text
+                  key={entry.key}
+                  color={entry.key === configDraft.key ? "#FFFFFF" : "#6B7280"}
+                  bold={entry.key === configDraft.key}
+                >
+                  {`${entry.key === configDraft.key ? "▸" : " "} ${entry.key} — ${entry.description}`}
+                </Text>
+              ))}
+              <Text color="#FFFFFF">{`value: ${configDraft.value}`}</Text>
+              <Text color="#6B7280">
+                Tab next key · Enter save · Esc cancel
+              </Text>
+            </Box>
+          )}
           {state.diagnostics.length > 0 && (
             <Box flexDirection="column" marginTop={1}>
               {state.diagnostics.slice(-20).map((line, index) => (
@@ -553,16 +850,69 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         </Panel>
       )}
 
+      {state.screen === "sessions" && (
+        <Panel title="Sessions">
+          <Text color="#6B7280">
+            ↑↓ select · Enter resume · Tab screen · Esc chat
+          </Text>
+          {state.sessions.length === 0 ? (
+            <Text color="#D97706">No stored sessions in this workspace.</Text>
+          ) : (
+            state.sessions.map((item: TuiSessionSummary, index) => (
+              <Text
+                key={item.id}
+                bold={index === state.sessionCursor}
+                color={index === state.sessionCursor ? "#444CE7" : "#D1D5DB"}
+              >
+                {`${index === state.sessionCursor ? "▸" : " "} ${item.id} — ${truncate(item.label, 54)} · ${item.updatedAt}`}
+              </Text>
+            ))
+          )}
+        </Panel>
+      )}
+
+      {state.screen === "review" && (
+        <Panel title="Review">
+          <Text color="#6B7280">
+            ↑↓ select · A accept · R reject · Tab screen · Esc chat
+          </Text>
+          {state.reviews.length === 0 ? (
+            <Text color="#D97706">No recorded edits to review.</Text>
+          ) : (
+            state.reviews.map((item: TuiReviewSummary, index) => (
+              <Text
+                key={item.id}
+                bold={index === state.reviewCursor}
+                color={index === state.reviewCursor ? "#444CE7" : "#D1D5DB"}
+              >
+                {`${index === state.reviewCursor ? "▸" : " "} ${item.id} [${item.status}] ${item.files} file(s) — ${truncate(item.summary, 54)}`}
+              </Text>
+            ))
+          )}
+        </Panel>
+      )}
+
       {state.screen === "help" && (
         <Panel title="Help">
           <Text color="#D1D5DB">Tab — cycle screens</Text>
-          <Text color="#D1D5DB">Esc — return to chat</Text>
+          <Text color="#D1D5DB">Esc — return to chat / dismiss completion</Text>
           <Text color="#D1D5DB">Ctrl-C — abort turn or exit</Text>
+          <Text color="#D1D5DB">PgUp/PgDn — scroll transcript</Text>
+          <Text color="#D1D5DB">
+            Up/Down — scroll transcript when prompt is empty, otherwise history
+          </Text>
+          <Text color="#D1D5DB">Sessions: Enter — resume session</Text>
+          <Text color="#D1D5DB">Review: A — accept, R — reject</Text>
+          <Text color="#D1D5DB">Config: S — set value, I — open editor</Text>
+          <Text color="#D1D5DB">
+            Completion: ↑↓ select · Tab/Enter accept · Esc dismiss
+          </Text>
           {Object.entries(CHAT_COMMAND_HELP).map(([name, desc]) => (
             <Text key={name} color="#D1D5DB">
               {name} — {desc}
             </Text>
           ))}
+          <Text color="#6B7280">/models — alias for /model</Text>
         </Panel>
       )}
 

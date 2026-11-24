@@ -5,7 +5,26 @@
  * terminal and gives the chat, provider and config screens one shared source
  * of truth.
  */
-export type TuiScreen = "chat" | "providers" | "config" | "help";
+export type TuiScreen =
+  | "chat"
+  | "providers"
+  | "config"
+  | "help"
+  | "sessions"
+  | "review";
+
+export interface TuiSessionSummary {
+  id: string;
+  label: string;
+  updatedAt: string;
+}
+
+export interface TuiReviewSummary {
+  id: string;
+  status: string;
+  files: number;
+  summary: string;
+}
 
 export type ChatRole = "user" | "assistant" | "system" | "tool" | "error";
 
@@ -53,6 +72,17 @@ export interface TuiState {
   setup: SetupDraft;
   diagnostics: string[];
   cursor: number;
+  sessions: TuiSessionSummary[];
+  sessionCursor: number;
+  reviews: TuiReviewSummary[];
+  reviewCursor: number;
+  /** Prompts submitted this session, oldest first. */
+  history: string[];
+  /** null means the user is drafting a fresh prompt. */
+  historyCursor: number | null;
+  draftInput: string;
+  /** Lines scrolled back from the newest transcript page. */
+  scrollOffset: number;
 }
 
 export type TuiAction =
@@ -73,7 +103,15 @@ export type TuiAction =
   | { type: "setup/submit" }
   | { type: "setup/result"; status: string; error?: boolean }
   | { type: "diagnostics/set"; lines: string[] }
-  | { type: "messages/clear" };
+  | { type: "messages/clear" }
+  | { type: "sessions/set"; sessions: TuiSessionSummary[] }
+  | { type: "sessions/cursor"; delta: number }
+  | { type: "reviews/set"; reviews: TuiReviewSummary[] }
+  | { type: "reviews/cursor"; delta: number }
+  | { type: "history/push"; value: string }
+  | { type: "history/prev" }
+  | { type: "history/next" }
+  | { type: "transcript/scroll"; delta: number };
 
 export interface TuiInitialState {
   workspace: string;
@@ -84,7 +122,15 @@ export interface TuiInitialState {
   status?: string;
 }
 
-const SCREENS: TuiScreen[] = ["chat", "providers", "config", "help"];
+const SCREENS: TuiScreen[] = [
+  "chat",
+  "providers",
+  "config",
+  "help",
+  "sessions",
+  "review",
+];
+export const TRANSCRIPT_PAGE_SIZE = 18;
 const MAX_MESSAGES = 400;
 
 let sequence = 0;
@@ -125,6 +171,14 @@ export function initialTuiState(input: TuiInitialState): TuiState {
     setup: emptySetup(),
     diagnostics: [],
     cursor: 0,
+    sessions: [],
+    sessionCursor: 0,
+    reviews: [],
+    reviewCursor: 0,
+    history: [],
+    historyCursor: null,
+    draftInput: "",
+    scrollOffset: 0,
   };
 }
 
@@ -132,6 +186,11 @@ function clampCursor(state: TuiState, delta: number): number {
   if (state.endpoints.length === 0) return 0;
   const next = state.cursor + delta;
   return Math.max(0, Math.min(state.endpoints.length - 1, next));
+}
+
+function clampIndex(current: number, delta: number, length: number): number {
+  if (length === 0) return 0;
+  return Math.max(0, Math.min(length - 1, current + delta));
 }
 
 function appendMessage(
@@ -169,15 +228,26 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
       return { ...state, screen: SCREENS[(index + 1) % SCREENS.length] };
     }
     case "input/set":
-      return { ...state, input: action.value };
-    case "turn/start":
+      return {
+        ...state,
+        input: action.value,
+        historyCursor: null,
+        draftInput: action.value,
+      };
+    case "turn/start": {
+      const submitted = state.input.trim();
       return {
         ...state,
         busy: true,
         status: "Thinking…",
-        messages: appendMessage(state, "user", state.input.trim(), false),
+        messages: appendMessage(state, "user", submitted, false),
         input: "",
+        draftInput: "",
+        historyCursor: null,
+        history: submitted ? [...state.history, submitted] : state.history,
+        scrollOffset: 0,
       };
+    }
     case "turn/stop": {
       const messages = state.messages.map((message, index) =>
         index === state.messages.length - 1
@@ -261,6 +331,83 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
       return { ...state, diagnostics: action.lines };
     case "messages/clear":
       return { ...state, messages: [], status: "New session" };
+    case "sessions/set":
+      return {
+        ...state,
+        sessions: action.sessions,
+        sessionCursor: Math.min(
+          state.sessionCursor,
+          Math.max(0, action.sessions.length - 1),
+        ),
+      };
+    case "sessions/cursor":
+      return {
+        ...state,
+        sessionCursor: clampIndex(
+          state.sessionCursor,
+          action.delta,
+          state.sessions.length,
+        ),
+      };
+    case "reviews/set":
+      return {
+        ...state,
+        reviews: action.reviews,
+        reviewCursor: Math.min(
+          state.reviewCursor,
+          Math.max(0, action.reviews.length - 1),
+        ),
+      };
+    case "reviews/cursor":
+      return {
+        ...state,
+        reviewCursor: clampIndex(
+          state.reviewCursor,
+          action.delta,
+          state.reviews.length,
+        ),
+      };
+    case "history/push":
+      return {
+        ...state,
+        history: [...state.history, action.value].slice(-200),
+        historyCursor: null,
+        draftInput: "",
+      };
+    case "history/prev": {
+      if (state.history.length === 0) return state;
+      const cursor =
+        state.historyCursor === null
+          ? state.history.length - 1
+          : Math.max(0, state.historyCursor - 1);
+      return {
+        ...state,
+        historyCursor: cursor,
+        input: state.history[cursor],
+      };
+    }
+    case "history/next": {
+      if (state.historyCursor === null) return state;
+      const next = state.historyCursor + 1;
+      if (next >= state.history.length) {
+        return {
+          ...state,
+          historyCursor: null,
+          input: state.draftInput,
+        };
+      }
+      return { ...state, historyCursor: next, input: state.history[next] };
+    }
+    case "transcript/scroll": {
+      const max = Math.max(0, state.messages.length - TRANSCRIPT_PAGE_SIZE);
+      return {
+        ...state,
+        scrollOffset: Math.max(
+          0,
+          Math.min(max, state.scrollOffset + action.delta),
+        ),
+      };
+    }
     default:
       return state;
   }

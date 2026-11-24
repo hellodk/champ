@@ -560,13 +560,20 @@ describe("ChatViewProvider", () => {
       };
       expect(msg.prefix).toBe("ex");
       expect(msg.suggestions.map((s) => s.name).sort()).toEqual([
+        "/exit",
+        "/export",
         "examine",
         "explain",
       ]);
-      expect(msg.suggestions[0].description).toContain("desc");
+      expect(
+        msg.suggestions.find((s) => s.name === "explain")?.description,
+      ).toContain("desc");
+      expect(
+        msg.suggestions.find((s) => s.name === "/export")?.description,
+      ).toContain("export");
     });
 
-    it("returns empty suggestions when no skill registry is attached", async () => {
+    it("returns built-in commands when no skill registry is attached", async () => {
       // No setSkillRegistry call.
       const view = createMockWebviewView(postMessage);
       provider.resolveWebviewView(view as never, {} as never, {} as never);
@@ -579,11 +586,14 @@ describe("ChatViewProvider", () => {
           (args[0] as { type: string }).type === "skillAutocompleteResponse",
       );
       expect(responses).toHaveLength(1);
-      const msg = responses[0][0] as { suggestions: unknown[] };
-      expect(msg.suggestions).toEqual([]);
+      const msg = responses[0][0] as {
+        suggestions: Array<{ name: string }>;
+      };
+      expect(msg.suggestions.map((s) => s.name)).toContain("/exit");
+      expect(msg.suggestions.map((s) => s.name)).toContain("/export");
     });
 
-    it("returns all skills for empty prefix", async () => {
+    it("returns built-in commands and skills for empty prefix", async () => {
       const skillStub = createSkillRegistry(["explain", "test", "commit"]);
       provider = new ChatViewProvider(
         {
@@ -610,7 +620,12 @@ describe("ChatViewProvider", () => {
       const msg = responses[0][0] as {
         suggestions: Array<{ name: string }>;
       };
-      expect(msg.suggestions).toHaveLength(3);
+      const names = msg.suggestions.map((s) => s.name);
+      expect(names).toContain("/help");
+      expect(names).toContain("/model");
+      expect(names).toContain("commit");
+      expect(names).toContain("explain");
+      expect(names).toContain("test");
     });
   });
 

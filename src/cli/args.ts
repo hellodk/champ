@@ -15,6 +15,7 @@ import type { ProviderCommand } from "./provider-commands";
 import type { PolicyCommand } from "./policy-commands";
 import type { IndexCommand } from "./index-commands";
 import type { TeamCommand } from "./team-commands";
+import type { ReviewCommand } from "./review-commands";
 import { validateRepoOrRef, type UpdateCommandOptions } from "./update";
 
 /** How the CLI should run: one task, the full-screen UI, a line REPL, or piped input. */
@@ -116,6 +117,7 @@ export type CliParseResult =
       cwd: string;
       flags: CliFlags;
     }
+  | { kind: "review-command"; command: ReviewCommand; cwd: string }
   | { kind: "error"; message: string }
   | { kind: "run"; options: CliOptions };
 
@@ -142,7 +144,8 @@ Usage:
   champ models [refresh]  List or refresh discovered models
   champ model use <id/m>  Select default or workspace model
   champ model assign <t> <id/m>  Assign model to task: default | coding | chat | completion | embedding
-  champ config <cmd>      show | validate | doctor | export --redact | migrate [--dry-run] | scrub-secrets [--dry-run] | routing <auto|manual>
+  champ config <cmd>      show | set <key> <value> | edit | validate | doctor | export --redact | migrate [--dry-run] | scrub-secrets [--dry-run] | routing <auto|manual>
+  champ review <cmd>      list | show <id> | accept <id> | reject <id>  Review recorded edits
   champ policy <cmd>      show | validate   Inspect effective enterprise policy rules
   champ index [--status|--rebuild|--clear|--watch]  Inspect or manage the semantic index
   champ team list         List team definitions in .champ/teams
@@ -832,6 +835,28 @@ function parseProviderCommand(
           cwd: flags.cwd,
         };
       }
+      if (sub === "set") {
+        const key = positionals[2];
+        const value = positionals[3];
+        if (!key || value === undefined) {
+          return error('expected "config set <key> <value>"');
+        }
+        return {
+          kind: "provider-command",
+          command: { name: "config-set", key, value },
+          cwd: flags.cwd,
+        };
+      }
+      if (sub === "edit") {
+        if (positionals.length !== 2) {
+          return error('unexpected arguments for "config edit"');
+        }
+        return {
+          kind: "provider-command",
+          command: { name: "config-edit" },
+          cwd: flags.cwd,
+        };
+      }
       if (sub === "validate") {
         return {
           kind: "provider-command",
@@ -916,6 +941,31 @@ function parseProviderCommand(
       }
       return error(
         `unknown policy subcommand "${sub ?? ""}" (expected: show, validate)`,
+      );
+    }
+
+    case "review": {
+      const sub = positionals[1];
+      const id = positionals[2];
+      if (sub === "list" && positionals.length <= 3) {
+        return {
+          kind: "review-command",
+          command: id ? { name: "list", id } : { name: "list" },
+          cwd: flags.cwd,
+        };
+      }
+      if (sub === "show" || sub === "accept" || sub === "reject") {
+        if (!id || positionals.length !== 3) {
+          return error(`expected "review ${sub} <id>"`);
+        }
+        return {
+          kind: "review-command",
+          command: { name: sub, id },
+          cwd: flags.cwd,
+        };
+      }
+      return error(
+        `unknown review subcommand "${sub ?? ""}" (expected: list, show, accept, reject)`,
       );
     }
 

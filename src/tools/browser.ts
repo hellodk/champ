@@ -31,15 +31,22 @@ let page: Page | null = null;
  * "Cannot find module 'playwright-core'").
  */
 async function ensureBrowser(): Promise<void> {
-  if (!browser) {
-    const { chromium } = await import("@playwright/test");
-    browser = await chromium.launch({ headless: true });
-  }
-  if (!page) {
-    const context = await browser.newContext();
-    page = await context.newPage();
-    // Set a reasonable timeout for all page operations
-    page.setDefaultTimeout(30000);
+  try {
+    if (!browser) {
+      const { chromium } = await import("@playwright/test");
+      browser = await chromium.launch({ headless: true });
+    }
+    if (!page) {
+      const context = await browser.newContext();
+      page = await context.newPage();
+      // Set a reasonable timeout for all page operations
+      page.setDefaultTimeout(30000);
+    }
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `browser is unavailable: Playwright could not be loaded or launched (${detail}). Install @playwright/test and its Chromium binary.`,
+    );
   }
 }
 

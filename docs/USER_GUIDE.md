@@ -81,6 +81,8 @@ champ provider test <id> [--inference]       # connectivity/auth; --inference al
 champ provider discover <id>                 # refresh one endpoint's models from /v1/models or /api/tags
 champ models [refresh] [--endpoint <id>]     # list or refresh models as <endpoint-id>/<model-id>
 champ config show                            # effective settings from both stores, redacted
+champ config set <key> <value>                # typed, atomic edit of ~/.champ/config.yaml
+champ config edit                            # open ~/.champ/config.yaml in $EDITOR
 champ config validate                        # report configuration problems (exit 1 on errors)
 champ config doctor                          # check endpoints, assignments and credentials
 champ config export --redact                 # machine-readable snapshot (flag required)
@@ -134,7 +136,7 @@ Switch modes from the dropdown or `Cmd/Ctrl + Shift + M`:
 
 ### Tools & Safety
 
-19 tools cover file I/O (`read_file`, `edit_file`, `create_file`, `delete_file`, `list_directory`), search (`grep_search`, `file_search`, `codebase_search`, `web_search`), shell/git/browser (`run_terminal_cmd`, `run_tests`, `git_tool`, `browser_tool`), SSH (`remote_run_terminal`, `remote_edit_file`), diagrams/docs (`generate_diagram`, `generate_doc`), delegation (`delegate_task`), and MCP (`mcp_<server>_<tool>`). The CLI and TUI expose the same set except the two SSH tools, which require the extension's connection pool.
+19 tools cover file I/O (`read_file`, `edit_file`, `create_file`, `delete_file`, `list_directory`), search (`grep_search`, `file_search`, `codebase_search`, `web_search`), shell/git/browser (`run_terminal_cmd`, `run_tests`, `git`, `browser`), SSH (`remote_run_terminal`, `remote_edit_file`), diagrams/docs (`generate_diagram`, `generate_doc`), delegation (`delegate_task`), and MCP (`mcp_<server>_<tool>`). The CLI and TUI expose the same set except the two SSH tools, which require the extension's connection pool.
 
 Permission profiles are an operator-set security floor: `read-only` denies every state-changing tool, `supervised` prompts for them, and `autonomous` allows them without a prompt. The profile comes from `--permission-profile`, `agent.permissionProfile`, `CHAMP_PERMISSION_PROFILE`, then `--yes`/`agent.yoloMode`, in that order. An explicit profile cannot be weakened by model output, project policy, or a sub-agent. Terminal execution passes through `CommandSandbox`, outbound tool results pass through `SecretScanner` + `PromptGuard`, and file paths are symlink-guarded.
 
@@ -167,9 +169,9 @@ champ index --watch                        # rebuild when content hashes change
 
 Key flags: `--cwd <dir>`, `--provider <name>`, `--base-url <url>`, `--model <id>`, `--api-key <key>`, `--max-iter <n>`, `--skill <name>`, `--file <path>`, `--list-skills`, `--no-skills`, `--embedding-model <id>`, `--embedding-provider <name>`, `-h`/`--help`, `-v`/`--version`.
 
-The TUI has Chat, Providers, Config and Help screens. Press `Tab` to cycle screens, `Esc` to return to Chat, `Ctrl-C` to abort a turn or exit, and `A` on the Providers screen to add an endpoint. Config actions: `V` validate, `D` doctor, `E` redacted export.
+The TUI has Chat, Providers, Config, Help, Sessions and Review screens. Press `Tab` to cycle screens, `Esc` to return to Chat or dismiss completion, `Ctrl-C` to abort a turn or exit, and `A` on the Providers screen to add an endpoint. In Chat, typing `/` opens a command popup (`↑↓` select, `Tab`/`Enter` accept, `Esc` dismiss); `PgUp`/`PgDn` scroll the transcript, and `Up`/`Down` recall prompt history when the input is not empty. Config actions: `S` set a value, `I` open the config in `$EDITOR`, `V` validate, `D` doctor, `E` redacted export. Sessions: `↑↓` select, `Enter` resume. Review: `↑↓` select, `A` accept, `R` reject.
 
-REPL and TUI commands: `/skills`, `/<skill> [args]`, `/session`, `/sessions`, `/checkpoint [label]`, `/compact`, `/help`, `/exit`.
+REPL and TUI commands: `/skills`, `/<skill> [args]`, `/session`, `/sessions`, `/checkpoint [label]`, `/compact`, `/help`, `/exit`. `/models` is an alias for `/model`. `champ review list` (or the TUI Review screen) inspects edits recorded after each turn; `accept` keeps them, `reject` restores the previous file contents.
 
 Tools: all 17 non-SSH built-ins are available in the CLI, including terminal, git, browser, fetch, web search, codebase search, tests, docs and delegation. MCP servers from `mcp.servers` are connected at startup and their tools appear as `mcp_<server>_<tool>`. `web_search` needs `BRAVE_API_KEY` in the environment or the `brave-search-api-key` OS keyring entry.
 

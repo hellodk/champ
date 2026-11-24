@@ -13,6 +13,7 @@ import * as path from "path";
 import * as os from "os";
 import { execFile } from "child_process";
 import { upsertProviderInYaml } from "../config/yaml-writer";
+import { commandSuggestions } from "../cli/commands";
 import {
   type AgentController,
   PromptInjectionError,
@@ -1188,22 +1189,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   /**
    * Handle a slash-command autocomplete request from the webview.
-   * Queries the skill registry's matchPrefix and posts a
-   * skillAutocompleteResponse with the results. Returns an empty list
-   * when no registry is attached so the webview gets a clean response
-   * either way.
+   * Merges the shared built-in command list with skill-registry matches and
+   * posts one skillAutocompleteResponse; the webview gets the same commands
+   * the CLI/TUI advertise even when no skills are installed.
    */
   private handleSkillAutocompleteRequest(prefix: string): void {
-    if (!this.skillRegistry) {
-      this.postMessage(createSkillAutocompleteResponse([], prefix));
-      return;
-    }
-    const matches = this.skillRegistry.matchPrefix(prefix);
-    const suggestions = matches.map((s) => ({
+    const matches = this.skillRegistry?.matchPrefix(prefix) ?? [];
+    const skills = matches.map((s) => ({
       name: s.metadata.name,
       description: s.metadata.description,
     }));
-    this.postMessage(createSkillAutocompleteResponse(suggestions, prefix));
+    this.postMessage(
+      createSkillAutocompleteResponse(
+        commandSuggestions(prefix, skills),
+        prefix,
+      ),
+    );
   }
 
   /**

@@ -48,7 +48,13 @@ import { createCliContext } from "./cli/context";
 import { CliCheckpointManager } from "./cli/checkpoint-manager";
 import { runIndexCommand } from "./cli/index-commands";
 import { runTeamCommand } from "./cli/team-commands";
-import { CHAT_COMMAND_HELP } from "./cli/commands";
+import { CliReviewStore } from "./cli/review-store";
+import {
+  CONFIG_KEYS,
+  getConfigValue,
+  setConfigValue,
+} from "./cli/config-editor";
+import { canonicalChatCommand, CHAT_COMMAND_HELP } from "./cli/commands";
 import { JsonlEventSink } from "./cli/jsonl-events";
 import { runRpcServer, type RpcTurnEvents } from "./cli/rpc";
 import { importLegacySession } from "./session/legacy-import";
@@ -61,6 +67,7 @@ import {
   type TurnStatus,
 } from "./cli/turn-runtime";
 import { runUpdateCommand } from "./cli/update";
+import { runReviewCommand } from "./cli/review-commands";
 import { ChainCredentialStore } from "./config/credential-store";
 import { champConfigDir } from "./config/home";
 import { BudgetEnforcer } from "./config/budget";
@@ -88,6 +95,7 @@ import {
 import { EndpointRepository } from "./config/provider-repository";
 import { SmartRouter } from "./providers/smart-router";
 import { createCliIndexingService } from "./indexing/cli-indexing";
+import { createCliContextResolver } from "./cli/context-resolver";
 import type { RulesEngine } from "./rules/rules-engine";
 import type { SkillRegistry } from "./skills/skill-registry";
 import type { ToolRegistry } from "./tools/registry";
@@ -99,6 +107,7 @@ import {
 } from "./config/config-loader";
 import { ProviderFactory, type SecretReader } from "./providers/factory";
 import { AgentController } from "./agent/agent-controller";
+import { EditReviewTracker } from "./agent/edit-review-tracker";
 import {
   createCliMcpSecretResolver,
   createHeadlessToolRegistry,
@@ -349,6 +358,8 @@ function readStdin(): Promise<string> {
 }
 
 interface TurnOptions {
+  /** Expand @-references (e.g. @Web, @Files) before the turn is sent. */
+  resolveContext?: (text: string) => Promise<string>;
   requestApproval: (description: string) => Promise<boolean>;
   maxIterations?: number;
   onDone: (info: { tools: number; usage: TokenUsage }) => void;
@@ -377,6 +388,8 @@ interface TurnOptions {
 
 /** Shared per-turn options for an interactive session (REPL). */
 interface SessionOptions {
+  /** Expand @-references (e.g. @Web, @Files) before each REPL turn. */
+  resolveContext?: (text: string) => Promise<string>;
   maxIterations?: number;
   /** Session log backing the REPL (null when persistence is off). */
   log: SessionLog | null;
@@ -493,9 +506,12 @@ async function runTurn(
       }
     : options.requestApproval;
 
+  const resolvedText = options.resolveContext
+    ? await options.resolveContext(text)
+    : text;
   const outcome = await executeTurn({
     controller,
-    text,
+    text: resolvedText,
     requestApproval,
     maxIterations: options.maxIterations,
     headless: options.headless,
@@ -732,10 +748,15 @@ async function runRepl(
 
     // Session and meta commands never reach the model.
     if (trimmed.startsWith("/")) {
-      const [command, ...rest] = trimmed.split(/\s+/);
-      if (command === "/exit" || command === "/quit" || command === "/q") {
+      const [rawCommand, ...rest] = trimmed.split(/\s+/);
+      if (
+        rawCommand === "/exit" ||
+        rawCommand === "/quit" ||
+        rawCommand === "/q"
+      ) {
         break;
       }
+      const command = canonicalChatCommand(rawCommand) ?? rawCommand;
 
       switch (command) {
         case "/help": {
@@ -893,6 +914,7 @@ async function runRepl(
       policy: opts.policy,
       permissionProfile: opts.permissionProfile,
       onBeforeMutation: opts.onBeforeMutation,
+      resolveContext: opts.resolveContext,
     });
 
     if (outcome.aborted) {
@@ -984,6 +1006,13 @@ async function main(): Promise<number> {
     }
     return runPolicyCommand(parsed.command, {
       engine,
+      stdout: plainStdout,
+      stderr: (text) => process.stderr.write(text),
+    });
+  }
+  if (parsed.kind === "review-command") {
+    return runReviewCommand(parsed.command, {
+      workspace: path.resolve(parsed.cwd),
       stdout: plainStdout,
       stderr: (text) => process.stderr.write(text),
     });
@@ -1281,6 +1310,25 @@ async function main(): Promise<number> {
         }
       : undefined,
   });
+  const registeredWebSearch = toolRegistry.get("web_search");
+  const cliContextResolver = createCliContextResolver({
+    workspaceRoot: workspace,
+    indexingService: indexingService ?? { search: async () => [] },
+    webSearchTool: {
+      execute: async (args) => {
+        if (!registeredWebSearch) {
+          return { success: false, output: "web_search is not available" };
+        }
+        const result = await registeredWebSearch.execute(args, {
+          workspaceRoot: workspace,
+          abortSignal: new AbortController().signal,
+          reportProgress: () => undefined,
+          requestApproval: async () => false,
+        });
+        return { success: result.success, output: result.output };
+      },
+    },
+  });
   if (config.mcp?.servers?.length) {
     try {
       await loadHeadlessMcpServers(toolRegistry, config.mcp.servers, {
@@ -1462,6 +1510,20 @@ async function main(): Promise<number> {
     }
     onTurnEnd = createSessionRecorder(controller, sessionLog);
   }
+
+  const reviewStore = new CliReviewStore(workspace);
+  const reviewTracker = new EditReviewTracker();
+  controller.setEditReviewTracker(reviewTracker);
+  const baseOnTurnEnd = onTurnEnd;
+  onTurnEnd = async () => {
+    await baseOnTurnEnd();
+    const entry = await reviewStore.recordFromTracker(reviewTracker);
+    if (entry) {
+      process.stderr.write(
+        `[champ] recorded review ${entry.id} — "champ review list" to inspect\n`,
+      );
+    }
+  };
 
   // Same grounding the extension attaches: a lazy workspace outline plus the
   // workspace-local and user-level memory banks. Loading is best-effort — a
@@ -1794,7 +1856,7 @@ async function main(): Promise<number> {
         );
         return executeTurn({
           controller,
-          text: trimmed,
+          text: await cliContextResolver.resolve(trimmed),
           ...turnOptions,
           events: runEvents,
         });
@@ -1880,7 +1942,8 @@ async function main(): Promise<number> {
         },
         exportRedacted: () => settings.export({ redact: true }),
         command: async (text) => {
-          const [name, ...args] = text.trim().split(/\s+/);
+          const [rawName, ...args] = text.trim().split(/\s+/);
+          const name = canonicalChatCommand(rawName) ?? rawName;
           switch (name) {
             case "/status":
               return `mode=${liveController?.getMode() ?? config.agent?.defaultMode ?? "agent"} model=${provider.config.model ?? "unknown"} session=${sessionLog?.id ?? "none"}`;
@@ -1920,6 +1983,71 @@ async function main(): Promise<number> {
               return null;
           }
         },
+        listSessions: async () => {
+          const sessions = await SessionLog.list(workspace);
+          return sessions.map((session) => ({
+            id: session.meta.id,
+            label: `${session.messages} message(s)${session.meta.model ? ` · ${session.meta.model}` : ""}`,
+            updatedAt: `${new Date(session.lastActivityAt).toLocaleString(
+              "en-IN",
+              {
+                timeZone: "Asia/Kolkata",
+                dateStyle: "medium",
+                timeStyle: "medium",
+                hour12: false,
+              },
+            )} IST`,
+          }));
+        },
+        resumeSession: async (id) => {
+          const log = await SessionLog.open(workspace, id);
+          if (!log) throw new Error(`unknown session "${id}"`);
+          const replay = log.replay();
+          sessionLog = log;
+          controller.setHistory(resumedHistory(replay));
+          return `resumed ${id} — ${replay.messages.length} message(s) in context`;
+        },
+        listReviews: async () => {
+          const entries = await reviewStore.list();
+          return entries.map((entry) => ({
+            id: entry.id,
+            status: entry.status,
+            files: entry.edits.length,
+            summary:
+              entry.edits.map((edit) => edit.path).join(", ") || "no edits",
+          }));
+        },
+        acceptReview: async (id) => {
+          const entry = await reviewStore.accept(id);
+          if (!entry) throw new Error(`unknown review id "${id}"`);
+          return `accepted ${entry.id}`;
+        },
+        rejectReview: async (id) => {
+          const entry = await reviewStore.reject(id);
+          if (!entry) throw new Error(`unknown review id "${id}"`);
+          return `rejected ${entry.id}`;
+        },
+        listConfig: async () => {
+          const target = configPath();
+          const entries = [];
+          for (const def of CONFIG_KEYS) {
+            entries.push({
+              key: def.key,
+              value: await getConfigValue({ configPath: target, key: def.key }),
+              description: def.description,
+            });
+          }
+          return entries;
+        },
+        setConfig: (key, value) =>
+          setConfigValue({ configPath: configPath(), key, value }),
+        editConfig: () =>
+          captureCommand((out) =>
+            runProviderCommand(
+              { name: "config-edit" },
+              { ...commandDeps, stdout: out },
+            ),
+          ),
         exit: () => {
           process.exitCode = EXIT_OK;
         },
@@ -1947,6 +2075,7 @@ async function main(): Promise<number> {
           onExport,
           onIndex,
           model: provider.config.model,
+          resolveContext: (text) => cliContextResolver.resolve(text),
         },
         `Champ ${cliVersion()} — model ${provider.config.model ?? "?"}. /help for commands.`,
       );
@@ -1997,6 +2126,7 @@ async function main(): Promise<number> {
               permissionProfile,
               onBeforeMutation,
               jsonl,
+              resolveContext: (text) => cliContextResolver.resolve(text),
               jsonlSession: {
                 workspace,
                 sessionId: sessionLog?.id,

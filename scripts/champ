@@ -63,6 +63,30 @@ _require_cmds() {
   done
 }
 
+# Resolve the package-manager command once per process. Corepack ships with
+# Node, so a machine without a globally linked `pnpm` binary still works.
+PNPM_CMD=()
+_resolve_pnpm() {
+  if (( ${#PNPM_CMD[@]} > 0 )); then
+    return 0
+  fi
+  if command -v pnpm >/dev/null 2>&1; then
+    PNPM_CMD=(pnpm)
+  elif command -v corepack >/dev/null 2>&1; then
+    PNPM_CMD=(corepack pnpm)
+  else
+    echo "ERROR: 'pnpm' not found in PATH and 'corepack' is unavailable. Run 'corepack enable' or install pnpm." >&2
+    exit 1
+  fi
+}
+
+_require_pnpm() { _resolve_pnpm; }
+
+_pnpm() {
+  _resolve_pnpm
+  "${PNPM_CMD[@]}" "$@"
+}
+
 # Latest release tag via the GitHub API (gh → jq). `gh` is authenticated in
 # this environment; fall back so it also works where gh is unauthenticated.
 _latest_version() {
@@ -91,13 +115,14 @@ cmd_version() {
 }
 
 cmd_build() {
-  _require_cmds node pnpm
+  _require_cmds node
+  _require_pnpm
   _section "compile"
-  pnpm run compile
+  _pnpm run compile
   _section "package VSIX"
   local ver
   ver=$(_version)
-  pnpm dlx @vscode/vsce package --no-dependencies 2>&1
+  _pnpm dlx @vscode/vsce package --no-dependencies 2>&1
   _ok "champ-${ver}.vsix ready"
 }
 
@@ -107,7 +132,8 @@ cmd_install() {
 
   local ver vsix
   if [[ "$mode" == "build" ]]; then
-    _require_cmds node pnpm
+    _require_cmds node
+    _require_pnpm
     _section "build from source"
     cmd_build
     ver=$(_version)
@@ -146,36 +172,37 @@ cmd_release() {
 }
 
 cmd_watch() {
-  _require_cmds node pnpm
+  _require_cmds node
+  _require_pnpm
   _section "watch (extension + webview)"
   echo "  Ctrl-C to stop"
-  pnpm run watch
+  _pnpm run watch
 }
 
 cmd_test() {
-  _require_cmds pnpm
+  _require_pnpm
   local suite="${1:-unit}"
   case "$suite" in
     unit)
       _section "unit tests"
-      pnpm exec vitest run --config vitest.config.ts
+      _pnpm exec vitest run --config vitest.config.ts
       ;;
     int|integration)
       _section "integration tests"
-      pnpm exec vitest run --config vitest.integration.config.ts
+      _pnpm exec vitest run --config vitest.integration.config.ts
       ;;
     e2e)
       _section "E2E tests"
-      pnpm exec vitest run --config vitest.e2e.config.ts
+      _pnpm exec vitest run --config vitest.e2e.config.ts
       ;;
     report)
       cmd_test_report
       ;;
     all)
       _section "unit tests"
-      pnpm exec vitest run --config vitest.config.ts || true
+      _pnpm exec vitest run --config vitest.config.ts || true
       _section "integration tests"
-      pnpm exec vitest run --config vitest.integration.config.ts || true
+      _pnpm exec vitest run --config vitest.integration.config.ts || true
       ;;
     *)
       echo "Usage: champ test [unit|int|e2e|all|report]" >&2
@@ -223,12 +250,12 @@ cmd_test_report() {
 }
 
 cmd_lint() {
-  _require_cmds pnpm
+  _require_pnpm
   _section "type-check"
-  pnpm run check-types
+  _pnpm run check-types
   _ok "TypeScript OK"
   _section "eslint"
-  pnpm run lint
+  _pnpm run lint
   _ok "ESLint OK"
 }
 

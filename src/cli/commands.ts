@@ -23,6 +23,61 @@ export function isChatCommand(value: string): value is ChatCommand {
   return (CHAT_COMMANDS as readonly string[]).includes(value.split(/\s+/)[0]);
 }
 
+/** Accepted spellings that map onto a canonical command. */
+export const CHAT_COMMAND_ALIASES: Record<string, ChatCommand> = {
+  "/models": "/model",
+};
+
+/** Resolve a command name or alias; returns null for ordinary prompt text. */
+export function canonicalChatCommand(value: string): ChatCommand | null {
+  const name = value.trim().split(/\s+/)[0];
+  if (!name.startsWith("/")) return null;
+  const lowered = name.toLowerCase();
+  if (isChatCommand(lowered)) return lowered as ChatCommand;
+  return CHAT_COMMAND_ALIASES[lowered] ?? null;
+}
+
+export interface CommandSuggestion {
+  name: string;
+  description: string;
+}
+
+/**
+ * One suggestion list shared by the Ink TUI and the VS Code webview, so both
+ * frontends advertise the same commands. Skills are merged in by the callers
+ * and de-duplicated against built-ins.
+ */
+export function commandSuggestions(
+  prefix: string,
+  skills: CommandSuggestion[] = [],
+): CommandSuggestion[] {
+  const needle = prefix.trim().toLowerCase().replace(/^\//, "");
+  const builtIns: CommandSuggestion[] = [...CHAT_COMMANDS].map((name) => ({
+    name,
+    description: CHAT_COMMAND_HELP[name],
+  }));
+  for (const [alias, target] of Object.entries(CHAT_COMMAND_ALIASES)) {
+    builtIns.push({
+      name: alias,
+      description: `alias for ${target}`,
+    });
+  }
+  const seen = new Set<string>();
+  const result: CommandSuggestion[] = [];
+  for (const item of [...builtIns, ...skills]) {
+    if (seen.has(item.name)) continue;
+    if (
+      needle &&
+      !item.name.toLowerCase().replace(/^\//, "").startsWith(needle)
+    ) {
+      continue;
+    }
+    seen.add(item.name);
+    result.push(item);
+  }
+  return result;
+}
+
 export const CHAT_COMMAND_HELP: Record<ChatCommand, string> = {
   "/model": "show the active model and endpoint registry",
   "/mode": "show or change the agent mode (`/mode agent|ask|plan`)",

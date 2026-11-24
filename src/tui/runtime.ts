@@ -46,6 +46,25 @@ export interface TuiDoctorReport {
   lines: string[];
 }
 
+export interface TuiSessionSummary {
+  id: string;
+  label: string;
+  updatedAt: string;
+}
+
+export interface TuiReviewSummary {
+  id: string;
+  status: string;
+  files: number;
+  summary: string;
+}
+
+export interface TuiConfigEntry {
+  key: string;
+  value: string;
+  description: string;
+}
+
 export interface TuiRuntime {
   header: TuiHeader;
   initialEndpoints: EndpointSummary[];
@@ -67,5 +86,13 @@ export interface TuiRuntime {
   exportRedacted(): Promise<string>;
   /** Handle a defined slash command; returns null when it is not one of ours. */
   command?(text: string): Promise<string | null>;
+  listSessions?(): Promise<TuiSessionSummary[]>;
+  resumeSession?(id: string): Promise<string>;
+  listReviews?(): Promise<TuiReviewSummary[]>;
+  acceptReview?(id: string): Promise<string>;
+  rejectReview?(id: string): Promise<string>;
+  listConfig?(): Promise<TuiConfigEntry[]>;
+  setConfig?(key: string, value: string): Promise<string>;
+  editConfig?(): Promise<string>;
   exit(): void;
 }

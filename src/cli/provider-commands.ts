@@ -4,7 +4,10 @@
  */
 import * as fs from "fs";
 import * as path from "path";
+import { spawnSync } from "child_process";
 import type { CredentialStore } from "../config/credential-store";
+import { champHome } from "../config/home";
+import { setConfigValue } from "./config-editor";
 import {
   EndpointNotFoundError,
   type EndpointRegistry,
@@ -37,6 +40,8 @@ export type ProviderCommand =
   | { name: "model-use"; endpointAndModel: string; workspace?: boolean }
   | { name: "model-assign"; task: TaskAssignment; endpointAndModel: string }
   | { name: "config-show" }
+  | { name: "config-set"; key: string; value: string }
+  | { name: "config-edit" }
   | { name: "config-validate" }
   | { name: "config-doctor" }
   | { name: "config-export"; redact: boolean }
@@ -318,6 +323,44 @@ export async function runProviderCommand(
           },
         };
         deps.stdout(`${JSON.stringify(redacted, null, 2)}\n`);
+        return 0;
+      }
+
+      case "config-set": {
+        const configPath =
+          process.env.CHAMP_CONFIG ??
+          path.join(champHome(), ".champ", "config.yaml");
+        deps.stdout(
+          `${await setConfigValue({
+            configPath,
+            key: cmd.key,
+            value: cmd.value,
+          })}\n`,
+        );
+        return 0;
+      }
+
+      case "config-edit": {
+        const configPath =
+          process.env.CHAMP_CONFIG ??
+          path.join(champHome(), ".champ", "config.yaml");
+        const editor = process.env.VISUAL || process.env.EDITOR;
+        if (!editor) {
+          deps.stdout(
+            `No $EDITOR set. Edit ${configPath} or run "champ config set <key> <value>".\n`,
+          );
+          return 0;
+        }
+        const result = spawnSync(editor, [configPath], {
+          shell: true,
+          stdio: "inherit",
+        });
+        if (result.error || result.status !== 0) {
+          deps.stderr(
+            `champ: editor failed: ${result.error?.message ?? `exit ${result.status}`}\n`,
+          );
+          return 1;
+        }
         return 0;
       }
 

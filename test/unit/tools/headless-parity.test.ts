@@ -4,8 +4,9 @@
  * The headless registry must expose every built-in tool that does not require
  * VS Code APIs, and must be able to load MCP servers from the same config the
  * extension reads. The two remote-SSH tools stay extension-only: they need a
- * live SSH pool that the CLI does not own. The simulated browser tool is
- * deliberately excluded until a real, url-guarded implementation exists.
+ * live SSH pool that the CLI does not own. The real, url-guarded Playwright
+ * browser tool is registered as `browser`; the old simulated `browser_tool`
+ * stays excluded.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -16,6 +17,7 @@ import type { ToolExecutionContext } from "@/tools/types";
 import type { MCPClientManager, MCPTool } from "@/mcp/mcp-client";
 
 const HEADLESS_BUILTINS = [
+  "browser",
   "read_file",
   "edit_file",
   "create_file",

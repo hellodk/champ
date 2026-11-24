@@ -199,6 +199,8 @@ champ config migrate
 | `champ models [refresh]`                                 | List or refresh discovered models                     |
 | `champ model use <id>/<model> [--workspace]`             | Set default model globally or for a repo              |
 | `champ config show \| migrate [--dry-run]`               | Inspect redacted config or import legacy YAML         |
+| `champ config set <key> <value> \| edit`                  | Edit a typed setting in place or open `$EDITOR`       |
+| `champ review list \| show \| accept \| reject <id>`     | Inspect and accept/reject recorded file edits         |
 | `champ update [--check \| --force \| --ref <ref>]`       | Update the `champ` CLI installation from upstream git |
 
 ### VS Code commands
