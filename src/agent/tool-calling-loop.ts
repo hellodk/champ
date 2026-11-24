@@ -20,6 +20,7 @@ import type { MetricsCollector } from "../observability/metrics-collector";
 import { ContextWindowManager } from "../providers/context-manager";
 import { createContextSummariser } from "../providers/context-summariser";
 import { truncateToolOutput } from "../utils/tool-output-budget";
+import { executionStatus, type ExecutionStatus } from "./execution-status";
 
 export interface ToolLoopResult {
   /** Final accumulated text from the last LLM turn with no tool calls. */
@@ -30,6 +31,10 @@ export interface ToolLoopResult {
   usedTools: boolean;
   /** Error message if execution failed. */
   error?: string;
+  /** Additive outcome classification propagated to callers. */
+  status?: ExecutionStatus;
+  /** Number of tool calls that returned success=false. */
+  toolFailures?: number;
 }
 
 const MAX_ITERATIONS = 4;
@@ -71,6 +76,7 @@ export class ToolCallingLoop {
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let usedTools = false;
+    let toolFailures = 0;
     let finalText = "";
 
     // One manager per tool-loop turn: it shares the anchored accounting (#137)
@@ -90,6 +96,8 @@ export class ToolCallingLoop {
           },
           usedTools,
           error: "Aborted",
+          status: "cancelled",
+          toolFailures,
         };
       }
 
@@ -131,6 +139,8 @@ export class ToolCallingLoop {
               text: cached,
               usage: { inputTokens: 0, outputTokens: 0 },
               usedTools: false,
+              status: "success",
+              toolFailures: 0,
             };
           }
         }
@@ -225,6 +235,12 @@ export class ToolCallingLoop {
           },
           usedTools,
           error: err instanceof Error ? err.message : String(err),
+          status: executionStatus({
+            text: finalText || iterText,
+            error: err instanceof Error ? err.message : String(err),
+            toolFailures,
+          }),
+          toolFailures,
         };
       }
 
@@ -240,6 +256,12 @@ export class ToolCallingLoop {
           },
           usedTools,
           error: iterError,
+          status: executionStatus({
+            text: iterText,
+            error: iterError,
+            toolFailures,
+          }),
+          toolFailures,
         };
       }
 
@@ -335,8 +357,10 @@ export class ToolCallingLoop {
               ? result.output
               : JSON.stringify(result.output ?? "");
           toolSuccess = result.success;
+          if (!result.success) toolFailures++;
         } catch (err) {
           toolError = err instanceof Error ? err.message : String(err);
+          toolFailures++;
           this.metrics?.recordToolCall({
             toolName: tc.name,
             startTime: toolStartTime,
@@ -419,6 +443,8 @@ export class ToolCallingLoop {
       text: finalText,
       usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
       usedTools,
+      status: executionStatus({ text: finalText, toolFailures }),
+      toolFailures,
     };
   }
 }

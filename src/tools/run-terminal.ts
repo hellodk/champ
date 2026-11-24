@@ -15,6 +15,7 @@ import {
 } from "../safety/execution-backend";
 import { PolicyEngine } from "../policy/engine";
 import { terminalOutputBuffer } from "../agent/terminal-output-buffer";
+import { checkGitSafety } from "../safety/git-safety";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_BYTES = 15_000;
@@ -92,6 +93,14 @@ export const runTerminalTool: Tool = {
           output: `Command denied by policy (${evaluation.source}): ${evaluation.reason}`,
         };
       }
+    }
+
+    const gitSafety = checkGitSafety(command);
+    if (!gitSafety.allowed) {
+      return {
+        success: false,
+        output: `Command blocked by git safety: ${gitSafety.reason}`,
+      };
     }
 
     // Sandbox check first — this happens even after approval as a safety net.

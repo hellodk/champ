@@ -1,11 +1,23 @@
 import * as path from "path";
 import { RulesEngine } from "../rules/rules-engine";
 
+/**
+ * Non-negotiable coding workflow. Added as an always-on rule so every CLI
+ * turn sees it, independent of project rules or model instructions.
+ */
+export const CLI_WORKFLOW_RULE = `Coding workflow (mandatory):
+1. After any file edit, inspect the resulting diff before continuing.
+2. Run the smallest relevant test command for the changed area.
+3. If a step cannot be completed, say so explicitly. Never claim untested work is verified.
+4. Retry a failing command at most twice, then report the failure with the exact error.`;
+
 export interface CliRulesOptions {
   /** Absolute workspace root. */
   workspaceRoot: string;
   /** `userRules` from the effective config file, if any. */
   userRules?: string;
+  /** Add the mandatory CLI coding-workflow rule (default false for unit purity). */
+  includeWorkflowRule?: boolean;
 }
 
 /**
@@ -16,6 +28,14 @@ export async function loadCliRules(
   opts: CliRulesOptions,
 ): Promise<RulesEngine> {
   const engine = new RulesEngine(opts.workspaceRoot);
+  if (opts.includeWorkflowRule) {
+    engine.addRule({
+      name: "champ-cli-workflow",
+      content: CLI_WORKFLOW_RULE,
+      type: "always",
+      source: "team",
+    });
+  }
   try {
     await engine.loadRulesFromDirectory(
       path.join(opts.workspaceRoot, ".champ", "rules"),

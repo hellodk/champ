@@ -43,6 +43,8 @@ import type { SmartRouter, TaskType } from "../providers/smart-router";
 import type { ToolRegistry } from "../tools/registry";
 import type { ToolExecutionContext, ToolResult } from "../tools/types";
 import { ContextWindowManager } from "../providers/context-manager";
+import { executionStatus, type ExecutionStatus } from "./execution-status";
+
 import { createContextSummariser } from "../providers/context-summariser";
 import { truncateToolOutput } from "../utils/tool-output-budget";
 import type { MemoryBank } from "../memory/memory-bank";
@@ -78,6 +80,8 @@ export interface ProcessMessageOptions {
 export interface ProcessMessageResult {
   text: string;
   toolCalls: Array<{ call: ToolCall; result: ToolResult }>;
+  /** Additive outcome classification for headless exit-code mapping. */
+  status?: ExecutionStatus;
 }
 
 export type StreamDeltaListener = (delta: StreamDelta) => void;
@@ -564,6 +568,7 @@ export class AgentController {
       let totalInputTokens = 0;
       let totalOutputTokens = 0;
       let hadError = false;
+      let toolFailures = 0;
       let analyticsActive = false;
       if (this.analyticsInstance) {
         try {
@@ -778,9 +783,16 @@ export class AgentController {
               // ignore — analytics failure must not break the message path
             }
           }
+          const text = collectedText.join("");
           return {
-            text: collectedText.join(""),
+            text,
             toolCalls: collectedToolCalls,
+            status: executionStatus({
+              text,
+              error: "stream error",
+              aborted: options.abortSignal?.aborted,
+              toolFailures,
+            }),
           };
         }
 
@@ -1006,6 +1018,14 @@ export class AgentController {
             });
           }
 
+          // A denied approval is an expected headless outcome, not an
+          // execution failure — the model is told why and may continue.
+          const denial =
+            /requires approval|User denied execution|denied by policy/i.test(
+              result.output,
+            );
+          if (!result.success && !denial) toolFailures++;
+
           if (usePromptBased) {
             // For prompt-based providers, the next user message contains
             // the tool result wrapped in <tool_result> so the model can
@@ -1110,9 +1130,16 @@ export class AgentController {
         });
       }
 
+      const text = collectedText.join("");
       return {
-        text: collectedText.join(""),
+        text,
         toolCalls: collectedToolCalls,
+        status: executionStatus({
+          text,
+          error: hadError ? "turn ended with errors" : undefined,
+          aborted: options.abortSignal?.aborted,
+          toolFailures,
+        }),
       };
     } finally {
       this._isProcessing = false;

@@ -151,7 +151,7 @@ export async function executeTurn({
       ...(streamError ? { error: streamError } : {}),
       aborted: abort.signal.aborted,
     };
-    return { ...outcome, status: turnStatus(outcome) };
+    return { ...outcome, status: result.status ?? turnStatus(outcome) };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const outcome = {

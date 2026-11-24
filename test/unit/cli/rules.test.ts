@@ -144,4 +144,15 @@ describe("rulesPrompt", () => {
     const engine = await loadCliRules({ workspaceRoot: ws });
     expect(rulesPrompt(engine, { mode: "agent" })).toBe("");
   });
+
+  it("adds the mandatory workflow rule only when requested", async () => {
+    const ws = makeTempDir();
+    const engine = await loadCliRules({
+      workspaceRoot: ws,
+      includeWorkflowRule: true,
+    });
+    const prompt = rulesPrompt(engine, { mode: "agent" });
+    expect(prompt).toContain("Coding workflow (mandatory)");
+    expect(prompt).toContain("inspect the resulting diff");
+  });
 });

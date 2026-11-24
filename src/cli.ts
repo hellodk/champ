@@ -45,6 +45,7 @@ import { applyAllowedTools } from "./cli/tool-scope";
 import { runProviderCommand } from "./cli/provider-commands";
 import { runPolicyCommand } from "./cli/policy-commands";
 import { createCliContext } from "./cli/context";
+import { CliCheckpointManager } from "./cli/checkpoint-manager";
 import { runIndexCommand } from "./cli/index-commands";
 import {
   abortActiveTurn,
@@ -349,6 +350,8 @@ interface TurnOptions {
   budget?: BudgetEnforcer;
   /** Managed/user/project/session policy shared by both clients. */
   policy?: PolicyEngine;
+  /** Recovery snapshot callback invoked before mutating tools write. */
+  onBeforeMutation?: (paths: string[]) => Promise<void>;
 }
 
 /** Shared per-turn options for an interactive session (REPL). */
@@ -372,6 +375,8 @@ interface SessionOptions {
   budget?: BudgetEnforcer;
   /** Managed/user/project/session policy shared by both clients. */
   policy?: PolicyEngine;
+  /** Recovery snapshot callback shared by every turn in the session. */
+  onBeforeMutation?: (paths: string[]) => Promise<void>;
 }
 
 function warnMissingTools(
@@ -443,6 +448,7 @@ async function runTurn(
     headless: options.headless,
     budget: options.budget,
     policy: options.policy,
+    onBeforeMutation: options.onBeforeMutation,
     onTurnEnd: options.onTurnEnd,
     events: {
       onText: (chunk) => {
@@ -747,6 +753,7 @@ async function runRepl(
       onDone: printSummary,
       budget: opts.budget,
       policy: opts.policy,
+      onBeforeMutation: opts.onBeforeMutation,
     });
 
     if (outcome.aborted) {
@@ -1021,6 +1028,13 @@ async function main(): Promise<number> {
   const controller = new AgentController(provider, toolRegistry, workspace);
   liveController = controller;
   const cliContext = createCliContext(workspace);
+  const checkpoints = new CliCheckpointManager(
+    workspace,
+    path.join(champConfigDir(), "checkpoints"),
+  );
+  const onBeforeMutation = async (paths: string[]): Promise<void> => {
+    await checkpoints.create(`before mutation (${paths.length} files)`, paths);
+  };
 
   let policy: PolicyEngine;
   try {
@@ -1105,6 +1119,7 @@ async function main(): Promise<number> {
   const rulesEngine = await loadCliRules({
     workspaceRoot: workspace,
     userRules: config.userRules,
+    includeWorkflowRule: true,
   });
   const skills = loadCliSkills({
     workspaceRoot: workspace,
@@ -1310,6 +1325,7 @@ async function main(): Promise<number> {
           maxIterations: flags.maxIterations,
           budget,
           policy,
+          onBeforeMutation,
           onTurnEnd,
         };
         const runEvents = {
@@ -1472,6 +1488,7 @@ async function main(): Promise<number> {
           onTurnEnd,
           budget,
           policy,
+          onBeforeMutation,
         },
         `Champ ${cliVersion()} — model ${provider.config.model ?? "?"}. /help for commands.`,
       );
@@ -1536,6 +1553,7 @@ async function main(): Promise<number> {
             headless,
             budget,
             policy,
+            onBeforeMutation,
           });
         }
         if (outcome.status === "cancelled") code = EXIT_ABORTED;
