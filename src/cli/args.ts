@@ -27,6 +27,8 @@ export interface CliFlags {
   tui: boolean;
   /** Force the line REPL even when stdin is not a terminal. */
   repl: boolean;
+  /** Emit one JSON object per line on stdout; diagnostics stay on stderr. */
+  json: boolean;
   /** List stored sessions for the workspace instead of running a task. */
   listSessions: boolean;
   /** Workspace root the agent operates in. */
@@ -136,6 +138,7 @@ Options:
   -h, --help              Show this help
   -v, --version           Print the version
   -y, --yes               Auto-approve destructive tools
+      --json              Emit structured JSONL events on stdout (one-shot runs)
       --tui               Force the full-screen TUI
   -r, --repl              Force the line REPL instead of the TUI
       --cwd <dir>         Workspace root (default: current directory)
@@ -214,6 +217,7 @@ export function parseCliArgs(
     yes: false,
     tui: false,
     repl: false,
+    json: false,
     listSessions: false,
     listSkills: false,
     noSkills: false,
@@ -259,6 +263,10 @@ export function parseCliArgs(
     }
     if (arg === "--tui") {
       flags.tui = true;
+      continue;
+    }
+    if (arg === "--json") {
+      flags.json = true;
       continue;
     }
     if (arg === "--repl" || arg === "-r") {
@@ -534,6 +542,10 @@ export function parseCliArgs(
     mode = "stdin";
   } else {
     mode = "tui";
+  }
+
+  if (flags.json && (mode === "tui" || mode === "repl")) {
+    return error("--json only supports one-shot agent runs");
   }
 
   return { kind: "run", options: { mode, task, flags } };

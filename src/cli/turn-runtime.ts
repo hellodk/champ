@@ -22,9 +22,17 @@ export interface TurnSummary {
   usage: TokenUsage;
 }
 
+export interface ToolCompletionEvent {
+  id?: string;
+  name?: string;
+  output: string;
+  success: boolean;
+}
+
 export interface TurnEvents {
   onText?: (chunk: string) => void;
   onTool?: (call: ToolCall) => void;
+  onToolResult?: (result: ToolCompletionEvent) => void;
   onError?: (message: string) => void;
   onUsage?: (usage: TokenUsage) => void;
   onDone?: (summary: TurnSummary) => void;
@@ -119,6 +127,14 @@ export async function executeTurn({
       case "tool_call_start":
         events.onTool?.(delta.toolCall);
         tools++;
+        break;
+      case "tool_call_end":
+        events.onToolResult?.({
+          id: delta.toolCallId,
+          name: delta.toolName,
+          output: delta.toolResult ?? "",
+          success: delta.toolSuccess ?? false,
+        });
         break;
       case "error":
         streamError ??= delta.error;

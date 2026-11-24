@@ -36,10 +36,18 @@ describe("executeTurn", () => {
         type: "tool_call_start",
         toolCall: { id: "1", name: "read_file", arguments: { path: "x" } },
       },
+      {
+        type: "tool_call_end",
+        toolCallId: "1",
+        toolName: "read_file",
+        toolResult: "contents",
+        toolSuccess: true,
+      },
       { type: "done", usage: { inputTokens: 12, outputTokens: 5 } },
     ]);
     const text: string[] = [];
     const tools: string[] = [];
+    const toolResults: unknown[] = [];
     let usage: TokenUsage | undefined;
     const onDone = vi.fn();
 
@@ -49,6 +57,7 @@ describe("executeTurn", () => {
       events: {
         onText: (chunk) => text.push(chunk),
         onTool: (call) => tools.push(call.name),
+        onToolResult: (result) => toolResults.push(result),
         onUsage: (value) => {
           usage = value;
         },
@@ -59,6 +68,14 @@ describe("executeTurn", () => {
     expect(outcome.text).toBe("final reply");
     expect(text.join("")).toBe("Hello world");
     expect(tools).toEqual(["read_file"]);
+    expect(toolResults).toEqual([
+      {
+        id: "1",
+        name: "read_file",
+        output: "contents",
+        success: true,
+      },
+    ]);
     expect(usage).toEqual({ inputTokens: 12, outputTokens: 5 });
     expect(onDone).toHaveBeenCalledWith({ tools: 1, usage });
   });

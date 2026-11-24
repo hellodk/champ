@@ -687,3 +687,158 @@ describe("champ CLI — canonical sessions", () => {
     TIMEOUT,
   );
 });
+
+describe("champ CLI — structured JSONL output", () => {
+  function events(
+    stdout: string,
+  ): Array<Record<string, unknown> & { v: number }> {
+    return stdout
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+      .map((line) => {
+        const event = JSON.parse(line) as Record<string, unknown> & {
+          v: number;
+        };
+        expect(event.v).toBe(1);
+        expect(typeof event.at).toBe("string");
+        return event;
+      });
+  }
+
+  it(
+    "emits the full event sequence and no plain stdout in --json mode",
+    async () => {
+      const s = await scenario((_body, index) => {
+        if (index === 0) {
+          return [
+            frames.toolCall("call_read", "read_file", { path: "hello.txt" }),
+            frames.finish("tool_calls"),
+            frames.usage(100, 5),
+            frames.done,
+          ];
+        }
+        return [
+          frames.text("Done."),
+          frames.finish("stop"),
+          frames.usage(120, 6),
+          frames.done,
+        ];
+      });
+      try {
+        fs.writeFileSync(path.join(s.ws, "hello.txt"), "hi\n", "utf8");
+        const result = await s.run(["--json", "--yes", "read hello.txt"]);
+
+        expect(result.timedOut).toBe(false);
+        expect(result.code).toBe(0);
+        expect(result.stdout).not.toContain("champ>");
+        expect(result.stderr).toContain("[tool] read_file");
+
+        const parsed = events(result.stdout);
+        const types = parsed.map((event) => event.type);
+        for (const type of [
+          "session.started",
+          "message.delta",
+          "tool.started",
+          "tool.completed",
+          "usage",
+          "message.completed",
+          "agent.status",
+          "session.completed",
+        ]) {
+          expect(types).toContain(type);
+        }
+        expect(parsed.find((e) => e.type === "tool.started")).toMatchObject({
+          id: "call_read",
+          name: "read_file",
+        });
+        expect(parsed.at(-1)).toMatchObject({
+          type: "session.completed",
+          status: "success",
+        });
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "emits approval.required for tools that need consent",
+    async () => {
+      const s = await scenario((_body, index) => {
+        if (index === 0) {
+          return [
+            frames.toolCall("call_edit", "edit_file", {
+              path: "hello.txt",
+              old_content: "before",
+              new_content: "after",
+            }),
+            frames.finish("tool_calls"),
+            frames.usage(100, 5),
+            frames.done,
+          ];
+        }
+        return [
+          frames.text("Done."),
+          frames.finish("stop"),
+          frames.usage(120, 6),
+          frames.done,
+        ];
+      });
+      try {
+        fs.writeFileSync(path.join(s.ws, "hello.txt"), "before\n", "utf8");
+        const result = await s.run([
+          "--json",
+          "--yes",
+          "replace before with after in hello.txt",
+        ]);
+        expect(result.code).toBe(0);
+        const parsed = events(result.stdout);
+        expect(parsed.some((e) => e.type === "approval.required")).toBe(true);
+        expect(parsed.some((e) => e.type === "tool.completed")).toBe(true);
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "reports failed provider turns as JSONL events with a non-zero exit",
+    async () => {
+      const ws = makeWorkspace("cli-jsonl-error");
+      fixtures.push(ws);
+      const failing = http.createServer((_req, res) => {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "not found" }));
+      });
+      await new Promise<void>((resolve) =>
+        failing.listen(0, "127.0.0.1", resolve),
+      );
+      const { port } = failing.address() as AddressInfo;
+      const configPath = writeChampConfig(ws, {
+        baseUrl: `http://127.0.0.1:${port}/v1`,
+      });
+
+      try {
+        const result = await runCli(["--json", "-y", "do something"], {
+          cwd: ws,
+          configPath,
+        });
+        expect(result.timedOut).toBe(false);
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain("Request failed: 404");
+
+        const parsed = events(result.stdout);
+        expect(parsed.some((e) => e.type === "error")).toBe(true);
+        expect(parsed.at(-1)).toMatchObject({
+          type: "session.completed",
+          status: "failed",
+        });
+      } finally {
+        await new Promise<void>((resolve) => failing.close(() => resolve()));
+      }
+    },
+    TIMEOUT,
+  );
+});

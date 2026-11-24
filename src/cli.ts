@@ -48,6 +48,7 @@ import { createCliContext } from "./cli/context";
 import { CliCheckpointManager } from "./cli/checkpoint-manager";
 import { runIndexCommand } from "./cli/index-commands";
 import { CHAT_COMMAND_HELP } from "./cli/commands";
+import { JsonlEventSink } from "./cli/jsonl-events";
 import { importLegacySession } from "./session/legacy-import";
 import {
   abortActiveTurn,
@@ -354,6 +355,15 @@ interface TurnOptions {
   policy?: PolicyEngine;
   /** Recovery snapshot callback invoked before mutating tools write. */
   onBeforeMutation?: (paths: string[]) => Promise<void>;
+  /** Structured stdout emitter; when present, plain stdout is suppressed. */
+  jsonl?: JsonlEventSink;
+  /** Metadata attached to the single `session.started` event. */
+  jsonlSession?: {
+    workspace: string;
+    sessionId?: string;
+    model?: string;
+    mode?: string;
+  };
 }
 
 /** Shared per-turn options for an interactive session (REPL). */
@@ -450,10 +460,32 @@ async function runTurn(
   options: TurnOptions,
 ): Promise<TurnOutcome> {
   let sawText = false;
-  return executeTurn({
+  const jsonl = options.jsonl;
+  const emittedErrors = new Set<string>();
+  const emitError = (message: string): void => {
+    if (emittedErrors.has(message)) return;
+    emittedErrors.add(message);
+    jsonl?.emit({ type: "error", message });
+  };
+
+  jsonl?.startSession({
+    workspace: options.jsonlSession?.workspace ?? "",
+    sessionId: options.jsonlSession?.sessionId,
+    model: options.jsonlSession?.model,
+    mode: options.jsonlSession?.mode ?? controller.getMode(),
+  });
+
+  const requestApproval = jsonl
+    ? async (description: string): Promise<boolean> => {
+        jsonl.emit({ type: "approval.required", description });
+        return options.requestApproval(description);
+      }
+    : options.requestApproval;
+
+  const outcome = await executeTurn({
     controller,
     text,
-    requestApproval: options.requestApproval,
+    requestApproval,
     maxIterations: options.maxIterations,
     headless: options.headless,
     budget: options.budget,
@@ -462,23 +494,61 @@ async function runTurn(
     onTurnEnd: options.onTurnEnd,
     events: {
       onText: (chunk) => {
-        process.stdout.write(chunk);
+        if (jsonl) jsonl.emit({ type: "message.delta", text: chunk });
+        else process.stdout.write(chunk);
         sawText = true;
       },
       onTool: (call) => {
+        jsonl?.emit({
+          type: "tool.started",
+          id: call.id,
+          name: call.name,
+          arguments: call.arguments ?? {},
+        });
         const args = JSON.stringify(call.arguments ?? {});
         const shown = args.length > 200 ? `${args.slice(0, 200)}…` : args;
         process.stderr.write(`\n[tool] ${call.name} ${shown}\n`);
       },
-      onError: (message) => process.stderr.write(`\n[error] ${message}\n`),
+      onToolResult: (result) => {
+        if (!jsonl) return;
+        jsonl.emit({
+          type: result.success ? "tool.completed" : "tool.failed",
+          id: result.id ?? result.name ?? "",
+          name: result.name ?? "",
+          output: result.output,
+        });
+      },
+      onError: (message) => {
+        emitError(message);
+        if (!jsonl) process.stderr.write(`\n[error] ${message}\n`);
+      },
+      onUsage: (usage) => {
+        jsonl?.emit({
+          type: "usage",
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+        });
+      },
       onDone: (summary) => {
-        if (sawText) process.stdout.write("\n");
+        if (!jsonl && sawText) process.stdout.write("\n");
         options.onDone(summary);
       },
       onPersistError: (message) =>
         process.stderr.write(`[champ] session save failed: ${message}\n`),
     },
   });
+
+  if (jsonl) {
+    if (outcome.error) emitError(outcome.error);
+    jsonl.emit({
+      type: "message.completed",
+      text: outcome.text,
+      status: outcome.status,
+    });
+    jsonl.emit({ type: "agent.status", status: outcome.status });
+    jsonl.completeSession(outcome.status);
+  }
+  return outcome;
 }
 
 /** One line per turn on stderr: how much work the agent did. */
@@ -828,13 +898,28 @@ async function main(): Promise<number> {
   const parsed = parseCliArgs(process.argv.slice(2), {
     stdinIsTTY: Boolean(process.stdin.isTTY),
   });
+  const wantsJson = process.argv.slice(2).includes("--json");
+  const jsonl =
+    wantsJson && parsed.kind === "run"
+      ? new JsonlEventSink((line) => process.stdout.write(line))
+      : undefined;
+  // Management commands use injected stdout; in JSON mode only events may
+  // reach stdout, so plain output is discarded there.
+  const plainStdout = (text: string): void => {
+    if (!jsonl) process.stdout.write(text);
+  };
+
+  if (wantsJson && parsed.kind !== "run") {
+    process.stderr.write("champ: --json only supports agent runs\n");
+    return EXIT_USAGE;
+  }
 
   if (parsed.kind === "help") {
-    process.stdout.write(USAGE);
+    plainStdout(USAGE);
     return EXIT_OK;
   }
   if (parsed.kind === "version") {
-    process.stdout.write(`champ ${cliVersion()}\n`);
+    plainStdout(`champ ${cliVersion()}\n`);
     return EXIT_OK;
   }
   if (parsed.kind === "error") {
@@ -843,7 +928,7 @@ async function main(): Promise<number> {
   }
   if (parsed.kind === "sessions") {
     // Read-only query: no provider, no session, nothing to run.
-    process.stdout.write(await sessionsReport(path.resolve(parsed.cwd)));
+    plainStdout(await sessionsReport(path.resolve(parsed.cwd)));
     return EXIT_OK;
   }
   if (parsed.kind === "list-skills") {
@@ -854,7 +939,7 @@ async function main(): Promise<number> {
     for (const problem of problems) {
       process.stderr.write(`[champ] skill ignored: ${problem}\n`);
     }
-    process.stdout.write(`${formatSkillList(registry)}\n`);
+    plainStdout(`${formatSkillList(registry)}\n`);
     return EXIT_OK;
   }
   if (parsed.kind === "update") {
@@ -874,7 +959,7 @@ async function main(): Promise<number> {
     }
     return runPolicyCommand(parsed.command, {
       engine,
-      stdout: (text) => process.stdout.write(text),
+      stdout: plainStdout,
       stderr: (text) => process.stderr.write(text),
     });
   }
@@ -898,7 +983,7 @@ async function main(): Promise<number> {
       credentials,
       settings,
       cwd: path.resolve(parsed.cwd),
-      stdout: (text) => process.stdout.write(text),
+      stdout: plainStdout,
       stderr: (text) => process.stderr.write(text),
       migrate: ({ dryRun }) =>
         migrateFromYaml({
@@ -932,7 +1017,7 @@ async function main(): Promise<number> {
         path.resolve(parsed.options.flags.cwd),
         parsed.options.flags.importSession,
       );
-      process.stdout.write(
+      plainStdout(
         `Imported ${result.messages} messages into session ${result.id}\n${result.path}\n`,
       );
       return 0;
@@ -963,7 +1048,7 @@ async function main(): Promise<number> {
         get: (key: string) => credentials.get({ kind: "keyring", id: key }),
       },
       embeddingAssignment: registryChoice?.assignments.embedding?.model,
-      stdout: (text) => process.stdout.write(text),
+      stdout: plainStdout,
       stderr: (text) => process.stderr.write(text),
     });
   }
@@ -1063,7 +1148,7 @@ async function main(): Promise<number> {
     credentials: endpointCredentials,
     settings,
     cwd: workspace,
-    stdout: (text: string) => process.stdout.write(text),
+    stdout: plainStdout,
     stderr: (text: string) => process.stderr.write(text),
   };
   const captureCommand = async (
@@ -1705,6 +1790,14 @@ async function main(): Promise<number> {
               headless,
               budget,
               policy,
+              onBeforeMutation,
+              jsonl,
+              jsonlSession: {
+                workspace,
+                sessionId: sessionLog?.id,
+                model: provider.config.model,
+                mode: controller.getMode(),
+              },
             },
           );
         } else {
@@ -1723,6 +1816,13 @@ async function main(): Promise<number> {
             budget,
             policy,
             onBeforeMutation,
+            jsonl,
+            jsonlSession: {
+              workspace,
+              sessionId: sessionLog?.id,
+              model: provider.config.model,
+              mode: controller.getMode(),
+            },
           });
         }
         if (outcome.status === "cancelled") code = EXIT_ABORTED;

@@ -63,6 +63,19 @@ describe("cli arg parser — informational flags", () => {
     expect(parse(["do things", "-v"]).kind).toBe("version");
   });
 
+  it("parses --json for one-shot runs and rejects interactive modes", () => {
+    expect(run(parse(["--json", "do work"])).flags.json).toBe(true);
+    expect(USAGE).toContain("--json");
+    expect(parse(["--json", "--repl"])).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("--json only supports one-shot"),
+    });
+    expect(parse(["--json", "--tui"])).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("--json only supports one-shot"),
+    });
+  });
+
   it("copies the usage text for error reporting", () => {
     expect(USAGE).toContain('champ "<task>"');
     expect(USAGE).toContain("--max-iter");
