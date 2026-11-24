@@ -76,6 +76,19 @@ describe("cli arg parser — informational flags", () => {
     });
   });
 
+  it("parses --rpc as a taskless protocol mode", () => {
+    expect(run(parse(["--rpc"])).mode).toBe("rpc");
+    expect(run(parse(["--rpc"])).flags.rpc).toBe(true);
+    expect(USAGE).toContain("champ --rpc");
+    expect(parse(["--rpc", "--json"])).toMatchObject({ kind: "error" });
+    expect(parse(["--rpc", "--repl"])).toMatchObject({ kind: "error" });
+    expect(parse(["--rpc", "do work"])).toMatchObject({ kind: "error" });
+    expect(parse(["--rpc", "--sessions"])).toMatchObject({ kind: "error" });
+    expect(parse(["--rpc", "provider", "list"])).toMatchObject({
+      kind: "error",
+    });
+  });
+
   it("copies the usage text for error reporting", () => {
     expect(USAGE).toContain('champ "<task>"');
     expect(USAGE).toContain("--max-iter");

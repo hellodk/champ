@@ -16,7 +16,7 @@ import type { IndexCommand } from "./index-commands";
 import { validateRepoOrRef, type UpdateCommandOptions } from "./update";
 
 /** How the CLI should run: one task, the full-screen UI, a line REPL, or piped input. */
-export type CliMode = "oneshot" | "tui" | "repl" | "stdin";
+export type CliMode = "oneshot" | "tui" | "repl" | "stdin" | "rpc";
 
 export interface CliFlags {
   help: boolean;
@@ -29,6 +29,8 @@ export interface CliFlags {
   repl: boolean;
   /** Emit one JSON object per line on stdout; diagnostics stay on stderr. */
   json: boolean;
+  /** Speak newline-delimited JSON RPC on stdin/stdout. */
+  rpc: boolean;
   /** List stored sessions for the workspace instead of running a task. */
   listSessions: boolean;
   /** Workspace root the agent operates in. */
@@ -121,6 +123,7 @@ Usage:
   champ                   Full-screen TUI (when stdin is a terminal)
   champ --tui             Force the full-screen TUI
   champ --repl            Line REPL instead of the TUI (also with piped input)
+  champ --rpc             Newline-delimited JSON RPC on stdin/stdout
   champ -                 Read the task from stdin
   echo "<t>" | champ      Same as above (piped stdin)
   champ --sessions        List stored sessions for the workspace
@@ -139,6 +142,7 @@ Options:
   -v, --version           Print the version
   -y, --yes               Auto-approve destructive tools
       --json              Emit structured JSONL events on stdout (one-shot runs)
+      --rpc               Newline-delimited JSON RPC on stdin/stdout
       --tui               Force the full-screen TUI
   -r, --repl              Force the line REPL instead of the TUI
       --cwd <dir>         Workspace root (default: current directory)
@@ -218,6 +222,7 @@ export function parseCliArgs(
     tui: false,
     repl: false,
     json: false,
+    rpc: false,
     listSessions: false,
     listSkills: false,
     noSkills: false,
@@ -267,6 +272,10 @@ export function parseCliArgs(
     }
     if (arg === "--json") {
       flags.json = true;
+      continue;
+    }
+    if (arg === "--rpc") {
+      flags.rpc = true;
       continue;
     }
     if (arg === "--repl" || arg === "-r") {
@@ -447,6 +456,22 @@ export function parseCliArgs(
 
   if (flags.help) return { kind: "help" };
   if (flags.version) return { kind: "version" };
+  if (
+    flags.rpc &&
+    (flags.json ||
+      flags.listSessions ||
+      flags.listSkills ||
+      flags.skill ||
+      positionals.length > 0 ||
+      flags.indexStatus ||
+      flags.indexRebuild ||
+      flags.indexClear ||
+      flags.indexWatch)
+  ) {
+    return error(
+      "--rpc takes no command or task and cannot be combined with --json",
+    );
+  }
 
   // Listing sessions is a read-only query about a workspace: it cannot be
   // combined with work, and it needs neither a provider nor a session.
@@ -520,6 +545,12 @@ export function parseCliArgs(
   if (flags.tui && flags.repl) {
     return error("cannot combine --tui and --repl");
   }
+  if (flags.rpc && (flags.tui || flags.repl)) {
+    return error("cannot combine --rpc with --tui or --repl");
+  }
+  if (flags.rpc && (flags.json || positionals.length > 0 || explicitStdin)) {
+    return error("--rpc takes no task and cannot be combined with --json");
+  }
   if ((flags.tui || flags.repl) && (positionals.length > 0 || explicitStdin)) {
     return error(
       `cannot combine ${flags.tui ? "--tui" : "--repl"} with a task`,
@@ -528,7 +559,9 @@ export function parseCliArgs(
 
   let mode: CliMode;
   let task: string | undefined;
-  if (flags.tui) {
+  if (flags.rpc) {
+    mode = "rpc";
+  } else if (flags.tui) {
     mode = "tui";
   } else if (flags.repl) {
     mode = "repl";

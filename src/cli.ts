@@ -49,6 +49,7 @@ import { CliCheckpointManager } from "./cli/checkpoint-manager";
 import { runIndexCommand } from "./cli/index-commands";
 import { CHAT_COMMAND_HELP } from "./cli/commands";
 import { JsonlEventSink } from "./cli/jsonl-events";
+import { runRpcServer, type RpcTurnEvents } from "./cli/rpc";
 import { importLegacySession } from "./session/legacy-import";
 import {
   abortActiveTurn,
@@ -1090,7 +1091,7 @@ async function main(): Promise<number> {
     credentials: endpointCredentials,
     repository: endpointRepository,
   });
-  const interactive = mode === "tui" || mode === "repl";
+  const interactive = mode === "tui" || mode === "repl" || mode === "rpc";
   const registryChoice = hasExplicitEndpointOverride
     ? null
     : await resolveProviderFromRegistry(
@@ -1431,6 +1432,137 @@ async function main(): Promise<number> {
 
   let code: number;
   try {
+    if (mode === "rpc") {
+      const setRpcModel = async (params: {
+        provider?: string;
+        model: string;
+      }): Promise<Record<string, unknown>> => {
+        let nextProvider;
+        if (params.provider) {
+          const selected = await selectActiveModel(
+            endpointRegistry,
+            params.provider,
+            params.model,
+          );
+          if (!selected.ok || !selected.endpointId || !selected.model) {
+            throw new Error(selected.reason ?? "model selection failed");
+          }
+          const endpoint = (await endpointRegistry.list()).find(
+            (ep) => ep.id === selected.endpointId,
+          );
+          if (!endpoint)
+            throw new Error(`endpoint ${selected.endpointId} not found`);
+          nextProvider = await new ProviderFactory().createFromEndpoint(
+            endpoint,
+            {
+              model: selected.model,
+              secretProvider: {
+                get: async (key: string) => {
+                  if (flags.apiKey) return flags.apiKey;
+                  if (endpoint.credential) {
+                    const direct = await endpointCredentials.get(
+                      endpoint.credential,
+                    );
+                    if (direct !== undefined) return direct;
+                  }
+                  return endpointCredentials.get({ kind: "keyring", id: key });
+                },
+              },
+            },
+          );
+        } else if (registryChoice) {
+          nextProvider = await new ProviderFactory().createFromEndpoint(
+            registryChoice.endpoint,
+            {
+              model: params.model,
+              secretProvider: {
+                get: async (key: string) => {
+                  if (flags.apiKey) return flags.apiKey;
+                  return registryChoice.credentials.get({
+                    kind: "keyring",
+                    id: key,
+                  });
+                },
+              },
+            },
+          );
+        } else {
+          const name = config.provider;
+          if (!name) throw new Error("no provider configured for set_model");
+          const entry = config.providers?.[name] ?? {};
+          nextProvider = await new ProviderFactory().createFromChampConfig(
+            {
+              ...config,
+              provider: name,
+              providers: {
+                ...config.providers,
+                [name]: { ...entry, model: params.model },
+              },
+            },
+            { get: () => Promise.resolve(undefined) },
+          );
+        }
+        controller.setProvider(nextProvider);
+        return {
+          model: nextProvider.config.model,
+          provider: nextProvider.name,
+        };
+      };
+
+      return await runRpcServer({
+        execute: async (
+          text: string,
+          events: RpcTurnEvents,
+          requestApproval: (description: string) => Promise<boolean>,
+        ) =>
+          executeTurn({
+            controller,
+            text,
+            events,
+            requestApproval,
+            maxIterations: flags.maxIterations,
+            headless: false,
+            budget,
+            policy,
+            onBeforeMutation,
+            onTurnEnd,
+          }),
+        abort: () => abortActiveTurn(),
+        getState: () => ({
+          busy: Boolean(activeAbortSignal()),
+          aborting: Boolean(activeAbortSignal()?.aborted),
+          mode: controller.getMode(),
+          model: controller.getProvider().config.model,
+          sessionId: sessionLog?.id,
+        }),
+        getSession: async () => {
+          const summary = (await SessionLog.list(workspace)).find(
+            (s) => s.meta.id === sessionLog?.id,
+          );
+          if (!summary)
+            return { sessionId: sessionLog?.id ?? null, messages: 0 };
+          return {
+            sessionId: summary.meta.id,
+            messages: summary.messages,
+            checkpoints: summary.checkpoints,
+            lastActivityAt: summary.lastActivityAt,
+          };
+        },
+        setModel: setRpcModel,
+        setMode: (modeName: string) => {
+          controller.setMode(
+            modeName as import("./agent/agent-controller").AgentMode,
+          );
+          return { mode: controller.getMode() };
+        },
+        listTools: () =>
+          toolRegistry.getAll().map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+          })),
+      });
+    }
+
     if (mode === "tui") {
       const initialEndpoints = await endpointSummaries(
         endpointRegistry,

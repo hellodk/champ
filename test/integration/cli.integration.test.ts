@@ -842,3 +842,240 @@ describe("champ CLI — structured JSONL output", () => {
     TIMEOUT,
   );
 });
+
+describe("champ CLI — subprocess RPC", () => {
+  function rpcLines(stdout: string): Array<Record<string, unknown>> {
+    return stdout
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+  }
+
+  function response(
+    lines: Array<Record<string, unknown>>,
+    id: number,
+  ): Record<string, unknown> | undefined {
+    return lines.find((line) => line.id === id);
+  }
+
+  it(
+    "speaks only JSON on stdout and reuses the shared agent runtime",
+    async () => {
+      const s = await scenario((_body, index) => {
+        if (index === 0) {
+          return [
+            frames.toolCall("call_read", "read_file", { path: "hello.txt" }),
+            frames.finish("tool_calls"),
+            frames.usage(10, 2),
+            frames.done,
+          ];
+        }
+        return [
+          frames.text("RPC done."),
+          frames.finish("stop"),
+          frames.usage(12, 3),
+          frames.done,
+        ];
+      });
+      try {
+        fs.writeFileSync(path.join(s.ws, "hello.txt"), "hi\n", "utf8");
+        const requests = [
+          { id: 1, method: "get_state" },
+          { id: 2, method: "list_tools" },
+          { id: 3, method: "prompt", params: { text: "read hello.txt" } },
+          { id: 4, method: "unknown_method" },
+        ];
+        const result = await s.run(["--rpc"], {
+          stdin: `${requests.map((r) => JSON.stringify(r)).join("\n")}\n`,
+        });
+
+        expect(result.timedOut).toBe(false);
+        expect(result.code).toBe(0);
+        const lines = rpcLines(result.stdout);
+        expect(lines.length).toBeGreaterThan(0);
+        expect(response(lines, 1)).toMatchObject({
+          ok: true,
+          result: { mode: "agent", protocol: 1 },
+        });
+        expect(response(lines, 2)).toMatchObject({
+          ok: true,
+          result: {
+            tools: expect.arrayContaining([
+              expect.objectContaining({ name: "read_file" }),
+            ]),
+          },
+        });
+        expect(lines).toContainEqual({
+          method: "tool.completed",
+          params: expect.objectContaining({ id: "call_read" }),
+        });
+        expect(lines).toContainEqual({
+          method: "message.delta",
+          params: { text: "RPC done." },
+        });
+        expect(response(lines, 3)).toMatchObject({
+          ok: true,
+          result: { text: "RPC done.", status: "success" },
+        });
+        expect(response(lines, 4)).toMatchObject({
+          ok: false,
+          error: { code: "unknown_method" },
+        });
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "changes the active model without restarting the subprocess",
+    async () => {
+      const s = await scenario(() => [frames.done]);
+      try {
+        const requests = [
+          { id: 1, method: "set_model", params: { model: "second-model" } },
+          { id: 2, method: "get_state" },
+        ];
+        const result = await s.run(["--rpc"], {
+          stdin: `${requests.map((r) => JSON.stringify(r)).join("\n")}\n`,
+        });
+
+        expect(result.code).toBe(0);
+        const lines = rpcLines(result.stdout);
+        expect(response(lines, 1)).toMatchObject({
+          ok: true,
+          result: { model: "second-model" },
+        });
+        expect(response(lines, 2)).toMatchObject({
+          ok: true,
+          result: { model: "second-model" },
+        });
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "reports provider failures in the prompt response",
+    async () => {
+      const ws = makeWorkspace("cli-rpc-error");
+      fixtures.push(ws);
+      const failing = http.createServer((_req, res) => {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "not found" }));
+      });
+      await new Promise<void>((resolve) =>
+        failing.listen(0, "127.0.0.1", resolve),
+      );
+      const { port } = failing.address() as AddressInfo;
+      const configPath = writeChampConfig(ws, {
+        baseUrl: `http://127.0.0.1:${port}/v1`,
+      });
+
+      try {
+        const requests = [{ id: 1, method: "prompt", params: { text: "x" } }];
+        const result = await runCli(["--rpc"], {
+          cwd: ws,
+          configPath,
+          stdin: `${JSON.stringify(requests[0])}\n`,
+        });
+
+        expect(result.timedOut).toBe(false);
+        expect(result.code).toBe(0);
+        const lines = rpcLines(result.stdout);
+        expect(lines).toContainEqual({
+          method: "error",
+          params: { message: expect.stringContaining("Request failed: 404") },
+        });
+        expect(response(lines, 1)).toMatchObject({
+          ok: true,
+          result: {
+            status: "failed",
+            error: expect.stringContaining("Request failed: 404"),
+          },
+        });
+      } finally {
+        await new Promise<void>((resolve) => failing.close(() => resolve()));
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "denies an approval-required tool when approve_tool returns false",
+    async () => {
+      const s = await scenario((_body, index) => {
+        if (index === 0) {
+          return [
+            frames.toolCall("call_edit", "edit_file", {
+              path: "hello.txt",
+              old_content: "before",
+              new_content: "after",
+            }),
+            frames.finish("tool_calls"),
+            frames.usage(100, 5),
+            frames.done,
+          ];
+        }
+        return [
+          frames.text("I could not change the file without approval."),
+          frames.finish("stop"),
+          frames.usage(100, 5),
+          frames.done,
+        ];
+      });
+      try {
+        fs.writeFileSync(path.join(s.ws, "hello.txt"), "before\n", "utf8");
+        const prompt = {
+          id: 1,
+          method: "prompt",
+          params: { text: "edit hello.txt" },
+        };
+        const denial = {
+          id: 2,
+          method: "approve_tool",
+          params: { approved: false, token: "approval-1" },
+        };
+        const result = await s.run(["--rpc"], {
+          stdin: `${JSON.stringify(prompt)}\n`,
+          dialog: [
+            {
+              match: '"method":"approval.required"',
+              stream: "stdout",
+              send: `${JSON.stringify(denial)}\n`,
+              end: true,
+            },
+          ],
+        });
+
+        expect(result.timedOut).toBe(false);
+        expect(result.code).toBe(0);
+        const lines = rpcLines(result.stdout);
+        expect(lines).toContainEqual({
+          method: "approval.required",
+          params: {
+            token: "approval-1",
+            description: expect.stringContaining("edit_file"),
+          },
+        });
+        expect(response(lines, 2)).toMatchObject({
+          ok: true,
+          result: { approved: false },
+        });
+        expect(response(lines, 1)).toMatchObject({
+          ok: true,
+          result: { status: "success" },
+        });
+        expect(fs.readFileSync(path.join(s.ws, "hello.txt"), "utf8")).toBe(
+          "before\n",
+        );
+      } finally {
+        await s.close();
+      }
+    },
+    TIMEOUT,
+  );
+});
