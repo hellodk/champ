@@ -106,6 +106,7 @@ routing:
   chat: llama3.1:8b
   completion: qwen2.5-coder:1.5b
   embedding: nomic-embed-text
+  tieBreak: model-id # model-id | first | last (equal-score auto selections)
   rules: []
 
 fallback:

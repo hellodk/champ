@@ -2,14 +2,14 @@ import { describe, it, expect, vi } from "vitest";
 import { AgentController } from "../../../src/agent/agent-controller";
 import { ToolRegistry } from "../../../src/tools/registry";
 
-function makeProvider(supportsTools: boolean, name: string) {
+function makeProvider(supportsTools: boolean, name: string, model = name) {
   const chat = vi.fn(async function* () {
     yield { type: "text" as const, text: "answer" };
     yield { type: "done" as const, usage: { inputTokens: 1, outputTokens: 1 } };
   });
   return {
     name,
-    config: { provider: name, model: name },
+    config: { provider: name, model },
     modelInfo: () => ({
       id: name,
       name,
@@ -31,15 +31,20 @@ function makeProvider(supportsTools: boolean, name: string) {
         usage: { inputTokens: 0, outputTokens: 0 },
       };
     }),
-    withModel: () => makeProvider(supportsTools, name),
+    withModel: vi.fn((nextModel: string) =>
+      makeProvider(supportsTools, name, nextModel),
+    ),
   };
 }
 
-function makeRouter(routedProvider: ReturnType<typeof makeProvider>) {
+function makeRouter(
+  routedProvider: ReturnType<typeof makeProvider>,
+  modelId = routedProvider.name,
+) {
   return {
     select: () => ({
       model: {
-        id: routedProvider.name,
+        id: modelId,
         providerName: "test",
         providerType: "test",
         capabilities: [] as never[],
@@ -104,6 +109,43 @@ describe("AgentController — smart routing format guard", () => {
 
     await ctrl.processMessage("hello");
 
+    expect(routed.chat.mock.calls.length).toBe(1);
+  });
+
+  it("clones the routed provider for the routed model before sending", async () => {
+    const original = makeProvider(false, "original");
+    const routed = makeProvider(false, "routed", "endpoint-first-model");
+    const ctrl = new AgentController(
+      original as never,
+      new ToolRegistry(),
+      "/tmp",
+    );
+    ctrl.setSmartRouter(makeRouter(routed, "routed-model") as never);
+
+    await ctrl.processMessage("hello");
+
+    expect(routed.withModel).toHaveBeenCalledWith("routed-model");
+    const used = routed.withModel.mock.results[0].value as ReturnType<
+      typeof makeProvider
+    >;
+    expect(used.config.model).toBe("routed-model");
+    expect(used.chat.mock.calls.length).toBe(1);
+    expect(routed.chat.mock.calls.length).toBe(0);
+  });
+
+  it("does not clone the provider when the route matches its current model", async () => {
+    const original = makeProvider(false, "original");
+    const routed = makeProvider(false, "routed", "selected-model");
+    const ctrl = new AgentController(
+      original as never,
+      new ToolRegistry(),
+      "/tmp",
+    );
+    ctrl.setSmartRouter(makeRouter(routed, "selected-model") as never);
+
+    await ctrl.processMessage("hello");
+
+    expect(routed.withModel).not.toHaveBeenCalled();
     expect(routed.chat.mock.calls.length).toBe(1);
   });
 });

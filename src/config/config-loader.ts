@@ -23,6 +23,7 @@
  */
 import * as yaml from "js-yaml";
 import type { BudgetLimits } from "./budget";
+import type { ModelTieBreak } from "./model-selection";
 import { isPermissionProfile, PERMISSION_PROFILES } from "../policy/profiles";
 
 // ---------------------------------------------------------------------------
@@ -162,6 +163,8 @@ export interface RoutingConfig {
    * Rules are matched in order; the first matching rule wins.
    */
   rules?: RoutingRuleConfig[];
+  /** Break equal-score automatic selections. Defaults to `model-id`. */
+  tieBreak?: ModelTieBreak;
 }
 
 export interface TelemetryConfig {
@@ -867,6 +870,17 @@ export class ConfigLoader {
             pushError('routing.mode must be "smart" or "manual"');
           } else {
             out.mode = r.mode as "smart" | "manual";
+          }
+        }
+        if ("tieBreak" in r) {
+          if (
+            r.tieBreak !== "model-id" &&
+            r.tieBreak !== "first" &&
+            r.tieBreak !== "last"
+          ) {
+            pushError('routing.tieBreak must be "model-id", "first" or "last"');
+          } else {
+            out.tieBreak = r.tieBreak;
           }
         }
         for (const key of [

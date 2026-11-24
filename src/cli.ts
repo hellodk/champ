@@ -280,6 +280,7 @@ async function resolveProviderFromRegistry(
     preferredModel: flags.model,
     currentFile: flags.file,
     routingRules: config.routing?.rules,
+    tieBreak: config.routing?.tieBreak,
   });
   if (!selected) {
     return null;

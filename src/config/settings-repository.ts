@@ -159,6 +159,7 @@ export class SettingsRepository {
       preferredEndpoint: this.overrides.provider,
       preferredModel: this.overrides.model,
       routingRules: config.routing?.rules,
+      tieBreak: config.routing?.tieBreak,
     });
 
     if (!selection && registry.endpoints.length === 0 && config.provider) {

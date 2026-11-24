@@ -3492,6 +3492,7 @@ export async function activate(
             task: "default",
             workspaceDir: workspaceRoot,
             routingRules: yamlConfig?.routing?.rules,
+            tieBreak: yamlConfig?.routing?.tieBreak,
           })
         : null;
       const registryEndpoints = registryDoc?.endpoints ?? [];
@@ -3696,6 +3697,7 @@ export async function activate(
             task: "completion",
             workspaceDir: workspaceRoot,
             routingRules: yamlConfig?.routing?.rules,
+            tieBreak: yamlConfig?.routing?.tieBreak,
           })
         : null;
       if (

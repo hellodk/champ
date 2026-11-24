@@ -31,6 +31,12 @@ export interface SelectionRoutingRule {
   model: string;
 }
 
+/** How to break equal-score ties during automatic model selection. */
+export type ModelTieBreak =
+  | "model-id" // deterministic: lexicographically smallest endpoint/model id
+  | "first" // legacy: first model in registry order
+  | "last"; // last model in registry order
+
 export interface ModelSelectionInput {
   task: SelectionTask;
   workspaceDir?: string;
@@ -40,6 +46,7 @@ export interface ModelSelectionInput {
   preferredModel?: string;
   currentFile?: string;
   routingRules?: SelectionRoutingRule[];
+  tieBreak?: ModelTieBreak;
 }
 
 export interface ResolvedModelSelection {
@@ -111,6 +118,32 @@ function resolveModelName(ep: Endpoint, explicitModel?: string): string {
   if (ep.models[0]?.id) return ep.models[0].id;
   const entry = catalogEntry(ep.provider);
   return entry.defaultModel ?? "default";
+}
+
+interface ScoredModel {
+  ep: Endpoint;
+  model: DiscoveredModel;
+  score: number;
+}
+
+/** Explicit, order-independent tie-break for equal-scoring candidates. */
+export function preferScoredModel(
+  current: ScoredModel | null,
+  candidate: ScoredModel,
+  tieBreak: ModelTieBreak,
+): boolean {
+  if (!current || candidate.score > current.score) return true;
+  if (candidate.score < current.score) return false;
+  const currentKey = `${current.model.id}\u0000${current.ep.id}`;
+  const candidateKey = `${candidate.model.id}\u0000${candidate.ep.id}`;
+  switch (tieBreak) {
+    case "first":
+      return false;
+    case "last":
+      return true;
+    case "model-id":
+      return candidateKey < currentKey;
+  }
 }
 
 function matchGlob(pattern: string, filePath: string): boolean {
@@ -337,18 +370,42 @@ export class ModelSelectionService {
         }
       }
 
+      // 4a. Explicit default assignment outranks automatic scoring. A
+      // one-shot CLI run asks for `coding`, so without this check the pinned
+      // `champ model use <endpoint>/<model>` would be silently replaced.
+      const pinnedDefault = doc.assignments.default;
+      if (pinnedDefault) {
+        const ep = byId.get(pinnedDefault.endpointId);
+        const candidate =
+          ep?.models.find((m) => m.id === pinnedDefault.model) ??
+          (ep ? { id: pinnedDefault.model } : undefined);
+        if (
+          ep &&
+          candidate &&
+          modelMatchesRequirements(ep, candidate, input) &&
+          scoreModelForTask(ep, candidate, input.task) >= 0
+        ) {
+          return {
+            endpoint: ep,
+            model: resolveModelName(ep, input.preferredModel ?? candidate.id),
+            task: input.task,
+            source: "assignment",
+            reason: "default assignment",
+            fallbacks: fallbacksFor(ep),
+          };
+        }
+      }
+
       if (input.task !== "default") {
-        let best: {
-          ep: Endpoint;
-          model: DiscoveredModel;
-          score: number;
-        } | null = null;
+        let best: ScoredModel | null = null;
+        const tieBreak = input.tieBreak ?? "model-id";
         for (const ep of enabled) {
           for (const model of ep.models) {
             if (!modelMatchesRequirements(ep, model, input)) continue;
             const score = scoreModelForTask(ep, model, input.task);
-            if (score >= 0 && (!best || score > best.score)) {
-              best = { ep, model, score };
+            const candidate: ScoredModel = { ep, model, score };
+            if (score >= 0 && preferScoredModel(best, candidate, tieBreak)) {
+              best = candidate;
             }
           }
         }

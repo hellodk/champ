@@ -176,4 +176,112 @@ describe("ModelSelectionService", () => {
     });
     expect(fallback?.model).toBe("claude-sonnet-4-20250514");
   });
+
+  it("breaks equal-score ties by model id, with a configurable override", () => {
+    const svc = new ModelSelectionService(makeRepo());
+    const doc: ProvidersDocument = {
+      version: 1,
+      routingMode: "auto",
+      endpoints: [
+        {
+          id: "ep_later",
+          name: "Later",
+          provider: "ollama",
+          credential: null,
+          enabled: true,
+          isDefault: false,
+          supportsTools: true,
+          models: [
+            {
+              id: "z-model",
+              capabilities: ["coding"],
+              contextWindow: 32768,
+            },
+          ],
+        },
+        {
+          id: "ep_earlier",
+          name: "Earlier",
+          provider: "ollama",
+          credential: null,
+          enabled: true,
+          isDefault: false,
+          supportsTools: true,
+          models: [
+            {
+              id: "a-model",
+              capabilities: ["coding"],
+              contextWindow: 32768,
+            },
+          ],
+        },
+      ],
+      assignments: {},
+    };
+
+    expect(svc.resolveFromDocument(doc, { task: "coding" })?.model).toBe(
+      "a-model",
+    );
+    expect(
+      svc.resolveFromDocument(doc, { task: "coding", tieBreak: "first" })
+        ?.model,
+    ).toBe("z-model");
+  });
+
+  it("honours the explicit default assignment before auto scoring in auto mode", () => {
+    const svc = new ModelSelectionService(makeRepo());
+    const doc: ProvidersDocument = {
+      version: 1,
+      routingMode: "auto",
+      endpoints: [
+        {
+          id: "ep_pinned",
+          name: "Pinned",
+          provider: "ollama",
+          credential: null,
+          enabled: true,
+          isDefault: false,
+          supportsTools: false,
+          models: [
+            {
+              id: "pinned-model",
+              capabilities: ["general"],
+              contextWindow: 4096,
+            },
+          ],
+        },
+        {
+          id: "ep_smart",
+          name: "Smart",
+          provider: "ollama",
+          credential: null,
+          enabled: true,
+          isDefault: false,
+          supportsTools: true,
+          models: [
+            {
+              id: "smart-coder",
+              capabilities: ["coding"],
+              contextWindow: 65536,
+            },
+          ],
+        },
+      ],
+      assignments: {
+        default: { endpointId: "ep_pinned", model: "pinned-model" },
+      },
+    };
+
+    const coding = svc.resolveFromDocument(doc, { task: "coding" });
+    expect(coding?.endpoint.id).toBe("ep_pinned");
+    expect(coding?.model).toBe("pinned-model");
+    expect(coding?.source).toBe("assignment");
+
+    expect(
+      svc.resolveFromDocument(doc, {
+        task: "coding",
+        preferredModel: "one-off-model",
+      })?.model,
+    ).toBe("one-off-model");
+  });
 });

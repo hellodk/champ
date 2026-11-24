@@ -36,6 +36,22 @@ agent:
       ).toThrow(/maxUsdPerDay/i);
     });
 
+    it("parses and validates the routing tie-break rule", () => {
+      const config = ConfigLoader.parseYaml(`
+provider: ollama
+routing:
+  tieBreak: first
+`);
+      expect(config.routing?.tieBreak).toBe("first");
+      expect(() =>
+        ConfigLoader.parseYaml(`
+provider: ollama
+routing:
+  tieBreak: random
+`),
+      ).toThrow(/tieBreak/i);
+    });
+
     it("parses a minimal valid config", () => {
       const yaml = `
 provider: ollama

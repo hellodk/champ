@@ -444,8 +444,15 @@ export class AgentController {
           const hasHistory = this.history.length > 0;
 
           if (routedPromptBased === currentPromptBased || !hasHistory) {
-            // Same tool format, or no history yet — safe to route.
-            activeProvider = routed.provider;
+            // Same tool format, or no history yet — safe to route. The CLI
+            // registers one provider per endpoint (pinned to its first
+            // model), so clone it for the routed model before use. Without
+            // this the route changes but the request still sends the old id.
+            activeProvider =
+              routed.model.id !== routed.provider.config.model
+                ? (routed.provider.withModel?.(routed.model.id) ??
+                  routed.provider)
+                : routed.provider;
             console.log(
               `Champ SmartRouter: ${this.mode} → ${routed.model.id} [${routed.reason}]`,
             );
