@@ -3,6 +3,12 @@ name: Release
 on:
   push:
     branches: [master]
+  # An auto-merge enabled with GITHUB_TOKEN does not emit a master push event.
+  # Publish from the closing release PR as well, so the version commit still
+  # produces a release. workflow_dispatch allows recovering a missed publish.
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -18,7 +24,7 @@ jobs:
   # (lint, type check, unit/integration/e2e, supply chain) gates the release.
   version:
     name: Plan next version
-    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
+    if: ${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore(release):') }}
     runs-on: ubuntu-latest
     env:
       # The version commit is automated; Husky's test hooks belong in CI.
@@ -102,11 +108,18 @@ jobs:
           test -n "$pr" || { echo "release PR not found"; exit 1; }
           gh pr merge --auto --squash "$pr"
 
-  # Publishing runs only from the version commit that auto-merged into master,
-  # after the required checks have passed on that pull request.
+  # Publishing runs from the version commit that auto-merged into master. A
+  # merge performed with GITHUB_TOKEN does not emit a push event, so the closing
+  # pull_request event is the primary trigger; push and manual dispatch are
+  # fallbacks. Required checks have already passed on the release PR.
   publish:
     name: Build and publish release
-    if: ${{ startsWith(github.event.head_commit.message, 'chore(release):') }}
+    if: >-
+      ${{
+        (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')) ||
+        (github.event_name == 'pull_request' && github.event.pull_request.merged && startsWith(github.event.pull_request.title, 'chore(release):')) ||
+        github.event_name == 'workflow_dispatch'
+      }}
     runs-on: ubuntu-latest
     env:
       # The version commit is automated; Husky's test hooks belong in CI.
@@ -117,6 +130,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -140,13 +154,30 @@ jobs:
           echo "vsix=champ-$version.vsix" >> "$GITHUB_OUTPUT"
           echo "tgz=champ-cli-$version.tgz" >> "$GITHUB_OUTPUT"
 
+      # More than one trigger can fire for the same merge; only the first one
+      # may create the tag and release.
+      - name: Skip if this release is already published
+        id: publish_skip
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Release ${TAG} already exists — nothing to publish."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build VSIX and CLI tarball
+        if: steps.publish_skip.outputs.skip != 'true'
         run: |
           pnpm run compile
           pnpm exec vsce package --no-dependencies
           npm pack --ignore-scripts --pack-destination .
 
       - name: Verify CLI and extension versions
+        if: steps.publish_skip.outputs.skip != 'true'
         env:
           NEXT: ${{ steps.version.outputs.version }}
         run: |
@@ -156,11 +187,12 @@ jobs:
           node -e "const p=require('./package.json'); if (p.version !== process.env.NEXT) { process.stderr.write('package.json version mismatch\n'); process.exit(1); }"
 
       - name: Tag and publish release
+        if: steps.publish_skip.outputs.skip != 'true'
         env:
           TAG: ${{ steps.version.outputs.tag }}
           VSIX: ${{ steps.version.outputs.vsix }}
           TGZ: ${{ steps.version.outputs.tgz }}
-          SHA: ${{ github.sha }}
+          SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
