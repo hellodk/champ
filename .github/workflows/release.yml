@@ -90,11 +90,14 @@ jobs:
             --head "release/${TAG}" --base master \
             --json number --jq '.[0].number // empty')"
           if [[ -z "$pr" ]]; then
-            pr="$(gh pr create --repo "$GITHUB_REPOSITORY" --base master \
+            gh pr create --repo "$GITHUB_REPOSITORY" --base master \
               --head "release/${TAG}" --title "chore(release): ${NEXT}" \
-              --body "Automated version bump for ${TAG}. Merges after required checks pass." \
-              --json number --jq .number)"
+              --body "Automated version bump for ${TAG}. Merges after required checks pass."
+            pr="$(gh pr list --repo "$GITHUB_REPOSITORY" \
+              --head "release/${TAG}" --base master \
+              --json number --jq '.[0].number // empty')"
           fi
+          test -n "$pr" || { echo "release PR not found"; exit 1; }
           gh pr merge --auto --squash "$pr"
 
   # Publishing runs only from the version commit that auto-merged into master,
