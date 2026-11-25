@@ -4,6 +4,10 @@ import * as fs from 'node:fs';
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
+const cliOnly = process.argv.includes('--cli-only');
+// Tests that spawn dist/cli.js in parallel need their own output path: writing
+// the shared artifact in place can hand a child process a half-written bundle.
+const cliOutfile = process.env.CHAMP_CLI_OUTFILE || 'dist/cli.js';
 
 function readBuildCommit() {
   try {
@@ -46,7 +50,10 @@ const extensionOptions = {
   ...shared,
   entryPoints: ['src/extension.ts'],
   outfile: 'dist/extension.js',
-  external: ['vscode', 'playwright-core', 'chromium-bidi'],
+  // Bundle Playwright and its internals. The VSIX ships no node_modules, so
+  // externalising those internals leaves extension.js requiring modules that
+  // are not in the package (#158).
+  external: ['vscode', 'chromium-bidi'],
 };
 
 // Headless entry (issue #136). Deliberately built WITHOUT `vscode` in
@@ -56,7 +63,7 @@ const extensionOptions = {
 const cliOptions = {
   ...shared,
   entryPoints: ['src/cli.ts'],
-  outfile: 'dist/cli.js',
+  outfile: cliOutfile,
   external: ['playwright', 'playwright-core', 'chromium-bidi'],
   // yoga-layout-prebuilt's nbind bundle assigns to an undeclared `_a`; esbuild
   // drops its `var _a` declaration while bundling. Declare it once so the
@@ -76,10 +83,12 @@ async function run(options) {
 async function main() {
   // Both entries must build; run them concurrently but fail the process if
   // either fails.
-  await Promise.all([run(extensionOptions), run(cliOptions)]);
+  await Promise.all(
+    cliOnly ? [run(cliOptions)] : [run(extensionOptions), run(cliOptions)],
+  );
   // npm sets +x for `bin` installs; do the same for the local artifact so
   // `./dist/cli.js` works without an explicit `node`.
-  fs.chmodSync('dist/cli.js', 0o755);
+  fs.chmodSync(cliOutfile, 0o755);
   if (watch) console.log('Watching for changes...');
 }
 

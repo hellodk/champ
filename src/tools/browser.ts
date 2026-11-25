@@ -12,6 +12,10 @@ import type {
 } from "./types";
 import type { ToolParameterSchema } from "../providers/types";
 import { validatePublicHttpUrl } from "../utils/url-guard";
+import {
+  browserUnavailableMessage,
+  detectBrowserRuntime,
+} from "./browser-runtime";
 import type { Browser, Page } from "playwright";
 
 /**
@@ -30,6 +34,10 @@ let page: Page | null = null;
  * to a structured error instead of failing at module load time.
  */
 async function ensureBrowser(): Promise<void> {
+  const runtime = await detectBrowserRuntime();
+  if (!runtime.installed) {
+    throw new Error(browserUnavailableMessage(runtime));
+  }
   try {
     if (!browser) {
       const { chromium } = await import("playwright");

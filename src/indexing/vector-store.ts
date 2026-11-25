@@ -273,6 +273,11 @@ export class VectorStore {
     return this.entries.size;
   }
 
+  /** Distinct file paths covered by the current entries. */
+  filePaths(): string[] {
+    return [...new Set([...this.entries.values()].map((e) => e.filePath))];
+  }
+
   /**
    * Persist the entire index to disk. Format: JSON metadata header (one line)
    * followed by raw Float32 embedding bytes packed sequentially.

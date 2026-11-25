@@ -67,6 +67,7 @@ import {
   type TurnStatus,
 } from "./cli/turn-runtime";
 import { runUpdateCommand } from "./cli/update";
+import { runBrowserCommand } from "./cli/browser-commands";
 import { runReviewCommand } from "./cli/review-commands";
 import { ChainCredentialStore } from "./config/credential-store";
 import { champConfigDir } from "./config/home";
@@ -992,6 +993,12 @@ async function main(): Promise<number> {
   }
   if (parsed.kind === "update") {
     return runUpdateCommand(parsed.options);
+  }
+  if (parsed.kind === "browser-command") {
+    return runBrowserCommand(parsed.command, {
+      stdout: plainStdout,
+      stderr: (text) => process.stderr.write(text),
+    });
   }
   if (parsed.kind === "policy-command") {
     let engine: PolicyEngine;

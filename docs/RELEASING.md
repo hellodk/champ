@@ -16,15 +16,17 @@ Every push to `master` runs `.github/workflows/release.yml`. The workflow:
 
 1. reads the current version from `package.json`;
 2. finds the newest reachable `v*` git tag;
-3. computes the next patch version as
-   `max(current version, newest tag) + 1`;
+3. computes the next version from conventional commits since the newest tag
+   (`feat` → minor, breaking change → major, otherwise patch), based on
+   `max(current version, newest tag)`;
 4. skips if that tag already exists remotely or HEAD is a `chore(release):`
    commit (safe re-runs);
 5. runs `pnpm version <next> --no-git-tag-version`;
 6. commits `package.json` as `chore(release): <next>` with Husky hooks disabled
    (tests run in CI, not during an automated commit);
-7. tags `v<next>` and pushes the tag only — the protected `master` branch is
-   updated separately, after its required checks pass;
+7. tags `v<next>`, pushes the version commit to `release/v<next>`, opens a PR
+   to `master`, and pushes the tag — the protected `master` branch receives the
+   version commit through that PR after its required checks pass;
 8. builds the VSIX from the bumped commit;
 9. verifies `node dist/cli.js --version` equals `champ <next>`;
 10. publishes a GitHub release titled `Champ v<next>` with the VSIX as the
@@ -39,7 +41,8 @@ reach `master` close together.
 
 ```bash
 scripts/champ version              # champ 2.0.2
-scripts/champ version next         # 2.0.3
+scripts/champ version next         # 2.0.3 (no feat/breaking commits)
+CHAMP_VERSION_COMMITS="feat: add browser install" scripts/champ version next 2.0.2 v2.0.2  # 2.1.0
 scripts/champ version next 2.0.2 v2.1.9  # 2.1.10
 scripts/champ release              # push master; workflow does the rest
 ```

@@ -16,15 +16,17 @@ export default defineConfig({
     environmentMatchGlobs: [["test/unit/webview/**", "jsdom"]],
     coverage: {
       provider: "v8",
-      reporter: ["text", "json", "html"],
+      reportsDirectory: "test-reports/unit",
+      reporter: ["text", ["json", { file: "coverage.json" }]],
       include: ["src/**/*.ts"],
       exclude: ["src/extension.ts"],
     },
     setupFiles: ["test/setup.ts"],
-    reporters: ["verbose", "json"],
-    outputFile: {
-      json: "test-reports/latest.json",
-    },
+    reporters: [
+      "verbose",
+      ["json", { outputFile: "test-reports/latest.json" }],
+      ["junit", { outputFile: "test-reports/unit/results.xml" }],
+    ],
   },
   resolve: {
     alias: {

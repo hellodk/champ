@@ -9,6 +9,7 @@ test-reports/**
 scripts/**
 webview-ui/src/**
 node_modules/**
+# The browser runtime is bundled into dist/extension.js; no node_modules needed.
 graphify-out/**
 .champ/**
 .superpowers/**

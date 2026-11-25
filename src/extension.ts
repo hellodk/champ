@@ -1551,9 +1551,8 @@ export async function activate(
         ensureService: async () => {
           if (indexingService) return indexingService;
           if (!workspaceRoot || !smartRouter) return undefined;
-          const { IndexingService: IS } = await import(
-            "./indexing/indexing-service.js"
-          );
+          const { IndexingService: IS } =
+            await import("./indexing/indexing-service.js");
           indexingService = new IS(
             workspaceRoot,
             smartRouter,
@@ -1566,9 +1565,16 @@ export async function activate(
             {
               ...options,
               location: vscode.ProgressLocation.Notification,
-              cancellable: false,
+              cancellable: options.cancellable ?? true,
             },
-            (progress) => Promise.resolve(task(progress)),
+            (progress, token) => {
+              void token.onCancellationRequested(() => {
+                vscode.window.showWarningMessage(
+                  "Champ: indexing cancellation requested; the current embed batch will stop at the next checkpoint.",
+                );
+              });
+              return Promise.resolve(task(progress));
+            },
           );
         },
         showInformation: async (message) => {
@@ -1599,6 +1605,7 @@ export async function activate(
             ["Build / update index", "Rebuild from scratch"],
             { placeHolder: "Choose Champ indexing action" },
           );
+          if (pick === undefined) return null;
           return pick === "Rebuild from scratch";
         },
       });

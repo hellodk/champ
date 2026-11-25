@@ -43,7 +43,7 @@ function main() {
   // with deprecation warnings and other noise.
   let exitCode = 0;
   try {
-    execSync('npx vitest run', {
+    execSync('corepack pnpm exec vitest run', {
       encoding: 'utf-8',
       cwd: path.join(__dirname, '..'),
       stdio: 'inherit',

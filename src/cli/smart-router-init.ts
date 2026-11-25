@@ -87,8 +87,15 @@ export async function initializeCliRouter(
   router.seedDiscoveredModels(staticModels);
 
   for (const task of ["coding", "chat"] as const) {
-    const model = input.assignments[task]?.model;
-    if (model) router.setTaskModel(task, model);
+    const assignment = input.assignments[task];
+    if (!assignment?.model) continue;
+    // An endpoint id pins the override to a provider. Without it, duplicate
+    // model ids on two endpoints would resolve to whichever was registered
+    // first, silently routing a task to the wrong provider.
+    const endpoint = input.endpoints.find(
+      (ep) => ep.id === assignment.endpointId,
+    );
+    router.setTaskModel(task, assignment.model, endpoint?.name);
   }
 
   return router;
