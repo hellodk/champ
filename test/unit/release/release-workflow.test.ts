@@ -31,10 +31,7 @@ describe("release automation", () => {
       /if: \$\{\{ github\.event_name == 'push' && !startsWith\(github\.event\.head_commit\.message, 'chore\(release\):'\) \}\}/,
     );
     expect(workflow).toContain(
-      "ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}",
-    );
-    expect(workflow).toContain(
-      "SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}",
+      "ref: ${{ needs.version.outputs.sha || github.event.pull_request.merge_commit_sha || github.sha }}",
     );
     expect(workflow).toContain("name: Plan next version");
     expect(workflow).toContain("name: Build and publish release");
@@ -56,6 +53,17 @@ describe("release automation", () => {
     expect(workflow).not.toContain("git push origin HEAD:master");
     expect(workflow).toContain("group: release-master");
     expect(workflow).toContain("cancel-in-progress: false");
+  });
+
+  it("waits for the version PR to merge and hands its commit to publishing", () => {
+    expect(workflow).toContain("sha: ${{ steps.merge_wait.outputs.sha }}");
+    expect(workflow).toContain('gh api "repos/$GITHUB_REPOSITORY/pulls/$PR"');
+    expect(workflow).toContain("sleep 20");
+    expect(workflow).toContain("needs: version");
+    expect(workflow).toContain("always() &&");
+    expect(workflow).toContain(
+      "needs.version.outputs.sha || github.event.pull_request.merge_commit_sha || github.sha",
+    );
   });
 
   it("does not run Husky hooks for the automated version commit", () => {
@@ -108,5 +116,6 @@ describe("release automation", () => {
     expect(docs).toContain("champ-cli-");
     expect(docs).toContain("workflow_dispatch");
     expect(docs).toContain("pull_request");
+    expect(docs).toContain("waits for the PR to merge");
   });
 });

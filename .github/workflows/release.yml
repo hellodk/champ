@@ -25,6 +25,9 @@ jobs:
   version:
     name: Plan next version
     if: ${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore(release):') }}
+    outputs:
+      sha: ${{ steps.merge_wait.outputs.sha }}
+      version: ${{ steps.merge_wait.outputs.version }}
     runs-on: ubuntu-latest
     env:
       # The version commit is automated; Husky's test hooks belong in CI.
@@ -78,6 +81,7 @@ jobs:
           fi
 
       - name: Bump version and open auto-merge PR
+        id: bump
         if: steps.skip.outputs.skip != 'true'
         env:
           NEXT: ${{ steps.meta.outputs.next }}
@@ -107,6 +111,37 @@ jobs:
           fi
           test -n "$pr" || { echo "release PR not found"; exit 1; }
           gh pr merge --auto --squash "$pr"
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+
+      # Events from a merge performed with GITHUB_TOKEN are suppressed, so a
+      # separate trigger cannot be relied on. Wait here and pass the merged
+      # commit to the publish job in this same run.
+      - name: Wait for version PR to merge
+        id: merge_wait
+        env:
+          NEXT: ${{ steps.meta.outputs.next }}
+          PR: ${{ steps.bump.outputs.pr }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$PR" || { echo "release PR not found"; exit 1; }
+          merged_sha=""
+          for _ in $(seq 1 90); do
+            pr_data="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR")"
+            state="$(printf '%s' "$pr_data" | jq -r .state)"
+            if [[ "$state" == "MERGED" ]]; then
+              merged_sha="$(printf '%s' "$pr_data" | jq -r .merge_commit_sha)"
+              break
+            fi
+            if [[ "$state" == "CLOSED" ]]; then
+              echo "release PR $PR closed without merging"
+              exit 1
+            fi
+            sleep 20
+          done
+          test -n "$merged_sha" || { echo "timed out waiting for release PR $PR"; exit 1; }
+          echo "sha=$merged_sha" >> "$GITHUB_OUTPUT"
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
 
   # Publishing runs from the version commit that auto-merged into master. A
   # merge performed with GITHUB_TOKEN does not emit a push event, so the closing
@@ -114,11 +149,15 @@ jobs:
   # fallbacks. Required checks have already passed on the release PR.
   publish:
     name: Build and publish release
+    needs: version
     if: >-
       ${{
+        always() && (
+        needs.version.outputs.sha != '' ||
         (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')) ||
         (github.event_name == 'pull_request' && github.event.pull_request.merged && startsWith(github.event.pull_request.title, 'chore(release):')) ||
         github.event_name == 'workflow_dispatch'
+        )
       }}
     runs-on: ubuntu-latest
     env:
@@ -130,7 +169,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          ref: ${{ needs.version.outputs.sha || github.event.pull_request.merge_commit_sha || github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -192,7 +231,7 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
           VSIX: ${{ steps.version.outputs.vsix }}
           TGZ: ${{ steps.version.outputs.tgz }}
-          SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          SHA: ${{ needs.version.outputs.sha || github.event.pull_request.merge_commit_sha || github.sha }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
