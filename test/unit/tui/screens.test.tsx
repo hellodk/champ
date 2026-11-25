@@ -63,13 +63,62 @@ describe("TUI session and review screens (#148)", () => {
           updatedAt: "2026-11-24T10:00:00Z",
         },
       ]),
-      resumeSession: vi.fn(async () => "resumed sess_2"),
+      resumeSession: vi.fn(async () => ({
+        summary: "resumed sess_2",
+        messages: [
+          { role: "user" as const, text: "fix parser" },
+          { role: "assistant" as const, text: "done" },
+        ],
+      })),
     });
     const view = render(<App runtime={rt} />);
     await ready(view);
     await tabTo(view, 4);
     await vi.waitFor(() => {
       expect(view.lastFrame()).toContain("fix parser");
+    });
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      expect(rt.resumeSession).toHaveBeenCalledWith("sess_2");
+    });
+    view.unmount();
+  });
+
+  it("filters sessions by message preview and resumes the filtered row (#192)", async () => {
+    const rt = runtime({
+      listSessions: vi.fn(async () => [
+        {
+          id: "sess_2",
+          label: "fix parser",
+          updatedAt: "2026-11-24T10:00:00Z",
+          preview: "investigate markdown tokens",
+        },
+        {
+          id: "sess_3",
+          label: "plan release",
+          updatedAt: "2026-11-23T10:00:00Z",
+          preview: "draft v2.3 checklist",
+        },
+      ]),
+      resumeSession: vi.fn(async () => ({
+        summary: "resumed sess_2",
+        messages: [{ role: "user" as const, text: "fix parser" }],
+      })),
+    });
+    const view = render(<App runtime={rt} />);
+    await ready(view);
+    await tabTo(view, 4);
+    await vi.waitFor(() => {
+      expect(view.lastFrame()).toContain("plan release");
+    });
+    for (const char of "markdown") {
+      view.stdin.write(char);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    }
+    await vi.waitFor(() => {
+      const frame = view.lastFrame() ?? "";
+      expect(frame).toContain("fix parser");
+      expect(frame).not.toContain("plan release");
     });
     view.stdin.write("\r");
     await vi.waitFor(() => {

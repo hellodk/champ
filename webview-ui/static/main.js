@@ -307,6 +307,17 @@
   tabBar.append(trashStrip);
 
   let lastSessionData = { sessions: [], activeSessionId: null };
+  let sessionFilter = '';
+
+  // Mirrors src/session/search.ts (the webview bundle is plain JavaScript).
+  function filterSessions(sessions, query) {
+    const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return sessions;
+    return sessions.filter((s) => {
+      const haystack = [s.id, s.label, s.preview || ''].join(' ').toLowerCase();
+      return terms.every((term) => haystack.includes(term));
+    });
+  }
 
   function renderSessionList(sessions, activeSessionId) {
     lastSessionData = { sessions, activeSessionId };
@@ -348,11 +359,10 @@
     }
   }
 
-  function renderOverflowMenu() {
-    tabOverflowMenu.innerHTML = '';
-    const sessions = lastSessionData.sessions || [];
+  function appendOverflowItems(container, sessions) {
+    container.innerHTML = '';
     if (sessions.length === 0) {
-      tabOverflowMenu.append(el('div', { class: 'overflow-item' }, ['No sessions']));
+      container.append(el('div', { class: 'overflow-item' }, ['No sessions match']));
       return;
     }
     for (const s of sessions) {
@@ -364,8 +374,26 @@
         tabOverflowMenu.setAttribute('hidden', 'true');
         if (!isActive) vscode.postMessage({ type: 'switchSessionRequest', sessionId: s.id });
       });
-      tabOverflowMenu.append(item);
+      container.append(item);
     }
+  }
+
+  function renderOverflowMenu() {
+    tabOverflowMenu.innerHTML = '';
+    const sessions = lastSessionData.sessions || [];
+    const searchInput = el('input', {
+      class: 'session-search-input',
+      type: 'search',
+      placeholder: 'Filter sessions…',
+      value: sessionFilter,
+    });
+    const results = el('div', { class: 'session-search-results' });
+    searchInput.addEventListener('input', () => {
+      sessionFilter = searchInput.value;
+      appendOverflowItems(results, filterSessions(sessions, sessionFilter));
+    });
+    tabOverflowMenu.append(searchInput, results);
+    appendOverflowItems(results, filterSessions(sessions, sessionFilter));
   }
 
   // -------------------------------------------------------------------

@@ -49,6 +49,85 @@ async function waitReady(view: ReturnType<typeof render>): Promise<void> {
 }
 
 describe("Ink TUI", () => {
+  it("moves back through transcript lines with PageUp and returns on End", async () => {
+    const adapter = runtime({
+      submit: vi.fn(async (_text, hooks) => {
+        hooks.onText(
+          Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n"),
+        );
+        return { text: "", aborted: false };
+      }),
+    });
+    const view = render(<App runtime={adapter} />);
+    await waitReady(view);
+    for (const char of "hello") {
+      view.stdin.write(char);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    }
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      expect(view.lastFrame()).toContain("line 59");
+    });
+
+    view.stdin.write("\x1b[5~"); // PageUp
+    await vi.waitFor(() => {
+      expect(view.lastFrame()).toContain("(scrolled)");
+    });
+    view.stdin.write("\x1b[F"); // End
+    await vi.waitFor(() => {
+      expect(view.lastFrame()).not.toContain("(scrolled)");
+    });
+  });
+
+  it("renders markdown headings, lists and highlighted code in the transcript (#193)", async () => {
+    const adapter = runtime({
+      submit: vi.fn(async (_text, hooks) => {
+        hooks.onText(
+          "# Result\n\n- first\n- second\n\n```ts\nconst value = 1;\n```",
+        );
+        return { text: "", aborted: false };
+      }),
+    });
+    const view = render(<App runtime={adapter} />);
+    await waitReady(view);
+    for (const char of "run") {
+      view.stdin.write(char);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    }
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      const frame = view.lastFrame() ?? "";
+      expect(frame).toContain("Result");
+      expect(frame).toContain("• first");
+      expect(frame).toContain("const");
+      expect(frame).toContain("qwen3.5-4b");
+      expect(frame).toContain("sess_1");
+    });
+  });
+
+  it("collapses tool output and expands it with Ctrl-E (#193)", async () => {
+    const adapter = runtime({
+      submit: vi.fn(async (_text, hooks) => {
+        hooks.onTool("read_file", '{"path":"a.txt"}');
+        return { text: "", aborted: false };
+      }),
+    });
+    const view = render(<App runtime={adapter} />);
+    await waitReady(view);
+    for (const char of "run") {
+      view.stdin.write(char);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    }
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      expect(view.lastFrame()).toContain("Ctrl-E to expand");
+    });
+    view.stdin.write("\u0005"); // Ctrl-E
+    await vi.waitFor(() => {
+      expect(view.lastFrame()).not.toContain("Ctrl-E to expand");
+    });
+  });
+
   it("renders the full-screen shell with header, tabs and prompt", () => {
     const view = render(<App runtime={runtime()} />);
     const frame = view.lastFrame() ?? "";

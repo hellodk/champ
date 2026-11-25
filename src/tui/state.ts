@@ -17,6 +17,7 @@ export interface TuiSessionSummary {
   id: string;
   label: string;
   updatedAt: string;
+  preview?: string;
 }
 
 export interface TuiReviewSummary {
@@ -74,6 +75,7 @@ export interface TuiState {
   cursor: number;
   sessions: TuiSessionSummary[];
   sessionCursor: number;
+  sessionFilter: string;
   reviews: TuiReviewSummary[];
   reviewCursor: number;
   /** Prompts submitted this session, oldest first. */
@@ -81,8 +83,19 @@ export interface TuiState {
   /** null means the user is drafting a fresh prompt. */
   historyCursor: number | null;
   draftInput: string;
-  /** Lines scrolled back from the newest transcript page. */
+  /** Rendered lines scrolled back from the newest transcript page. */
   scrollOffset: number;
+  /** True while the viewport follows new output at the bottom. */
+  autoFollow: boolean;
+  /** Lines appended since the reader last looked at the newest page. */
+  unseen: number;
+  /** Line counts published by the renderer so the reducer can clamp. */
+  totalLines: number;
+  viewportLines: number;
+  /** True once the retention cap has dropped older messages. */
+  truncated: boolean;
+  /** Tool messages whose full output is expanded in the transcript. */
+  expandedTools: string[];
 }
 
 export type TuiAction =
@@ -112,12 +125,22 @@ export type TuiAction =
   | { type: "messages/clear" }
   | { type: "sessions/set"; sessions: TuiSessionSummary[] }
   | { type: "sessions/cursor"; delta: number }
+  | { type: "sessions/filter"; value: string }
   | { type: "reviews/set"; reviews: TuiReviewSummary[] }
   | { type: "reviews/cursor"; delta: number }
   | { type: "history/push"; value: string }
   | { type: "history/prev" }
   | { type: "history/next" }
-  | { type: "transcript/scroll"; delta: number };
+  | { type: "transcript/scroll"; delta: number }
+  | { type: "transcript/bottom" }
+  | { type: "transcript/top" }
+  | { type: "tool/toggle"; id: string }
+  | {
+      type: "transcript/metrics";
+      totalLines: number;
+      viewportLines: number;
+      addedLines: number;
+    };
 
 export interface TuiInitialState {
   workspace: string;
@@ -137,7 +160,7 @@ const SCREENS: TuiScreen[] = [
   "review",
 ];
 export const TRANSCRIPT_PAGE_SIZE = 18;
-const MAX_MESSAGES = 400;
+const MAX_MESSAGES = 2000;
 
 let sequence = 0;
 function nextId(): string {
@@ -179,12 +202,19 @@ export function initialTuiState(input: TuiInitialState): TuiState {
     cursor: 0,
     sessions: [],
     sessionCursor: 0,
+    sessionFilter: "",
     reviews: [],
     reviewCursor: 0,
     history: [],
     historyCursor: null,
     draftInput: "",
     scrollOffset: 0,
+    autoFollow: true,
+    unseen: 0,
+    totalLines: 0,
+    viewportLines: 0,
+    truncated: false,
+    expandedTools: [],
   };
 }
 
@@ -251,7 +281,7 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
         draftInput: "",
         historyCursor: null,
         history: submitted ? [...state.history, submitted] : state.history,
-        scrollOffset: 0,
+        truncated: state.truncated || state.messages.length >= MAX_MESSAGES,
       };
     }
     case "turn/stop": {
@@ -266,11 +296,13 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
       return {
         ...state,
         messages: appendMessage(state, action.role, action.text, false),
+        truncated: state.truncated || state.messages.length >= MAX_MESSAGES,
       };
     case "message/stream":
       return {
         ...state,
         messages: appendMessage(state, action.role, action.text, true),
+        truncated: state.truncated || state.messages.length >= MAX_MESSAGES,
       };
     case "status/set":
       return { ...state, status: action.text };
@@ -343,7 +375,14 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
     case "diagnostics/set":
       return { ...state, diagnostics: action.lines };
     case "messages/clear":
-      return { ...state, messages: [], status: "New session" };
+      return {
+        ...state,
+        messages: [],
+        status: "New session",
+        scrollOffset: 0,
+        autoFollow: true,
+        unseen: 0,
+      };
     case "sessions/set":
       return {
         ...state,
@@ -362,6 +401,8 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
           state.sessions.length,
         ),
       };
+    case "sessions/filter":
+      return { ...state, sessionFilter: action.value, sessionCursor: 0 };
     case "reviews/set":
       return {
         ...state,
@@ -411,16 +452,47 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
       }
       return { ...state, historyCursor: next, input: state.history[next] };
     }
-    case "transcript/scroll": {
-      const max = Math.max(0, state.messages.length - TRANSCRIPT_PAGE_SIZE);
+    case "transcript/metrics": {
+      const max = Math.max(0, action.totalLines - action.viewportLines);
+      const scrollOffset = Math.max(0, Math.min(max, state.scrollOffset));
+      const atBottom = scrollOffset === 0;
       return {
         ...state,
-        scrollOffset: Math.max(
-          0,
-          Math.min(max, state.scrollOffset + action.delta),
-        ),
+        totalLines: action.totalLines,
+        viewportLines: action.viewportLines,
+        scrollOffset,
+        autoFollow: atBottom,
+        unseen: atBottom ? 0 : state.unseen + Math.max(0, action.addedLines),
       };
     }
+    case "transcript/scroll": {
+      const max = Math.max(0, state.totalLines - state.viewportLines);
+      const scrollOffset = Math.max(
+        0,
+        Math.min(max, state.scrollOffset - action.delta),
+      );
+      return {
+        ...state,
+        scrollOffset,
+        autoFollow: scrollOffset === 0,
+        unseen: scrollOffset === 0 ? 0 : state.unseen,
+      };
+    }
+    case "transcript/bottom":
+      return { ...state, scrollOffset: 0, autoFollow: true, unseen: 0 };
+    case "transcript/top":
+      return {
+        ...state,
+        scrollOffset: Math.max(0, state.totalLines - state.viewportLines),
+        autoFollow: false,
+      };
+    case "tool/toggle":
+      return {
+        ...state,
+        expandedTools: state.expandedTools.includes(action.id)
+          ? state.expandedTools.filter((id) => id !== action.id)
+          : [...state.expandedTools, action.id],
+      };
     default:
       return state;
   }
