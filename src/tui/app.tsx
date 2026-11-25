@@ -11,6 +11,7 @@ import {
   useEffect,
   useMemo,
   useReducer,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -18,14 +19,16 @@ import { Box, render, Text, useApp, useInput } from "ink";
 import {
   initialTuiState,
   tuiReducer,
-  TRANSCRIPT_PAGE_SIZE,
+  type ChatRole,
   type EndpointSummary,
   type TuiReviewSummary,
   type TuiScreen,
   type TuiSessionSummary,
 } from "./state";
+import { buildTranscriptLines, TRANSCRIPT_VIEWPORT_LINES } from "./transcript";
 import type { TuiConfigEntry, TuiRuntime } from "./runtime";
 import { dedupeEndpointSummaries, resolveTuiSelection } from "./endpoints";
+import { filterSessions } from "../session/search";
 import { filterModels, modelLabel } from "./model-picker";
 import {
   PALETTES,
@@ -57,9 +60,54 @@ const FOOTER_HINTS: Record<TuiScreen, string> = {
   providers: "↑↓ select · U models · ? help",
   config: "S set · I editor · ? help",
   help: "? advanced · Esc chat",
-  sessions: "Enter resume · ? help",
+  sessions: "Type to filter · Enter resume · Ctrl-U clear · ? help",
   review: "A accept · R reject · ? help",
 };
+
+const ROLE_GLYPHS: Record<ChatRole, string> = {
+  user: "❯",
+  assistant: "◆",
+  system: "·",
+  tool: "⚡",
+  error: "!",
+};
+
+function roleColor(role: ChatRole, palette: Palette): string {
+  switch (role) {
+    case "user":
+      return palette.accent;
+    case "error":
+      return palette.error;
+    case "tool":
+      return palette.warning;
+    case "system":
+      return palette.muted;
+    default:
+      return palette.success;
+  }
+}
+
+function highlightColor(name: string | undefined, palette: Palette): string {
+  switch (name) {
+    case "keyword":
+    case "selector-tag":
+    case "built_in":
+      return palette.highlight;
+    case "string":
+    case "attr":
+      return palette.success;
+    case "number":
+    case "literal":
+      return palette.warning;
+    case "comment":
+      return palette.muted;
+    case "title":
+    case "function":
+      return palette.accent;
+    default:
+      return palette.text;
+  }
+}
 
 const SETUP_FIELDS = [
   "name",
@@ -147,6 +195,32 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       screen: runtime.initialScreen ?? "chat",
     };
   });
+
+  const transcriptWidth = Math.max(20, (process.stdout.columns ?? 80) - 6);
+  const transcriptLines = useMemo(
+    () => buildTranscriptLines(state.messages, transcriptWidth),
+    [state.messages, transcriptWidth],
+  );
+  const previousLineCount = useRef(transcriptLines.length);
+  useEffect(() => {
+    const addedLines = Math.max(
+      0,
+      transcriptLines.length - previousLineCount.current,
+    );
+    previousLineCount.current = transcriptLines.length;
+    if (
+      addedLines > 0 ||
+      state.totalLines !== transcriptLines.length ||
+      state.viewportLines !== TRANSCRIPT_VIEWPORT_LINES
+    ) {
+      dispatch({
+        type: "transcript/metrics",
+        totalLines: transcriptLines.length,
+        viewportLines: TRANSCRIPT_VIEWPORT_LINES,
+        addedLines,
+      });
+    }
+  }, [transcriptLines, state.totalLines, state.viewportLines]);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [setupField, setSetupField] = useState<SetupField>("name");
   const [doctorLines, setDoctorLines] = useState<string[]>([]);
@@ -415,8 +489,17 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
     async (id: string) => {
       if (!runtime.resumeSession) return;
       try {
-        const message = await runtime.resumeSession(id);
-        dispatch({ type: "status/set", text: message });
+        const resumed = await runtime.resumeSession(id);
+        dispatch({ type: "messages/clear" });
+        for (const message of resumed.messages) {
+          dispatch({
+            type: "message/add",
+            role: message.role,
+            text: message.text,
+          });
+        }
+        dispatch({ type: "transcript/bottom" });
+        dispatch({ type: "status/set", text: resumed.summary });
         if (runtime.listSessions) {
           dispatch({
             type: "sessions/set",
@@ -474,6 +557,11 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       });
     }
   }, [runtime, configDraft]);
+
+  const visibleSessions = useMemo(
+    () => filterSessions(state.sessions, state.sessionFilter),
+    [state.sessions, state.sessionFilter],
+  );
 
   useInput((input, key) => {
     if (approval) {
@@ -572,7 +660,12 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         });
         return;
       }
-      if (input.length > 0 && !key.ctrl && !key.meta && !input.startsWith("\x1b")) {
+      if (
+        input.length > 0 &&
+        !key.ctrl &&
+        !key.meta &&
+        !input.startsWith("\x1b")
+      ) {
         const clean = sanitizePaste(input);
         if (clean.length > 0) {
           dispatch({
@@ -603,11 +696,34 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
 
     if (state.screen === "chat") {
       if (key.pageUp) {
-        dispatch({ type: "transcript/scroll", delta: -5 });
+        dispatch({
+          type: "transcript/scroll",
+          delta: -TRANSCRIPT_VIEWPORT_LINES,
+        });
         return;
       }
       if (key.pageDown) {
-        dispatch({ type: "transcript/scroll", delta: 5 });
+        dispatch({
+          type: "transcript/scroll",
+          delta: TRANSCRIPT_VIEWPORT_LINES,
+        });
+        return;
+      }
+      // Ink 3's key object has no home/end flags and strips the leading ESC,
+      // so \x1b[H arrives as "[H" with key.meta set.
+      if (key.meta && (input === "[H" || input === "OH")) {
+        dispatch({ type: "transcript/top" });
+        return;
+      }
+      if (key.meta && (input === "[F" || input === "OF")) {
+        dispatch({ type: "transcript/bottom" });
+        return;
+      }
+      if (key.ctrl && input === "e") {
+        const lastTool = [...state.messages]
+          .reverse()
+          .find((message) => message.role === "tool");
+        if (lastTool) dispatch({ type: "tool/toggle", id: lastTool.id });
         return;
       }
       if (state.busy) return;
@@ -624,7 +740,12 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         } else {
           dispatch({ type: key.upArrow ? "history/prev" : "history/next" });
         }
-      } else if (input.length > 0 && !key.ctrl && !key.meta && !input.startsWith("\x1b")) {
+      } else if (
+        input.length > 0 &&
+        !key.ctrl &&
+        !key.meta &&
+        !input.startsWith("\x1b")
+      ) {
         const clean = sanitizePaste(input);
         if (clean.length > 0) {
           dispatch({ type: "input/set", value: state.input + clean });
@@ -713,8 +834,17 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
           }));
           return;
         }
-        if (input.length > 0 && !key.ctrl && !key.meta && !input.startsWith("\x1b")) {
-          if (input.length === 1 && /^[1-9]$/.test(input) && !modelPicker.filter) {
+        if (
+          input.length > 0 &&
+          !key.ctrl &&
+          !key.meta &&
+          !input.startsWith("\x1b")
+        ) {
+          if (
+            input.length === 1 &&
+            /^[1-9]$/.test(input) &&
+            !modelPicker.filter
+          ) {
             const model = candidates[Number(input) - 1];
             if (endpoint && model) {
               setModelPicker({
@@ -807,10 +937,18 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
           });
           return;
         }
-        if (input.length > 0 && !key.ctrl && !key.meta && !input.startsWith("\x1b")) {
+        if (
+          input.length > 0 &&
+          !key.ctrl &&
+          !key.meta &&
+          !input.startsWith("\x1b")
+        ) {
           const clean = sanitizePaste(input);
           if (clean.length > 0) {
-            setConfigDraft({ ...configDraft, value: configDraft.value + clean });
+            setConfigDraft({
+              ...configDraft,
+              value: configDraft.value + clean,
+            });
           }
         }
         return;
@@ -890,8 +1028,20 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       if (key.upArrow) dispatch({ type: "sessions/cursor", delta: -1 });
       else if (key.downArrow) dispatch({ type: "sessions/cursor", delta: 1 });
       else if (key.return) {
-        const selected = state.sessions[state.sessionCursor];
+        const selected = visibleSessions[state.sessionCursor];
         if (selected) void resumeSession(selected.id);
+      } else if (key.backspace || key.delete) {
+        dispatch({
+          type: "sessions/filter",
+          value: state.sessionFilter.slice(0, -1),
+        });
+      } else if (key.ctrl && input === "u") {
+        dispatch({ type: "sessions/filter", value: "" });
+      } else if (input.length === 1 && !key.ctrl && !key.meta) {
+        dispatch({
+          type: "sessions/filter",
+          value: state.sessionFilter + input,
+        });
       }
       return;
     }
@@ -909,15 +1059,31 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
     }
   });
 
-  const transcriptStart = Math.max(
+  const scrollableLines = Math.max(
     0,
-    state.messages.length - TRANSCRIPT_PAGE_SIZE - state.scrollOffset,
+    transcriptLines.length - TRANSCRIPT_VIEWPORT_LINES,
   );
+  const transcriptStart = Math.max(0, scrollableLines - state.scrollOffset);
   const transcriptEnd = Math.min(
-    state.messages.length,
-    transcriptStart + TRANSCRIPT_PAGE_SIZE,
+    transcriptLines.length,
+    transcriptStart + TRANSCRIPT_VIEWPORT_LINES,
   );
-  const visible = state.messages.slice(transcriptStart, transcriptEnd);
+  const visible = transcriptLines.slice(transcriptStart, transcriptEnd);
+  const hiddenToolLines = useMemo(() => {
+    const hidden = new Set<string>();
+    const firstBody = new Map<string, string>();
+    for (const line of transcriptLines) {
+      if (line.role !== "tool" || line.kind === "role") continue;
+      if (!firstBody.has(line.messageId))
+        firstBody.set(line.messageId, line.id);
+    }
+    for (const line of visible) {
+      if (line.role !== "tool" || line.kind === "role") continue;
+      if (state.expandedTools.includes(line.messageId)) continue;
+      if (firstBody.get(line.messageId) !== line.id) hidden.add(line.id);
+    }
+    return hidden;
+  }, [transcriptLines, visible, state.expandedTools]);
   const endpoint = state.endpoints[state.cursor];
   const session = runtime.header.sessionId;
   const filteredModels = endpoint
@@ -965,58 +1131,76 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
                 Ask anything. Type /help for commands.
               </Text>
             ) : (
-              visible.map((message) => {
-                if (message.role === "tool") {
+              visible.map((line) => {
+                if (hiddenToolLines.has(line.id)) return null;
+                const parent = state.messages.find(
+                  (message) => message.id === line.messageId,
+                );
+                const statusLine =
+                  parent?.text.startsWith("✓") || parent?.text.startsWith("✗");
+                if (statusLine && line.kind === "role") return null;
+                if (statusLine && line.kind === "body") {
                   return (
-                    <Box key={message.id} flexDirection="row" marginBottom={1}>
-                      <Text bold color={palette.warning}>
-                        {"⚡ "}
-                      </Text>
-                      <Text color={palette.warning}>{message.text}</Text>
-                    </Box>
-                  );
-                }
-                if (message.role === "system" && message.text.startsWith("✓")) {
-                  return (
-                    <Box key={message.id} flexDirection="row" marginBottom={1}>
-                      <Text bold color={palette.success}>
-                        {message.text}
-                      </Text>
-                    </Box>
-                  );
-                }
-                if (message.role === "error" && message.text.startsWith("✗")) {
-                  return (
-                    <Box key={message.id} flexDirection="row" marginBottom={1}>
-                      <Text bold color={palette.error}>
-                        {message.text}
-                      </Text>
-                    </Box>
-                  );
-                }
-                return (
-                  <Box key={message.id} flexDirection="column" marginBottom={1}>
                     <Text
+                      key={line.id}
                       bold
                       color={
-                        message.role === "user"
-                          ? palette.accent
-                          : message.role === "error"
-                            ? palette.error
-                            : palette.success
+                        parent?.text.startsWith("✗")
+                          ? palette.error
+                          : palette.success
                       }
                     >
-                      {message.role.toUpperCase()}
+                      {line.text}
                     </Text>
-                    <Text color={palette.text}>{message.text}</Text>
-                  </Box>
+                  );
+                }
+                if (line.kind === "role") {
+                  const collapsed =
+                    line.role === "tool" &&
+                    !state.expandedTools.includes(line.messageId);
+                  return (
+                    <Text
+                      key={line.id}
+                      bold
+                      color={roleColor(line.role, palette)}
+                    >
+                      {`${ROLE_GLYPHS[line.role]} ${line.text}${collapsed ? " · Ctrl-E to expand" : ""}`}
+                    </Text>
+                  );
+                }
+                const segments = line.segments ?? [{ text: line.text }];
+                return (
+                  <Text
+                    key={line.id}
+                    bold={line.kind === "heading"}
+                    color={line.kind === "code" ? palette.muted : palette.text}
+                  >
+                    {segments.map((segment, index) => (
+                      <Text
+                        key={index}
+                        bold={segment.bold}
+                        italic={segment.italic}
+                        underline={segment.link}
+                        inverse={
+                          segment.code || segment.highlight !== undefined
+                        }
+                        color={
+                          segment.code
+                            ? palette.highlight
+                            : highlightColor(segment.highlight, palette)
+                        }
+                      >
+                        {segment.text}
+                      </Text>
+                    ))}
+                  </Text>
                 );
               })
             )}
             <Text color={palette.muted}>
-              {state.messages.length === 0
+              {transcriptLines.length === 0
                 ? "line 0 of 0"
-                : `messages ${transcriptStart + 1}-${transcriptEnd} of ${state.messages.length}${state.scrollOffset > 0 ? " (scrolled)" : ""}`}
+                : `line ${transcriptStart + 1}-${transcriptEnd} of ${transcriptLines.length}${state.scrollOffset > 0 ? " (scrolled)" : ""}${state.unseen > 0 ? ` ↓ ${state.unseen} new` : ""}${state.truncated ? " (older turns trimmed)" : ""}`}
             </Text>
           </Panel>
           {approval && (
@@ -1250,14 +1434,22 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       {state.screen === "sessions" && (
         <Panel title="Sessions" palette={palette}>
           <Text color={palette.muted}>
-            ↑↓ select · Enter resume · Tab screen · Esc chat
+            Type to filter id/title/message · ↑↓ select · Enter resume · Ctrl-U
+            clear · Esc chat
           </Text>
-          {state.sessions.length === 0 ? (
+          <Text color={palette.accent}>
+            {state.sessionFilter
+              ? `filter: ${state.sessionFilter}▌`
+              : "filter: ▌"}
+          </Text>
+          {visibleSessions.length === 0 ? (
             <Text color={palette.warning}>
-              No stored sessions in this workspace.
+              {state.sessionFilter
+                ? "No sessions match this filter."
+                : "No stored sessions in this workspace."}
             </Text>
           ) : (
-            state.sessions.map((item: TuiSessionSummary, index) => (
+            visibleSessions.map((item: TuiSessionSummary, index) => (
               <Text
                 key={item.id}
                 bold={index === state.sessionCursor}
@@ -1265,7 +1457,7 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
                   index === state.sessionCursor ? palette.accent : palette.text
                 }
               >
-                {`${index === state.sessionCursor ? "▸" : " "} ${item.id} — ${truncate(item.label, 54)} · ${item.updatedAt}`}
+                {`${index === state.sessionCursor ? "▸" : " "} ${item.id} — ${truncate(item.label, 44)} · ${item.updatedAt}${item.preview ? ` · ${truncate(item.preview, 40)}` : ""}`}
               </Text>
             ))
           )}
@@ -1310,16 +1502,21 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
             Providers: U pick model · E edit · A add · T test
           </Text>
           <Text color={palette.text}>
-            Sessions: Enter resume · Review: A accept, R reject
+            Sessions: type to filter, Enter resume · Review: A accept, R reject
           </Text>
           {advancedHelp ? (
             <>
               <Text bold color={palette.panelTitle}>
                 Advanced
               </Text>
-              <Text color={palette.muted}>PgUp/PgDn — scroll transcript</Text>
+              <Text color={palette.muted}>
+                PgUp/PgDn — scroll transcript · Home/End — oldest/newest
+              </Text>
               <Text color={palette.muted}>
                 Up/Down — transcript scroll or prompt history
+              </Text>
+              <Text color={palette.muted}>
+                Ctrl-E — expand the last tool call
               </Text>
               <Text color={palette.muted}>
                 Config: S set value · I editor · V validate · D doctor · E
@@ -1340,7 +1537,11 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       )}
 
       <Box justifyContent="space-between" paddingX={1}>
-        <Text color={palette.muted}>{truncate(state.status, 90)}</Text>
+        <Text color={palette.muted}>{truncate(state.status, 60)}</Text>
+        <Text color={palette.muted}>
+          {state.selectedModel ?? runtime.header.model} ·{" "}
+          {runtime.header.routingMode ?? "auto"} · {session ?? "no session"}
+        </Text>
         <Text color={palette.accent}>{FOOTER_HINTS[state.screen]}</Text>
       </Box>
     </Box>

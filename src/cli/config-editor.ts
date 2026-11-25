@@ -206,7 +206,9 @@ export async function setConfigValue(
     // The top-level `provider` key in YAML must remain a string naming the provider.
     // Model and baseUrl settings belong under `providers.<provider>.<field>`.
     const activeProvider =
-      typeof doc.provider === "string" && doc.provider ? doc.provider : undefined;
+      typeof doc.provider === "string" && doc.provider
+        ? doc.provider
+        : undefined;
     if (activeProvider) {
       writePath(doc, `providers.${activeProvider}.${field}`, value);
     }

@@ -4144,10 +4144,35 @@ export async function activate(
   }
 
   /** Broadcast the current session list to the webview. */
+  function firstUserPreview(
+    history: ReadonlyArray<{ role: string; content: unknown }>,
+  ): string {
+    const user = history.find((message) => message.role === "user");
+    if (!user) return "";
+    if (typeof user.content === "string") return user.content.slice(0, 120);
+    if (Array.isArray(user.content)) {
+      return user.content
+        .map((block) =>
+          block && typeof block === "object" && "text" in block
+            ? String((block as { text: unknown }).text)
+            : "",
+        )
+        .join(" ")
+        .slice(0, 120);
+    }
+    return "";
+  }
+
   function broadcastSessionList(): void {
     if (!agentManager) return;
+    const sessions = agentManager.listSessions().map((metadata) => ({
+      ...metadata,
+      preview: firstUserPreview(
+        agentManager!.getSession(metadata.id)?.controller.getHistory() ?? [],
+      ),
+    }));
     chatViewProvider?.broadcastSessionList(
-      agentManager.listSessions(),
+      sessions,
       agentManager.getActiveId(),
     );
   }

@@ -7,7 +7,7 @@
  */
 import type { TuiSelection } from "./endpoints";
 import type { ThemeName } from "./theme";
-import type { EndpointSummary, TuiScreen } from "./state";
+import type { ChatRole, EndpointSummary, TuiScreen } from "./state";
 
 export interface TuiHeader {
   version: string;
@@ -35,6 +35,11 @@ export interface TuiTurnResult {
   aborted: boolean;
 }
 
+export interface TuiResumedSession {
+  summary: string;
+  messages: Array<{ role: ChatRole; text: string }>;
+}
+
 export interface TuiAddEndpointInput {
   name: string;
   provider: string;
@@ -53,6 +58,7 @@ export interface TuiSessionSummary {
   id: string;
   label: string;
   updatedAt: string;
+  preview?: string;
 }
 
 export interface TuiReviewSummary {
@@ -98,7 +104,7 @@ export interface TuiRuntime {
   /** Handle a defined slash command; returns null when it is not one of ours. */
   command?(text: string): Promise<string | null>;
   listSessions?(): Promise<TuiSessionSummary[]>;
-  resumeSession?(id: string): Promise<string>;
+  resumeSession?(id: string): Promise<TuiResumedSession>;
   listReviews?(): Promise<TuiReviewSummary[]>;
   acceptReview?(id: string): Promise<string>;
   rejectReview?(id: string): Promise<string>;
