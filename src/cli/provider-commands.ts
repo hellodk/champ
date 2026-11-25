@@ -7,6 +7,7 @@ import * as path from "path";
 import { spawnSync } from "child_process";
 import type { CredentialStore } from "../config/credential-store";
 import { champHome } from "../config/home";
+import { selectProviderAsDefault } from "../config/active-model";
 import { setConfigValue } from "./config-editor";
 import {
   EndpointNotFoundError,
@@ -312,8 +313,23 @@ export async function runProviderCommand(
         const registryDoc = exported.registry as {
           endpoints: Array<Record<string, unknown> & { credential?: unknown }>;
         };
+        const selection = exported.selection as {
+          endpoint?: { provider?: string; name?: string; id?: string };
+          model?: string;
+          source?: string;
+          reason?: string;
+        } | null;
         const redacted = {
           ...exported,
+          effective: selection?.endpoint
+            ? {
+                provider: selection.endpoint.provider,
+                endpoint: selection.endpoint.id,
+                model: selection.model,
+                source: selection.source,
+                reason: selection.reason,
+              }
+            : null,
           registry: {
             ...registryDoc,
             endpoints: registryDoc.endpoints.map((ep) => ({
@@ -364,6 +380,11 @@ export async function runProviderCommand(
                   value,
                 );
               }
+            },
+            onProvider: async (providerName) => {
+              const endpoints = await deps.registry.list();
+              if (endpoints.length === 0) return; // legacy YAML-only setup
+              await selectProviderAsDefault(deps.registry, providerName);
             },
           })}\n`,
         );

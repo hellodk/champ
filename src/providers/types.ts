@@ -283,6 +283,12 @@ export interface LLMProvider {
   /** Return metadata about the currently configured model. */
   modelInfo(): ModelInfo;
 
+  /**
+   * Optional async readiness step. Providers that discover model metadata over
+   * the network implement it so callers can settle detection before budgeting.
+   */
+  ready?(): Promise<void>;
+
   /** Dispose of any held resources (HTTP connections, etc.). */
   dispose(): void;
 

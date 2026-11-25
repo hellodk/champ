@@ -85,6 +85,28 @@ describe("resilientFetch (#104)", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("does not retry 507 Insufficient Storage", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response("storage full", {
+        status: 507,
+        statusText: "Insufficient Storage",
+        headers: { "Retry-After": "1" },
+      }),
+    );
+
+    const p = resilientFetch(
+      "http://x/v1/chat",
+      { method: "POST" },
+      { timeoutMs: 10_000, maxRetries: 2, baseDelayMs: 10 },
+      fetchImpl as unknown as typeof fetch,
+    );
+    await vi.runAllTimersAsync();
+    const res = await p;
+
+    expect(res.status).toBe(507);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("aborts with a timeout error when the socket hangs", async () => {
     const fetchImpl = vi.fn(
       (_url: string, init?: RequestInit) =>
@@ -106,6 +128,36 @@ describe("resilientFetch (#104)", () => {
     const assertion = expect(p).rejects.toThrow(/timed out|abort/i);
     await vi.runAllTimersAsync();
     await assertion;
+  });
+
+  it("caps an oversized Retry-After and reports the cap", async () => {
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response("slow down", {
+          status: 429,
+          headers: { "Retry-After": "3600" },
+        }),
+      )
+      .mockResolvedValueOnce(okResponse());
+
+    try {
+      const p = resilientFetch(
+        "http://x/v1/chat",
+        {},
+        { timeoutMs: 60_000, maxRetries: 1, baseDelayMs: 100 },
+        fetchImpl as unknown as typeof fetch,
+      );
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      await p;
+      expect(stderr.mock.calls.join("")).toMatch(/capped/i);
+    } finally {
+      stderr.mockRestore();
+    }
   });
 
   it("gives up after maxRetries and returns the last error response", async () => {

@@ -3,20 +3,20 @@ import { AgentController } from "../../../src/agent/agent-controller";
 import { ToolRegistry } from "../../../src/tools/registry";
 import type { LLMMessage, StreamDelta } from "../../../src/providers/types";
 
-function makeProvider(contextWindow = 100) {
+function makeProvider(contextWindow = 100, maxTokens = 32) {
   const chat = vi.fn(async function* () {
     yield { type: "text" as const, text: "ok" };
     yield { type: "done" as const, usage: { inputTokens: 1, outputTokens: 1 } };
   });
   return {
     name: "test",
-    config: { provider: "test", model: "test" },
+    config: { provider: "test", model: "test", maxTokens },
     modelInfo: () => ({
       id: "test",
       name: "test",
       provider: "test",
       contextWindow,
-      maxOutputTokens: 32,
+      maxOutputTokens: maxTokens,
       supportsToolUse: false,
       supportsImages: false,
       supportsStreaming: true,
@@ -32,13 +32,15 @@ function makeProvider(contextWindow = 100) {
         usage: { inputTokens: 0, outputTokens: 0 },
       };
     }),
-    withModel: () => makeProvider(contextWindow),
+    withModel: () => makeProvider(contextWindow, maxTokens),
   };
 }
 
 describe("AgentController — context window compression", () => {
   it("drops oldest messages when history exceeds context window", async () => {
-    const provider = makeProvider(80); // tiny context
+    // The real system prompt is ~1000 tokens, so the window must leave room
+    // for it plus a compacted history (issue #176 local rejection).
+    const provider = makeProvider(1300, 200);
     const registry = new ToolRegistry();
     const ctrl = new AgentController(provider as never, registry, "/tmp");
 
@@ -62,7 +64,7 @@ describe("AgentController — context window compression", () => {
   });
 
   it("always preserves the most recent user message", async () => {
-    const provider = makeProvider(80);
+    const provider = makeProvider(1300, 200);
     const registry = new ToolRegistry();
     const ctrl = new AgentController(provider as never, registry, "/tmp");
 
@@ -75,10 +77,16 @@ describe("AgentController — context window compression", () => {
 
     await ctrl.processMessage("keep this");
 
-    // The last chat call is the actual agent message (earlier calls may be
-    // the summarizer requesting a context summary from the LLM).
+    // The summarizer may run after the agent call, so select the real turn by
+    // excluding its "Summarize this conversation" prompt.
     const calls = provider.chat.mock.calls;
-    const chatCall = calls[calls.length - 1];
+    const chatCall = [...calls]
+      .reverse()
+      .find(
+        ([messages]) =>
+          !JSON.stringify(messages).includes("Summarize this conversation"),
+      );
+    if (!chatCall) throw new Error("no agent chat call recorded");
     const messages: Array<{ role: string; content: unknown }> = chatCall[0];
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     expect(
@@ -248,5 +256,158 @@ describe("context compaction reuse within one turn (#114)", () => {
       }
     }
     expect(seen.size).toBeGreaterThan(0);
+  });
+});
+
+describe("AgentController provider readiness (#177)", () => {
+  it("awaits provider readiness before calculating the first context budget", async () => {
+    let ready = false;
+    const chat = vi.fn(async function* () {
+      yield { type: "text" as const, text: "ok" };
+      yield {
+        type: "done" as const,
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    });
+    const provider = {
+      name: "test",
+      config: { provider: "test", model: "test", maxTokens: 200 },
+      modelInfo: () => ({
+        id: "test",
+        name: "test",
+        provider: "test",
+        contextWindow: ready ? 4000 : 1000,
+        maxOutputTokens: 200,
+        supportsToolUse: false,
+        supportsImages: false,
+        supportsStreaming: true,
+      }),
+      ready: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        ready = true;
+      },
+      supportsToolUse: () => false,
+      supportsStreaming: () => true,
+      supportsImages: () => false,
+      countTokens: (text: string) => Math.ceil(text.length / 4),
+      chat,
+      complete: vi.fn(async function* () {
+        yield {
+          type: "done" as const,
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+      }),
+      withModel: () => provider,
+    };
+    const builder = {
+      setMode: vi.fn(),
+      setProjectRules: vi.fn(),
+      setMemoryBank: vi.fn(),
+      setGlobalMemoryBank: vi.fn(),
+      invalidateCache: vi.fn(),
+      withInjectedToolPrompt: (history: LLMMessage[]) => history,
+      withGroundingSystemPrompt: (history: LLMMessage[]) => history,
+      prependOrMergeSystem: (_history: LLMMessage[], msg: LLMMessage) => [msg],
+    };
+    const ctrl = new AgentController(
+      provider as never,
+      new ToolRegistry(),
+      "/tmp",
+      builder as never,
+    );
+    ctrl.setHistory([
+      { role: "user", content: "a".repeat(2200) },
+      { role: "assistant", content: "b".repeat(20) },
+    ]);
+
+    await ctrl.processMessage("new question");
+
+    expect(ready).toBe(true);
+    // Grounding system + 2 history + new question. With the stale 1000-token
+    // window this would have compacted the history.
+    expect((chat.mock.calls[0][0] as LLMMessage[]).length).toBe(4);
+  });
+});
+
+describe("AgentController output reservation (#183)", () => {
+  it("reserves provider.config.maxTokens rather than the 4096 default", async () => {
+    const chat = vi.fn(async function* () {
+      yield { type: "text" as const, text: "ok" };
+      yield {
+        type: "done" as const,
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    });
+    const provider = {
+      name: "test",
+      config: { provider: "test", model: "test", maxTokens: 200 },
+      modelInfo: () => ({
+        id: "test",
+        name: "test",
+        provider: "test",
+        contextWindow: 1000,
+        maxOutputTokens: 200,
+        supportsToolUse: false,
+        supportsImages: false,
+        supportsStreaming: true,
+      }),
+      supportsToolUse: () => false,
+      supportsStreaming: () => true,
+      supportsImages: () => false,
+      countTokens: (text: string) => Math.ceil(text.length / 4),
+      chat,
+      complete: vi.fn(async function* () {
+        yield {
+          type: "done" as const,
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+      }),
+      withModel: () => provider,
+    };
+    const systemMessage = { role: "system" as const, content: "S".repeat(400) };
+    const builder = {
+      setMode: vi.fn(),
+      setProjectRules: vi.fn(),
+      setMemoryBank: vi.fn(),
+      setGlobalMemoryBank: vi.fn(),
+      invalidateCache: vi.fn(),
+      withInjectedToolPrompt: (history: LLMMessage[]) => [
+        systemMessage,
+        ...history,
+      ],
+      withGroundingSystemPrompt: (history: LLMMessage[]) => [
+        systemMessage,
+        ...history,
+      ],
+      prependOrMergeSystem: (_history: LLMMessage[], msg: LLMMessage) => [msg],
+    };
+    const ctrl = new AgentController(
+      provider as never,
+      new ToolRegistry(),
+      "/tmp",
+      builder as never,
+    );
+    ctrl.setHistory(
+      Array.from({ length: 20 }, (_, i) => ({
+        role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+        content: "a".repeat(100),
+      })),
+    );
+
+    await ctrl.processMessage("new question");
+
+    // 1 system + 20 history + 1 new user. The default 4096 reservation would
+    // have compacted this ~691-token prompt into a 500-token budget.
+    const chatCall = chat.mock.calls[0][0] as LLMMessage[];
+    expect(chatCall).toHaveLength(22);
+    expect(
+      chat.mock.calls.some(([messages]) =>
+        (messages as LLMMessage[]).some(
+          (m) =>
+            typeof m.content === "string" &&
+            m.content.includes("Summarize this conversation"),
+        ),
+      ),
+    ).toBe(false);
   });
 });

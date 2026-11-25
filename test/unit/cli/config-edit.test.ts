@@ -77,6 +77,28 @@ describe("headless config editing (#149)", () => {
     expect(CONFIG_KEYS.map((k) => k.key)).toContain("telemetry.enabled");
   });
 
+  it("refuses to overwrite malformed YAML and leaves the file unchanged", async () => {
+    const configPath = join(
+      await mkdtemp(join(tmpdir(), "champ-config-")),
+      "config.yaml",
+    );
+    const malformed = "provider: ollama\nproviders: [unterminated\n";
+    await writeFile(configPath, malformed, "utf8");
+    const onEndpoint = vi.fn(async () => {});
+
+    await expect(
+      setConfigValue({
+        configPath,
+        key: "agent.defaultMode",
+        value: "plan",
+        onEndpoint,
+      }),
+    ).rejects.toThrow(/cannot parse|invalid yaml|yaml/i);
+
+    expect(await readFile(configPath, "utf8")).toBe(malformed);
+    expect(onEndpoint).not.toHaveBeenCalled();
+  });
+
   it("never prints secret values in the config key list", () => {
     for (const entry of CONFIG_KEYS) {
       expect(entry.key.toLowerCase()).not.toContain("apikey");

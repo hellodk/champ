@@ -99,6 +99,13 @@ providers:
     });
   });
 
+  it("refuses to replace malformed YAML with a fresh document", () => {
+    const malformed = "provider: ollama\nproviders: [unterminated\n";
+    expect(() =>
+      upsertProviderInYaml(malformed, buildBlock("llamacpp")),
+    ).toThrow(/cannot parse|invalid yaml|yaml/i);
+  });
+
   it("writes the options and contextWindow block", () => {
     const { yaml } = upsertProviderInYaml(
       "",

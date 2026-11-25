@@ -569,7 +569,10 @@ describe("ContextWindowManager — compaction reuse (#114)", () => {
  * an over-budget request being handed to the provider.
  */
 function charProvider(contextWindow: number): LLMProvider {
+  // These review fixtures assume a 2000-token input budget for a 4000-token
+  // window, so the requested output reservation must be 2000 (#183).
   const provider = createMockProvider(contextWindow);
+  (provider.config as { maxTokens: number }).maxTokens = 2000;
   (provider as unknown as { countTokens: (t: string) => number }).countTokens =
     (text: string) => Math.ceil(text.length / 4);
   return provider;

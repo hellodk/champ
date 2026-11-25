@@ -1042,6 +1042,38 @@ describe("ChatViewProvider", () => {
       expect(text).toContain("model: some-model");
     });
 
+    it("does not overwrite malformed YAML on saveSettings", async () => {
+      const vscode = await import("vscode");
+      const mocked = vscode as unknown as {
+        workspace: {
+          fs: {
+            writeFile: ReturnType<typeof vi.fn>;
+            readFile: ReturnType<typeof vi.fn>;
+          };
+        };
+        window: { showErrorMessage: ReturnType<typeof vi.fn> };
+      };
+      mocked.workspace.fs.writeFile.mockClear();
+      mocked.workspace.fs.readFile.mockResolvedValueOnce(
+        new TextEncoder().encode("provider: [bad\n"),
+      );
+      mocked.window.showErrorMessage.mockClear();
+
+      const view = createMockWebviewView(postMessage);
+      provider.resolveWebviewView(view as never, {} as never, {} as never);
+      view.fireMessage({
+        type: "saveSettings",
+        provider: "ollama",
+        model: "llama3.1",
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(mocked.workspace.fs.writeFile).not.toHaveBeenCalled();
+      expect(mocked.window.showErrorMessage).toHaveBeenCalledWith(
+        expect.stringMatching(/cannot (parse|save).*config/i),
+      );
+    });
+
     it("does not call config.update for provider/model/baseUrl on saveSettings", async () => {
       const vscode = await import("vscode");
       const cfg = vscode.workspace.getConfiguration("champ") as {

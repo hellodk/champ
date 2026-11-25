@@ -55,6 +55,8 @@ import type { ResponseCache } from "../providers/response-cache";
 export { PromptInjectionError };
 
 const DEFAULT_MAX_ITERATIONS = 25;
+/** First reduction step for an oversized repo map (issue #176). */
+const REDUCED_REPO_MAP_CHARS = 4000;
 
 // PROMPT_BASED_BASE_INSTRUCTIONS and MODE_INSTRUCTIONS live in
 // src/agent/system-prompt-builder.ts — see SystemPromptBuilder.
@@ -337,6 +339,37 @@ export class AgentController {
     return this.provider;
   }
 
+  /** Build the message list for the active tool-calling mode. */
+  private buildWireMessages(
+    usePromptBased: boolean,
+    tools: ToolDefinition[],
+    repoMap: string,
+  ): LLMMessage[] {
+    return usePromptBased
+      ? this.systemPromptBuilder.withInjectedToolPrompt(
+          this.history,
+          tools,
+          repoMap,
+        )
+      : this.systemPromptBuilder.withGroundingSystemPrompt(
+          this.history,
+          repoMap,
+        );
+  }
+
+  /**
+   * Compact tool catalogue: keep every tool name but drop parameter schemas,
+   * which are the largest part of the injected XML. Used only when the full
+   * system prompt cannot fit (#176).
+   */
+  private compactTools(tools: ToolDefinition[]): ToolDefinition[] {
+    return tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description.split("\n")[0].slice(0, 120),
+      parameters: { type: "object", properties: {}, required: [] },
+    }));
+  }
+
   /**
    * Register a listener for streaming deltas. Used by the UI to render
    * text as it arrives.
@@ -462,6 +495,17 @@ export class AgentController {
                 `tool format mismatch with existing history`,
             );
           }
+        }
+      }
+
+      // Settle async provider metadata (e.g. context-window detection) before
+      // any budget or system-prompt work. Otherwise the first turn is planned
+      // against a fallback window and the detection log lands after the warning.
+      if (activeProvider.ready) {
+        try {
+          await activeProvider.ready();
+        } catch {
+          // A readiness probe must never block a turn; providers fall back.
         }
       }
 
@@ -625,16 +669,52 @@ export class AgentController {
         // (or merge into) a system message with the tool catalog as XML.
         // For native-tool-calling providers we still inject the repo map
         // and base directives as a system message — they need grounding too.
-        const rawMessages = usePromptBased
-          ? this.systemPromptBuilder.withInjectedToolPrompt(
-              this.history,
-              allTools,
-              repoMap,
-            )
-          : this.systemPromptBuilder.withGroundingSystemPrompt(
-              this.history,
-              repoMap,
-            );
+        let repoMapForPrompt = repoMap;
+        let toolsForPrompt = allTools;
+        let rawMessages = this.buildWireMessages(
+          usePromptBased,
+          toolsForPrompt,
+          repoMapForPrompt,
+        );
+        const budget = contextManager.availableTokens(rawMessages);
+        let estimated = contextManager.estimateTokens(rawMessages);
+
+        // Reduce nonessential prompt material before touching a user turn
+        // (#176): the repo map is generated context, the tool catalogue can
+        // lose its parameter schemas while keeping the tool names.
+        if (
+          estimated > budget &&
+          repoMapForPrompt.length > REDUCED_REPO_MAP_CHARS
+        ) {
+          const before = activeProvider.countTokens(repoMapForPrompt);
+          repoMapForPrompt = `${repoMapForPrompt.slice(0, REDUCED_REPO_MAP_CHARS)}\n[repo map truncated to fit the context window]`;
+          console.warn(
+            `Champ: context window — repo map (~${before} tokens) reduced to fit the budget`,
+          );
+          this.systemPromptBuilder.invalidateCache();
+          rawMessages = this.buildWireMessages(
+            usePromptBased,
+            toolsForPrompt,
+            repoMapForPrompt,
+          );
+          estimated = contextManager.estimateTokens(rawMessages);
+        }
+        if (estimated > budget && toolsForPrompt.length > 0) {
+          const before = activeProvider.countTokens(
+            JSON.stringify(toolsForPrompt),
+          );
+          toolsForPrompt = this.compactTools(allTools);
+          console.warn(
+            `Champ: context window — tool catalogue (~${before} tokens) compacted to fit the budget`,
+          );
+          this.systemPromptBuilder.invalidateCache();
+          rawMessages = this.buildWireMessages(
+            usePromptBased,
+            toolsForPrompt,
+            repoMapForPrompt,
+          );
+          estimated = contextManager.estimateTokens(rawMessages);
+        }
 
         // Fit into context window — summarises dropped turns via LLM instead of
         // silently discarding them. Falls back to plain drop if summarize throws.
@@ -647,6 +727,41 @@ export class AgentController {
           console.log(
             `Champ: context window — compacted ${dropped} oldest message(s) into summary`,
           );
+        }
+
+        // Still over budget after reductions and history compaction: nothing
+        // safe is left to drop. Report the components actually consuming the
+        // window and stop before any request reaches the provider (#176).
+        const fittedEstimate = contextManager.estimateTokens(messagesToSend);
+        if (fittedEstimate > budget) {
+          const tokenText = (message: LLMMessage): string =>
+            typeof message.content === "string"
+              ? message.content
+              : JSON.stringify(message.content);
+          const systemTokens = messagesToSend
+            .filter((message) => message.role === "system")
+            .reduce(
+              (sum, message) =>
+                sum + activeProvider.countTokens(tokenText(message)),
+              0,
+            );
+          const newestUser = [...messagesToSend]
+            .reverse()
+            .find((message) => message.role === "user");
+          const newestTokens = newestUser
+            ? activeProvider.countTokens(tokenText(newestUser))
+            : 0;
+          const components = [
+            `system prompt (~${systemTokens} tokens)`,
+            `newest user message (~${newestTokens} tokens)`,
+          ].join(" and ");
+          const error =
+            `Prompt exceeds the context window (~${fittedEstimate} tokens, budget ${budget}): ` +
+            `${components}. Shorten the request or choose a model with a larger context window.`;
+          console.warn(`Champ: context window — ${error}`);
+          this.emit({ type: "error", error });
+          hadError = true;
+          break;
         }
 
         // ── Response cache lookup ─────────────────────────────────────────────

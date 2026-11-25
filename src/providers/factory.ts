@@ -43,6 +43,7 @@ export class ProviderFactory {
     // Shared config members threaded into every provider's baseConfig (#121).
     const baseExtras: Partial<Omit<LLMProviderConfig, "provider" | "model">> = {
       contextWindow: providerEntry.contextWindow,
+      maxTokens: providerEntry.maxTokens,
       options: providerEntry.options,
       structuredOutput: providerEntry.structuredOutput,
       cachePrompt: providerEntry.cachePrompt,
@@ -140,6 +141,7 @@ export class ProviderFactory {
       model: resolveEndpointModel(endpoint, opts.model),
       supportsTools: endpoint.supportsTools,
       contextWindow: opts.contextWindow ?? endpoint.contextWindow,
+      maxTokens: endpoint.maxTokens,
       options: endpoint.options as ProviderConfig["options"],
     };
     const minimalConfig: ChampConfig = {

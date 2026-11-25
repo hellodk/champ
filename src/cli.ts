@@ -83,7 +83,11 @@ import { EndpointRegistry } from "./config/endpoint-registry";
 import { discoverModels, testEndpoint } from "./config/model-discovery";
 import { migrateFromYaml, scrubYamlSecrets } from "./config/provider-migration";
 import { SettingsRepository } from "./config/settings-repository";
-import { selectActiveModel } from "./config/active-model";
+import {
+  selectActiveModel,
+  selectProviderAsDefault,
+} from "./config/active-model";
+import { formatLiveStatus, switchLiveModel } from "./cli/model-switch";
 import {
   ModelSelectionService,
   type SelectionTask,
@@ -1372,6 +1376,19 @@ async function main(): Promise<number> {
 
   const controller = new AgentController(provider, toolRegistry, workspace);
   liveController = controller;
+  const switchModel = (params: { provider?: string; model: string }) =>
+    switchLiveModel(
+      {
+        registry: endpointRegistry,
+        credentials: endpointCredentials,
+        config,
+        registryChoice,
+        flags,
+        factory: new ProviderFactory(),
+      },
+      controller,
+      params,
+    );
   const cliContext = createCliContext(workspace);
   const checkpoints = new CliCheckpointManager(
     workspace,
@@ -1542,78 +1559,7 @@ async function main(): Promise<number> {
       const setRpcModel = async (params: {
         provider?: string;
         model: string;
-      }): Promise<Record<string, unknown>> => {
-        let nextProvider;
-        if (params.provider) {
-          const selected = await selectActiveModel(
-            endpointRegistry,
-            params.provider,
-            params.model,
-          );
-          if (!selected.ok || !selected.endpointId || !selected.model) {
-            throw new Error(selected.reason ?? "model selection failed");
-          }
-          const endpoint = (await endpointRegistry.list()).find(
-            (ep) => ep.id === selected.endpointId,
-          );
-          if (!endpoint)
-            throw new Error(`endpoint ${selected.endpointId} not found`);
-          nextProvider = await new ProviderFactory().createFromEndpoint(
-            endpoint,
-            {
-              model: selected.model,
-              secretProvider: {
-                get: async (key: string) => {
-                  if (flags.apiKey) return flags.apiKey;
-                  if (endpoint.credential) {
-                    const direct = await endpointCredentials.get(
-                      endpoint.credential,
-                    );
-                    if (direct !== undefined) return direct;
-                  }
-                  return endpointCredentials.get({ kind: "keyring", id: key });
-                },
-              },
-            },
-          );
-        } else if (registryChoice) {
-          nextProvider = await new ProviderFactory().createFromEndpoint(
-            registryChoice.endpoint,
-            {
-              model: params.model,
-              secretProvider: {
-                get: async (key: string) => {
-                  if (flags.apiKey) return flags.apiKey;
-                  return registryChoice.credentials.get({
-                    kind: "keyring",
-                    id: key,
-                  });
-                },
-              },
-            },
-          );
-        } else {
-          const name = config.provider;
-          if (!name) throw new Error("no provider configured for set_model");
-          const entry = config.providers?.[name] ?? {};
-          nextProvider = await new ProviderFactory().createFromChampConfig(
-            {
-              ...config,
-              provider: name,
-              providers: {
-                ...config.providers,
-                [name]: { ...entry, model: params.model },
-              },
-            },
-            { get: () => Promise.resolve(undefined) },
-          );
-        }
-        controller.setProvider(nextProvider);
-        return {
-          model: nextProvider.config.model,
-          provider: nextProvider.name,
-        };
-      };
+      }): Promise<Record<string, unknown>> => switchModel(params);
 
       return await runRpcServer({
         execute: async (
@@ -1923,23 +1869,20 @@ async function main(): Promise<number> {
           return `Updated ${endpoint.name} (${endpoint.id})`;
         },
         selectModel: async (endpointId, model) => {
-          const selected = await selectActiveModel(
-            endpointRegistry,
-            endpointId,
-            model,
-          );
-          if (!selected.ok) throw new Error(selected.reason);
+          // Rebuild and swap the running provider before reporting success, so
+          // the TUI cannot claim a model the agent is not using (#178).
+          const switched = await switchModel({ provider: endpointId, model });
           try {
             // Mirror the choice into the YAML config for headless consumers.
             await setConfigValue({
               configPath: configPath(),
               key: "provider.model",
-              value: selected.model as string,
+              value: switched.model,
             });
           } catch {
             // The registry remains the source of truth if config.yaml is absent.
           }
-          return `Model ${selected.model} is now active`;
+          return `Model ${switched.model} is now active`;
         },
         testEndpoint: async (endpointId) => {
           const result = await endpointRegistry.test(endpointId);
@@ -1969,7 +1912,13 @@ async function main(): Promise<number> {
           const name = canonicalChatCommand(rawName) ?? rawName;
           switch (name) {
             case "/status":
-              return `mode=${liveController?.getMode() ?? config.agent?.defaultMode ?? "agent"} model=${provider.config.model ?? "unknown"} session=${sessionLog?.id ?? "none"}`;
+              return formatLiveStatus(
+                liveController ?? controller,
+                liveController?.getMode() ??
+                  config.agent?.defaultMode ??
+                  "agent",
+                sessionLog?.id ?? "none",
+              );
             case "/index":
               return onIndex();
             case "/export":
@@ -2109,6 +2058,11 @@ async function main(): Promise<number> {
                   next,
                 );
               }
+            },
+            onProvider: async (providerName) => {
+              const endpoints = await endpointRegistry.list();
+              if (endpoints.length === 0) return; // legacy YAML-only setup
+              await selectProviderAsDefault(endpointRegistry, providerName);
             },
           });
           return result;

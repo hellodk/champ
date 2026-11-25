@@ -141,16 +141,36 @@ function parseValue(def: ConfigKey, value: string): unknown {
 
 async function readDocument(
   configPath: string,
+  strict = false,
 ): Promise<Record<string, unknown>> {
+  let text: string;
   try {
-    const parsed = yaml.load(await fs.readFile(configPath, "utf8"));
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    text = await fs.readFile(configPath, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return {};
+    if (strict) {
+      throw new Error(
+        `Cannot read config at ${configPath}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    return {};
+  }
+  if (!text.trim()) return {};
+
+  try {
+    const parsed = yaml.load(text);
+    if (parsed === null || parsed === undefined) return {};
+    if (typeof parsed === "object" && !Array.isArray(parsed)) {
       return parsed as Record<string, unknown>;
     }
-  } catch {
-    // Missing or invalid YAML starts a fresh document; never leak a stack.
+    throw new Error("top-level YAML value must be a mapping");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (strict) {
+      throw new Error(`Cannot parse config at ${configPath}: ${message}`);
+    }
+    return {};
   }
-  return {};
 }
 
 async function writeDocument(
@@ -172,15 +192,21 @@ export async function setConfigValue(
     value: string;
     endpoint?: ConfigEndpointTarget;
     onEndpoint?: (key: "baseUrl" | "model", value: string) => Promise<void>;
+    onProvider?: (providerName: string) => Promise<void>;
   },
 ): Promise<string> {
   const def = definition(options.key);
   const value = parseValue(def, options.value);
+  // Parse before any side effect: a malformed file must never be replaced and
+  // endpoint/registry changes must not outlive a failed write (issue #179).
+  const doc = await readDocument(options.configPath, true);
   if (options.key === "provider.baseUrl" || options.key === "provider.model") {
     const field = options.key === "provider.baseUrl" ? "baseUrl" : "model";
     await options.onEndpoint?.(field, String(value));
   }
-  const doc = await readDocument(options.configPath);
+  if (options.key === "provider") {
+    await options.onProvider?.(String(value));
+  }
   writePath(doc, options.key, value);
   await writeDocument(options.configPath, doc);
   return `${options.key} = ${String(value)}`;
