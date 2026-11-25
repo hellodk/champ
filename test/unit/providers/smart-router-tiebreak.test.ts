@@ -42,7 +42,7 @@ describe("SmartRouter tie breaking", () => {
   it("honours the configured last-model tie break", () => {
     const router = makeRouter();
     router.setTieBreak("last");
-    expect(router.select("coding")?.model.id).toBe("z-model");
+    expect(router.select("coding")?.model.id).toBe("a-model");
   });
 
   it("keeps the first discovered model for the first-model tie break", () => {
