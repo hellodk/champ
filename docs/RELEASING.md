@@ -12,30 +12,43 @@ There is no second version file and no manual version edit.
 
 ## Automatic release flow
 
-Every push to `master` runs `.github/workflows/release.yml`. The workflow:
+Every push to `master` runs `.github/workflows/release.yml`. The workflow has two
+stages so the version committed to `master` is the version that gets published.
 
-1. reads the current version from `package.json`;
-2. finds the newest reachable `v*` git tag;
-3. computes the next version from conventional commits since the newest tag
+### Stage 1 — plan the version (feature merge)
+
+1. Read the current version from `package.json`.
+2. Find the newest reachable `v*` git tag.
+3. Compute the next version from conventional commits since that tag
    (`feat` → minor, breaking change → major, otherwise patch), based on
-   `max(current version, newest tag)`;
-4. skips if that tag already exists remotely or HEAD is a `chore(release):`
-   commit (safe re-runs);
-5. runs `pnpm version <next> --no-git-tag-version`;
-6. commits `package.json` as `chore(release): <next>` with Husky hooks disabled
-   (tests run in CI, not during an automated commit);
-7. tags `v<next>`, pushes the version commit to `release/v<next>`, opens a PR
-   to `master`, and pushes the tag — the protected `master` branch receives the
-   version commit through that PR after its required checks pass;
-8. builds the VSIX from the bumped commit;
-9. verifies `node dist/cli.js --version` equals `champ <next>`;
-10. publishes a GitHub release titled `Champ v<next>` with the VSIX as the
-    first and only asset.
+   `max(current version, newest tag)`.
+4. Skip if that tag already exists remotely.
+5. Run `pnpm version <next> --no-git-tag-version`.
+6. Commit `package.json` as `chore(release): <next>` with Husky hooks disabled
+   (tests run in CI, not during an automated commit).
+7. Push `release/v<next>`, open a pull request to `master`, and enable
+   auto-merge with `--auto --squash`.
 
-The workflow ignores pushes whose actor is `github-actions[bot]` and skips any
-HEAD whose subject starts with `chore(release):`, so a release commit cannot
-trigger another release. `concurrency` serialises releases if multiple commits
-reach `master` close together.
+Branch protection requires lint, type check, unit/integration/e2e tests and the
+supply-chain check, so the version PR cannot merge until CI is green. A push
+whose HEAD subject starts with `chore(release):` skips this stage, which prevents
+a version commit from planning another release. `concurrency` serialises
+releases if several commits reach `master` close together.
+
+### Stage 2 — publish (version commit merged to master)
+
+1. Read the version from the merged `package.json` on `master`.
+2. Run `pnpm run compile` (extension and CLI from the same commit), package the
+   VSIX, and run `npm pack --ignore-scripts` for the CLI tarball.
+3. Rename the tarball to `champ-cli-<version>.tgz`.
+4. Verify `node dist/cli.js --version` equals `champ <version>` and that
+   `package.json` matches.
+5. Tag the master commit `v<version>`, push the tag, and create a GitHub release
+   titled `Champ v<version>` with both assets: `champ-<version>.vsix` and
+   `champ-cli-<version>.tgz`.
+
+Nothing is published from a release branch. Both artifacts come from the master
+commit that contains the version bump.
 
 ## Local commands
 
@@ -52,8 +65,11 @@ push `master`; the workflow is the single publisher.
 
 ## Installing a release
 
-`scripts/champ install latest` continues to work because the generated VSIX is
-the first asset on every GitHub release.
+`scripts/champ install latest` downloads the VSIX asset from the latest GitHub
+release. `champ update` downloads the `champ-cli-<version>.tgz` asset from that
+same release by default. `champ update --ref <branch-or-tag>` is the edge
+channel: it still clones, builds, and installs locally. If no published CLI
+asset is available, `champ update` falls back to that build path.
 
 ## Commit convention
 
