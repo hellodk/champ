@@ -203,11 +203,21 @@ export async function setConfigValue(
   if (options.key === "provider.baseUrl" || options.key === "provider.model") {
     const field = options.key === "provider.baseUrl" ? "baseUrl" : "model";
     await options.onEndpoint?.(field, String(value));
+    // The top-level `provider` key in YAML must remain a string naming the provider.
+    // Model and baseUrl settings belong under `providers.<provider>.<field>`.
+    const activeProvider =
+      typeof doc.provider === "string" && doc.provider
+        ? doc.provider
+        : undefined;
+    if (activeProvider) {
+      writePath(doc, `providers.${activeProvider}.${field}`, value);
+    }
+  } else {
+    if (options.key === "provider") {
+      await options.onProvider?.(String(value));
+    }
+    writePath(doc, options.key, value);
   }
-  if (options.key === "provider") {
-    await options.onProvider?.(String(value));
-  }
-  writePath(doc, options.key, value);
   await writeDocument(options.configPath, doc);
   return `${options.key} = ${String(value)}`;
 }

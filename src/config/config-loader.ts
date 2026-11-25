@@ -373,14 +373,31 @@ export class ConfigLoader {
     // provider
     if ("provider" in raw) {
       const v = raw.provider;
-      if (typeof v !== "string") {
-        pushError("`provider` must be a string");
-      } else if (!VALID_PROVIDERS.includes(v as ProviderName)) {
-        pushError(
-          `Invalid provider "${v}". Must be one of: ${VALID_PROVIDERS.join(", ")}`,
-        );
+      if (typeof v === "string") {
+        if (!VALID_PROVIDERS.includes(v as ProviderName)) {
+          pushError(
+            `Invalid provider "${v}". Must be one of: ${VALID_PROVIDERS.join(", ")}`,
+          );
+        } else {
+          result.provider = v as ProviderName;
+        }
+      } else if (v && typeof v === "object" && !Array.isArray(v)) {
+        // Recover gracefully if `provider` was written as an object with `model`
+        const candidates =
+          raw.providers &&
+          typeof raw.providers === "object" &&
+          !Array.isArray(raw.providers)
+            ? (Object.keys(raw.providers).filter((k) =>
+                VALID_PROVIDERS.includes(k as ProviderName),
+              ) as ProviderName[])
+            : [];
+        if (candidates.length > 0) {
+          result.provider = candidates[0];
+        } else {
+          pushError("`provider` must be a string");
+        }
       } else {
-        result.provider = v as ProviderName;
+        pushError("`provider` must be a string");
       }
     }
 

@@ -25,6 +25,8 @@ export interface SessionMetadata {
   messageCount: number;
   modifiedFiles: string[];
   archived: boolean;
+  /** First user message, used by session search in the webview and REPL. */
+  preview?: string;
 }
 
 export interface SerializedSession {

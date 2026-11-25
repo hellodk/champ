@@ -49,6 +49,85 @@ async function waitReady(view: ReturnType<typeof render>): Promise<void> {
 }
 
 describe("Ink TUI", () => {
+  it("moves back through transcript lines with PageUp and returns on End", async () => {
+    const adapter = runtime({
+      submit: vi.fn(async (_text, hooks) => {
+        hooks.onText(
+          Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n"),
+        );
+        return { text: "", aborted: false };
+      }),
+    });
+    const view = render(<App runtime={adapter} />);
+    await waitReady(view);
+    for (const char of "hello") {
+      view.stdin.write(char);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    }
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      expect(view.lastFrame()).toContain("line 59");
+    });
+
+    view.stdin.write("\x1b[5~"); // PageUp
+    await vi.waitFor(() => {
+      expect(view.lastFrame()).toContain("(scrolled)");
+    });
+    view.stdin.write("\x1b[F"); // End
+    await vi.waitFor(() => {
+      expect(view.lastFrame()).not.toContain("(scrolled)");
+    });
+  });
+
+  it("renders markdown headings, lists and highlighted code in the transcript (#193)", async () => {
+    const adapter = runtime({
+      submit: vi.fn(async (_text, hooks) => {
+        hooks.onText(
+          "# Result\n\n- first\n- second\n\n```ts\nconst value = 1;\n```",
+        );
+        return { text: "", aborted: false };
+      }),
+    });
+    const view = render(<App runtime={adapter} />);
+    await waitReady(view);
+    for (const char of "run") {
+      view.stdin.write(char);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    }
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      const frame = view.lastFrame() ?? "";
+      expect(frame).toContain("Result");
+      expect(frame).toContain("• first");
+      expect(frame).toContain("const");
+      expect(frame).toContain("qwen3.5-4b");
+      expect(frame).toContain("sess_1");
+    });
+  });
+
+  it("collapses tool output and expands it with Ctrl-E (#193)", async () => {
+    const adapter = runtime({
+      submit: vi.fn(async (_text, hooks) => {
+        hooks.onTool("read_file", '{"path":"a.txt"}');
+        return { text: "", aborted: false };
+      }),
+    });
+    const view = render(<App runtime={adapter} />);
+    await waitReady(view);
+    for (const char of "run") {
+      view.stdin.write(char);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    }
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      expect(view.lastFrame()).toContain("Ctrl-E to expand");
+    });
+    view.stdin.write("\u0005"); // Ctrl-E
+    await vi.waitFor(() => {
+      expect(view.lastFrame()).not.toContain("Ctrl-E to expand");
+    });
+  });
+
   it("renders the full-screen shell with header, tabs and prompt", () => {
     const view = render(<App runtime={runtime()} />);
     const frame = view.lastFrame() ?? "";
@@ -84,6 +163,93 @@ describe("Ink TUI", () => {
         expect.any(Object),
         expect.any(Function),
       );
+    });
+  });
+
+  it("accepts pasted multi-character input in chat", async () => {
+    const adapter = runtime();
+    const view = render(<App runtime={adapter} />);
+    await waitReady(view);
+    // Paste multi-character string in a single write call
+    view.stdin.write("create a python file to print hello world");
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      expect(adapter.submit).toHaveBeenCalledWith(
+        "create a python file to print hello world",
+        expect.any(Object),
+        expect.any(Function),
+      );
+    });
+  });
+
+  it("allows typing question marks in chat prompts without jumping to help screen", async () => {
+    const adapter = runtime();
+    const view = render(<App runtime={adapter} />);
+    await waitReady(view);
+    for (const char of "where is Tawang?") {
+      view.stdin.write(char);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    }
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      expect(adapter.submit).toHaveBeenCalledWith(
+        "where is Tawang?",
+        expect.any(Object),
+        expect.any(Function),
+      );
+    });
+    // Should still be on the chat screen, not help screen
+    expect(view.lastFrame()).toContain("Session");
+  });
+
+  it("renders tool execution and tool result in chat transcript", async () => {
+    const adapter = runtime({
+      submit: vi.fn(async (_text, events) => {
+        events.onTool?.(
+          "run_terminal",
+          JSON.stringify({ command: "hostname" }),
+        );
+        events.onToolResult?.("run_terminal", "my-host.local\n", true);
+        return { text: "Done", aborted: false };
+      }),
+    });
+    const view = render(<App runtime={adapter} />);
+    await waitReady(view);
+    view.stdin.write("hostname");
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      const frame = view.lastFrame() ?? "";
+      expect(frame).toContain("run_terminal");
+      expect(frame).toContain("✓ run_terminal → my-host.local");
+    });
+  });
+
+  it("displays clear approval prompt when approval is requested", async () => {
+    let resolveApproval: (approved: boolean) => void = () => {};
+    const adapter = runtime({
+      submit: vi.fn(async (_text, _events, requestApproval) => {
+        const approved = await requestApproval(
+          "Run command: rm -rf /tmp/cache",
+        );
+        return { text: approved ? "Deleted" : "Denied", aborted: false };
+      }),
+    });
+    const view = render(<App runtime={adapter} />);
+    await waitReady(view);
+    view.stdin.write("delete cache");
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      const frame = view.lastFrame() ?? "";
+      expect(frame).toContain("Approval Required");
+      expect(frame).toContain("Run command: rm -rf /tmp/cache");
+      expect(frame).toContain("Press [y] Approve · [n/Esc] Deny");
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Approve with 'y'
+    view.stdin.write("y");
+    await vi.waitFor(() => {
+      const frame = view.lastFrame() ?? "";
+      expect(frame).not.toContain("Approval Required");
     });
   });
 });

@@ -55,6 +55,12 @@ import {
   setConfigValue,
 } from "./cli/config-editor";
 import { canonicalChatCommand, CHAT_COMMAND_HELP } from "./cli/commands";
+import {
+  formatHistoryPage,
+  formatSessionPage,
+  toHistoryLines,
+} from "./cli/history-report";
+import { filterSessions } from "./session/search";
 import { JsonlEventSink } from "./cli/jsonl-events";
 import { runRpcServer, type RpcTurnEvents } from "./cli/rpc";
 import { importLegacySession } from "./session/legacy-import";
@@ -63,6 +69,7 @@ import {
   activeAbortSignal,
   executeTurn,
   parseApprovalAnswer,
+  type ToolCompletionEvent,
   type TurnOutcome,
   type TurnStatus,
 } from "./cli/turn-runtime";
@@ -666,6 +673,14 @@ function sessionInfo(log: SessionLog | null): string {
 }
 
 /** Translate registry endpoints into the read-only view consumed by the TUI. */
+/** Parse `query --page=N` arguments shared by /history and /sessions. */
+function parsePageArgs(rest: string[]): { query: string; page: number } {
+  const query = rest.filter((part) => !part.startsWith("--")).join(" ");
+  const pageArg = rest.find((part) => part.startsWith("--page="));
+  const page = pageArg ? Number(pageArg.slice("--page=".length)) || 1 : 1;
+  return { query, page };
+}
+
 async function endpointSummaries(
   registry: EndpointRegistry,
   credentials: ChainCredentialStore,
@@ -780,8 +795,48 @@ async function runRepl(
         case "/session":
           process.stderr.write(`[champ] ${sessionInfo(opts.log)}\n`);
           break;
-        case "/sessions":
-          process.stderr.write(await sessionsReport(opts.workspace));
+        case "/sessions": {
+          const { query, page } = parsePageArgs(rest);
+          if (!query) {
+            process.stderr.write(await sessionsReport(opts.workspace));
+            break;
+          }
+          const summaries = await SessionLog.list(opts.workspace);
+          const searchable = summaries.map((session) => ({
+            id: session.meta.id,
+            label: `${session.messages} message(s)${session.meta.model ? ` · ${session.meta.model}` : ""}`,
+            updatedAt: new Date(session.lastActivityAt).toISOString(),
+          }));
+          const { text, visible } = formatSessionPage(
+            filterSessions(searchable, query),
+            { page },
+          );
+          const body = visible
+            .map((session) => `  ${session.id} — ${session.label}`)
+            .join("\n");
+          process.stderr.write(`${text}${body}\n`);
+          break;
+        }
+        case "/history": {
+          const { query, page } = parsePageArgs(rest);
+          if (!opts.log) {
+            process.stderr.write("[champ] no session for this run\n");
+            break;
+          }
+          const log =
+            (await SessionLog.open(opts.workspace, opts.log.id)) ?? opts.log;
+          process.stderr.write(
+            formatHistoryPage(toHistoryLines(log.replay().messages), {
+              query,
+              page,
+            }),
+          );
+          break;
+        }
+        case "/tui":
+          process.stderr.write(
+            `[champ] full-screen mode: champ --tui --session ${opts.log?.id ?? "<id>"}\n`,
+          );
           break;
         case "/checkpoint": {
           if (!opts.log) {
@@ -1741,6 +1796,9 @@ async function main(): Promise<number> {
             const shown = args.length > 200 ? `${args.slice(0, 200)}…` : args;
             events.onTool?.(call.name, shown);
           },
+          onToolResult: (res: ToolCompletionEvent) => {
+            events.onToolResult?.(res.name ?? "tool", res.output, res.success);
+          },
           onError: events.onError,
           onDone: (summary: { tools: number; usage: TokenUsage }) =>
             events.onDone?.({
@@ -1925,6 +1983,14 @@ async function main(): Promise<number> {
               return onExport();
             case "/sessions":
               return sessionsReport(workspace);
+            case "/history": {
+              if (!sessionLog) return "no session for this run";
+              const { query, page } = parsePageArgs(args);
+              return formatHistoryPage(
+                toHistoryLines(sessionLog.replay().messages),
+                { query, page },
+              );
+            }
             case "/session":
               return sessionInfo(sessionLog);
             case "/checkpoint": {
@@ -1957,19 +2023,37 @@ async function main(): Promise<number> {
         },
         listSessions: async () => {
           const sessions = await SessionLog.list(workspace);
-          return sessions.map((session) => ({
-            id: session.meta.id,
-            label: `${session.messages} message(s)${session.meta.model ? ` · ${session.meta.model}` : ""}`,
-            updatedAt: `${new Date(session.lastActivityAt).toLocaleString(
-              "en-IN",
-              {
-                timeZone: "Asia/Kolkata",
-                dateStyle: "medium",
-                timeStyle: "medium",
-                hour12: false,
-              },
-            )} IST`,
-          }));
+          return Promise.all(
+            sessions.map(async (session) => {
+              const log = await SessionLog.open(workspace, session.meta.id);
+              const firstUser = log
+                ?.replay()
+                .messages.find((message) => message.role === "user");
+              const preview = firstUser
+                ? typeof firstUser.content === "string"
+                  ? firstUser.content
+                  : firstUser.content
+                      .map((block) =>
+                        "text" in block ? String(block.text) : "",
+                      )
+                      .join(" ")
+                : "";
+              return {
+                id: session.meta.id,
+                label: `${session.messages} message(s)${session.meta.model ? ` · ${session.meta.model}` : ""}`,
+                updatedAt: `${new Date(session.lastActivityAt).toLocaleString(
+                  "en-IN",
+                  {
+                    timeZone: "Asia/Kolkata",
+                    dateStyle: "medium",
+                    timeStyle: "medium",
+                    hour12: false,
+                  },
+                )} IST`,
+                preview: preview.slice(0, 120),
+              };
+            }),
+          );
         },
         resumeSession: async (id) => {
           const log = await SessionLog.open(workspace, id);
@@ -1977,7 +2061,31 @@ async function main(): Promise<number> {
           const replay = log.replay();
           sessionLog = log;
           controller.setHistory(resumedHistory(replay));
-          return `resumed ${id} — ${replay.messages.length} message(s) in context`;
+          const messages = replay.messages
+            .filter(
+              (message) =>
+                message.role === "user" ||
+                message.role === "assistant" ||
+                message.role === "system",
+            )
+            .map((message) => ({
+              role:
+                message.role === "user" || message.role === "assistant"
+                  ? message.role
+                  : ("system" as const),
+              text:
+                typeof message.content === "string"
+                  ? message.content
+                  : message.content
+                      .map((block) =>
+                        "text" in block ? String(block.text) : "",
+                      )
+                      .join(" "),
+            }));
+          return {
+            summary: `resumed ${id} — ${replay.messages.length} message(s) in context`,
+            messages,
+          };
         },
         listReviews: async () => {
           const entries = await reviewStore.list();
