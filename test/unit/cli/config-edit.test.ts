@@ -106,4 +106,25 @@ describe("headless config editing (#149)", () => {
     }
     expect(vi.isMockFunction(setConfigValue)).toBe(false);
   });
+
+  it("setting provider.model preserves the top-level provider string", async () => {
+    const configPath = join(
+      await mkdtemp(join(tmpdir(), "champ-config-")),
+      "config.yaml",
+    );
+    await writeFile(
+      configPath,
+      "provider: openai-compatible\nproviders:\n  openai-compatible:\n    model: old-model\n",
+      "utf8",
+    );
+    await setConfigValue({
+      configPath,
+      key: "provider.model",
+      value: "new-model-id",
+    });
+
+    const text = await readFile(configPath, "utf8");
+    expect(text).toMatch(/^provider:\s*openai-compatible/m);
+    expect(text).toContain("model: new-model-id");
+  });
 });

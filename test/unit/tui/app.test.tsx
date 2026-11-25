@@ -165,4 +165,91 @@ describe("Ink TUI", () => {
       );
     });
   });
+
+  it("accepts pasted multi-character input in chat", async () => {
+    const adapter = runtime();
+    const view = render(<App runtime={adapter} />);
+    await waitReady(view);
+    // Paste multi-character string in a single write call
+    view.stdin.write("create a python file to print hello world");
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      expect(adapter.submit).toHaveBeenCalledWith(
+        "create a python file to print hello world",
+        expect.any(Object),
+        expect.any(Function),
+      );
+    });
+  });
+
+  it("allows typing question marks in chat prompts without jumping to help screen", async () => {
+    const adapter = runtime();
+    const view = render(<App runtime={adapter} />);
+    await waitReady(view);
+    for (const char of "where is Tawang?") {
+      view.stdin.write(char);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    }
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      expect(adapter.submit).toHaveBeenCalledWith(
+        "where is Tawang?",
+        expect.any(Object),
+        expect.any(Function),
+      );
+    });
+    // Should still be on the chat screen, not help screen
+    expect(view.lastFrame()).toContain("Session");
+  });
+
+  it("renders tool execution and tool result in chat transcript", async () => {
+    const adapter = runtime({
+      submit: vi.fn(async (_text, events) => {
+        events.onTool?.(
+          "run_terminal",
+          JSON.stringify({ command: "hostname" }),
+        );
+        events.onToolResult?.("run_terminal", "my-host.local\n", true);
+        return { text: "Done", aborted: false };
+      }),
+    });
+    const view = render(<App runtime={adapter} />);
+    await waitReady(view);
+    view.stdin.write("hostname");
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      const frame = view.lastFrame() ?? "";
+      expect(frame).toContain("run_terminal");
+      expect(frame).toContain("✓ run_terminal → my-host.local");
+    });
+  });
+
+  it("displays clear approval prompt when approval is requested", async () => {
+    let resolveApproval: (approved: boolean) => void = () => {};
+    const adapter = runtime({
+      submit: vi.fn(async (_text, _events, requestApproval) => {
+        const approved = await requestApproval(
+          "Run command: rm -rf /tmp/cache",
+        );
+        return { text: approved ? "Deleted" : "Denied", aborted: false };
+      }),
+    });
+    const view = render(<App runtime={adapter} />);
+    await waitReady(view);
+    view.stdin.write("delete cache");
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      const frame = view.lastFrame() ?? "";
+      expect(frame).toContain("Approval Required");
+      expect(frame).toContain("Run command: rm -rf /tmp/cache");
+      expect(frame).toContain("Press [y] Approve · [n/Esc] Deny");
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Approve with 'y'
+    view.stdin.write("y");
+    await vi.waitFor(() => {
+      const frame = view.lastFrame() ?? "";
+      expect(frame).not.toContain("Approval Required");
+    });
+  });
 });

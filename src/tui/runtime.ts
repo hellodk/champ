@@ -20,6 +20,7 @@ export interface TuiHeader {
 export interface TuiTurnEvents {
   onText?: (chunk: string) => void;
   onTool?: (name: string, args: string) => void;
+  onToolResult?: (name: string, output: string, success: boolean) => void;
   onError?: (message: string) => void;
   onDone?: (summary: {
     tools: number;

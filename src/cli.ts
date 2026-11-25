@@ -69,6 +69,7 @@ import {
   activeAbortSignal,
   executeTurn,
   parseApprovalAnswer,
+  type ToolCompletionEvent,
   type TurnOutcome,
   type TurnStatus,
 } from "./cli/turn-runtime";
@@ -1794,6 +1795,9 @@ async function main(): Promise<number> {
             const args = JSON.stringify(call.arguments ?? {});
             const shown = args.length > 200 ? `${args.slice(0, 200)}…` : args;
             events.onTool?.(call.name, shown);
+          },
+          onToolResult: (res: ToolCompletionEvent) => {
+            events.onToolResult?.(res.name ?? "tool", res.output, res.success);
           },
           onError: events.onError,
           onDone: (summary: { tools: number; usage: TokenUsage }) =>
