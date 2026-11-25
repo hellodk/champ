@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { buildCli } from "../helpers/cli-harness";
+import { pnpmInvocation } from "../helpers/pnpm-invocation";
 
 const ROOT = path.resolve(__dirname, "../..");
 const TIMEOUT = 300_000;
@@ -20,9 +21,10 @@ beforeAll(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "champ-browser-pack-"));
   const packDir = path.join(tmp, "packed");
   fs.mkdirSync(packDir, { recursive: true });
+  const pnpm = pnpmInvocation();
   const packOutput = execFileSync(
-    "corepack",
-    ["pnpm", "pack", "--json", "--pack-destination", packDir],
+    pnpm[0],
+    [...pnpm.slice(1), "pack", "--json", "--pack-destination", packDir],
     { cwd: ROOT, encoding: "utf8" },
   );
   // pnpm prints lifecycle logs before the JSON report.
@@ -60,19 +62,15 @@ describe("clean production browser packaging", () => {
     () => {
       const installDir = path.join(tmp, "install");
       fs.mkdirSync(installDir, { recursive: true });
-      execFileSync(
-        "corepack",
-        ["pnpm", "install", "--prod", "--ignore-scripts", tarball],
-        { cwd: installDir, encoding: "utf8", stdio: "pipe", timeout: TIMEOUT },
-      );
+      execFileSync("tar", ["-xzf", tarball, "-C", installDir], {
+        cwd: installDir,
+        encoding: "utf8",
+        timeout: TIMEOUT,
+      });
 
-      const cliPath = path.join(
-        installDir,
-        "node_modules",
-        "champ",
-        "dist",
-        "cli.js",
-      );
+      const packageDir = path.join(installDir, "package");
+      expect(fs.existsSync(path.join(packageDir, "node_modules"))).toBe(false);
+      const cliPath = path.join(packageDir, "dist", "cli.js");
       const result = spawnSync(
         process.execPath,
         [cliPath, "browser", "check"],
