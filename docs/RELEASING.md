@@ -50,6 +50,20 @@ releases if several commits reach `master` close together.
 Nothing is published from a release branch. Both artifacts come from the master
 commit that contains the version bump.
 
+### Publish triggers
+
+Auto-merge enabled with `GITHUB_TOKEN` does not emit a master push event, so the
+publish stage runs on the `closed` `pull_request` event of the version PR (after
+required checks pass). A master push of a `chore(release):` commit and a manual
+`workflow_dispatch` are additional triggers. An existing tag makes any later
+trigger skip the publish, so a release is never duplicated.
+
+To recover a missed publish, run the workflow manually from the Actions tab or:
+
+```bash
+gh workflow run release.yml --ref master
+```
+
 ## Local commands
 
 ```bash

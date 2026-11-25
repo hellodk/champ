@@ -16,15 +16,38 @@ describe("release automation", () => {
     expect(workflow).toMatch(/on:\s*\n\s*push:\s*\n\s*branches: \[master\]/);
   });
 
+  it("publishes on PR merge and on manual dispatch, not only on push", () => {
+    expect(workflow).toMatch(/pull_request:\s*\n\s*types: \[closed\]/);
+    expect(workflow).toMatch(/^\s*workflow_dispatch:[ \t]*$/m);
+    expect(workflow).toContain("github.event.pull_request.merged");
+    expect(workflow).toContain(
+      "startsWith(github.event.pull_request.title, 'chore(release):')",
+    );
+    expect(workflow).toContain("github.event_name == 'workflow_dispatch'");
+  });
+
   it("splits version planning from publishing", () => {
     expect(workflow).toMatch(
-      /if: \$\{\{ !startsWith\(github\.event\.head_commit\.message, 'chore\(release\):'\) \}\}/,
+      /if: \$\{\{ github\.event_name == 'push' && !startsWith\(github\.event\.head_commit\.message, 'chore\(release\):'\) \}\}/,
     );
-    expect(workflow).toMatch(
-      /if: \$\{\{ startsWith\(github\.event\.head_commit\.message, 'chore\(release\):'\) \}\}/,
+    expect(workflow).toContain(
+      "ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}",
+    );
+    expect(workflow).toContain(
+      "SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}",
     );
     expect(workflow).toContain("name: Plan next version");
     expect(workflow).toContain("name: Build and publish release");
+  });
+
+  it("skips publishing when the tag already exists", () => {
+    expect(workflow).toContain(
+      "name: Skip if this release is already published",
+    );
+    expect(workflow).toContain(
+      'git ls-remote --exit-code --tags origin "refs/tags/${TAG}"',
+    );
+    expect(workflow).toContain("steps.publish_skip.outputs.skip != 'true'");
   });
 
   it("merges the version commit through an auto-merge PR", () => {
@@ -83,5 +106,7 @@ describe("release automation", () => {
     expect(docs).toContain("package.json` has the only release version");
     expect(docs).toContain("scripts/champ release");
     expect(docs).toContain("champ-cli-");
+    expect(docs).toContain("workflow_dispatch");
+    expect(docs).toContain("pull_request");
   });
 });
