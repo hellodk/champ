@@ -84,7 +84,9 @@ jobs:
           pnpm version "$NEXT" --no-git-tag-version
           git add package.json
           git commit -m "chore(release): ${NEXT}"
-          git push origin "HEAD:refs/heads/release/${TAG}"
+          # Re-runs regenerate this branch from a new master commit; stale tips
+          # from a failed run must not block the version PR.
+          git push --force origin "HEAD:refs/heads/release/${TAG}"
 
           pr="$(gh pr list --repo "$GITHUB_REPOSITORY" \
             --head "release/${TAG}" --base master \

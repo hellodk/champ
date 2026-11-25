@@ -50,7 +50,7 @@ describe("release automation", () => {
     expect(workflow).toContain("git add package.json");
     expect(workflow).toContain('git commit -m "chore(release): ${NEXT}"');
     expect(workflow).toContain(
-      'git push origin "HEAD:refs/heads/release/${TAG}"',
+      'git push --force origin "HEAD:refs/heads/release/${TAG}"',
     );
   });
 

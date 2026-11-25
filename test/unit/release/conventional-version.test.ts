@@ -61,7 +61,7 @@ describe("conventional-commit release versioning", () => {
     // release branch and a PR carries it back after those checks pass.
     expect(workflow).not.toContain("git push origin HEAD:master");
     expect(workflow).toContain(
-      'git push origin "HEAD:refs/heads/release/${TAG}"',
+      'git push --force origin "HEAD:refs/heads/release/${TAG}"',
     );
     expect(workflow).toContain("gh pr create");
   });
