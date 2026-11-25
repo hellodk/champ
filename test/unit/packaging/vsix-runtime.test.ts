@@ -19,6 +19,10 @@ describe("VSIX browser runtime packaging", () => {
     // is not resolvable in this dependency tree; leaving it external does not
     // affect Chromium CDP launches.
     expect(extensionOptions).toContain("chromium-bidi");
+    // fsevents is an optional native addon pulled in by Playwright's macOS
+    // watcher. esbuild cannot embed a .node binary, and the require is wrapped
+    // in try/catch, so leaving it external keeps macOS builds working.
+    expect(extensionOptions).toContain("fsevents");
   });
 
   it("documents that the VSIX carries the runtime inside the extension bundle", () => {
@@ -36,7 +40,10 @@ describe("VSIX browser runtime packaging", () => {
   });
 
   it("keeps the required E2E check name while adding macOS coverage", () => {
-    const ci = fs.readFileSync(".github/workflows/ci.yml", "utf8");
+    // Windows runners check out CRLF; compare independent of line endings.
+    const ci = fs
+      .readFileSync(".github/workflows/ci.yml", "utf8")
+      .replace(/\r\n/g, "\n");
     expect(ci).toContain("name: E2E Tests\n");
     expect(ci).toMatch(
       /e2e-status:\s*\n\s*name: E2E Tests\s*\n\s*needs: e2e-tests/,

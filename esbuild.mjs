@@ -53,7 +53,10 @@ const extensionOptions = {
   // Bundle Playwright and its internals. The VSIX ships no node_modules, so
   // externalising those internals leaves extension.js requiring modules that
   // are not in the package (#158).
-  external: ['vscode', 'chromium-bidi'],
+  // fsevents is an optional native addon (Playwright's macOS watcher wraps the
+  // require in try/catch). esbuild cannot embed a .node binary, so leave it
+  // external to keep the macOS build working.
+  external: ['vscode', 'chromium-bidi', 'fsevents'],
 };
 
 // Headless entry (issue #136). Deliberately built WITHOUT `vscode` in
