@@ -32,3 +32,45 @@ Uses the Brave Search API with `BRAVE_API_KEY`. Results are capped at 10 per cal
 ## `remote_run_terminal_cmd` / `remote_edit_file`
 
 Extension-only SSH tools. They reuse the command sandbox and the extension's SSH connection pool. The CLI does not register them because it has no connection pool.
+
+## `browser` — protocol-neutral browser automation
+
+Champ speaks **W3C WebDriver** over HTTP by default. The tool never starts or downloads a browser binary, and Champ does not bundle Chromium. Operators supply the browser and driver/endpoint themselves, so no Brave, Chrome, Firefox, Safari or Edge installation is mandated.
+
+`CHAMP_BROWSER_PROTOCOL` selects one of four adapters:
+
+| Value | Adapter | Endpoint variable |
+|---|---|---|
+| `webdriver` (default) | W3C WebDriver HTTP | `CHAMP_WEBDRIVER_URL` (default `http://127.0.0.1:4444`) |
+| `remote` | W3C WebDriver against a remote grid | `CHAMP_REMOTE_BROWSER_URL` |
+| `cdp` | Chrome DevTools Protocol WebSocket or HTTP target list | `CHAMP_CDP_URL` |
+| `playwright` | Optional Playwright package | `CHAMP_PLAYWRIGHT_BROWSER` (`chromium`, `firefox`, `webkit`) |
+
+Additional settings:
+
+- `CHAMP_BROWSER_CAPABILITIES_JSON` — W3C capabilities object sent as `alwaysMatch` (for example `{"browserName":"firefox"}`).
+- `CHAMP_BROWSER_TIMEOUT_MS` — per-operation timeout, default `30000`.
+
+The Playwright adapter is optional and never imported on the default path. Install it separately with `corepack pnpm add -D playwright`; Champ does not bundle it. `champ browser check` reports the configured adapter and endpoint status; `champ browser install` only prints setup instructions.
+
+Examples:
+
+```bash
+# Default: local Selenium/W3C WebDriver server
+export CHAMP_WEBDRIVER_URL=http://127.0.0.1:4444
+export CHAMP_BROWSER_CAPABILITIES_JSON='{"browserName":"firefox"}'
+
+# Remote Selenium Grid
+export CHAMP_BROWSER_PROTOCOL=remote
+export CHAMP_REMOTE_BROWSER_URL=http://selenium-grid.utilities.svc.cluster.local:4444
+
+# CDP endpoint supplied by the operator
+export CHAMP_BROWSER_PROTOCOL=cdp
+export CHAMP_CDP_URL=ws://127.0.0.1:9222/devtools/page/1
+
+# Optional Playwright adapter
+export CHAMP_BROWSER_PROTOCOL=playwright
+export CHAMP_PLAYWRIGHT_BROWSER=firefox
+```
+
+Navigation still passes through `validatePublicHttpUrl`; private/loopback URLs remain rejected as browser navigation targets even though driver endpoints are local infrastructure.

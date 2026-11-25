@@ -1,38 +1,41 @@
 /**
- * TDD: the VSIX must carry the browser runtime. A blanket node_modules ignore
- * combined with externalised playwright-core/chromium-bidi leaves extension.js
- * requiring modules that are not in the package.
+ * TDD: Champ ships a protocol-neutral browser tool. Browser runtimes and
+ * optional adapters stay outside the published artifacts.
  */
 import { describe, expect, it } from "vitest";
 import * as fs from "fs";
 
-describe("VSIX browser runtime packaging", () => {
-  it("does not externalise playwright-core or chromium-bidi in the extension bundle", () => {
+describe("vendor-neutral browser packaging", () => {
+  it("does not declare Playwright as a mandatory runtime dependency", () => {
+    const pkg = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
+      dependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
+      peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+    };
+
+    expect(pkg.dependencies?.playwright).toBeUndefined();
+    expect(pkg.peerDependencies?.playwright).toBeDefined();
+    expect(pkg.peerDependenciesMeta?.playwright?.optional).toBe(true);
+  });
+
+  it("externalises optional browser adapters in the extension bundle", () => {
     const build = fs.readFileSync("esbuild.mjs", "utf8");
     const extensionOptions = build.slice(
       build.indexOf("const extensionOptions"),
       build.indexOf("// Headless entry"),
     );
 
-    expect(extensionOptions).not.toContain("playwright-core");
-    // chromium-bidi is only referenced by Playwright's optional BiDi path and
-    // is not resolvable in this dependency tree; leaving it external does not
-    // affect Chromium CDP launches.
+    expect(extensionOptions).toContain("playwright");
+    expect(extensionOptions).toContain("playwright-core");
     expect(extensionOptions).toContain("chromium-bidi");
-    // fsevents is an optional native addon pulled in by Playwright's macOS
-    // watcher. esbuild cannot embed a .node binary, and the require is wrapped
-    // in try/catch, so leaving it external keeps macOS builds working.
-    expect(extensionOptions).toContain("fsevents");
   });
 
-  it("documents that the VSIX carries the runtime inside the extension bundle", () => {
+  it("documents that the VSIX carries no browser runtime", () => {
     const ignore = fs.readFileSync(".vscodeignore", "utf8");
-    expect(ignore).toContain(
-      "browser runtime is bundled into dist/extension.js",
-    );
+    expect(ignore).toContain("no browser runtime");
   });
 
-  it("provisions Chromium on both primary CI platforms before E2E", () => {
+  it("provisions Chromium only for the E2E tests on both CI platforms", () => {
     const ci = fs.readFileSync(".github/workflows/ci.yml", "utf8");
     const e2e = ci.slice(ci.indexOf("e2e-tests:"));
     expect(e2e).toContain("macos-latest");
@@ -40,7 +43,6 @@ describe("VSIX browser runtime packaging", () => {
   });
 
   it("keeps the required E2E check name while adding macOS coverage", () => {
-    // Windows runners check out CRLF; compare independent of line endings.
     const ci = fs
       .readFileSync(".github/workflows/ci.yml", "utf8")
       .replace(/\r\n/g, "\n");

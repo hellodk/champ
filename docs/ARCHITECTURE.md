@@ -13,6 +13,7 @@ Single technical architecture reference for the **Champ VS Code extension** (`di
 7. [Multi-Agent Orchestration & Teams](#multi-agent-orchestration--teams)
 8. [Codebase Indexing, Checkpoints & Safety](#codebase-indexing-checkpoints--safety)
 9. [Observability & Performance Optimizations](#observability--performance-optimizations)
+10. [Browser Adapters](#browser-adapters)
 
 ---
 
@@ -51,6 +52,20 @@ Single technical architecture reference for the **Champ VS Code extension** (`di
 | Rules, Skills & Sessions | `src/rules/`, `src/skills/`, `src/session/` | Markdown rules/skills loaders, `VariableResolver`, append-only JSONL `SessionLog` |
 | Safety | `src/safety/` | `SecretScanner`, `PiiScanner`, `PromptGuard`, `CommandSandbox`, `AuditLog` (hash-chained) |
 | Observability & UI | `src/observability/`, `src/telemetry/`, `src/server/`, `src/ui/` | `MetricsCollector`, `AgentAnalytics`, `AnalyticsExporter`, `ChampServer` (`/health`, `/metrics`, `/chat`, `/run-team`), `ChatViewProvider`, `DiffOverlayController` |
+| Browser adapters | `src/tools/browser-adapters.ts`, `src/tools/browser.ts` | Protocol-neutral browser tool; W3C WebDriver default, optional CDP/remote/Playwright adapters |
+
+---
+
+## Browser Adapters
+
+The `browser` tool depends on the `BrowserAdapter` interface, not on a vendor SDK. `createBrowserAdapter()` reads `CHAMP_BROWSER_PROTOCOL` and returns one of:
+
+- **WebDriver (default)** — W3C HTTP session, navigation, element lookup, click, send keys, screenshot and session deletion via `fetch`.
+- **Remote** — the same W3C client pointed at `CHAMP_REMOTE_BROWSER_URL`.
+- **CDP** — native CDP commands over an operator-supplied WebSocket or HTTP target list.
+- **Playwright** — an optional, lazily imported adapter that never loads on the default path.
+
+Neither `dist/extension.js` nor `dist/cli.js` embeds a browser runtime. Playwright is an optional peer dependency, Chromium is not downloaded or bundled, and browser navigation remains restricted to public HTTP(S) URLs by `validatePublicHttpUrl`.
 
 ---
 

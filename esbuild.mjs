@@ -50,13 +50,16 @@ const extensionOptions = {
   ...shared,
   entryPoints: ['src/extension.ts'],
   outfile: 'dist/extension.js',
-  // Bundle Playwright and its internals. The VSIX ships no node_modules, so
-  // externalising those internals leaves extension.js requiring modules that
-  // are not in the package (#158).
-  // fsevents is an optional native addon (Playwright's macOS watcher wraps the
-  // require in try/catch). esbuild cannot embed a .node binary, so leave it
-  // external to keep the macOS build working.
-  external: ['vscode', 'chromium-bidi', 'fsevents'],
+  // Browser adapters are optional and must not be bundled into the VSIX.
+  // The default W3C WebDriver adapter uses Node globals; Playwright and its
+  // internals stay operator-installed when that adapter is selected.
+  external: [
+    'vscode',
+    'playwright',
+    'playwright-core',
+    'chromium-bidi',
+    'fsevents',
+  ],
 };
 
 // Headless entry (issue #136). Deliberately built WITHOUT `vscode` in

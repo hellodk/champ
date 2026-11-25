@@ -1,9 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 
-const launch = vi.fn(async () => ({ newContext: vi.fn() }));
-vi.mock("playwright", () => ({
-  chromium: { launch: (...args: unknown[]) => launch(...args) },
+const { adapter, createBrowserAdapter } = vi.hoisted(() => ({
+  adapter: {
+    protocol: "webdriver",
+    navigate: vi.fn().mockResolvedValue(undefined),
+    screenshot: vi.fn().mockResolvedValue("cG5n"),
+    click: vi.fn().mockResolvedValue(undefined),
+    type: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+  },
+  createBrowserAdapter: vi.fn(),
 }));
+
+createBrowserAdapter.mockReturnValue(adapter);
+vi.mock("@/tools/browser-adapters", () => ({ createBrowserAdapter }));
 
 import { createHeadlessToolRegistry } from "@/tools/headless";
 import { browserTool } from "@/tools/browser";
@@ -40,11 +50,13 @@ describe("headless browser tool (#145)", () => {
     );
     expect(result.success).toBe(false);
     expect(result.output).toContain("Invalid URL");
-    expect(launch).not.toHaveBeenCalled();
+    expect(adapter.navigate).not.toHaveBeenCalled();
   });
 
   it("returns a structured error when the browser cannot start", async () => {
-    launch.mockRejectedValueOnce(new Error("playwright-core is missing"));
+    adapter.navigate.mockRejectedValueOnce(
+      new Error("webdriver endpoint unavailable"),
+    );
     const result = await browserTool.execute(
       { action: "goto", url: "https://example.com" },
       context(),
