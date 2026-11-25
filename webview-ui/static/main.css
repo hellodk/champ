@@ -1058,6 +1058,18 @@ html, body {
   display: none;
 }
 
+.session-search-input {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 2px 8px 6px;
+  padding: 4px 6px;
+  color: var(--vscode-input-foreground);
+  background-color: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  outline: none;
+}
+
 .overflow-item {
   padding: 6px 14px;
   font-size: var(--vscode-font-size);

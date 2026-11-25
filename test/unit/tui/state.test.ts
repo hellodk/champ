@@ -100,3 +100,90 @@ describe("tuiReducer", () => {
     expect(valid.setup.saving).toBe(true);
   });
 });
+
+describe("transcript backscroll (#191)", () => {
+  function start() {
+    return initialTuiState({
+      workspace: "/repo",
+      model: "m",
+      endpoints: [],
+    });
+  }
+
+  it("clamps a line offset to the available scrollback", () => {
+    const sized = tuiReducer(start(), {
+      type: "transcript/metrics",
+      totalLines: 40,
+      viewportLines: 10,
+      addedLines: 0,
+    });
+    const back = tuiReducer(sized, { type: "transcript/scroll", delta: -100 });
+    expect(back.scrollOffset).toBe(30);
+    expect(back.autoFollow).toBe(false);
+
+    const forward = tuiReducer(back, {
+      type: "transcript/scroll",
+      delta: 100,
+    });
+    expect(forward.scrollOffset).toBe(0);
+    expect(forward.autoFollow).toBe(true);
+  });
+
+  it("keeps the reader's position and counts unseen lines while streaming", () => {
+    const sized = tuiReducer(start(), {
+      type: "transcript/metrics",
+      totalLines: 40,
+      viewportLines: 10,
+      addedLines: 0,
+    });
+    const back = tuiReducer(sized, { type: "transcript/scroll", delta: -3 });
+    const streamed = tuiReducer(
+      tuiReducer(back, {
+        type: "message/stream",
+        role: "assistant",
+        text: "Hel",
+      }),
+      {
+        type: "transcript/metrics",
+        totalLines: 42,
+        viewportLines: 10,
+        addedLines: 2,
+      },
+    );
+    expect(streamed.scrollOffset).toBe(3);
+    expect(streamed.autoFollow).toBe(false);
+    expect(streamed.unseen).toBe(2);
+
+    const bottom = tuiReducer(streamed, { type: "transcript/bottom" });
+    expect(bottom.scrollOffset).toBe(0);
+    expect(bottom.autoFollow).toBe(true);
+    expect(bottom.unseen).toBe(0);
+  });
+
+  it("does not snap to bottom when a new turn starts while scrolled back", () => {
+    const sized = tuiReducer(start(), {
+      type: "transcript/metrics",
+      totalLines: 30,
+      viewportLines: 10,
+      addedLines: 0,
+    });
+    const back = tuiReducer(sized, { type: "transcript/scroll", delta: -5 });
+    const typed = tuiReducer(back, { type: "input/set", value: "next" });
+    const turned = tuiReducer(typed, { type: "turn/start" });
+    expect(turned.scrollOffset).toBe(5);
+    expect(turned.autoFollow).toBe(false);
+  });
+
+  it("flags the transcript once the retention cap drops older messages", () => {
+    let state = start();
+    for (let i = 0; i < 2001; i += 1) {
+      state = tuiReducer(state, {
+        type: "message/add",
+        role: "user",
+        text: `turn ${i}`,
+      });
+    }
+    expect(state.messages).toHaveLength(2000);
+    expect(state.truncated).toBe(true);
+  });
+});
