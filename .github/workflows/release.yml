@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: release-master
@@ -45,7 +46,14 @@ jobs:
           set -euo pipefail
           current="$(scripts/champ version | sed 's/^champ //')"
           latest_tag="$(git tag --list 'v[0-9]*' --sort=-v:refname | head -n 1 || true)"
-          next="$(scripts/champ version next "$current" "$latest_tag")"
+          # Conventional-commit subjects since the last release drive the bump:
+          # feat -> minor, breaking -> major, everything else -> patch.
+          if [[ -n "${latest_tag}" ]]; then
+            commits="$(git log "${latest_tag}..HEAD" --pretty=format:%s)"
+          else
+            commits="$(git log --pretty=format:%s)"
+          fi
+          next="$(CHAMP_VERSION_COMMITS="${commits}" scripts/champ version next "$current" "$latest_tag")"
           echo "current=$current" >> "$GITHUB_OUTPUT"
           echo "latest_tag=$latest_tag" >> "$GITHUB_OUTPUT"
           echo "next=$next" >> "$GITHUB_OUTPUT"
@@ -78,6 +86,7 @@ jobs:
         env:
           NEXT: ${{ steps.meta.outputs.next }}
           TAG: ${{ steps.meta.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -85,7 +94,20 @@ jobs:
           git add package.json
           git commit -m "chore(release): ${NEXT}"
           git tag "${TAG}"
+          # Pushing only the tag leaves master on the previous version, so the
+          # next CLI/extension build reports a stale one. master is protected
+          # by required checks, so carry the version commit there through a PR
+          # instead of pushing directly to the branch.
+          git push origin "HEAD:refs/heads/release/${TAG}"
           git push origin "${TAG}"
+          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" \
+            --head "release/${TAG}" --base master \
+            --json number --jq '.[0].number // empty')"
+          if [[ -z "$existing" ]]; then
+            gh pr create --repo "$GITHUB_REPOSITORY" --base master \
+              --head "release/${TAG}" --title "chore(release): ${NEXT}" \
+              --body "Automated version bump for ${TAG}. Merge after required checks pass to sync package.json on master."
+          fi
 
       - name: Build VSIX
         if: steps.skip.outputs.skip != 'true'

@@ -15,14 +15,15 @@ export interface IndexWorkspaceCommandDeps {
   getService: () => IndexingService | undefined;
   ensureService?: () => Promise<IndexingService | undefined>;
   withProgress: (
-    options: { title: string },
+    options: { title: string; cancellable?: boolean },
     task: (progress: IndexWorkspaceProgress) => Promise<void>,
   ) => Promise<void>;
   showInformation: (message: string) => Promise<void> | void;
   showWarning: (message: string) => Promise<void> | void;
   showError: (message: string) => Promise<void> | void;
   refreshStatus: (stats: IndexingStats | null) => void;
-  chooseRebuild?: () => Promise<boolean>;
+  /** `null` means the operator cancelled the Quick Pick. */
+  chooseRebuild?: () => Promise<boolean | null>;
 }
 
 function messageOf(err: unknown): string {
@@ -33,18 +34,21 @@ function messageOf(err: unknown): string {
 export async function executeIndexWorkspaceCommand(
   deps: IndexWorkspaceCommandDeps,
 ): Promise<void> {
-  const service =
-    deps.getService() ?? (await deps.ensureService?.()) ?? undefined;
-  if (!service) {
-    await deps.showWarning("Champ: no workspace open.");
-    deps.refreshStatus(null);
-    return;
-  }
-
-  const rebuild = deps.chooseRebuild ? await deps.chooseRebuild() : false;
   try {
+    const service =
+      deps.getService() ?? (await deps.ensureService?.()) ?? undefined;
+    if (!service) {
+      await deps.showWarning("Champ: no workspace open.");
+      deps.refreshStatus(null);
+      return;
+    }
+
+    const choice = deps.chooseRebuild ? await deps.chooseRebuild() : false;
+    if (choice === null) return;
+    const rebuild = choice === true;
+
     await deps.withProgress(
-      { title: "Champ: Indexing workspace" },
+      { title: "Champ: Indexing workspace", cancellable: true },
       async (progress) => {
         progress.report({
           message: rebuild

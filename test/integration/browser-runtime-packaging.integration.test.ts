@@ -29,18 +29,24 @@ describe("production browser runtime packaging", () => {
     expect(browserSource).not.toContain("@playwright/test");
     expect(browserSource).toContain('import("playwright")');
 
-    execFileSync("node", ["esbuild.mjs", "--production"], {
-      cwd: ROOT,
-      stdio: "pipe",
-    });
-    const cli = fs.readFileSync(
-      path.join(ROOT, "dist", "cli.js"),
-      "utf8",
-    );
-    expect(
-      cli.includes('import("playwright")') ||
-        cli.includes('require("playwright")'),
-    ).toBe(true);
-    expect(cli).not.toContain("@playwright/test");
+    // Build to a private path: the other CLI integration workers spawn the
+    // shared dist/cli.js, and a production build writing that path in place
+    // can hand them a half-written file.
+    const outfile = path.join(ROOT, "dist", `.cli.packaging.${process.pid}.js`);
+    try {
+      execFileSync("node", ["esbuild.mjs", "--production", "--cli-only"], {
+        cwd: ROOT,
+        env: { ...process.env, CHAMP_CLI_OUTFILE: outfile },
+        stdio: "pipe",
+      });
+      const cli = fs.readFileSync(outfile, "utf8");
+      expect(
+        cli.includes('import("playwright")') ||
+          cli.includes('require("playwright")'),
+      ).toBe(true);
+      expect(cli).not.toContain("@playwright/test");
+    } finally {
+      fs.rmSync(outfile, { force: true });
+    }
   }, 60_000);
 });

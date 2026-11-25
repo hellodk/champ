@@ -113,6 +113,10 @@ export interface IndexingConfig {
   enabled?: boolean;
   embeddingProvider?: ProviderName;
   embeddingModel?: string;
+  /** Embedding endpoint. Overrides the selected provider's base URL (#140). */
+  baseUrl?: string;
+  /** Operator-issued key for self-hosted OpenAI-compatible embedding endpoints. */
+  apiKey?: string;
   ignore?: string[];
 }
 
@@ -720,6 +724,14 @@ export class ConfigLoader {
             );
           } else {
             out.embeddingProvider = i.embeddingProvider as ProviderName;
+          }
+        }
+        for (const key of ["embeddingModel", "baseUrl", "apiKey"] as const) {
+          if (!(key in i)) continue;
+          if (typeof i[key] !== "string" || (i[key] as string).trim() === "") {
+            pushError(`indexing.${key} must be a non-empty string`);
+          } else {
+            out[key] = i[key] as string;
           }
         }
         if ("ignore" in i) {

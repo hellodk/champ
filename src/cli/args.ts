@@ -105,6 +105,7 @@ export type CliParseResult =
   | { kind: "provider-command"; command: ProviderCommand; cwd: string }
   | { kind: "policy-command"; command: PolicyCommand; cwd: string }
   | { kind: "update"; options: UpdateCommandOptions }
+  | { kind: "browser-command"; command: "check" | "install" }
   | {
       kind: "index-command";
       command: IndexCommand;
@@ -153,6 +154,8 @@ Usage:
   champ team history      List recorded team runs
   champ team resume <runId>  Resume a team run from its checkpoints
   champ update            Update the champ CLI installation from upstream git
+  champ browser check     Verify the Chromium runtime is installed
+  champ browser install   Download Chromium for browser actions
 
 Options:
   -h, --help              Show this help
@@ -967,6 +970,16 @@ function parseProviderCommand(
       return error(
         `unknown review subcommand "${sub ?? ""}" (expected: list, show, accept, reject)`,
       );
+    }
+
+    case "browser": {
+      const sub = positionals[1];
+      if (sub !== "check" && sub !== "install") {
+        return error(
+          `unknown browser subcommand "${sub ?? ""}" (expected: check, install)`,
+        );
+      }
+      return { kind: "browser-command", command: sub };
     }
 
     case "update": {

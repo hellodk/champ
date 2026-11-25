@@ -33,13 +33,13 @@ run_step() {
 echo ""
 echo "[1/6] Running unit tests..."
 run_step "Unit tests" \
-  npx vitest run --reporter=json --outputFile=test-reports/unit.json
+  corepack pnpm exec vitest run --reporter=json --outputFile=test-reports/unit.json
 
 # ── 2. E2E tests ──────────────────────────────────────────────────────────────
 echo ""
 echo "[2/6] Running E2E tests..."
 run_step "E2E tests" \
-  npx vitest run --config vitest.e2e.config.ts --reporter=json \
+  corepack pnpm exec vitest run --config vitest.e2e.config.ts --reporter=json \
   --outputFile=test-reports/e2e.json
 
 # ── 3. Type check ─────────────────────────────────────────────────────────────
@@ -47,7 +47,7 @@ echo ""
 echo "[3/6] TypeScript type check..."
 # bash -c keeps the stderr redirection scoped to tsc, not to run_step itself
 run_step "TypeScript type check" \
-  bash -c 'npx tsc --noEmit 2>test-reports/typecheck.txt'
+  bash -c 'corepack pnpm exec tsc --noEmit 2>test-reports/typecheck.txt'
 
 # ── 4. Bundle validation ──────────────────────────────────────────────────────
 echo ""
@@ -62,7 +62,7 @@ run_step "Bundle syntax check dist/extension.js" \
 # ── 5. Package analysis (informational — never gates the exit code) ──────────
 echo ""
 echo "[5/6] Package analysis..."
-npx @vscode/vsce ls --no-dependencies 2>/dev/null | tail -5 \
+corepack pnpm dlx @vscode/vsce ls --no-dependencies 2>/dev/null | tail -5 \
   || echo "(vsce ls skipped)"
 ls -lh champ-*.vsix 2>/dev/null | tail -1 || echo "(no .vsix found)"
 

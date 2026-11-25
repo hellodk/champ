@@ -105,6 +105,27 @@ const SEMANTIC_FIXTURES: Record<string, SemanticHit[]> = {
       similarity: 0.95,
     },
   ],
+  "decodeToken JSON parse": [
+    {
+      filePath: "src/auth/session.ts",
+      chunkText: "function decodeToken(token: string): Session { ... }",
+      startLine: 7,
+      endLine: 9,
+      chunkType: "function",
+      symbolName: "decodeToken",
+      similarity: 0.88,
+    },
+  ],
+  "deployment kubectl apply": [
+    {
+      filePath: "docs/deployment.md",
+      chunkText: "Deploy the service with `kubectl apply -f infra/app.yaml`.",
+      startLine: 3,
+      endLine: 3,
+      chunkType: "function",
+      similarity: 0.9,
+    },
+  ],
 };
 
 interface EvalQuery {
@@ -124,6 +145,34 @@ const QUERIES: EvalQuery[] = [
   {
     query: "login endpoint handler",
     expected: ["src/api/routes.ts"],
+  },
+  {
+    query: "decodeToken JSON parse",
+    expected: ["src/auth/session.ts"],
+  },
+  {
+    query: "deployment kubectl apply",
+    expected: ["docs/deployment.md"],
+  },
+  {
+    query: "session expiresAt interface",
+    expected: ["src/auth/session.ts"],
+  },
+  {
+    query: "response headers token",
+    expected: ["src/api/routes.ts"],
+  },
+  {
+    query: "infra app manifest",
+    expected: ["docs/deployment.md"],
+  },
+  {
+    query: "return new Response",
+    expected: ["src/api/routes.ts"],
+  },
+  {
+    query: "verifySession decodeToken",
+    expected: ["src/auth/session.ts"],
   },
 ];
 
@@ -234,6 +283,10 @@ beforeAll(async () => {
 });
 
 describe("retrieval eval: hybrid vs keyword-only", () => {
+  it("uses a query set large enough to measure rank quality", () => {
+    expect(QUERIES.length).toBeGreaterThanOrEqual(8);
+  });
+
   it("never regresses recall@3 relative to the keyword-only baseline", () => {
     expect(report.hybridRecallAt3).toBeGreaterThanOrEqual(
       report.baselineRecallAt3,

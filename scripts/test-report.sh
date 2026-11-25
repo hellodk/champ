@@ -18,7 +18,7 @@ UNIT_FAIL=0
 UNIT_SKIP=0
 UNIT_STATUS="ok"
 
-if npx vitest run --reporter=json --outputFile="$UNIT_JSON" 2>&1; then
+if corepack pnpm exec vitest run --reporter=json --outputFile="$UNIT_JSON" 2>&1; then
   echo "  Unit tests PASSED"
 else
   UNIT_STATUS="failed"
@@ -40,7 +40,7 @@ INT_SKIP=0
 INT_STATUS="skipped"
 
 if [ -f "vitest.integration.config.ts" ]; then
-  if npx vitest run --config vitest.integration.config.ts --reporter=json --outputFile="$INTEGRATION_JSON" 2>&1; then
+  if corepack pnpm exec vitest run --config vitest.integration.config.ts --reporter=json --outputFile="$INTEGRATION_JSON" 2>&1; then
     INT_STATUS="ok"
     echo "  Integration tests PASSED"
   else
@@ -62,7 +62,7 @@ echo "[3/5] TypeScript type check..."
 TSC_STATUS="ok"
 TSC_ERRORS=0
 
-if npx tsc --noEmit 2>"$TYPECHECK_TXT"; then
+if corepack pnpm exec tsc --noEmit 2>"$TYPECHECK_TXT"; then
   echo "  TypeScript OK"
 else
   TSC_STATUS="failed"

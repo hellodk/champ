@@ -9,6 +9,9 @@ import type { ToolExecutionContext } from "@/tools/types";
 // Mock the playwright module
 vi.mock("playwright", () => ({
   chromium: {
+    // The runtime preflight checks this path before launch. Point it at an
+    // existing binary so the mock describes a machine with Chromium present.
+    executablePath: vi.fn(() => process.execPath),
     launch: vi.fn().mockResolvedValue({
       newContext: vi.fn().mockResolvedValue({
         newPage: vi.fn().mockResolvedValue({

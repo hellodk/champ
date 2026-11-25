@@ -9,7 +9,9 @@
  *  - symbol: ChunkingService declarations in the candidate files
  *
  * Results that point at the same file and overlapping line ranges are merged;
- * the surviving hit records every channel that found it.
+ * the surviving hit records every channel that found it. Channel results are
+ * fused with reciprocal rank fusion (RRF, k=60) because raw similarity,
+ * keyword and symbol scores are not comparable across channels.
  */
 import { spawnSync } from "child_process";
 import * as fsp from "fs/promises";
@@ -81,6 +83,10 @@ export interface HybridRetrievalOptions {
   keywordRunner?: KeywordRunner;
   chunker?: Pick<ChunkingService, "chunkFile">;
   readFile?: (filePath: string) => Promise<string>;
+  /** Workspace file listing for independent symbol discovery. */
+  listFiles?: (workspaceRoot: string) => PromiseLike<string[]> | string[];
+  /** Cap on files parsed by the symbol channel (default 64). */
+  maxSymbolFiles?: number;
   now?: () => number;
 }
 
@@ -176,6 +182,28 @@ function clamp(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
+/** RRF damping constant; larger values give more weight to top ranks. */
+const RRF_K = 60;
+const RRF_CHANNELS = 3;
+const RRF_NORMALISER = RRF_CHANNELS / (RRF_K + 1);
+
+/**
+ * Replace per-channel scores with normalised reciprocal-rank scores. Ranking
+ * within a channel is preserved (hits arrive sorted by their native score),
+ * while scores become comparable across channels.
+ */
+function applyReciprocalRankFusion(hits: RetrievalHit[]): void {
+  const ordered = [...hits].sort(
+    (a, b) =>
+      b.score - a.score ||
+      a.filePath.localeCompare(b.filePath) ||
+      a.startLine - b.startLine,
+  );
+  ordered.forEach((hit, index) => {
+    hit.score = clamp(1 / (RRF_K + index + 1) / RRF_NORMALISER);
+  });
+}
+
 function insideWorkspace(workspaceRoot: string, filePath: string): boolean {
   const root = path.resolve(workspaceRoot);
   const resolved = path.resolve(filePath);
@@ -215,6 +243,43 @@ export function parseRgJson(raw: string): KeywordHit[] {
     }
   }
   return hits;
+}
+
+/** Enumerate indexable files in a workspace for symbol discovery. */
+export async function listWorkspaceFiles(
+  workspaceRoot: string,
+): Promise<string[]> {
+  const root = path.resolve(workspaceRoot);
+  const skip = new Set([
+    ".git",
+    "node_modules",
+    "dist",
+    "out",
+    "coverage",
+    "test-reports",
+  ]);
+  const files: string[] = [];
+  const walk = async (dir: string, depth: number): Promise<void> => {
+    if (depth > 12 || files.length >= 2000) return;
+    let entries: import("fs").Dirent[];
+    try {
+      entries = (await fsp.readdir(dir, {
+        withFileTypes: true,
+      })) as import("fs").Dirent[];
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!skip.has(entry.name)) await walk(full, depth + 1);
+      } else if (entry.isFile() && isIndexableTextFileLike(full)) {
+        files.push(full);
+      }
+    }
+  };
+  await walk(root, 0);
+  return files;
 }
 
 /** Built-in keyword scan used when ripgrep is unavailable. */
@@ -434,6 +499,9 @@ export async function hybridRetrieve(
           sources: ["semantic"],
         });
       }
+      applyReciprocalRankFusion(
+        hits.filter((hit) => hit.sources[0] === "semantic"),
+      );
     } catch (error) {
       warnings.push(
         `semantic search unavailable: ${error instanceof Error ? error.message : String(error)}`,
@@ -464,6 +532,7 @@ export async function hybridRetrieve(
       sources: ["keyword"],
     });
   }
+  applyReciprocalRankFusion(hits.filter((hit) => hit.sources[0] === "keyword"));
 
   // ── Symbol metadata channel ────────────────────────────────────────────
   if (options.enableSymbolChannel !== false) {
@@ -471,10 +540,28 @@ export async function hybridRetrieve(
     const readFile =
       options.readFile ?? ((file: string) => fsp.readFile(file, "utf8"));
     const chunksByFile = new Map<string, CodeChunk[]>();
-    const candidateFiles = [...new Set(hits.map((hit) => hit.filePath))].slice(
-      0,
-      16,
-    );
+    const discovered = options.listFiles
+      ? await options.listFiles(root)
+      : await listWorkspaceFiles(root);
+    const discoveredFiles = discovered
+      .map((file) => path.resolve(root, file))
+      .filter(
+        (file) => insideWorkspace(root, file) && isIndexableTextFileLike(file),
+      );
+    const hitFiles = new Set(hits.map((hit) => hit.filePath));
+    const relevance = (file: string): number => {
+      const name = path.basename(file).toLowerCase();
+      const score = terms.reduce(
+        (sum, term) =>
+          sum +
+          (name.includes(term) ? 2 : file.toLowerCase().includes(term) ? 1 : 0),
+        0,
+      );
+      return score + (hitFiles.has(file) ? 3 : 0);
+    };
+    const candidateFiles = [...new Set([...hitFiles, ...discoveredFiles])]
+      .sort((a, b) => relevance(b) - relevance(a))
+      .slice(0, options.maxSymbolFiles ?? 64);
     for (const filePath of candidateFiles) {
       if (!insideWorkspace(root, filePath)) continue;
       try {
@@ -521,13 +608,23 @@ export async function hybridRetrieve(
         });
       }
     }
+    applyReciprocalRankFusion(symbolHits);
     hits.push(...symbolHits);
   }
 
+  // An exact occurrence of the query phrase is strong evidence of relevance.
+  // Rank scores differ by only a few thousandths between neighbouring ranks,
+  // so weight that evidence above them before falling back to path order.
+  const phrase = trimmed.toLowerCase();
+  const exactBonus = (hit: RetrievalHit): number =>
+    hit.snippet.toLowerCase().includes(phrase) ||
+    hit.symbolName?.toLowerCase().includes(phrase)
+      ? 0.02
+      : 0;
   const ranked = deduplicateHits(hits)
     .sort(
       (a, b) =>
-        b.score - a.score ||
+        b.score + exactBonus(b) - (a.score + exactBonus(a)) ||
         a.filePath.localeCompare(b.filePath) ||
         a.startLine - b.startLine,
     )

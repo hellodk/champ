@@ -126,7 +126,7 @@ export class IndexingService {
         });
         await this.embeddingService.loadCache();
         return {
-          filesIndexed: 0,
+          filesIndexed: this.vectorStore.filePaths().length,
           chunksIndexed: this.vectorStore.size(),
           embeddingModel: modelId,
         };
@@ -252,9 +252,16 @@ export class IndexingService {
       this.config.indexing?.embeddingProvider ??
       route?.model.providerType ??
       "ollama";
+    const indexing = this.config.indexing;
     return {
-      baseUrl: route?.provider.config.baseUrl ?? "http://localhost:11434",
-      apiKey: route?.provider.config.apiKey,
+      // Explicit indexing config wins over the router's discovered endpoint;
+      // otherwise a remote embedding endpoint is silently replaced by the
+      // Ollama localhost default (#140).
+      baseUrl:
+        indexing?.baseUrl ??
+        route?.provider.config.baseUrl ??
+        "http://localhost:11434",
+      apiKey: indexing?.apiKey ?? route?.provider.config.apiKey,
       modelId: explicitModel ?? route!.model.id,
       providerFormat: provider === "ollama" ? "ollama" : "openai",
     };

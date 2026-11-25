@@ -72,6 +72,20 @@ pnpm run lint && pnpm run check-types
 - Optional `.github/workflows/security.yml` running `pnpm audit`, `google/osv-scanner-action` on `pnpm-lock.yaml`, and `semgrep ci`.
 - Protect `master` with required checks (`lint`, `typecheck`, `unit-tests`, `CodeQL`), PR review requirement, and stale review dismissal.
 
+#### Check Runs vs the legacy combined status API
+
+Do not use the legacy combined status endpoint to decide whether a commit is green. Verified on merge commit `89b0eab` (2026-11-25):
+
+```
+gh api repos/hellodk/champ/commits/89b0eab/status
+→ {"state":"pending","statuses":[],"total_count":0}
+
+gh api repos/hellodk/champ/commits/89b0eab/check-runs
+→ 9 check runs, all with conclusion "success"
+```
+
+GitHub Actions writes Check Runs, not commit statuses. The legacy endpoint therefore reports `pending` with zero statuses even when every workflow passed. Use `gh pr checks <pr>` or the Check Runs API for release/merge gate decisions.
+
 ---
 
 ## Publishing (VS Code Marketplace & Open VSX)

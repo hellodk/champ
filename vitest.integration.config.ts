@@ -9,10 +9,11 @@ export default defineConfig({
     environment: "node",
     testTimeout: 30000,
     setupFiles: ["test/setup.ts"],
-    reporters: ["verbose", "json"],
-    outputFile: {
-      json: "test-reports/integration-latest.json",
-    },
+    reporters: [
+      "verbose",
+      ["json", { outputFile: "test-reports/integration-latest.json" }],
+      ["junit", { outputFile: "test-reports/integration/results.xml" }],
+    ],
   },
   resolve: {
     alias: {

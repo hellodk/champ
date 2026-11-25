@@ -6,9 +6,10 @@ export default defineConfig({
     include: ["test/e2e/**/*.test.ts"],
     environment: "node",
     testTimeout: 30000,
-    reporters: ["verbose", "json"],
+    reporters: ["verbose", "json", "html"],
     outputFile: {
-      json: "test-reports/e2e.json",
+      json: "test-reports/e2e/results.json",
+      html: "test-reports/e2e/index.html",
     },
     globals: true,
     setupFiles: ["test/setup.ts"],

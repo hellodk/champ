@@ -52,7 +52,10 @@ export class SmartRouter {
   private providerMap = new Map<string, ProviderEntry>();
   private mode: "smart" | "manual" = "smart";
   private manualModelId: string | null = null;
-  private taskOverrides = new Map<TaskType, string | null>();
+  private taskOverrides = new Map<
+    TaskType,
+    string | { modelId: string; providerName: string } | null
+  >();
   private listeners = new Set<() => void>();
   private discovered = false;
   private lastModelsSig = "";
@@ -326,7 +329,15 @@ export class SmartRouter {
     if (this.taskOverrides.has(taskType)) {
       const override = this.taskOverrides.get(taskType);
       if (override !== null && override !== undefined) {
-        const model = this.models.find((m) => m.id === override);
+        const modelId =
+          typeof override === "string" ? override : override.modelId;
+        const providerName =
+          typeof override === "string" ? undefined : override.providerName;
+        const model = this.models.find(
+          (m) =>
+            m.id === modelId &&
+            (providerName === undefined || m.providerName === providerName),
+        );
         if (model) {
           // Guard: never use an embedding model for a non-embedding task,
           // even when explicitly overridden in config — it will always error.
@@ -335,7 +346,7 @@ export class SmartRouter {
             model.capabilities.includes("embedding")
           ) {
             console.warn(
-              `Champ SmartRouter: routing.${taskType} override "${override}" is an embedding model — ignoring.`,
+              `Champ SmartRouter: routing.${taskType} override "${modelId}" is an embedding model — ignoring.`,
             );
           } else {
             const entry = this.providerMap.get(model.providerName);
@@ -500,8 +511,17 @@ export class SmartRouter {
    * Override which model is used for a specific task type. Pass null to
    * revert to automatic selection. Used to wire the `routing:` YAML config.
    */
-  setTaskModel(task: TaskType, modelId: string | null): void {
-    this.taskOverrides.set(task, modelId);
+  setTaskModel(
+    task: TaskType,
+    modelId: string | null,
+    providerName?: string,
+  ): void {
+    this.taskOverrides.set(
+      task,
+      modelId === null || providerName === undefined
+        ? modelId
+        : { modelId, providerName },
+    );
     // Task override changes affect routing — must invalidate the route cache
     // so the next select() re-evaluates with the new override in effect.
     this.routeCache.clear();

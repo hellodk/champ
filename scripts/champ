@@ -11,7 +11,7 @@
 #   scripts/champ test report             # print test report summary
 #   scripts/champ lint                    # eslint + type-check
 #   scripts/champ version                 # print current version
-#   scripts/champ version next [cur] [tag] # compute the next patch version
+#   scripts/champ version next [cur] [tag] # compute the next version from conventional commits
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,13 +24,17 @@ _version() {
   node -e "process.stdout.write(require('./package.json').version)"
 }
 
-# Next patch version, taking the greater of the current version and the latest
-# release tag. Used by the release workflow before it bumps package.json.
+# Next version from conventional commits, taking the greater of the current
+# version and the latest release tag as the base. `feat:` bumps minor, a
+# breaking change bumps major, everything else bumps patch. Used by the
+# release workflow before it bumps package.json (the single version source for
+# both the extension and the headless CLI).
 _next_version() {
   local current="${1:-$(_version)}"
   local latest_tag="${2:-}"
-  node - "$current" "$latest_tag" <<'NODE'
-const [, , currentRaw, latestTagRaw] = process.argv;
+  local commits="${3:-${CHAMP_VERSION_COMMITS:-}}"
+  node - "$current" "$latest_tag" "$commits" <<'NODE'
+const [, , currentRaw, latestTagRaw, commitsRaw] = process.argv;
 try {
   const parse = (raw, label) => {
     const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(String(raw ?? "").trim());
@@ -49,7 +53,20 @@ try {
       ? { major: 0, minor: 0, patch: 0 }
       : parse(latestTagRaw, "latest tag");
   const base = compare(current, latest) >= 0 ? current : latest;
-  process.stdout.write(`${base.major}.${base.minor}.${base.patch + 1}\n`);
+  const subjects = String(commitsRaw ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const breaking = subjects.some(
+    (line) => /BREAKING CHANGE:/.test(line) || /^\w+(\([^)]*\))?!:/.test(line),
+  );
+  const feature = subjects.some((line) => /^feat(\([^)]*\))?(!)?: /.test(line));
+  const next = breaking
+    ? { major: base.major + 1, minor: 0, patch: 0 }
+    : feature
+      ? { major: base.major, minor: base.minor + 1, patch: 0 }
+      : { major: base.major, minor: base.minor, patch: base.patch + 1 };
+  process.stdout.write(`${next.major}.${next.minor}.${next.patch}\n`);
 } catch (err) {
   process.stderr.write(`champ: ${err instanceof Error ? err.message : err}\n`);
   process.exit(1);
@@ -108,7 +125,7 @@ _ok()      { echo "  ✓ $*"; }
 cmd_version() {
   if [[ "${1:-}" == "next" ]]; then
     shift
-    _next_version "${1:-$(_version)}" "${2:-}"
+    _next_version "${1:-$(_version)}" "${2:-}" "${3:-}"
     return
   fi
   echo "champ $(_version)"
@@ -163,7 +180,13 @@ cmd_release() {
   local ver latest_tag next
   ver=$(_version)
   latest_tag=$(git tag --list 'v[0-9]*' --sort=-v:refname 2>/dev/null | head -n 1 || true)
-  next=$(_next_version "$ver" "$latest_tag")
+  local commits
+  if [[ -n "$latest_tag" ]]; then
+    commits=$(git log "${latest_tag}..HEAD" --pretty=format:%s)
+  else
+    commits=$(git log --pretty=format:%s)
+  fi
+  next=$(_next_version "$ver" "$latest_tag" "$commits")
 
   _section "push to GitHub"
   git push github master
@@ -185,7 +208,7 @@ cmd_test() {
   case "$suite" in
     unit)
       _section "unit tests"
-      _pnpm exec vitest run --config vitest.config.ts
+      _pnpm exec vitest run --config vitest.config.ts --coverage
       ;;
     int|integration)
       _section "integration tests"
@@ -200,7 +223,7 @@ cmd_test() {
       ;;
     all)
       _section "unit tests"
-      _pnpm exec vitest run --config vitest.config.ts || true
+      _pnpm exec vitest run --config vitest.config.ts --coverage || true
       _section "integration tests"
       _pnpm exec vitest run --config vitest.integration.config.ts || true
       ;;
@@ -222,15 +245,45 @@ cmd_test_report() {
   printf "%-40s  %-8s  %-8s  %s\n" "Suite" "Passed" "Failed" "Skipped"
   printf "%-40s  %-8s  %-8s  %s\n" "─────────────────────────────────────" "──────" "──────" "───────"
 
-  for f in "$dir"/*.json; do
-    [[ -f "$f" ]] || continue
-    local suite passed failed skipped
-    suite="$(basename "$f" .json)"
-    passed=$(node -e "const r=require('$f'); process.stdout.write(String(r.numPassedTests??r.passed??0))" 2>/dev/null || echo 0)
-    failed=$(node -e "const r=require('$f'); process.stdout.write(String(r.numFailedTests??r.failed??0))" 2>/dev/null || echo 0)
-    skipped=$(node -e "const r=require('$f'); process.stdout.write(String(r.numPendingTests??r.skipped??0))" 2>/dev/null || echo 0)
-    printf "%-40s  %-8s  %-8s  %s\n" "$suite" "$passed" "$failed" "$skipped"
-  done
+  # JUnit XML is the canonical machine-readable result for every suite.
+  _junit_row() {
+    local label="$1" file="$2" counts total failed skipped passed
+    if [[ ! -f "$file" ]]; then
+      printf "%-40s  %-8s  %-8s  %s\n" "$label" "-" "-" "-"
+      return
+    fi
+    counts=$(node -e '
+      const fs = require("fs");
+      const xml = fs.readFileSync(process.argv[1], "utf8");
+      const attr = (tag, key) => {
+        const match = new RegExp(key + "=\"(\\d+)\"").exec(tag);
+        return match ? Number(match[1]) : 0;
+      };
+      const root = /<testsuites\b[^>]*>/.exec(xml)?.[0] ?? "";
+      const total = attr(root, "tests");
+      const failed = attr(root, "failures") + attr(root, "errors");
+      const suites = [...xml.matchAll(/<testsuite\b[^>]*>/g)].map((m) => m[0]);
+      const skipped = suites.reduce((sum, tag) => sum + attr(tag, "skipped"), 0);
+      process.stdout.write([total, failed, skipped].join(" "));
+    ' "$file")
+    read -r total failed skipped <<< "$counts"
+    passed=$((total - failed - skipped))
+    printf "%-40s  %-8s  %-8s  %s\n" "$label" "$passed" "$failed" "$skipped"
+  }
+
+  _junit_row "unit" "$dir/unit/results.xml"
+  _junit_row "integration" "$dir/integration/results.xml"
+
+  local e2e="$dir/e2e/results.json"
+  if [[ -f "$e2e" ]]; then
+    local epassed efailed eskipped
+    epassed=$(node -e "const r=require('$e2e'); process.stdout.write(String(r.numPassedTests??0))")
+    efailed=$(node -e "const r=require('$e2e'); process.stdout.write(String(r.numFailedTests??0))")
+    eskipped=$(node -e "const r=require('$e2e'); process.stdout.write(String(r.numPendingTests??0))")
+    printf "%-40s  %-8s  %-8s  %s\n" "e2e" "$epassed" "$efailed" "$eskipped"
+  else
+    printf "%-40s  %-8s  %-8s  %s\n" "e2e" "-" "-" "-"
+  fi
 
   if [[ -f "$dir/eval/retrieval.json" ]]; then
     local baseline hybrid delta
