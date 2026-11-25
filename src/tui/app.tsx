@@ -25,6 +25,16 @@ import {
   type TuiSessionSummary,
 } from "./state";
 import type { TuiConfigEntry, TuiRuntime } from "./runtime";
+import { dedupeEndpointSummaries, resolveTuiSelection } from "./endpoints";
+import { filterModels, modelLabel } from "./model-picker";
+import {
+  PALETTES,
+  detectTheme,
+  resolveRuntimeTheme,
+  themeEnvForRuntime,
+  type Palette,
+  type ThemeName,
+} from "./theme";
 import {
   canonicalChatCommand,
   CHAT_COMMAND_HELP,
@@ -40,6 +50,16 @@ const SCREENS: Array<{ id: TuiScreen; label: string }> = [
   { id: "sessions", label: "Sessions" },
   { id: "review", label: "Review" },
 ];
+
+/** Context-sensitive hints replace a flat key dump in the footer. */
+const FOOTER_HINTS: Record<TuiScreen, string> = {
+  chat: "? help · Tab screens · Ctrl-C exit",
+  providers: "↑↓ select · U models · ? help",
+  config: "S set · I editor · ? help",
+  help: "? advanced · Esc chat",
+  sessions: "Enter resume · ? help",
+  review: "A accept · R reject · ? help",
+};
 
 const SETUP_FIELDS = [
   "name",
@@ -66,21 +86,23 @@ function Panel({
   title,
   children,
   flexGrow = 1,
+  palette,
 }: {
   title: string;
   children: ReactNode;
   flexGrow?: number;
+  palette: Palette;
 }) {
   return (
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor="#3B4261"
+      borderColor={palette.border}
       paddingX={1}
       flexGrow={flexGrow}
       minHeight={6}
     >
-      <Text bold color="#89DDFF">
+      <Text bold color={palette.panelTitle}>
         {title}
       </Text>
       {children}
@@ -90,40 +112,96 @@ function Panel({
 
 export function App({ runtime }: { runtime: TuiRuntime }) {
   const { exit } = useApp();
-  const [state, dispatch] = useReducer(tuiReducer, undefined, () => ({
-    ...initialTuiState({
-      workspace: runtime.header.workspace,
-      model: runtime.header.model,
-      endpoints: runtime.initialEndpoints,
-      selectedEndpointId: runtime.initialEndpoints[0]?.id,
-      selectedModel: runtime.header.model,
-      status:
-        runtime.initialEndpoints.length === 0
-          ? "No endpoints configured — press A to add one"
-          : "Ready",
-    }),
-    screen: runtime.initialScreen ?? "chat",
-  }));
+  const [state, dispatch] = useReducer(tuiReducer, undefined, () => {
+    const endpoints = dedupeEndpointSummaries(
+      runtime.initialEndpoints,
+      runtime.initialSelection?.endpointId,
+    );
+    const selection = resolveTuiSelection(
+      endpoints,
+      runtime.initialSelection?.endpointId,
+      runtime.initialSelection?.model
+        ? runtime.initialSelection
+        : { ...runtime.initialSelection, model: runtime.header.model },
+    );
+    const staleStatus = selection.stale
+      ? `⚠ Assigned model missing: ${selection.model}. Press U to re-pick.`
+      : undefined;
+    return {
+      ...initialTuiState({
+        workspace: runtime.header.workspace,
+        model: selection.model || runtime.header.model,
+        endpoints,
+        selectedEndpointId: selection.endpointId,
+        selectedModel: selection.model,
+        status:
+          staleStatus ??
+          (endpoints.length === 0
+            ? "No endpoints configured — press A to add one"
+            : "Ready"),
+      }),
+      screen: runtime.initialScreen ?? "chat",
+    };
+  });
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [setupField, setSetupField] = useState<SetupField>("name");
   const [doctorLines, setDoctorLines] = useState<string[]>([]);
   const [completionIndex, setCompletionIndex] = useState(0);
+  const [advancedHelp, setAdvancedHelp] = useState(false);
+  const [editingEndpointId, setEditingEndpointId] = useState<string | null>(
+    null,
+  );
+  const [theme, setTheme] = useState<ThemeName>(() =>
+    resolveRuntimeTheme(runtime),
+  );
+  const [modelPicker, setModelPicker] = useState<{
+    open: boolean;
+    endpointId: string;
+    filter: string;
+    cursor: number;
+  }>({ open: false, endpointId: "", filter: "", cursor: 0 });
   const [configDraft, setConfigDraft] = useState<{
     key: string;
     value: string;
     open: boolean;
   }>({ key: CONFIG_KEYS[0].key, value: "", open: false });
   const [configEntries, setConfigEntries] = useState<TuiConfigEntry[]>([]);
+  const palette = PALETTES[theme];
 
   useEffect(() => {
     let alive = true;
-    void runtime.refreshEndpoints().then((endpoints) => {
-      if (alive) dispatch({ type: "endpoints/set", endpoints });
+    void detectTheme(themeEnvForRuntime(runtime)).then((detected) => {
+      if (alive) setTheme(detected);
     });
     return () => {
       alive = false;
     };
   }, [runtime]);
+
+  useEffect(() => {
+    let alive = true;
+    void runtime.refreshEndpoints().then((endpoints) => {
+      if (!alive) return;
+      const preferred = runtime.initialSelection?.endpointId;
+      const deduped = dedupeEndpointSummaries(endpoints, preferred);
+      dispatch({ type: "endpoints/set", endpoints: deduped });
+      const selection = resolveTuiSelection(deduped, preferred, {
+        endpointId: preferred,
+        model: runtime.initialSelection?.model ?? runtime.header.model,
+      });
+      dispatch({
+        type: "selection/set",
+        endpointId: selection.endpointId,
+        model: selection.model,
+        status: selection.stale
+          ? `⚠ Assigned model missing: ${selection.model}. Press U to re-pick.`
+          : undefined,
+      });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [runtime, runtime.initialSelection, runtime.header.model]);
 
   useEffect(() => {
     let alive = true;
@@ -244,24 +322,73 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
     }
   }, [exit, runtime, state.busy, state.input]);
 
-  const addEndpoint = useCallback(async () => {
+  const openSetup = useCallback(
+    (target?: EndpointSummary) => {
+      setEditingEndpointId(target?.id ?? null);
+      setSetupField(target ? "model" : "name");
+      dispatch({ type: "setup/open" });
+      if (target) {
+        dispatch({ type: "setup/change", field: "name", value: target.name });
+        dispatch({
+          type: "setup/change",
+          field: "provider",
+          value: target.provider,
+        });
+        dispatch({
+          type: "setup/change",
+          field: "baseUrl",
+          value: target.baseUrl,
+        });
+        dispatch({
+          type: "setup/change",
+          field: "model",
+          value: state.selectedModel ?? target.models[0] ?? "",
+        });
+      }
+    },
+    [state.selectedModel],
+  );
+
+  const saveEndpoint = useCallback(async () => {
     if (state.setup.saving) return;
     dispatch({ type: "setup/submit" });
     if (!state.setup.name.trim()) return;
 
+    const input = {
+      name: state.setup.name,
+      provider: state.setup.provider,
+      baseUrl: state.setup.baseUrl || undefined,
+      credentialId: state.setup.credentialId || undefined,
+      apiKey: state.setup.apiKey || undefined,
+      model: state.setup.model || undefined,
+    };
     try {
-      const message = await runtime.addEndpoint({
-        name: state.setup.name,
-        provider: state.setup.provider,
-        baseUrl: state.setup.baseUrl || undefined,
-        credentialId: state.setup.credentialId || undefined,
-        apiKey: state.setup.apiKey || undefined,
-        model: state.setup.model || undefined,
-      });
-      const endpoints = await runtime.refreshEndpoints();
+      const message = editingEndpointId
+        ? await runtime.updateEndpoint(editingEndpointId, input)
+        : await runtime.addEndpoint(input);
+      const refreshed = await runtime.refreshEndpoints();
+      const endpoints = dedupeEndpointSummaries(
+        refreshed,
+        editingEndpointId ?? undefined,
+      );
       dispatch({ type: "endpoints/set", endpoints });
       dispatch({ type: "setup/result", status: message });
       setSetupField("name");
+      setEditingEndpointId(null);
+
+      // The registry probes /v1/models during add/update. Offer the picker
+      // immediately so a stale or manually typed model gets re-confirmed.
+      const target =
+        endpoints.find((item) => item.id === editingEndpointId) ??
+        endpoints[endpoints.length - 1];
+      if (target && target.models.length > 0) {
+        setModelPicker({
+          open: true,
+          endpointId: target.id,
+          filter: "",
+          cursor: 0,
+        });
+      }
     } catch (err) {
       dispatch({
         type: "setup/result",
@@ -269,7 +396,7 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         error: true,
       });
     }
-  }, [runtime, state.setup]);
+  }, [editingEndpointId, runtime, state.setup]);
 
   const resumeSession = useCallback(
     async (id: string) => {
@@ -364,6 +491,10 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
     }
 
     if (key.escape) {
+      if (modelPicker.open) {
+        setModelPicker({ open: false, endpointId: "", filter: "", cursor: 0 });
+        return;
+      }
       if (configDraft.open) {
         setConfigDraft({ ...configDraft, open: false, value: "" });
         return;
@@ -409,7 +540,7 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         return;
       }
       if (key.return) {
-        if (setupField === "model") void addEndpoint();
+        if (setupField === "model") void saveEndpoint();
         else
           setSetupField(
             SETUP_FIELDS[Math.min(index + 1, SETUP_FIELDS.length - 1)],
@@ -431,6 +562,12 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
           value: state.setup[setupField] + input,
         });
       }
+      return;
+    }
+
+    if (input === "?" && !state.busy) {
+      setAdvancedHelp((shown) => !shown);
+      dispatch({ type: "screen/set", screen: "help" });
       return;
     }
 
@@ -470,25 +607,139 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
     }
 
     if (state.screen === "providers") {
+      const endpoint = state.endpoints[state.cursor];
+      if (modelPicker.open) {
+        const candidates = endpoint
+          ? filterModels(endpoint.models, modelPicker.filter)
+          : [];
+        if (key.escape) {
+          if (modelPicker.filter) {
+            setModelPicker((picker) => ({ ...picker, filter: "", cursor: 0 }));
+          } else {
+            setModelPicker({
+              open: false,
+              endpointId: "",
+              filter: "",
+              cursor: 0,
+            });
+          }
+          return;
+        }
+        if (input === "M" && !modelPicker.filter && endpoint) {
+          setModelPicker({
+            open: false,
+            endpointId: "",
+            filter: "",
+            cursor: 0,
+          });
+          openSetup(endpoint);
+          return;
+        }
+        if (key.upArrow) {
+          setModelPicker((picker) => ({
+            ...picker,
+            cursor: Math.max(0, picker.cursor - 1),
+          }));
+          return;
+        }
+        if (key.downArrow) {
+          setModelPicker((picker) => ({
+            ...picker,
+            cursor: Math.min(candidates.length - 1, picker.cursor + 1),
+          }));
+          return;
+        }
+        if (key.return) {
+          const model = candidates[modelPicker.cursor];
+          if (endpoint && model) {
+            setModelPicker({
+              open: false,
+              endpointId: "",
+              filter: "",
+              cursor: 0,
+            });
+            void runtime
+              .selectModel(endpoint.id, model)
+              .then((message) => {
+                dispatch({
+                  type: "model/select",
+                  endpointId: endpoint.id,
+                  model,
+                });
+                dispatch({ type: "status/set", text: message });
+              })
+              .catch((err: unknown) =>
+                dispatch({
+                  type: "status/set",
+                  text: err instanceof Error ? err.message : String(err),
+                }),
+              );
+          }
+          return;
+        }
+        if (key.backspace || key.delete) {
+          setModelPicker((picker) => ({
+            ...picker,
+            filter: picker.filter.slice(0, -1),
+            cursor: 0,
+          }));
+          return;
+        }
+        if (input.length === 1 && !key.ctrl && !key.meta) {
+          if (/^[1-9]$/.test(input) && !modelPicker.filter) {
+            const model = candidates[Number(input) - 1];
+            if (endpoint && model) {
+              setModelPicker({
+                open: false,
+                endpointId: "",
+                filter: "",
+                cursor: 0,
+              });
+              void runtime
+                .selectModel(endpoint.id, model)
+                .then((message) => {
+                  dispatch({
+                    type: "model/select",
+                    endpointId: endpoint.id,
+                    model,
+                  });
+                  dispatch({ type: "status/set", text: message });
+                })
+                .catch((err: unknown) =>
+                  dispatch({
+                    type: "status/set",
+                    text: err instanceof Error ? err.message : String(err),
+                  }),
+                );
+            }
+            return;
+          }
+          setModelPicker((picker) => ({
+            ...picker,
+            filter: picker.filter + input,
+            cursor: 0,
+          }));
+        }
+        return;
+      }
+
       if (key.upArrow) dispatch({ type: "endpoints/cursor", delta: -1 });
       else if (key.downArrow) dispatch({ type: "endpoints/cursor", delta: 1 });
-      else if (input.toLowerCase() === "a") dispatch({ type: "setup/open" });
+      else if (input.toLowerCase() === "a") openSetup();
+      else if (input.toLowerCase() === "e" && endpoint) openSetup(endpoint);
       else if (input.toLowerCase() === "u") {
-        const endpoint = state.endpoints[state.cursor];
-        const model = endpoint?.models[0];
-        if (endpoint && model) {
-          void runtime
-            .selectModel(endpoint.id, model)
-            .then((message) => dispatch({ type: "status/set", text: message }))
-            .catch((err: unknown) =>
-              dispatch({
-                type: "status/set",
-                text: err instanceof Error ? err.message : String(err),
-              }),
-            );
+        if (endpoint) {
+          setModelPicker({
+            open: true,
+            endpointId: endpoint.id,
+            filter: "",
+            cursor: Math.max(
+              0,
+              endpoint.models.indexOf(state.selectedModel ?? ""),
+            ),
+          });
         }
       } else if (input.toLowerCase() === "t") {
-        const endpoint = state.endpoints[state.cursor];
         if (endpoint) {
           void runtime
             .testEndpoint(endpoint.id)
@@ -635,6 +886,9 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
   const visible = state.messages.slice(transcriptStart, transcriptEnd);
   const endpoint = state.endpoints[state.cursor];
   const session = runtime.header.sessionId;
+  const filteredModels = endpoint
+    ? filterModels(endpoint.models, modelPicker.filter)
+    : [];
 
   return (
     <Box flexDirection="column" height="100%" width="100%">
@@ -642,13 +896,14 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         justifyContent="space-between"
         paddingX={1}
         borderStyle="double"
-        borderColor="#444CE7"
+        borderColor={palette.border}
       >
-        <Text bold color="#FFFFFF">
-          CHAMP <Text color="#444CE7">v{runtime.header.version}</Text>
+        <Text bold color={palette.text}>
+          CHAMP <Text color={palette.accent}>v{runtime.header.version}</Text>
         </Text>
-        <Text color="#A6ACCD">
-          {runtime.header.model} · {truncate(runtime.header.workspace, 36)}
+        <Text color={palette.muted}>
+          {state.selectedModel ?? runtime.header.model} ·{" "}
+          {truncate(runtime.header.workspace, 36)}
           {session ? ` · ${session}` : ""}
         </Text>
       </Box>
@@ -658,7 +913,9 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
           <Box key={screen.id} marginRight={2}>
             <Text
               bold={state.screen === screen.id}
-              color={state.screen === screen.id ? "#444CE7" : "#6B7280"}
+              color={
+                state.screen === screen.id ? palette.accent : palette.muted
+              }
             >
               {`${index + 1} ${screen.label}`}
             </Text>
@@ -668,9 +925,9 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
 
       {state.screen === "chat" && (
         <Box flexDirection="column" flexGrow={1}>
-          <Panel title="Session">
+          <Panel title="Session" palette={palette}>
             {visible.length === 0 ? (
-              <Text color="#6B7280">
+              <Text color={palette.muted}>
                 Ask anything. Type /help for commands.
               </Text>
             ) : (
@@ -680,36 +937,36 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
                     bold
                     color={
                       message.role === "user"
-                        ? "#444CE7"
+                        ? palette.accent
                         : message.role === "error"
-                          ? "#DC2626"
+                          ? palette.error
                           : message.role === "tool"
-                            ? "#D97706"
-                            : "#16A34A"
+                            ? palette.warning
+                            : palette.success
                     }
                   >
                     {message.role.toUpperCase()}
                   </Text>
-                  <Text color="#D1D5DB">{message.text}</Text>
+                  <Text color={palette.text}>{message.text}</Text>
                 </Box>
               ))
             )}
-            <Text color="#6B7280">
+            <Text color={palette.muted}>
               {state.messages.length === 0
-                ? "line 0 of 0 · PgUp/PgDn scroll"
+                ? "line 0 of 0"
                 : `line ${transcriptStart + 1}-${transcriptEnd} of ${state.messages.length}${state.scrollOffset > 0 ? " (scrolled)" : ""}`}
             </Text>
           </Panel>
           {approval && (
-            <Box borderStyle="round" borderColor="#D97706" paddingX={1}>
-              <Text color="#FCD34D">
+            <Box borderStyle="round" borderColor={palette.warning} paddingX={1}>
+              <Text color={palette.warning}>
                 {truncate(approval.description, 100)} [y/N]
               </Text>
             </Box>
           )}
-          <Box borderStyle="round" borderColor="#444CE7" paddingX={1}>
-            <Text color="#444CE7">{"› "}</Text>
-            <Text color={state.busy ? "#6B7280" : "#FFFFFF"}>
+          <Box borderStyle="round" borderColor={palette.border} paddingX={1}>
+            <Text color={palette.accent}>{"› "}</Text>
+            <Text color={state.busy ? palette.muted : palette.text}>
               {state.busy ? "working…" : state.input || "type a message"}
             </Text>
           </Box>
@@ -717,16 +974,18 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
             <Box
               flexDirection="column"
               borderStyle="round"
-              borderColor="#444CE7"
+              borderColor={palette.border}
               paddingX={1}
             >
-              <Text bold color="#89DDFF">
+              <Text bold color={palette.panelTitle}>
                 Commands — ↑↓ select · Tab/Enter accept · Esc dismiss
               </Text>
               {suggestions.slice(0, 8).map((suggestion, index) => (
                 <Text
                   key={suggestion.name}
-                  color={index === completionIndex ? "#FFFFFF" : "#6B7280"}
+                  color={
+                    index === completionIndex ? palette.accent : palette.muted
+                  }
                   bold={index === completionIndex}
                 >
                   {`${index === completionIndex ? "▸" : " "} ${suggestion.name} — ${suggestion.description}`}
@@ -738,74 +997,133 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       )}
 
       {state.screen === "providers" && (
-        <Panel title="Endpoints">
-          <Text color="#6B7280">
-            ↑↓ select · U use model · T test · A add endpoint · Tab screen · Esc
-            chat
+        <Panel title="Endpoints" palette={palette}>
+          <Text color={palette.muted}>
+            ↑↓ select · U pick model · E edit · A add · T test · ? help
           </Text>
           {state.endpoints.length === 0 ? (
-            <Text color="#D97706">No endpoints. Press A to add one.</Text>
+            <Text color={palette.warning}>
+              No endpoints. Press A to add one.
+            </Text>
           ) : (
-            state.endpoints.map((item: EndpointSummary, index) => (
-              <Box key={item.id} flexDirection="column" marginTop={1}>
-                <Text
-                  bold={index === state.cursor}
-                  color={index === state.cursor ? "#444CE7" : "#D1D5DB"}
-                >
-                  {`${index === state.cursor ? "▸" : " "} ${item.name} (${item.provider})`}
-                </Text>
-                <Text color="#6B7280">
-                  {`  ${item.id} · ${truncate(item.baseUrl, 54)} · ${item.models[0] ?? "no models"}`}
-                </Text>
-              </Box>
-            ))
+            state.endpoints.map((item: EndpointSummary, index) => {
+              const active = index === state.cursor;
+              const selectedModel =
+                item.id === state.selectedEndpointId
+                  ? (state.selectedModel ?? item.models[0])
+                  : item.models[0];
+              return (
+                <Box key={item.id} flexDirection="column" marginTop={1}>
+                  <Text
+                    bold={active}
+                    color={active ? palette.accent : palette.text}
+                  >
+                    {`${active ? "▸" : " "} ${item.name} (${item.provider})`}
+                  </Text>
+                  <Text color={palette.muted}>
+                    {`  ${truncate(item.baseUrl, 54)} · ${selectedModel ? modelLabel(selectedModel) : "no models"}`}
+                  </Text>
+                  {item.id === state.selectedEndpointId &&
+                    state.selectedModel &&
+                    !item.models.includes(state.selectedModel) && (
+                      <Text
+                        color={palette.warning}
+                      >{`  ⚠ assigned model missing: ${state.selectedModel}`}</Text>
+                    )}
+                </Box>
+              );
+            })
+          )}
+          {modelPicker.open && endpoint && (
+            <Box
+              flexDirection="column"
+              marginTop={1}
+              borderStyle="round"
+              borderColor={palette.border}
+              paddingX={1}
+            >
+              <Text bold color={palette.panelTitle}>
+                {`Select model — ${endpoint.name}`}
+              </Text>
+              <Text color={palette.muted}>
+                {`filter: ${modelPicker.filter || "(type to filter)"} · 1-9 quick pick · ↑↓ · Enter select · M manual · Esc clear`}
+              </Text>
+              {filteredModels.slice(0, 12).map((model, index) => {
+                const selected = index === modelPicker.cursor;
+                const active =
+                  endpoint.id === state.selectedEndpointId &&
+                  model === state.selectedModel;
+                return (
+                  <Text
+                    key={model}
+                    bold={selected}
+                    color={selected ? palette.accent : palette.text}
+                  >
+                    {`${selected ? "▸" : " "} ${index + 1}. ${modelLabel(model)}${active ? " ✓" : ""}`}
+                  </Text>
+                );
+              })}
+              {filteredModels.length === 0 && (
+                <Text color={palette.warning}>No matching models.</Text>
+              )}
+            </Box>
           )}
           {state.setup.open && (
             <Box
               flexDirection="column"
               marginTop={1}
               borderStyle="round"
-              borderColor="#444CE7"
+              borderColor={palette.border}
               paddingX={1}
             >
-              <Text bold color="#89DDFF">
-                New endpoint
+              <Text bold color={palette.panelTitle}>
+                {editingEndpointId ? "Edit endpoint" : "New endpoint"}
               </Text>
               {SETUP_FIELDS.map((field) => (
                 <Text
                   key={field}
-                  color={field === setupField ? "#FFFFFF" : "#6B7280"}
+                  color={field === setupField ? palette.accent : palette.muted}
                 >
                   {`${field === setupField ? "▸" : " "} ${field}: ${state.setup[field]}`}
                 </Text>
               ))}
               {state.setup.error && (
-                <Text color="#DC2626">{state.setup.error}</Text>
+                <Text color={palette.error}>{state.setup.error}</Text>
               )}
-              <Text color="#6B7280">
+              <Text color={palette.muted}>
                 Tab next field · Enter next/save · Esc cancel
               </Text>
             </Box>
           )}
           {endpoint && (
-            <Text color="#6B7280">{`Selected: ${endpoint.name}`}</Text>
+            <Text
+              color={palette.muted}
+            >{`Selected: ${endpoint.name} · ${state.selectedModel ?? "no model"}`}</Text>
           )}
         </Panel>
       )}
 
       {state.screen === "config" && (
-        <Panel title="Configuration">
-          <Text color="#6B7280">
+        <Panel title="Configuration" palette={palette}>
+          <Text color={palette.muted}>
             S set value · I open editor · V validate · D doctor · E redacted
             export · Tab screen
           </Text>
-          <Text color="#D1D5DB">{`workspace: ${runtime.header.workspace}`}</Text>
-          <Text color="#D1D5DB">{`routing:   ${runtime.header.routingMode ?? "auto"}`}</Text>
-          <Text color="#D1D5DB">{`model:     ${runtime.header.model}`}</Text>
-          <Text color="#D1D5DB">{`registry:  ~/.champ/providers.json`}</Text>
-          <Text color="#D1D5DB">{`yaml:      ~/.champ/config.yaml`}</Text>
+          <Text
+            color={palette.text}
+          >{`workspace: ${runtime.header.workspace}`}</Text>
+          <Text
+            color={palette.text}
+          >{`routing:   ${runtime.header.routingMode ?? "auto"}`}</Text>
+          <Text
+            color={palette.text}
+          >{`model:     ${state.selectedModel ?? runtime.header.model}`}</Text>
+          <Text
+            color={palette.text}
+          >{`registry:  ~/.champ/providers.json`}</Text>
+          <Text color={palette.text}>{`yaml:      ~/.champ/config.yaml`}</Text>
           {configEntries.slice(0, 12).map((entry) => (
-            <Text key={entry.key} color="#A6ACCD">
+            <Text key={entry.key} color={palette.muted}>
               {`${entry.key} = ${entry.value || "(unset)"}`}
             </Text>
           ))}
@@ -814,23 +1132,27 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
               flexDirection="column"
               marginTop={1}
               borderStyle="round"
-              borderColor="#444CE7"
+              borderColor={palette.border}
               paddingX={1}
             >
-              <Text bold color="#89DDFF">
+              <Text bold color={palette.panelTitle}>
                 Set config value
               </Text>
               {CONFIG_KEYS.slice(0, 12).map((entry) => (
                 <Text
                   key={entry.key}
-                  color={entry.key === configDraft.key ? "#FFFFFF" : "#6B7280"}
+                  color={
+                    entry.key === configDraft.key
+                      ? palette.accent
+                      : palette.muted
+                  }
                   bold={entry.key === configDraft.key}
                 >
                   {`${entry.key === configDraft.key ? "▸" : " "} ${entry.key} — ${entry.description}`}
                 </Text>
               ))}
-              <Text color="#FFFFFF">{`value: ${configDraft.value}`}</Text>
-              <Text color="#6B7280">
+              <Text color={palette.text}>{`value: ${configDraft.value}`}</Text>
+              <Text color={palette.muted}>
                 Tab next key · Enter save · Esc cancel
               </Text>
             </Box>
@@ -838,31 +1160,37 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
           {state.diagnostics.length > 0 && (
             <Box flexDirection="column" marginTop={1}>
               {state.diagnostics.slice(-20).map((line, index) => (
-                <Text key={`${index}-${line}`} color="#A6ACCD">
+                <Text key={`${index}-${line}`} color={palette.muted}>
                   {truncate(line, 110)}
                 </Text>
               ))}
             </Box>
           )}
           {doctorLines.length > 0 && (
-            <Text color="#6B7280">{`doctor: ${doctorLines.length} checks`}</Text>
+            <Text
+              color={palette.muted}
+            >{`doctor: ${doctorLines.length} checks`}</Text>
           )}
         </Panel>
       )}
 
       {state.screen === "sessions" && (
-        <Panel title="Sessions">
-          <Text color="#6B7280">
+        <Panel title="Sessions" palette={palette}>
+          <Text color={palette.muted}>
             ↑↓ select · Enter resume · Tab screen · Esc chat
           </Text>
           {state.sessions.length === 0 ? (
-            <Text color="#D97706">No stored sessions in this workspace.</Text>
+            <Text color={palette.warning}>
+              No stored sessions in this workspace.
+            </Text>
           ) : (
             state.sessions.map((item: TuiSessionSummary, index) => (
               <Text
                 key={item.id}
                 bold={index === state.sessionCursor}
-                color={index === state.sessionCursor ? "#444CE7" : "#D1D5DB"}
+                color={
+                  index === state.sessionCursor ? palette.accent : palette.text
+                }
               >
                 {`${index === state.sessionCursor ? "▸" : " "} ${item.id} — ${truncate(item.label, 54)} · ${item.updatedAt}`}
               </Text>
@@ -872,18 +1200,20 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       )}
 
       {state.screen === "review" && (
-        <Panel title="Review">
-          <Text color="#6B7280">
+        <Panel title="Review" palette={palette}>
+          <Text color={palette.muted}>
             ↑↓ select · A accept · R reject · Tab screen · Esc chat
           </Text>
           {state.reviews.length === 0 ? (
-            <Text color="#D97706">No recorded edits to review.</Text>
+            <Text color={palette.warning}>No recorded edits to review.</Text>
           ) : (
             state.reviews.map((item: TuiReviewSummary, index) => (
               <Text
                 key={item.id}
                 bold={index === state.reviewCursor}
-                color={index === state.reviewCursor ? "#444CE7" : "#D1D5DB"}
+                color={
+                  index === state.reviewCursor ? palette.accent : palette.text
+                }
               >
                 {`${index === state.reviewCursor ? "▸" : " "} ${item.id} [${item.status}] ${item.files} file(s) — ${truncate(item.summary, 54)}`}
               </Text>
@@ -893,32 +1223,52 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       )}
 
       {state.screen === "help" && (
-        <Panel title="Help">
-          <Text color="#D1D5DB">Tab — cycle screens</Text>
-          <Text color="#D1D5DB">Esc — return to chat / dismiss completion</Text>
-          <Text color="#D1D5DB">Ctrl-C — abort turn or exit</Text>
-          <Text color="#D1D5DB">PgUp/PgDn — scroll transcript</Text>
-          <Text color="#D1D5DB">
-            Up/Down — scroll transcript when prompt is empty, otherwise history
+        <Panel title="Help" palette={palette}>
+          <Text bold color={palette.panelTitle}>
+            Essentials
           </Text>
-          <Text color="#D1D5DB">Sessions: Enter — resume session</Text>
-          <Text color="#D1D5DB">Review: A — accept, R — reject</Text>
-          <Text color="#D1D5DB">Config: S — set value, I — open editor</Text>
-          <Text color="#D1D5DB">
-            Completion: ↑↓ select · Tab/Enter accept · Esc dismiss
+          <Text color={palette.text}>
+            Tab — cycle screens · Esc — return to chat
           </Text>
-          {Object.entries(CHAT_COMMAND_HELP).map(([name, desc]) => (
-            <Text key={name} color="#D1D5DB">
-              {name} — {desc}
+          <Text color={palette.text}>
+            Ctrl-C — abort turn or exit · ? — toggle advanced
+          </Text>
+          <Text color={palette.text}>
+            Providers: U pick model · E edit · A add · T test
+          </Text>
+          <Text color={palette.text}>
+            Sessions: Enter resume · Review: A accept, R reject
+          </Text>
+          {advancedHelp ? (
+            <>
+              <Text bold color={palette.panelTitle}>
+                Advanced
+              </Text>
+              <Text color={palette.muted}>PgUp/PgDn — scroll transcript</Text>
+              <Text color={palette.muted}>
+                Up/Down — transcript scroll or prompt history
+              </Text>
+              <Text color={palette.muted}>
+                Config: S set value · I editor · V validate · D doctor · E
+                export
+              </Text>
+              {Object.entries(CHAT_COMMAND_HELP).map(([name, desc]) => (
+                <Text key={name} color={palette.muted}>
+                  {name} — {desc}
+                </Text>
+              ))}
+            </>
+          ) : (
+            <Text color={palette.muted}>
+              ? — show scrollback, config and slash commands
             </Text>
-          ))}
-          <Text color="#6B7280">/models — alias for /model</Text>
+          )}
         </Panel>
       )}
 
       <Box justifyContent="space-between" paddingX={1}>
-        <Text color="#6B7280">{truncate(state.status, 90)}</Text>
-        <Text color="#444CE7">Tab screens · Ctrl-C exit</Text>
+        <Text color={palette.muted}>{truncate(state.status, 90)}</Text>
+        <Text color={palette.accent}>{FOOTER_HINTS[state.screen]}</Text>
       </Box>
     </Box>
   );

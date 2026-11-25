@@ -5,6 +5,8 @@
  * hands this adapter across, so both frontends share providers, tools, rules,
  * sessions, policies and turn execution.
  */
+import type { TuiSelection } from "./endpoints";
+import type { ThemeName } from "./theme";
 import type { EndpointSummary, TuiScreen } from "./state";
 
 export interface TuiHeader {
@@ -68,7 +70,11 @@ export interface TuiConfigEntry {
 export interface TuiRuntime {
   header: TuiHeader;
   initialEndpoints: EndpointSummary[];
+  /** Endpoint/model resolved from the registry assignment before rendering. */
+  initialSelection?: TuiSelection;
   initialScreen?: TuiScreen;
+  /** Palette forced by `--theme`; otherwise auto-detected in the TUI. */
+  theme?: ThemeName;
   /** Run a turn (or slash/skill command) through the shared agent runtime. */
   submit(
     text: string,
@@ -79,6 +85,10 @@ export interface TuiRuntime {
   abort(): void;
   refreshEndpoints(): Promise<EndpointSummary[]>;
   addEndpoint(input: TuiAddEndpointInput): Promise<string>;
+  updateEndpoint(
+    endpointId: string,
+    input: TuiAddEndpointInput,
+  ): Promise<string>;
   selectModel(endpointId: string, model: string): Promise<string>;
   testEndpoint(endpointId: string): Promise<string>;
   validate(): Promise<string[]>;

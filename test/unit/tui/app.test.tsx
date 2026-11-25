@@ -27,6 +27,7 @@ function runtime(overrides: Partial<TuiRuntime> = {}): TuiRuntime {
     abort: vi.fn(),
     refreshEndpoints: vi.fn(async () => []),
     addEndpoint: vi.fn(async () => "ep_b"),
+    updateEndpoint: vi.fn(async () => "updated"),
     selectModel: vi.fn(async () => "ok"),
     testEndpoint: vi.fn(async () => "ok"),
     validate: vi.fn(async () => []),

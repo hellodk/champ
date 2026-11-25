@@ -18,6 +18,16 @@ export interface ConfigKey {
 export const CONFIG_KEYS: readonly ConfigKey[] = [
   { key: "provider", description: "default provider name", type: "string" },
   {
+    key: "provider.baseUrl",
+    description: "default endpoint base URL",
+    type: "string",
+  },
+  {
+    key: "provider.model",
+    description: "default endpoint model",
+    type: "string",
+  },
+  {
     key: "agent.defaultMode",
     description: "agent | ask | manual | plan | composer",
     type: "string",
@@ -66,6 +76,13 @@ export const CONFIG_KEYS: readonly ConfigKey[] = [
 export interface ConfigFileOptions {
   configPath: string;
   key: string;
+}
+
+export interface ConfigEndpointTarget {
+  endpointId?: string;
+  endpoint?: { id: string; name?: string; baseUrl?: string; provider?: string };
+  baseUrl?: string;
+  model?: string;
 }
 
 function definition(key: string): ConfigKey {
@@ -151,10 +168,18 @@ async function writeDocument(
 }
 
 export async function setConfigValue(
-  options: ConfigFileOptions & { value: string },
+  options: ConfigFileOptions & {
+    value: string;
+    endpoint?: ConfigEndpointTarget;
+    onEndpoint?: (key: "baseUrl" | "model", value: string) => Promise<void>;
+  },
 ): Promise<string> {
   const def = definition(options.key);
   const value = parseValue(def, options.value);
+  if (options.key === "provider.baseUrl" || options.key === "provider.model") {
+    const field = options.key === "provider.baseUrl" ? "baseUrl" : "model";
+    await options.onEndpoint?.(field, String(value));
+  }
   const doc = await readDocument(options.configPath);
   writePath(doc, options.key, value);
   await writeDocument(options.configPath, doc);
@@ -162,9 +187,17 @@ export async function setConfigValue(
 }
 
 export async function getConfigValue(
-  options: ConfigFileOptions,
+  options: ConfigFileOptions & { endpoint?: ConfigEndpointTarget },
 ): Promise<string> {
   const def = definition(options.key);
+  if (options.key === "provider.baseUrl") {
+    return (
+      options.endpoint?.baseUrl ?? options.endpoint?.endpoint?.baseUrl ?? ""
+    );
+  }
+  if (options.key === "provider.model") {
+    return options.endpoint?.model ?? "";
+  }
   const value = readPath(await readDocument(options.configPath), def.key);
   return value === undefined || value === null ? "" : String(value);
 }

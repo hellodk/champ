@@ -97,6 +97,12 @@ export type TuiAction =
   | { type: "endpoints/set"; endpoints: EndpointSummary[] }
   | { type: "endpoints/cursor"; delta: number }
   | { type: "model/select"; endpointId: string; model: string }
+  | {
+      type: "selection/set";
+      endpointId?: string;
+      model?: string;
+      status?: string;
+    }
   | { type: "setup/open" }
   | { type: "setup/cancel" }
   | { type: "setup/change"; field: keyof SetupDraft; value: string }
@@ -285,6 +291,13 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
         selectedEndpointId: action.endpointId,
         selectedModel: action.model,
         status: `Model ${action.model} selected`,
+      };
+    case "selection/set":
+      return {
+        ...state,
+        selectedEndpointId: action.endpointId ?? state.selectedEndpointId,
+        selectedModel: action.model ?? state.selectedModel,
+        status: action.status ?? state.status,
       };
     case "setup/open":
       return {

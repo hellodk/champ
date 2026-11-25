@@ -32,6 +32,8 @@ export interface CliFlags {
   tui: boolean;
   /** Force the line REPL even when stdin is not a terminal. */
   repl: boolean;
+  /** Force a TUI palette instead of auto-detecting the terminal background. */
+  theme?: "dark" | "light";
   /** Emit one JSON object per line on stdout; diagnostics stay on stderr. */
   json: boolean;
   /** Speak newline-delimited JSON RPC on stdin/stdout. */
@@ -165,6 +167,7 @@ Options:
       --json              Emit structured JSONL events on stdout (one-shot runs)
       --rpc               Newline-delimited JSON RPC on stdin/stdout
       --tui               Force the full-screen TUI
+      --theme <dark|light>  Force a TUI palette (default: detect terminal)
   -r, --repl              Force the line REPL instead of the TUI
       --cwd <dir>         Workspace root (default: current directory)
       --provider <name>   Override the provider configured in config.yaml
@@ -213,6 +216,7 @@ const VALUE_FLAGS: Record<string, keyof CliFlags> = {
   "--base-url": "baseUrl",
   "--api-key": "apiKey",
   "--permission-profile": "permissionProfile",
+  "--theme": "theme",
   "--max-iter": "maxIterations",
   "--session": "session",
   "--import-session": "importSession",
@@ -398,6 +402,13 @@ export function parseCliArgs(
           );
         }
         flags.permissionProfile = value;
+        continue;
+      }
+      if (valueKey === "theme") {
+        if (value !== "dark" && value !== "light") {
+          return error(`--theme must be dark or light, got "${value}"`);
+        }
+        flags.theme = value;
         continue;
       }
       switch (valueKey) {
