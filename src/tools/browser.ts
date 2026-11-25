@@ -12,7 +12,7 @@ import type {
 } from "./types";
 import type { ToolParameterSchema } from "../providers/types";
 import { validatePublicHttpUrl } from "../utils/url-guard";
-import type { Browser, Page } from "@playwright/test";
+import type { Browser, Page } from "playwright";
 
 /**
  * Global browser instance shared across tool invocations within a session.
@@ -24,16 +24,15 @@ let page: Page | null = null;
 /**
  * Ensures a browser instance is available.
  *
- * playwright-core is loaded via dynamic import INSIDE this function: a
- * static import would require the module at activation time, but esbuild
- * marks it external and published packages ship without node_modules —
- * which crashed extension activation outright (see exthost log:
- * "Cannot find module 'playwright-core'").
+ * playwright is loaded via dynamic import INSIDE this function: esbuild
+ * externalizes it for both bundles, and the headless CLI declares it as a
+ * production dependency. Extension activations without the dependency degrade
+ * to a structured error instead of failing at module load time.
  */
 async function ensureBrowser(): Promise<void> {
   try {
     if (!browser) {
-      const { chromium } = await import("@playwright/test");
+      const { chromium } = await import("playwright");
       browser = await chromium.launch({ headless: true });
     }
     if (!page) {
@@ -45,7 +44,7 @@ async function ensureBrowser(): Promise<void> {
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     throw new Error(
-      `browser is unavailable: Playwright could not be loaded or launched (${detail}). Install @playwright/test and its Chromium binary.`,
+      `browser is unavailable: Playwright could not be loaded or launched (${detail}). Install playwright and its Chromium binary.`,
     );
   }
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 const launch = vi.fn(async () => ({ newContext: vi.fn() }));
-vi.mock("@playwright/test", () => ({
+vi.mock("playwright", () => ({
   chromium: { launch: (...args: unknown[]) => launch(...args) },
 }));
 

@@ -93,9 +93,9 @@ import {
   type TaskAssignment,
 } from "./config/provider-model";
 import { EndpointRepository } from "./config/provider-repository";
-import { SmartRouter } from "./providers/smart-router";
 import { createCliIndexingService } from "./indexing/cli-indexing";
 import { createCliContextResolver } from "./cli/context-resolver";
+import { initializeCliRouter } from "./cli/smart-router-init";
 import type { RulesEngine } from "./rules/rules-engine";
 import type { SkillRegistry } from "./skills/skill-registry";
 import type { ToolRegistry } from "./tools/registry";
@@ -1386,65 +1386,24 @@ async function main(): Promise<number> {
     !flags.model &&
     (registryChoice.assignments.coding || registryChoice.assignments.chat)
   ) {
-    const cliRouter = new SmartRouter();
-    const factory = new ProviderFactory();
-    const secretProvider: SecretReader = {
-      get: async (key: string) =>
-        flags.apiKey ??
-        registryChoice.credentials.get({ kind: "keyring", id: key }),
-    };
-    cliRouter.registerProvider(
-      registryChoice.endpoint.name,
-      provider,
-      registryChoice.endpoint.provider,
-      registryChoice.endpoint.baseUrl,
-    );
-    const staticModels: import("./providers/smart-router").DiscoveredModel[] =
-      [];
-    for (const ep of registryChoice.endpoints) {
-      if (!ep.enabled) continue;
-      if (ep.id !== registryChoice.endpoint.id) {
-        try {
-          const epProv = await factory.createFromEndpoint(ep, {
-            model: ep.models[0]?.id ?? "",
-            secretProvider,
-          });
-          cliRouter.registerProvider(ep.name, epProv, ep.provider, ep.baseUrl);
-        } catch {
-          continue;
-        }
-      }
-      for (const m of ep.models) {
-        const caps = (m.capabilities ?? [
-          "coding",
-          "general",
-        ]) as import("./providers/smart-router").ModelCapability[];
-        staticModels.push({
-          id: m.id,
-          providerName: ep.name,
-          providerType: ep.provider,
-          capabilities: caps,
-          speed: "medium",
-          contextWindow: m.contextWindow ?? ep.contextWindow ?? 8192,
-          sizeHint: "",
-          quantizationLevel: "",
-          source: "discovered",
-        });
-      }
-    }
-    if (staticModels.length > 0) {
-      cliRouter.registerStaticModels(staticModels);
-      if (registryChoice.assignments.coding?.model) {
-        cliRouter.setTaskModel(
-          "coding",
-          registryChoice.assignments.coding.model,
-        );
-      }
-      if (registryChoice.assignments.chat?.model) {
-        cliRouter.setTaskModel("chat", registryChoice.assignments.chat.model);
-      }
-      controller.setSmartRouter(cliRouter);
-    }
+    const cliRouter = await initializeCliRouter({
+      endpoint: registryChoice.endpoint,
+      primaryProvider: provider,
+      endpoints: registryChoice.endpoints,
+      assignments: registryChoice.assignments,
+      secretProvider: {
+        get: async (key: string) =>
+          flags.apiKey ??
+          registryChoice.credentials.get({ kind: "keyring", id: key }),
+      },
+      createProvider: (ep, secrets) =>
+        new ProviderFactory().createFromEndpoint(ep, {
+          model: ep.models[0]?.id ?? "",
+          secretProvider: secrets,
+        }),
+      tieBreak: config.routing?.tieBreak,
+    });
+    if (cliRouter) controller.setSmartRouter(cliRouter);
   }
   const rulesEngine = await loadCliRules({
     workspaceRoot: workspace,

@@ -33,6 +33,9 @@ importers:
       openai:
         specifier: ^4.77.0
         version: 4.104.0(ws@8.23.0)
+      playwright:
+        specifier: 1.61.1
+        version: 1.61.1
       preact:
         specifier: ^10.29.1
         version: 10.29.2
