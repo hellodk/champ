@@ -40,7 +40,7 @@ export async function buildCli(): Promise<string> {
     outfile: tempOutfile,
     logLevel: "silent",
     sourcemap: false,
-    external: ["playwright-core", "chromium-bidi"],
+    external: ["playwright", "playwright-core", "chromium-bidi"],
     // Keep in sync with esbuild.mjs: yoga-layout-prebuilt needs a global `_a`.
     banner: { js: "#!/usr/bin/env node\nvar _a;" },
     alias: {

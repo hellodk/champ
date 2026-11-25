@@ -323,4 +323,30 @@ describe("incremental freshness (issue #107)", () => {
       second.dispose();
     }
   });
+
+  it("initialize({ force: true }) rebuilds even when a fresh index exists", async () => {
+    const srcFile = path.join(wsRoot, "alpha.ts");
+    await fs.writeFile(srcFile, "export function alpha() { return 1; }\n");
+    await seedIndex(wsRoot, [
+      {
+        filePath: srcFile,
+        text: "export function alpha() { return 1; }",
+      },
+    ]);
+
+    const embedSpy = vi
+      .spyOn(EmbeddingService.prototype, "embed")
+      .mockImplementation(async (text: string) => embedFor(text));
+    const svc = makeService(wsRoot);
+    try {
+      const stats = await svc.initialize({ force: true });
+
+      expect(stats).not.toBeNull();
+      expect(stats!.filesIndexed).toBe(1);
+      expect(stats!.chunksIndexed).toBe(1);
+      expect(embedSpy).toHaveBeenCalled();
+    } finally {
+      svc.dispose();
+    }
+  });
 });

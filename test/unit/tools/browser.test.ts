@@ -7,7 +7,7 @@ import { browserTool, closeBrowser } from "@/tools/browser";
 import type { ToolExecutionContext } from "@/tools/types";
 
 // Mock the playwright module
-vi.mock("@playwright/test", () => ({
+vi.mock("playwright", () => ({
   chromium: {
     launch: vi.fn().mockResolvedValue({
       newContext: vi.fn().mockResolvedValue({

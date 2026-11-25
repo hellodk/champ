@@ -7,6 +7,7 @@
  * array scan (<0.1ms). Zero network calls in the hot path.
  */
 import type { LLMProvider } from "./types";
+import type { ModelTieBreak } from "../config/model-selection";
 
 export type TaskType = "coding" | "chat" | "completion" | "embedding";
 export type ModelCapability = "coding" | "general" | "embedding" | "instruct";
@@ -58,6 +59,7 @@ export class SmartRouter {
   private discovering = false; // Fix 4: race guard
   private pendingRediscover = false; // missed-wake guard
   private routeCache = new Map<string, RouteResult | null>(); // Fix 6: cache
+  private tieBreak: ModelTieBreak = "model-id";
   /**
    * When set, smart routing is restricted to models from this provider.
    * Cross-provider routing only happens when null (full smart mode) or when
@@ -416,7 +418,14 @@ export class SmartRouter {
         continue;
       }
       const s = score(model, taskType);
-      if (s > bestScore) {
+      const tieWins =
+        best !== null &&
+        s === bestScore &&
+        (this.tieBreak === "last" ||
+          (this.tieBreak === "model-id" &&
+            `${model.providerName}\u0000${model.id}` <
+              `${best.providerName}\u0000${best.id}`));
+      if (best === null || s > bestScore || tieWins) {
         bestScore = s;
         best = model;
         bestReason = `${taskType}: score ${s}`;
@@ -445,6 +454,13 @@ export class SmartRouter {
     // Returning true with an empty model list misleads callers into thinking
     // the router is ready when all providers were unreachable.
     return this.discovered && this.models.length > 0;
+  }
+
+  /** Deterministic equal-score policy, shared with ModelSelectionService. */
+  setTieBreak(tieBreak: ModelTieBreak): void {
+    if (this.tieBreak === tieBreak) return;
+    this.tieBreak = tieBreak;
+    this.routeCache.clear();
   }
 
   setMode(mode: "smart" | "manual"): void {

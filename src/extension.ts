@@ -93,6 +93,7 @@ import { gitTool } from "./tools/git-tool";
 import { createDelegateTaskTool } from "./tools/delegate-task";
 // Lazy-loaded: IndexingService, MultiAgentRunner (dynamic import() in handlers)
 import type { IndexingService } from "./indexing/indexing-service";
+import { executeIndexWorkspaceCommand } from "./indexing/index-workspace-command";
 import type { IWorkflowRunner } from "./agent/workflow-runner";
 import { AgentLoader } from "./agent/agent-loader";
 import {
@@ -522,6 +523,7 @@ export async function activate(
 
   // ---- Smart Router (multi-provider model discovery) ----------------
   smartRouter = new SmartRouter();
+  smartRouter.setTieBreak(cachedYamlConfig?.routing?.tieBreak ?? "model-id");
   // Register static catalogs for cloud providers that cannot be auto-discovered
   // via network scanning (they have no baseUrl to query). Without this the model
   // picker is empty for Claude/OpenAI/Gemini users and SmartRouter auto-routing
@@ -1543,10 +1545,63 @@ export async function activate(
         `Champ: checkpoint "${label}" saved (${openFiles.length} saved file(s) — untitled files excluded).`,
       );
     }),
-    vscode.commands.registerCommand("champ.indexWorkspace", () => {
-      void vscode.window.showInformationMessage(
-        "Champ: codebase indexing is built but not yet wired to a UI trigger in this phase.",
-      );
+    vscode.commands.registerCommand("champ.indexWorkspace", async () => {
+      await executeIndexWorkspaceCommand({
+        getService: () => indexingService,
+        ensureService: async () => {
+          if (indexingService) return indexingService;
+          if (!workspaceRoot || !smartRouter) return undefined;
+          const { IndexingService: IS } = await import(
+            "./indexing/indexing-service.js"
+          );
+          indexingService = new IS(
+            workspaceRoot,
+            smartRouter,
+            cachedYamlConfig ?? {},
+          );
+          return indexingService;
+        },
+        withProgress: async (options, task) => {
+          await vscode.window.withProgress(
+            {
+              ...options,
+              location: vscode.ProgressLocation.Notification,
+              cancellable: false,
+            },
+            (progress) => Promise.resolve(task(progress)),
+          );
+        },
+        showInformation: async (message) => {
+          await vscode.window.showInformationMessage(message);
+        },
+        showWarning: async (message) => {
+          await vscode.window.showWarningMessage(message);
+        },
+        showError: async (message) => {
+          await vscode.window.showErrorMessage(message);
+        },
+        refreshStatus: (stats) => {
+          if (!statusBarItem) return;
+          if (!stats) {
+            statusBarItem.text = "$(database) Champ: index unavailable";
+            statusBarItem.tooltip = "Champ — no working embedding model";
+          } else {
+            statusBarItem.text = `$(database) Champ: ${stats.filesIndexed} files indexed`;
+            statusBarItem.tooltip = `Champ v${String(context.extension.packageJSON.version ?? "")} — ${stats.chunksIndexed} chunks indexed with ${stats.embeddingModel}`;
+          }
+          chatViewProvider?.postMessage({
+            type: "indexingStatus",
+            stats,
+          } as never);
+        },
+        chooseRebuild: async () => {
+          const pick = await vscode.window.showQuickPick(
+            ["Build / update index", "Rebuild from scratch"],
+            { placeHolder: "Choose Champ indexing action" },
+          );
+          return pick === "Rebuild from scratch";
+        },
+      });
     }),
     vscode.commands.registerCommand("champ.restoreCheckpoint", async () => {
       if (!checkpointManager) {
@@ -3447,6 +3502,7 @@ export async function activate(
     try {
       yamlConfig = await resolveConfig();
       cachedYamlConfig = yamlConfig;
+      smartRouter?.setTieBreak(yamlConfig?.routing?.tieBreak ?? "model-id");
       if (lastLayeredInfo?.result) {
         const { result } = lastLayeredInfo;
         const activeName = yamlConfig?.provider;

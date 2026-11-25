@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { ToolExecutionContext } from "@/tools/types";
 
-vi.mock("@playwright/test", () => ({
+vi.mock("playwright", () => ({
   chromium: {
     launch: vi.fn(),
   },
 }));
 
 import { browserTool } from "@/tools/browser";
-import { chromium } from "@playwright/test";
+import { chromium } from "playwright";
 
 describe("browser tool SSRF guard", () => {
   let mockContext: ToolExecutionContext;

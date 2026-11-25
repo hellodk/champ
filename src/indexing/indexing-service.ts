@@ -93,13 +93,14 @@ export class IndexingService {
    * Returns null silently if no embedding-capable model is available.
    * Safe to call multiple times — subsequent calls return the same promise.
    */
-  initialize(): Promise<IndexingStats | null> {
+  initialize(options: { force?: boolean } = {}): Promise<IndexingStats | null> {
+    if (options.force) this.indexingPromise = null;
     if (this.indexingPromise) return this.indexingPromise;
-    this.indexingPromise = this._initialize();
+    this.indexingPromise = this._initialize(options.force === true);
     return this.indexingPromise;
   }
 
-  private async _initialize(): Promise<IndexingStats | null> {
+  private async _initialize(force = false): Promise<IndexingStats | null> {
     const embedding = this.resolveEmbedding();
     if (!embedding) return null;
     const { baseUrl, apiKey, modelId, providerFormat } = embedding;
@@ -115,7 +116,7 @@ export class IndexingService {
     // EmbeddingService is kept — but the health probe and full rebuild are
     // skipped entirely. If the provider is down, search degrades to [] via
     // its own error handling.
-    if (this.config.indexing?.enabled !== false) {
+    if (!force && this.config.indexing?.enabled !== false) {
       const loaded = await this.tryLoadIndex();
       if (loaded) {
         this.embeddingService = new EmbeddingService(providerFormat, {
