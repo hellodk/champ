@@ -91,6 +91,14 @@ function defaultModelForEndpoint(ep: Endpoint): string {
   return ep.models[0]?.id ?? "";
 }
 
+function normalizeBaseUrl(baseUrl: string | undefined): string {
+  return (baseUrl ?? "").trim().replace(/\/+$/, "").toLowerCase();
+}
+
+function endpointDedupKey(ep: Endpoint): string {
+  return `${ep.provider}|${normalizeBaseUrl(ep.baseUrl)}`;
+}
+
 export class EndpointRegistry {
   private readonly deps: EndpointRegistryDeps;
   private readonly listeners = new Set<() => void>();
@@ -399,6 +407,70 @@ export class EndpointRegistry {
     });
 
     this.emitChange();
+  }
+
+  /**
+   * Collapse duplicate endpoints that point at the same provider+baseUrl.
+   * The canonical endpoint is the current default, or the first enabled one.
+   * Assignments and defaults are migrated to canonical ids before removal.
+   */
+  async deduplicateByBaseUrl(): Promise<{ removed: string[] }> {
+    const removed = await this.deps.repository.withLock(async () => {
+      const doc = await this.deps.repository.read();
+      const groups = new Map<string, Endpoint[]>();
+      for (const ep of doc.endpoints) {
+        const key = endpointDedupKey(ep);
+        const group = groups.get(key);
+        if (group) group.push(ep);
+        else groups.set(key, [ep]);
+      }
+
+      const toRemove = new Set<string>();
+      const idMap = new Map<string, string>();
+      for (const group of groups.values()) {
+        if (group.length < 2) continue;
+        const canonical =
+          group.find((ep) => ep.isDefault) ??
+          group.find((ep) => ep.enabled) ??
+          group[0];
+        for (const ep of group) {
+          if (ep.id === canonical.id) continue;
+          toRemove.add(ep.id);
+          idMap.set(ep.id, canonical.id);
+          for (const model of ep.models) {
+            if (!canonical.models.some((m) => m.id === model.id)) {
+              canonical.models.push(model);
+            }
+          }
+          if (ep.credential && !canonical.credential) {
+            canonical.credential = ep.credential;
+          }
+        }
+        if (group.some((ep) => ep.isDefault)) canonical.isDefault = true;
+      }
+
+      if (toRemove.size === 0) return [] as string[];
+
+      for (const task of [
+        "default",
+        "coding",
+        "chat",
+        "completion",
+        "embedding",
+      ] as const) {
+        const assignment = doc.assignments[task];
+        if (!assignment) continue;
+        const mapped = idMap.get(assignment.endpointId);
+        if (mapped) assignment.endpointId = mapped;
+      }
+
+      doc.endpoints = doc.endpoints.filter((ep) => !toRemove.has(ep.id));
+      await this.deps.repository.write(doc);
+      return [...toRemove];
+    });
+
+    if (removed.length > 0) this.emitChange();
+    return { removed };
   }
 
   async resolveAssignment(

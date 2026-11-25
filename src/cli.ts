@@ -122,6 +122,7 @@ import {
 import { newSessionId } from "./session/ids";
 import type { LLMMessage, TokenUsage } from "./providers/types";
 import { runTui } from "./tui/app";
+import { dedupeEndpointSummaries, resolveTuiSelection } from "./tui/endpoints";
 import type { EndpointSummary } from "./tui/state";
 import type { TuiRuntime, TuiTurnEvents } from "./tui/runtime";
 
@@ -666,7 +667,8 @@ async function endpointSummaries(
   credentials: ChainCredentialStore,
 ): Promise<EndpointSummary[]> {
   const endpoints = await registry.list();
-  return Promise.all(
+  const assignment = await registry.resolveAssignment("default");
+  const summaries = await Promise.all(
     endpoints.map(async (endpoint) => ({
       id: endpoint.id,
       name: endpoint.name,
@@ -678,6 +680,7 @@ async function endpointSummaries(
       models: endpoint.models.map((model) => model.id),
     })),
   );
+  return dedupeEndpointSummaries(summaries, assignment?.endpoint.id);
 }
 
 /**
@@ -1181,6 +1184,11 @@ async function main(): Promise<number> {
     discovery: { discoverModels, testEndpoint },
     now: () => new Date().toISOString(),
   });
+  try {
+    await endpointRegistry.deduplicateByBaseUrl();
+  } catch {
+    // Best-effort cleanup; a duplicate registry must not block startup.
+  }
   const settings = new SettingsRepository({
     configPath: configPath(),
     workspaceDir: workspace,
@@ -1667,6 +1675,14 @@ async function main(): Promise<number> {
         endpointRegistry,
         endpointCredentials,
       );
+      const initialSelection = resolveTuiSelection(
+        initialEndpoints,
+        registryChoice?.endpoint.id,
+        {
+          endpointId: registryChoice?.endpoint.id,
+          model: registryChoice?.model ?? provider.config.model,
+        },
+      );
 
       const submitFromTui = async (
         text: string,
@@ -1832,12 +1848,14 @@ async function main(): Promise<number> {
       const tuiRuntime: TuiRuntime = {
         header: {
           version: cliVersion(),
-          model: provider.config.model ?? "unknown",
+          model: initialSelection.model || provider.config.model || "unknown",
           workspace,
           sessionId: sessionLog?.id,
           routingMode: registryChoice?.routingMode ?? "auto",
         },
         initialEndpoints,
+        initialSelection,
+        theme: flags.theme,
         initialScreen: initialEndpoints.length === 0 ? "providers" : "chat",
         submit: submitFromTui,
         abort: () => {
@@ -1876,6 +1894,34 @@ async function main(): Promise<number> {
           }
           return `Added ${endpoint.name} (${endpoint.id})`;
         },
+        updateEndpoint: async (endpointId, input) => {
+          if (!isProviderKind(input.provider)) {
+            throw new Error(`unknown provider "${input.provider}"`);
+          }
+          const endpoint = await endpointRegistry.update(endpointId, {
+            name: input.name,
+            provider: input.provider,
+            baseUrl: input.baseUrl,
+          });
+          if (input.credentialId) {
+            await endpointRegistry.setCredentialRef(endpointId, {
+              kind: "keyring",
+              id: input.credentialId,
+            });
+          } else if (input.apiKey) {
+            await endpointRegistry.setCredential(endpointId, input.apiKey);
+          }
+          if (input.model) {
+            await selectActiveModel(endpointRegistry, endpointId, input.model);
+          }
+          try {
+            // The edit form probes /v1/models; failures leave manual entry intact.
+            await endpointRegistry.discover(endpointId);
+          } catch {
+            // Manual model entry still works when discovery is unavailable.
+          }
+          return `Updated ${endpoint.name} (${endpoint.id})`;
+        },
         selectModel: async (endpointId, model) => {
           const selected = await selectActiveModel(
             endpointRegistry,
@@ -1883,6 +1929,16 @@ async function main(): Promise<number> {
             model,
           );
           if (!selected.ok) throw new Error(selected.reason);
+          try {
+            // Mirror the choice into the YAML config for headless consumers.
+            await setConfigValue({
+              configPath: configPath(),
+              key: "provider.model",
+              value: selected.model as string,
+            });
+          } catch {
+            // The registry remains the source of truth if config.yaml is absent.
+          }
           return `Model ${selected.model} is now active`;
         },
         testEndpoint: async (endpointId) => {
@@ -1996,18 +2052,67 @@ async function main(): Promise<number> {
         },
         listConfig: async () => {
           const target = configPath();
+          const assignment =
+            await endpointRegistry.resolveAssignment("default");
+          const endpoint = assignment?.endpoint;
           const entries = [];
           for (const def of CONFIG_KEYS) {
             entries.push({
               key: def.key,
-              value: await getConfigValue({ configPath: target, key: def.key }),
+              value: await getConfigValue({
+                configPath: target,
+                key: def.key,
+                endpoint: endpoint
+                  ? {
+                      endpointId: endpoint.id,
+                      endpoint,
+                      baseUrl: endpoint.baseUrl,
+                      model: assignment?.model,
+                    }
+                  : undefined,
+              }),
               description: def.description,
             });
           }
           return entries;
         },
-        setConfig: (key, value) =>
-          setConfigValue({ configPath: configPath(), key, value }),
+        setConfig: async (key, value) => {
+          const assignment =
+            await endpointRegistry.resolveAssignment("default");
+          const endpoint = assignment?.endpoint;
+          const result = await setConfigValue({
+            configPath: configPath(),
+            key,
+            value,
+            endpoint: endpoint
+              ? {
+                  endpointId: endpoint.id,
+                  endpoint,
+                  baseUrl: endpoint.baseUrl,
+                  model: assignment?.model,
+                }
+              : undefined,
+            onEndpoint: async (field, next) => {
+              if (!endpoint)
+                throw new Error(
+                  'no default endpoint; run "champ provider add" first',
+                );
+              if (field === "baseUrl") {
+                await endpointRegistry.update(endpoint.id, { baseUrl: next });
+                try {
+                  await endpointRegistry.discover(endpoint.id);
+                } catch {}
+              } else {
+                await endpointRegistry.setAssignment(
+                  "default",
+                  endpoint.id,
+                  next,
+                );
+              }
+            },
+          });
+          return result;
+        },
         editConfig: () =>
           captureCommand((out) =>
             runProviderCommand(

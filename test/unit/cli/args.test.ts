@@ -740,3 +740,15 @@ describe("champ team commands", () => {
     }
   });
 });
+
+describe("TUI theme override (#164)", () => {
+  it("parses --theme in both forms", () => {
+    expect(run(parse(["--theme", "light"])).flags.theme).toBe("light");
+    expect(run(parse(["--theme=dark"])).flags.theme).toBe("dark");
+  });
+
+  it("rejects an unknown theme and documents the flag", () => {
+    expect(parse(["--theme", "solarized"]).kind).toBe("error");
+    expect(USAGE).toContain("--theme <dark|light>");
+  });
+});

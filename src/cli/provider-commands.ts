@@ -330,11 +330,41 @@ export async function runProviderCommand(
         const configPath =
           process.env.CHAMP_CONFIG ??
           path.join(champHome(), ".champ", "config.yaml");
+        const assignment = await deps.registry.resolveAssignment("default");
+        const endpoint = assignment?.endpoint;
         deps.stdout(
           `${await setConfigValue({
             configPath,
             key: cmd.key,
             value: cmd.value,
+            endpoint: endpoint
+              ? {
+                  endpointId: endpoint.id,
+                  endpoint,
+                  baseUrl: endpoint.baseUrl,
+                  model: assignment?.model,
+                }
+              : undefined,
+            onEndpoint: async (field, value) => {
+              if (!endpoint)
+                throw new Error(
+                  'no default endpoint; run "champ provider add" first',
+                );
+              if (field === "baseUrl") {
+                await deps.registry.update(endpoint.id, { baseUrl: value });
+                try {
+                  await deps.registry.discover(endpoint.id);
+                } catch {
+                  // The URL can be saved before the server is reachable.
+                }
+              } else {
+                await deps.registry.setAssignment(
+                  "default",
+                  endpoint.id,
+                  value,
+                );
+              }
+            },
           })}\n`,
         );
         return 0;
