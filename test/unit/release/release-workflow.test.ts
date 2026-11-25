@@ -29,6 +29,7 @@ describe("release automation", () => {
 
   it("merges the version commit through an auto-merge PR", () => {
     expect(workflow).toContain("gh pr merge --auto --squash");
+    expect(workflow).not.toContain("--json number --jq .number");
     expect(workflow).not.toContain("git push origin HEAD:master");
     expect(workflow).toContain("group: release-master");
     expect(workflow).toContain("cancel-in-progress: false");
