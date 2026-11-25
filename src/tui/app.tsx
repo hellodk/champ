@@ -82,6 +82,10 @@ function truncate(text: string, width: number): string {
   return flat.length <= width ? flat : `${flat.slice(0, width - 1)}…`;
 }
 
+function sanitizePaste(text: string): string {
+  return text.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, "").replace(/\r?\n/g, " ");
+}
+
 function Panel({
   title,
   children,
@@ -290,6 +294,15 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
               role: "tool",
               text: `${name} ${truncate(args, 120)}`,
             }),
+          onToolResult: (name, output, success) => {
+            const firstLine = output.trim().split("\n")[0] || "";
+            const summary = firstLine ? ` → ${truncate(firstLine, 80)}` : "";
+            dispatch({
+              type: "message/add",
+              role: success ? "system" : "error",
+              text: `${success ? "✓" : "✗"} ${name}${summary}`,
+            });
+          },
           onError: (message) =>
             dispatch({ type: "message/add", role: "error", text: message }),
           onDone: (summary) =>
@@ -508,6 +521,10 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         dispatch({ type: "setup/cancel" });
         return;
       }
+      if (state.screen === "chat" && state.busy) {
+        runtime.abort();
+        return;
+      }
       dispatch({ type: "screen/set", screen: "chat" });
       return;
     }
@@ -555,17 +572,25 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         });
         return;
       }
-      if (input.length === 1 && !key.ctrl && !key.meta) {
-        dispatch({
-          type: "setup/change",
-          field: setupField,
-          value: state.setup[setupField] + input,
-        });
+      if (input.length > 0 && !key.ctrl && !key.meta && !input.startsWith("\x1b")) {
+        const clean = sanitizePaste(input);
+        if (clean.length > 0) {
+          dispatch({
+            type: "setup/change",
+            field: setupField,
+            value: state.setup[setupField] + clean,
+          });
+        }
+        return;
       }
       return;
     }
 
-    if (input === "?" && !state.busy) {
+    if (
+      input === "?" &&
+      !state.busy &&
+      (state.screen !== "chat" || state.input === "")
+    ) {
       setAdvancedHelp((shown) => !shown);
       dispatch({ type: "screen/set", screen: "help" });
       return;
@@ -599,9 +624,12 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         } else {
           dispatch({ type: key.upArrow ? "history/prev" : "history/next" });
         }
-      } else if (input.length === 1 && !key.ctrl && !key.meta) {
-        dispatch({ type: "input/set", value: state.input + input });
-        setCompletionIndex(0);
+      } else if (input.length > 0 && !key.ctrl && !key.meta && !input.startsWith("\x1b")) {
+        const clean = sanitizePaste(input);
+        if (clean.length > 0) {
+          dispatch({ type: "input/set", value: state.input + clean });
+          setCompletionIndex(0);
+        }
       }
       return;
     }
@@ -685,8 +713,8 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
           }));
           return;
         }
-        if (input.length === 1 && !key.ctrl && !key.meta) {
-          if (/^[1-9]$/.test(input) && !modelPicker.filter) {
+        if (input.length > 0 && !key.ctrl && !key.meta && !input.startsWith("\x1b")) {
+          if (input.length === 1 && /^[1-9]$/.test(input) && !modelPicker.filter) {
             const model = candidates[Number(input) - 1];
             if (endpoint && model) {
               setModelPicker({
@@ -714,11 +742,14 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
             }
             return;
           }
-          setModelPicker((picker) => ({
-            ...picker,
-            filter: picker.filter + input,
-            cursor: 0,
-          }));
+          const clean = sanitizePaste(input);
+          if (clean.length > 0) {
+            setModelPicker((picker) => ({
+              ...picker,
+              filter: picker.filter + clean,
+              cursor: 0,
+            }));
+          }
         }
         return;
       }
@@ -776,8 +807,11 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
           });
           return;
         }
-        if (input.length === 1 && !key.ctrl && !key.meta) {
-          setConfigDraft({ ...configDraft, value: configDraft.value + input });
+        if (input.length > 0 && !key.ctrl && !key.meta && !input.startsWith("\x1b")) {
+          const clean = sanitizePaste(input);
+          if (clean.length > 0) {
+            setConfigDraft({ ...configDraft, value: configDraft.value + clean });
+          }
         }
         return;
       }
@@ -931,36 +965,75 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
                 Ask anything. Type /help for commands.
               </Text>
             ) : (
-              visible.map((message) => (
-                <Box key={message.id} flexDirection="column" marginBottom={1}>
-                  <Text
-                    bold
-                    color={
-                      message.role === "user"
-                        ? palette.accent
-                        : message.role === "error"
-                          ? palette.error
-                          : message.role === "tool"
-                            ? palette.warning
+              visible.map((message) => {
+                if (message.role === "tool") {
+                  return (
+                    <Box key={message.id} flexDirection="row" marginBottom={1}>
+                      <Text bold color={palette.warning}>
+                        {"⚡ "}
+                      </Text>
+                      <Text color={palette.warning}>{message.text}</Text>
+                    </Box>
+                  );
+                }
+                if (message.role === "system" && message.text.startsWith("✓")) {
+                  return (
+                    <Box key={message.id} flexDirection="row" marginBottom={1}>
+                      <Text bold color={palette.success}>
+                        {message.text}
+                      </Text>
+                    </Box>
+                  );
+                }
+                if (message.role === "error" && message.text.startsWith("✗")) {
+                  return (
+                    <Box key={message.id} flexDirection="row" marginBottom={1}>
+                      <Text bold color={palette.error}>
+                        {message.text}
+                      </Text>
+                    </Box>
+                  );
+                }
+                return (
+                  <Box key={message.id} flexDirection="column" marginBottom={1}>
+                    <Text
+                      bold
+                      color={
+                        message.role === "user"
+                          ? palette.accent
+                          : message.role === "error"
+                            ? palette.error
                             : palette.success
-                    }
-                  >
-                    {message.role.toUpperCase()}
-                  </Text>
-                  <Text color={palette.text}>{message.text}</Text>
-                </Box>
-              ))
+                      }
+                    >
+                      {message.role.toUpperCase()}
+                    </Text>
+                    <Text color={palette.text}>{message.text}</Text>
+                  </Box>
+                );
+              })
             )}
             <Text color={palette.muted}>
               {state.messages.length === 0
                 ? "line 0 of 0"
-                : `line ${transcriptStart + 1}-${transcriptEnd} of ${state.messages.length}${state.scrollOffset > 0 ? " (scrolled)" : ""}`}
+                : `messages ${transcriptStart + 1}-${transcriptEnd} of ${state.messages.length}${state.scrollOffset > 0 ? " (scrolled)" : ""}`}
             </Text>
           </Panel>
           {approval && (
-            <Box borderStyle="round" borderColor={palette.warning} paddingX={1}>
-              <Text color={palette.warning}>
-                {truncate(approval.description, 100)} [y/N]
+            <Box
+              flexDirection="column"
+              borderStyle="round"
+              borderColor={palette.warning}
+              paddingX={1}
+            >
+              <Text bold color={palette.warning}>
+                Approval Required
+              </Text>
+              <Text color={palette.text}>
+                {truncate(approval.description, 200)}
+              </Text>
+              <Text bold color={palette.accent}>
+                Press [y] Approve · [n/Esc] Deny
               </Text>
             </Box>
           )}
@@ -1275,12 +1348,13 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
 }
 
 export async function runTui(runtime: TuiRuntime): Promise<void> {
-  process.stdout.write("\x1b[2J\x1b[H\x1b[?25l");
+  // Use alternate screen buffer (\x1b[?1049h) so terminal scrollback is preserved
+  process.stdout.write("\x1b[?1049h\x1b[2J\x1b[H\x1b[?25l");
   const instance = render(<App runtime={runtime} />);
   try {
     await instance.waitUntilExit();
   } finally {
     instance.clear();
-    process.stdout.write("\x1b[?25h");
+    process.stdout.write("\x1b[?25h\x1b[?1049l");
   }
 }
