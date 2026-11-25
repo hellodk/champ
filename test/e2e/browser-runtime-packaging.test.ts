@@ -42,10 +42,16 @@ describe("clean production browser packaging", () => {
   it(
     "does not bundle browser runtime modules into the extension artifact",
     () => {
+      // Keep this rebuild away from dist/cli.js: cli.test.ts reads that shared
+      // artifact in another Vitest worker and must never see a partial write.
       execFileSync(process.execPath, ["esbuild.mjs"], {
         cwd: ROOT,
         encoding: "utf8",
         timeout: TIMEOUT,
+        env: {
+          ...process.env,
+          CHAMP_CLI_OUTFILE: path.join(tmp, "cli-check.js"),
+        },
       });
       const bundle = fs.readFileSync(
         path.join(ROOT, "dist/extension.js"),

@@ -6,6 +6,7 @@ import {
   compareSemver,
   DEFAULT_UPDATE_REPO,
   normalizeRepoUrl,
+  parseGithubRepo,
   runUpdateCommand,
   sameCommitPrefix,
   validateRepoOrRef,
@@ -112,6 +113,9 @@ function makeHarness(overrides: {
     stdout: (text) => out.push(text),
     stderr: (text) => err.push(text),
     exec,
+    fetchFn: async () => {
+      throw new Error("no release in test harness");
+    },
   };
 
   return {
@@ -244,17 +248,12 @@ describe("runUpdateCommand", () => {
       expect(globalInstall?.args).toContain("/tmp/custom-prefix");
       expect(globalInstall?.args.at(-1)).toMatch(/champ-2\.0\.3\.tgz$/);
 
-      const workDirsRemaining = fs
-        .readdirSync(os.tmpdir())
-        .filter((d) =>
-          h.calls.some(
-            (c) =>
-              c.file === "npm" &&
-              c.args.includes("--pack-destination") &&
-              c.args.some((a) => a.includes(d)),
-          ),
-        );
-      expect(workDirsRemaining).toEqual([]);
+      const packCall = h.calls.find(
+        (c) => c.file === "npm" && c.args[0] === "pack",
+      );
+      const packDestination =
+        packCall?.args[packCall.args.indexOf("--pack-destination") + 1];
+      expect(packDestination && fs.existsSync(packDestination)).toBe(false);
     } finally {
       h.cleanup();
     }
@@ -395,6 +394,121 @@ describe("runUpdateCommand", () => {
       );
       expect(installCall?.args).toContain("--prefix");
       expect(installCall?.args).toContain(prefixRoot);
+    } finally {
+      h.cleanup();
+    }
+  });
+});
+
+describe("released tarball updates", () => {
+  function releaseFetch(version: string, assetName?: string) {
+    const urls: string[] = [];
+    const name = assetName ?? `champ-cli-${version}.tgz`;
+    const fetchFn = async (url: string) => {
+      urls.push(url);
+      if (url.includes("/releases/latest")) {
+        return {
+          ok: true,
+          json: async () => ({
+            tag_name: `v${version}`,
+            assets: [
+              {
+                name,
+                browser_download_url: `https://example.test/${name}`,
+              },
+            ],
+          }),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
+      }
+      return {
+        ok: true,
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      };
+    };
+    return { fetchFn, urls };
+  }
+
+  it("recognizes GitHub repository URLs for released updates", () => {
+    expect(parseGithubRepo("git+https://github.com/hellodk/champ")).toEqual({
+      owner: "hellodk",
+      repo: "champ",
+    });
+    expect(parseGithubRepo("https://example.com/team/champ")).toBeNull();
+  });
+
+  it("installs the published CLI tarball instead of rebuilding master", async () => {
+    const h = makeHarness({
+      installedVersion: "2.0.2",
+      installedCommit: "1111111",
+    });
+    const { fetchFn, urls } = releaseFetch("2.2.0");
+    try {
+      const code = await runUpdateCommand(
+        { check: false, force: false },
+        { ...h.deps, fetchFn },
+      );
+      expect(code).toBe(0);
+      expect(h.out.join("")).toContain("Updated champ to 2.2.0 (v2.2.0)");
+      expect(urls[0]).toBe(
+        "https://api.github.com/repos/hellodk/champ/releases/latest",
+      );
+      expect(h.calls.some((c) => c.args[0] === "clone")).toBe(false);
+      expect(h.calls.some((c) => c.args[0] === "esbuild.mjs")).toBe(false);
+      const install = h.calls.find(
+        (c) => c.file === "npm" && c.args.includes("--global"),
+      );
+      expect(install?.args.at(-1)).toMatch(/champ-cli-2\.2\.0\.tgz$/);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  it("reports a stable update from the release without installing", async () => {
+    const h = makeHarness({
+      installedVersion: "2.0.2",
+      installedCommit: "1111111",
+    });
+    const { fetchFn } = releaseFetch("2.2.0");
+    try {
+      const code = await runUpdateCommand(
+        { check: true, force: false },
+        { ...h.deps, fetchFn },
+      );
+      expect(code).toBe(0);
+      expect(h.out.join("")).toContain(
+        "Update available: champ 2.0.2 -> 2.2.0 (v2.2.0)",
+      );
+      expect(
+        h.calls.some((c) => c.file === "npm" && c.args.includes("--global")),
+      ).toBe(false);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  it("falls back to building from git when no published asset exists", async () => {
+    const h = makeHarness({
+      installedVersion: "2.0.2",
+      installedCommit: "1111111",
+      remoteVersion: "2.0.3",
+      remoteSha: "5555555abcdef",
+    });
+    const fetchFn = async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({}),
+      arrayBuffer: async () => new ArrayBuffer(0),
+    });
+    try {
+      const code = await runUpdateCommand(
+        { check: false, force: false },
+        { ...h.deps, fetchFn },
+      );
+      expect(code).toBe(0);
+      expect(h.err.join("")).toContain("no published CLI tarball");
+      expect(h.calls.some((c) => c.args[0] === "clone")).toBe(true);
+      expect(h.out.join("")).toContain("Updated champ to 2.0.3 (5555555)");
     } finally {
       h.cleanup();
     }

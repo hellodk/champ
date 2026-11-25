@@ -16,8 +16,20 @@ describe("release automation", () => {
     expect(workflow).toMatch(/on:\s*\n\s*push:\s*\n\s*branches: \[master\]/);
   });
 
-  it("cannot recurse on its own release commit", () => {
-    expect(workflow).toContain("github.actor != 'github-actions[bot]'");
+  it("splits version planning from publishing", () => {
+    expect(workflow).toMatch(
+      /if: \$\{\{ !startsWith\(github\.event\.head_commit\.message, 'chore\(release\):'\) \}\}/,
+    );
+    expect(workflow).toMatch(
+      /if: \$\{\{ startsWith\(github\.event\.head_commit\.message, 'chore\(release\):'\) \}\}/,
+    );
+    expect(workflow).toContain("name: Plan next version");
+    expect(workflow).toContain("name: Build and publish release");
+  });
+
+  it("merges the version commit through an auto-merge PR", () => {
+    expect(workflow).toContain("gh pr merge --auto --squash");
+    expect(workflow).not.toContain("git push origin HEAD:master");
     expect(workflow).toContain("group: release-master");
     expect(workflow).toContain("cancel-in-progress: false");
   });
@@ -26,40 +38,38 @@ describe("release automation", () => {
     expect(workflow).toMatch(/HUSKY:\s*"0"/);
   });
 
-  it("publishes the tag without pushing to protected master first", () => {
-    expect(workflow).toContain('git push origin "${TAG}"');
-    expect(workflow).not.toContain("git push origin HEAD:master");
-  });
-
-  it("skips a release when HEAD is its own version commit", () => {
-    expect(workflow).toContain("git log -1 --pretty=%s");
-    expect(workflow).toContain("^chore(release):");
-  });
-
   it("computes the next patch version through the unified script", () => {
     expect(workflow).toContain("scripts/champ version next");
     expect(script).toContain("cmd_version()");
     expect(script).toContain("_next_version()");
   });
 
-  it("bumps package.json, commits and tags before publishing", () => {
+  it("bumps package.json on a release branch, not on master directly", () => {
     expect(workflow).toMatch(/pnpm version "\$NEXT" --no-git-tag-version/);
     expect(workflow).toContain("git add package.json");
     expect(workflow).toContain('git commit -m "chore(release): ${NEXT}"');
-    expect(workflow).toContain('git tag "${TAG}"');
+    expect(workflow).toContain(
+      'git push origin "HEAD:refs/heads/release/${TAG}"',
+    );
   });
 
-  it("builds and verifies a single version for CLI and extension", () => {
+  it("builds CLI and extension from the same master version commit", () => {
+    expect(workflow).toContain("pnpm run compile");
     expect(workflow).toContain("pnpm exec vsce package --no-dependencies");
+    expect(workflow).toContain(
+      "npm pack --ignore-scripts --pack-destination .",
+    );
+    expect(workflow).toContain(
+      'mv "champ-${NEXT}.tgz" "champ-cli-${NEXT}.tgz"',
+    );
     expect(workflow).toContain("node dist/cli.js --version");
     expect(workflow).toContain("p.version !== process.env.NEXT");
   });
 
-  it("publishes the VSIX as the release asset", () => {
-    expect(workflow).toContain("gh release create");
-    expect(workflow).toContain(
-      "VSIX: champ-${{ steps.meta.outputs.next }}.vsix",
-    );
+  it("publishes both artifacts from the master commit", () => {
+    expect(workflow).toContain('git tag "$TAG" "$SHA"');
+    expect(workflow).toContain('git push origin "$TAG"');
+    expect(workflow).toContain('gh release create "${TAG}" "$VSIX" "$TGZ"');
     expect(workflow).toContain("--generate-notes");
   });
 
@@ -68,8 +78,9 @@ describe("release automation", () => {
     expect(script).toContain("Release workflow will publish");
   });
 
-  it("documents the single version source", () => {
+  it("documents the single version source and both release assets", () => {
     expect(docs).toContain("package.json` has the only release version");
     expect(docs).toContain("scripts/champ release");
+    expect(docs).toContain("champ-cli-");
   });
 });

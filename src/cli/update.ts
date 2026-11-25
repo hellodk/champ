@@ -30,6 +30,15 @@ export type ExecFn = (
   opts: { cwd: string },
 ) => string;
 
+export interface UpdateFetchResponse {
+  ok: boolean;
+  status?: number;
+  json(): Promise<unknown>;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+export type UpdateFetchFn = (url: string) => Promise<UpdateFetchResponse>;
+
 export interface UpdateDeps {
   packageRoot?: string;
   currentVersion?: string;
@@ -42,6 +51,8 @@ export interface UpdateDeps {
   existsSync?: (target: string) => boolean;
   readFileSync?: (target: string, encoding: BufferEncoding) => string;
   readdirSync?: (target: string) => string[];
+  writeFileSync?: (target: string, data: Uint8Array) => void;
+  fetchFn?: UpdateFetchFn;
   mkdtempSync?: (prefix: string) => string;
   rmSync?: (
     target: string,
@@ -79,6 +90,73 @@ export function validateRepoOrRef(
     return `invalid ref "${trimmed}" — cannot contain whitespace`;
   }
   return null;
+}
+
+/** Extract owner/repo from a GitHub URL, or null for other hosts. */
+export function parseGithubRepo(raw?: string): {
+  owner: string;
+  repo: string;
+} | null {
+  const url = normalizeRepoUrl(raw);
+  const match =
+    /^(?:https?:\/\/|git@)github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/i.exec(
+      url,
+    );
+  if (!match) return null;
+  return { owner: match[1], repo: match[2] };
+}
+
+interface ReleaseTarget {
+  tag: string;
+  version: string;
+  assetName: string;
+  assetUrl: string;
+}
+
+async function fetchReleaseTarget(
+  repo: { owner: string; repo: string },
+  fetchFn: UpdateFetchFn,
+): Promise<ReleaseTarget | null> {
+  const response = await fetchFn(
+    `https://api.github.com/repos/${repo.owner}/${repo.repo}/releases/latest`,
+  );
+  if (!response.ok) return null;
+
+  const release = (await response.json()) as {
+    tag_name?: unknown;
+    assets?: unknown;
+  };
+  const tag = typeof release.tag_name === "string" ? release.tag_name : "";
+  const version = tag.replace(/^v/, "");
+  if (!/^\d+\.\d+\.\d+/.test(version)) return null;
+
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  const candidate = assets
+    .filter((asset): asset is { name: string; browser_download_url: string } =>
+      Boolean(
+        asset &&
+        typeof asset === "object" &&
+        typeof (asset as { name?: unknown }).name === "string" &&
+        /\.(tgz|tar\.gz)$/.test((asset as { name: string }).name) &&
+        typeof (asset as { browser_download_url?: unknown })
+          .browser_download_url === "string",
+      ),
+    )
+    .sort((a, b) =>
+      a.name.startsWith("champ-cli-") === b.name.startsWith("champ-cli-")
+        ? 0
+        : a.name.startsWith("champ-cli-")
+          ? -1
+          : 1,
+    )[0];
+  if (!candidate) return null;
+
+  return {
+    tag,
+    version,
+    assetName: candidate.name,
+    assetUrl: candidate.browser_download_url,
+  };
 }
 
 /** Compare two semver strings (`major.minor.patch[-pre]`). Returns -1, 0, or 1. */
@@ -198,6 +276,7 @@ export async function runUpdateCommand(
   const exists = deps.existsSync ?? fs.existsSync;
   const readFile = deps.readFileSync ?? fs.readFileSync;
   const readdir = deps.readdirSync ?? fs.readdirSync;
+  const writeFile = deps.writeFileSync ?? fs.writeFileSync;
   const mkdtemp = deps.mkdtempSync ?? fs.mkdtempSync;
   const rm = deps.rmSync ?? fs.rmSync;
   const tmpdir = deps.tmpdir ?? os.tmpdir;
@@ -242,6 +321,89 @@ export async function runUpdateCommand(
         `), or pass --force to install globally from ${repoUrl}.\n`,
     );
     return 1;
+  }
+
+  // Stable updates install the exact artifact built and published by CI.
+  // An explicit --ref is the edge channel: build the requested git ref locally.
+  if (options.ref === undefined) {
+    const githubRepo = parseGithubRepo(repoUrl);
+    if (githubRepo) {
+      const fetchFn =
+        deps.fetchFn ??
+        ((url: string) =>
+          fetch(url, {
+            headers: {
+              Accept: "application/vnd.github+json",
+              "User-Agent": "champ-cli",
+            },
+          }));
+      let target: ReleaseTarget | null = null;
+      try {
+        target = await fetchReleaseTarget(githubRepo, fetchFn);
+      } catch {
+        target = null;
+      }
+
+      if (target) {
+        const versionCmp = compareSemver(target.version, currentVersion);
+        if (options.check) {
+          if (versionCmp > 0) {
+            stdout(
+              `Update available: champ ${currentVersion} -> ${target.version} (${target.tag}). Run 'champ update' to install.\n`,
+            );
+          } else {
+            stdout(
+              `Already up to date: champ ${currentVersion} (${target.tag}).\n`,
+            );
+          }
+          return 0;
+        }
+        if (!options.force && versionCmp <= 0) {
+          stdout(
+            `Already up to date: champ ${currentVersion} (${target.tag}).\n`,
+          );
+          return 0;
+        }
+
+        const releaseDir = mkdtemp(path.join(tmpdir(), "champ-release-"));
+        try {
+          stderr(
+            `[champ] downloading ${target.assetName} from ${target.tag}...\n`,
+          );
+          const download = await fetchFn(target.assetUrl);
+          if (!download.ok) {
+            throw new Error(`download failed with HTTP ${download.status}`);
+          }
+          const tarballPath = path.join(releaseDir, target.assetName);
+          writeFile(tarballPath, Buffer.from(await download.arrayBuffer()));
+
+          const resolvedPrefix =
+            options.prefix ?? inferInstallPrefix(packageRoot);
+          const installArgs = [
+            "install",
+            "--global",
+            "--force",
+            "--ignore-scripts",
+            "--no-audit",
+            "--no-fund",
+            ...(resolvedPrefix ? ["--prefix", resolvedPrefix] : []),
+            tarballPath,
+          ];
+          exec("npm", installArgs, { cwd: releaseDir });
+          stdout(`Updated champ to ${target.version} (${target.tag}).\n`);
+          return 0;
+        } catch (err) {
+          stderr(`champ: release install failed: ${formatExecError(err)}\n`);
+          return 1;
+        } finally {
+          rm(releaseDir, { recursive: true, force: true });
+        }
+      }
+
+      stderr(
+        "[champ] no published CLI tarball; building from default branch...\n",
+      );
+    }
   }
 
   for (const tool of ["git", "npm"] as const) {
