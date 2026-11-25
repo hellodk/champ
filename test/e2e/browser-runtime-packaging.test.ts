@@ -1,14 +1,15 @@
 /**
- * End-to-end browser runtime check: a clean production-only install of the
- * published artifact must be able to launch Chromium, not merely declare the
- * dependency in package.json.
+ * End-to-end vendor-neutral packaging check: a production-only install must
+ * run the default WebDriver path without a Playwright package or Chromium
+ * binary being present.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { buildCli } from "../helpers/cli-harness";
+import { pnpmInvocation } from "../helpers/pnpm-invocation";
 
 const ROOT = path.resolve(__dirname, "../..");
 const TIMEOUT = 300_000;
@@ -20,23 +21,26 @@ beforeAll(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "champ-browser-pack-"));
   const packDir = path.join(tmp, "packed");
   fs.mkdirSync(packDir, { recursive: true });
-  const report = JSON.parse(
-    execFileSync(
-      "npm",
-      ["pack", "--ignore-scripts", "--json", "--pack-destination", packDir],
-      { cwd: ROOT, encoding: "utf8" },
-    ),
-  ) as Array<{ filename: string }>;
-  tarball = path.join(packDir, report[0].filename);
+  const pnpm = pnpmInvocation();
+  const packOutput = execFileSync(
+    pnpm[0],
+    [...pnpm.slice(1), "pack", "--json", "--pack-destination", packDir],
+    { cwd: ROOT, encoding: "utf8" },
+  );
+  // pnpm prints lifecycle logs before the JSON report.
+  const report = JSON.parse(packOutput.slice(packOutput.indexOf("{"))) as {
+    filename: string;
+  };
+  tarball = report.filename;
 }, TIMEOUT);
 
 afterAll(() => {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-describe("clean production browser runtime", () => {
+describe("clean production browser packaging", () => {
   it(
-    "bundles the browser runtime into the VSIX extension artifact",
+    "does not bundle browser runtime modules into the extension artifact",
     () => {
       execFileSync(process.execPath, ["esbuild.mjs"], {
         cwd: ROOT,
@@ -48,48 +52,42 @@ describe("clean production browser runtime", () => {
         "utf8",
       );
       expect(bundle).not.toContain('require("playwright-core")');
+      expect(bundle).not.toContain('require("playwright")');
     },
     TIMEOUT,
   );
 
   it(
-    "launches Chromium from a production-only install",
+    "runs default browser diagnostics without a browser binary",
     () => {
       const installDir = path.join(tmp, "install");
       fs.mkdirSync(installDir, { recursive: true });
-      execFileSync(
-        "npm",
-        [
-          "install",
-          "--omit=dev",
-          "--ignore-scripts",
-          "--no-audit",
-          "--no-fund",
-          tarball,
-        ],
-        { cwd: installDir, encoding: "utf8", stdio: "pipe", timeout: TIMEOUT },
-      );
-
-      const script = [
-        "const { chromium } = require('playwright');",
-        "(async () => {",
-        "  const browser = await chromium.launch({ headless: true });",
-        "  const page = await browser.newPage();",
-        "  await page.setContent('<title>champ-runtime-ok</title>');",
-        "  const title = await page.title();",
-        "  await browser.close();",
-        "  if (title !== 'champ-runtime-ok') process.exit(2);",
-        "})().catch((err) => { console.error(err.message); process.exit(1); });",
-      ].join("\n");
-      const scriptPath = path.join(installDir, "launch.js");
-      fs.writeFileSync(scriptPath, script);
-
-      const output = execFileSync(process.execPath, [scriptPath], {
+      execFileSync("tar", ["-xzf", tarball, "-C", installDir], {
         cwd: installDir,
         encoding: "utf8",
-        timeout: 120_000,
+        timeout: TIMEOUT,
       });
-      expect(output).toBe("");
+
+      const packageDir = path.join(installDir, "package");
+      expect(fs.existsSync(path.join(packageDir, "node_modules"))).toBe(false);
+      const cliPath = path.join(packageDir, "dist", "cli.js");
+      const result = spawnSync(
+        process.execPath,
+        [cliPath, "browser", "check"],
+        {
+          cwd: installDir,
+          encoding: "utf8",
+          timeout: 30_000,
+          env: {
+            ...process.env,
+            CHAMP_WEBDRIVER_URL: "http://127.0.0.1:1",
+          },
+        },
+      );
+      const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+      expect(output).toContain("W3C WebDriver");
+      expect(output).not.toContain("Cannot find module 'playwright'");
+      expect(result.status).toBe(1);
     },
     TIMEOUT,
   );

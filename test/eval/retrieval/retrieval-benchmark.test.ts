@@ -82,12 +82,12 @@ const CASES = [
     expected: "src/retrieval/hybrid-retrieval.ts",
   },
   {
-    query: "detectBrowserRuntime",
-    expected: "src/tools/browser-runtime.ts",
+    query: "createBrowserAdapter",
+    expected: "src/tools/browser-adapters.ts",
   },
   {
-    query: "browserUnavailableMessage",
-    expected: "src/tools/browser-runtime.ts",
+    query: "describeBrowserRuntime",
+    expected: "src/tools/browser-adapters.ts",
   },
   {
     query: "cliVersion",

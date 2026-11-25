@@ -6,27 +6,24 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { browserTool, closeBrowser } from "@/tools/browser";
 import type { ToolExecutionContext } from "@/tools/types";
 
-// Mock the playwright module
-vi.mock("playwright", () => ({
-  chromium: {
-    // The runtime preflight checks this path before launch. Point it at an
-    // existing binary so the mock describes a machine with Chromium present.
-    executablePath: vi.fn(() => process.execPath),
-    launch: vi.fn().mockResolvedValue({
-      newContext: vi.fn().mockResolvedValue({
-        newPage: vi.fn().mockResolvedValue({
-          setDefaultTimeout: vi.fn(),
-          goto: vi.fn().mockResolvedValue(null),
-          screenshot: vi.fn().mockResolvedValue(Buffer.from("fake-png-data")),
-          click: vi.fn().mockResolvedValue(null),
-          fill: vi.fn().mockResolvedValue(null),
-          close: vi.fn().mockResolvedValue(null),
-        }),
-      }),
-      close: vi.fn().mockResolvedValue(null),
-    }),
+// Mock the protocol-neutral adapter factory. The browser tool must not know
+// whether WebDriver, CDP, remote WebDriver or Playwright is underneath.
+const { adapter, createBrowserAdapter } = vi.hoisted(() => ({
+  adapter: {
+    protocol: "webdriver",
+    navigate: vi.fn().mockResolvedValue(undefined),
+    screenshot: vi
+      .fn()
+      .mockResolvedValue(Buffer.from("fake-png-data").toString("base64")),
+    click: vi.fn().mockResolvedValue(undefined),
+    type: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
   },
+  createBrowserAdapter: vi.fn(),
 }));
+
+createBrowserAdapter.mockReturnValue(adapter);
+vi.mock("@/tools/browser-adapters", () => ({ createBrowserAdapter }));
 
 describe("browser tool", () => {
   let context: ToolExecutionContext;

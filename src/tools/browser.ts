@@ -1,7 +1,9 @@
 /**
  * Browser tool for automated UI testing and navigation.
- * Provides actions for navigating to URLs, taking screenshots, clicking elements, and typing text.
- * Uses Playwright for cross-browser automation.
+ *
+ * The tool is protocol-neutral: it calls a BrowserAdapter selected from
+ * environment configuration. W3C WebDriver is the default; Playwright, CDP
+ * and remote WebDriver endpoints are optional adapters.
  */
 
 import type {
@@ -12,76 +14,37 @@ import type {
 } from "./types";
 import type { ToolParameterSchema } from "../providers/types";
 import { validatePublicHttpUrl } from "../utils/url-guard";
-import {
-  browserUnavailableMessage,
-  detectBrowserRuntime,
-} from "./browser-runtime";
-import type { Browser, Page } from "playwright";
+import { createBrowserAdapter, type BrowserAdapter } from "./browser-adapters";
 
 /**
- * Global browser instance shared across tool invocations within a session.
- * Initialized lazily on first use, closed when context is destroyed or explicitly requested.
+ * Adapter instance shared across tool invocations within a session.
+ * Rebuilt after `close`; created lazily so startup never loads an adapter.
  */
-let browser: Browser | null = null;
-let page: Page | null = null;
+let browserAdapter: BrowserAdapter | null = null;
 
-/**
- * Ensures a browser instance is available.
- *
- * playwright is loaded via dynamic import INSIDE this function: esbuild
- * externalizes it for both bundles, and the headless CLI declares it as a
- * production dependency. Extension activations without the dependency degrade
- * to a structured error instead of failing at module load time.
- */
-async function ensureBrowser(): Promise<void> {
-  const runtime = await detectBrowserRuntime();
-  if (!runtime.installed) {
-    throw new Error(browserUnavailableMessage(runtime));
+function currentAdapter(): BrowserAdapter {
+  if (!browserAdapter) {
+    browserAdapter = createBrowserAdapter();
   }
-  try {
-    if (!browser) {
-      const { chromium } = await import("playwright");
-      browser = await chromium.launch({ headless: true });
-    }
-    if (!page) {
-      const context = await browser.newContext();
-      page = await context.newPage();
-      // Set a reasonable timeout for all page operations
-      page.setDefaultTimeout(30000);
-    }
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `browser is unavailable: Playwright could not be loaded or launched (${detail}). Install playwright and its Chromium binary.`,
-    );
-  }
+  return browserAdapter;
 }
 
-/**
- * Closes the browser instance and cleans up resources.
- */
+/** Close the current browser session and clean up resources. */
 export async function closeBrowser(): Promise<void> {
-  if (page) {
-    try {
-      await page.close();
-    } catch {
-      // Ignore errors during cleanup
-    }
+  const adapter = browserAdapter;
+  browserAdapter = null;
+  if (!adapter) return;
+  try {
+    await adapter.close();
+  } catch {
+    // Ignore errors during cleanup.
   }
-  if (browser) {
-    try {
-      await browser.close();
-    } catch {
-      // Ignore errors during cleanup
-    }
-  }
-  browser = null;
-  page = null;
 }
 
-/**
- * Main browser tool that exposes navigation and interaction capabilities to the LLM.
- */
+function failure(message: string): ToolResult {
+  return { success: false, output: message };
+}
+
 export const browserTool: Tool = {
   name: "browser",
   description:
@@ -118,9 +81,6 @@ export const browserTool: Tool = {
     required: ["action"],
   } as ToolParameterSchema,
 
-  /**
-   * Generate a preview of the action to be taken.
-   */
   getPreview(args: Record<string, unknown>): ToolPreview | undefined {
     const action = String(args.action);
     let content = "";
@@ -145,214 +105,124 @@ export const browserTool: Tool = {
         return undefined;
     }
 
-    return {
-      type: "command",
-      content,
-    };
+    return { type: "command", content };
   },
 
-  /**
-   * Execute a browser action.
-   */
   async execute(
     args: Record<string, unknown>,
     context: ToolExecutionContext,
   ): Promise<ToolResult> {
     try {
-      // Check for cancellation
       if (context.abortSignal.aborted) {
-        return {
-          success: false,
-          output: "Operation cancelled by user.",
-        };
+        return failure("Operation cancelled by user.");
       }
 
       const action = String(args.action);
-      const timeout = (args.timeout as number) || 30000;
+      const timeout = (args.timeout as number) || 30_000;
+      const operation = {
+        timeoutMs: timeout,
+        signal: context.abortSignal,
+      };
 
       switch (action) {
         case "goto": {
           const url = String(args.url || "");
           const verdict = validatePublicHttpUrl(url);
           if (!verdict.ok) {
-            return {
-              success: false,
-              output: `Invalid URL: ${url}. ${verdict.reason}`,
-            };
+            return failure(`Invalid URL: ${url}. ${verdict.reason}`);
           }
 
+          context.reportProgress(`Navigating to ${url}...`);
           try {
-            await ensureBrowser();
-            if (!page) {
-              return {
-                success: false,
-                output: "Failed to initialize browser page.",
-              };
-            }
-
-            context.reportProgress(`Navigating to ${url}...`);
-
-            // Use abort signal for timeout
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-            try {
-              await page.goto(url, { waitUntil: "domcontentloaded" });
-              clearTimeout(timeoutId);
-            } catch (err) {
-              clearTimeout(timeoutId);
-              if (context.abortSignal.aborted || controller.signal.aborted) {
-                return {
-                  success: false,
-                  output: `Navigation timeout after ${timeout}ms.`,
-                };
-              }
-              throw err;
-            }
-
+            await currentAdapter().navigate(url, operation);
             return {
               success: true,
               output: `Successfully navigated to ${url}`,
             };
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            return {
-              success: false,
-              output: `Failed to navigate: ${message}`,
-            };
+            return failure(
+              `Failed to navigate: browser is unavailable: ${message}`,
+            );
           }
         }
 
         case "screenshot": {
+          context.reportProgress("Taking screenshot...");
           try {
-            await ensureBrowser();
-            if (!page) {
-              return {
-                success: false,
-                output: "No browser page loaded. Use 'goto' action first.",
-              };
-            }
-
-            context.reportProgress("Taking screenshot...");
-            const screenshotBuffer = await page.screenshot();
-            const base64 = screenshotBuffer.toString("base64");
+            const base64 = await currentAdapter().screenshot(operation);
             const dataUrl = `data:image/png;base64,${base64}`;
-
+            const bytes = Buffer.from(base64, "base64").length;
             return {
               success: true,
-              output: `Screenshot captured (${screenshotBuffer.length} bytes). Image: ${dataUrl.substring(0, 50)}...`,
-              metadata: {
-                screenshot: dataUrl,
-              },
+              output: `Screenshot captured (${bytes} bytes). Image: ${dataUrl.substring(0, 50)}...`,
+              metadata: { screenshot: dataUrl },
             };
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            return {
-              success: false,
-              output: `Failed to capture screenshot: ${message}`,
-            };
+            return failure(
+              `Failed to capture screenshot: browser is unavailable: ${message}`,
+            );
           }
         }
 
         case "click": {
           const selector = String(args.selector || "");
           if (!selector) {
-            return {
-              success: false,
-              output: "Selector is required for 'click' action.",
-            };
+            return failure("Selector is required for 'click' action.");
           }
 
+          context.reportProgress(`Clicking on ${selector}...`);
           try {
-            await ensureBrowser();
-            if (!page) {
-              return {
-                success: false,
-                output: "No browser page loaded. Use 'goto' action first.",
-              };
-            }
-
-            context.reportProgress(`Clicking on ${selector}...`);
-            await page.click(selector, { timeout });
-
+            await currentAdapter().click(selector, operation);
             return {
               success: true,
               output: `Successfully clicked on element: ${selector}`,
             };
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            return {
-              success: false,
-              output: `Failed to click element "${selector}": ${message}`,
-            };
+            return failure(
+              `Failed to click element "${selector}": browser is unavailable: ${message}`,
+            );
           }
         }
 
         case "type": {
           const selector = String(args.selector || "");
           const text = String(args.text || "");
-
           if (!selector) {
-            return {
-              success: false,
-              output: "Selector is required for 'type' action.",
-            };
+            return failure("Selector is required for 'type' action.");
           }
 
+          context.reportProgress(`Typing in ${selector}...`);
           try {
-            await ensureBrowser();
-            if (!page) {
-              return {
-                success: false,
-                output: "No browser page loaded. Use 'goto' action first.",
-              };
-            }
-
-            context.reportProgress(`Typing in ${selector}...`);
-            await page.fill(selector, text, { timeout });
-
+            await currentAdapter().type(selector, text, operation);
             return {
               success: true,
               output: `Successfully typed text in element: ${selector}`,
             };
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            return {
-              success: false,
-              output: `Failed to type in element "${selector}": ${message}`,
-            };
+            return failure(
+              `Failed to type in element "${selector}": browser is unavailable: ${message}`,
+            );
           }
         }
 
         case "close": {
-          try {
-            context.reportProgress("Closing browser...");
-            await closeBrowser();
-            return {
-              success: true,
-              output: "Browser closed successfully.",
-            };
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            return {
-              success: false,
-              output: `Failed to close browser: ${message}`,
-            };
-          }
+          context.reportProgress("Closing browser...");
+          await closeBrowser();
+          return { success: true, output: "Browser closed successfully." };
         }
 
         default:
-          return {
-            success: false,
-            output: `Unknown action: ${action}. Supported actions: goto, screenshot, click, type, close.`,
-          };
+          return failure(
+            `Unknown action: ${action}. Supported actions: goto, screenshot, click, type, close.`,
+          );
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return {
-        success: false,
-        output: `Unexpected error in browser tool: ${message}`,
-      };
+      return failure(`Unexpected error in browser tool: ${message}`);
     }
   },
 };

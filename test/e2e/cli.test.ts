@@ -125,7 +125,10 @@ describe("champ CLI — end to end", () => {
           cwd: ws,
           configPath,
         });
-        expect(run.code).toBe(0);
+        expect(
+          run.code,
+          `CLI --session failed. stdout: ${run.stdout}\nstderr: ${run.stderr}`,
+        ).toBe(0);
         expect(run.stderr).toContain("session sess-e2e");
 
         const listed = await runCli(["--sessions"], { cwd: ws });

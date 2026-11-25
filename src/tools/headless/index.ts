@@ -73,8 +73,8 @@ export function createHeadlessToolRegistry(
   registry.register(runTestsTool);
   registry.register(generateDiagramTool);
   registry.register(generateDocTool);
-  // The real Playwright tool is loaded lazily inside browser.ts, so registering
-  // it here does not pull Playwright into CLI startup or published bundles.
+  // The browser tool creates its protocol adapter lazily, so registering it
+  // here does not load an adapter during CLI startup or published bundles.
   // Its own URL guard rejects private/loopback/file targets before launch.
   registry.register(browserTool);
   const webSources = new WebSourceRegistry();

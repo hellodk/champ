@@ -154,8 +154,8 @@ Usage:
   champ team history      List recorded team runs
   champ team resume <runId>  Resume a team run from its checkpoints
   champ update            Update the champ CLI installation from upstream git
-  champ browser check     Verify the Chromium runtime is installed
-  champ browser install   Download Chromium for browser actions
+  champ browser check     Check the configured browser adapter endpoint
+  champ browser install   Print optional adapter setup instructions
 
 Options:
   -h, --help              Show this help
