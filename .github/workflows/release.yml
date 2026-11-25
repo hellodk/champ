@@ -128,12 +128,15 @@ jobs:
           merged_sha=""
           for _ in $(seq 1 90); do
             pr_data="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR")"
+            # The REST API reports state "closed" with merged=true; GraphQL's
+            # "MERGED" value does not appear here.
             state="$(printf '%s' "$pr_data" | jq -r .state)"
-            if [[ "$state" == "MERGED" ]]; then
+            merged="$(printf '%s' "$pr_data" | jq -r .merged)"
+            if [[ "$state" == "closed" && "$merged" == "true" ]]; then
               merged_sha="$(printf '%s' "$pr_data" | jq -r .merge_commit_sha)"
               break
             fi
-            if [[ "$state" == "CLOSED" ]]; then
+            if [[ "$state" == "closed" ]]; then
               echo "release PR $PR closed without merging"
               exit 1
             fi
