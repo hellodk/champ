@@ -4,15 +4,28 @@
  * Guarantees:
  * - Per-request timeout via a linked AbortSignal (default 120s).
  * - Bounded retries with exponential backoff + jitter on connection errors,
- *   429 and 5xx responses. Applies to the INITIAL response only — once a
- *   stream starts producing tokens, retries never re-send the request.
- * - Retry-After header honored when present.
+ *   and an explicit allow-list of transient statuses (408/429/500/502/503/504).
+ *   Terminal statuses such as 507 are never retried. Applies to the INITIAL
+ *   response only — once a stream starts producing tokens, retries never
+ *   re-send the request.
+ * - Retry-After header honored when present, up to a 30s cap.
  * - Caller abort always wins immediately.
  */
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_BASE_DELAY_MS = 500;
+/** A server-controlled Retry-After must never stall a headless run for an hour. */
+const MAX_RETRY_DELAY_MS = 30_000;
+
+/** Statuses known to be transient. 507 is terminal — retrying it only
+ * adds load to a server that has already run out of storage (#180). */
+const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+
+export interface RetryNotice {
+  attempt: number;
+  status?: number;
+}
 
 export interface FetchResilienceOptions {
   /** Caller cancellation signal (user stop button). */
@@ -23,10 +36,12 @@ export interface FetchResilienceOptions {
   maxRetries?: number;
   /** Base delay for exponential backoff. Default: 500ms. */
   baseDelayMs?: number;
+  /** Called before each retry so callers can report an accurate attempt count. */
+  onRetry?: (notice: RetryNotice) => void;
 }
 
 function isRetryableStatus(status: number): boolean {
-  return status === 429 || status >= 500;
+  return TRANSIENT_STATUSES.has(status);
 }
 
 function delayWithAbort(
@@ -48,6 +63,14 @@ function delayWithAbort(
     }
     signal?.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+function cappedDelay(ms: number, source: string): number {
+  if (ms <= MAX_RETRY_DELAY_MS) return ms;
+  process.stderr.write(
+    `[champ] ${source} of ${Math.round(ms / 1000)}s exceeds the maximum; retry delay capped at ${MAX_RETRY_DELAY_MS / 1000}s\n`,
+  );
+  return MAX_RETRY_DELAY_MS;
 }
 
 /**
@@ -80,6 +103,7 @@ export async function resilientFetch(
       if (attempt === maxRetries) {
         return res; // surface the last error status to the caller
       }
+      opts.onRetry?.({ attempt: attempt + 1, status: res.status });
       // Release the body of the failed attempt before retrying.
       try {
         res.body?.cancel();
@@ -90,11 +114,15 @@ export async function resilientFetch(
       const retryAfterSec = retryAfterHeader
         ? Number.parseFloat(retryAfterHeader)
         : Number.NaN;
-      const backoff =
-        Number.isFinite(retryAfterSec) && retryAfterSec >= 0
-          ? retryAfterSec * 1000
-          : baseDelayMs * Math.pow(2, attempt) + Math.random() * 250;
-      await delayWithAbort(backoff, opts.signal);
+      const usedRetryAfter =
+        Number.isFinite(retryAfterSec) && retryAfterSec >= 0;
+      const backoff = usedRetryAfter
+        ? retryAfterSec * 1000
+        : baseDelayMs * Math.pow(2, attempt) + Math.random() * 250;
+      await delayWithAbort(
+        cappedDelay(backoff, usedRetryAfter ? "Retry-After" : "backoff"),
+        opts.signal,
+      );
     } catch (err) {
       if (opts.signal?.aborted) {
         throw err instanceof Error ? err : new Error("Aborted");
@@ -107,8 +135,12 @@ export async function resilientFetch(
           `Request failed after ${maxRetries + 1} attempts: ${msg}`,
         );
       }
+      opts.onRetry?.({ attempt: attempt + 1 });
       await delayWithAbort(
-        baseDelayMs * Math.pow(2, attempt) + Math.random() * 250,
+        cappedDelay(
+          baseDelayMs * Math.pow(2, attempt) + Math.random() * 250,
+          "backoff",
+        ),
         opts.signal,
       );
       void lastError;

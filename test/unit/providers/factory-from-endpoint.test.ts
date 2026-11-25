@@ -116,6 +116,28 @@ describe("ProviderFactory.createFromEndpoint", () => {
     expect(overridden.config.contextWindow).toBe(32768);
   });
 
+  it("threads endpoint.maxTokens through to the built provider", async () => {
+    const factory = new ProviderFactory();
+    const endpoint: Endpoint = {
+      id: "ep_tokens",
+      name: "Token budget",
+      provider: "vllm",
+      baseUrl: "http://localhost:8000/v1",
+      credential: null,
+      enabled: true,
+      isDefault: true,
+      contextWindow: 8192,
+      maxTokens: 2048,
+      models: [{ id: "qwen" }],
+    };
+
+    const provider = await factory.createFromEndpoint(endpoint, {
+      model: "qwen",
+      secretProvider: { get: async () => undefined },
+    });
+    expect(provider.config.maxTokens).toBe(2048);
+  });
+
   it("never passes literal 'default' to cloud providers when endpoint models are empty", async () => {
     const factory = new ProviderFactory();
     const secretProvider: SecretReader = { get: async () => "sk-test" };

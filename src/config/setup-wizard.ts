@@ -54,7 +54,6 @@ export async function runWizard(deps: WizardDeps): Promise<WizardOutcome> {
   if (!baseUrl) return { status: "cancelled" };
 
   const provider = deps.providers.find((p) => p.id === providerId);
-  const cloud = Boolean(provider?.cloud);
 
   const probe = await deps.probeEndpoint(providerId, baseUrl);
   const probeStatus =
@@ -83,13 +82,9 @@ export async function runWizard(deps: WizardDeps): Promise<WizardOutcome> {
     }
   }
 
-  // Cloud + stored key → keep the configured model, skip discovery picking.
-  if (cloud) {
-    const hasKey =
-      outcome.keyStored || (await deps.hasStoredApiKey(providerId));
-    if (hasKey) return outcome;
-  }
-
+  // Cloud providers discover models too when a key is available. If discovery
+  // fails, `outcome.model` stays undefined so the caller keeps its configured
+  // model (issue #185).
   const models = await deps.fetchModels(providerId, baseUrl);
   if (models.length === 0) {
     // No listable model — leave model untouched so the operator's yaml model

@@ -133,3 +133,40 @@ describe("VLLMProvider", () => {
     });
   });
 });
+
+describe("OpenAI-compatible subclasses contextWindow cap (#181)", () => {
+  const cases = [
+    { kind: "llamacpp", ctor: LlamaCppProvider },
+    { kind: "vllm", ctor: VLLMProvider },
+  ] as const;
+
+  it.each(cases)(
+    "$kind inherits the configured contextWindow cap",
+    async ({ kind, ctor }) => {
+      const fetchMock = vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ default_generation_settings: { n_ctx: 8192 } }),
+            { status: 200 },
+          ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      try {
+        const provider = new ctor({
+          provider: kind,
+          model: "model",
+          baseUrl: "http://localhost:9000/v1",
+          contextWindow: 2048,
+          maxTokens: 512,
+          temperature: 0.7,
+        });
+        provider.modelInfo();
+        await vi.waitFor(() =>
+          expect(provider.modelInfo().contextWindow).toBe(2048),
+        );
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+});

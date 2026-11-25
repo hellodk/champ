@@ -19,9 +19,55 @@ import type {
   ContentBlock,
 } from "./types";
 import { resilientFetch } from "./http-resilience";
+import { inputBudget, PER_MESSAGE_TOKEN_OVERHEAD } from "./context-manager";
 import { mergeEffectiveDecode } from "@/config/decode-profile";
 
 const DEFAULT_CONTEXT_WINDOW = 8192;
+
+/** Never echo credentials that a server might reflect back in an error body. */
+function sanitizeErrorDetail(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter(
+      (line) =>
+        !/api[_-]?key|authorization|bearer|token|secret|password/i.test(line),
+    )
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 1000);
+}
+
+/** Read only the diagnostic fields of an error body, never raw headers. */
+async function responseErrorDetail(response: Response): Promise<string> {
+  let raw: string;
+  try {
+    raw = await response.text();
+  } catch {
+    return "";
+  }
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw) as {
+      error?: { message?: unknown } | string;
+      message?: unknown;
+      detail?: unknown;
+    };
+    const candidates = [
+      typeof parsed.error === "object" ? parsed.error?.message : parsed.error,
+      parsed.message,
+      parsed.detail,
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate === "string" && candidate.trim()) {
+        return sanitizeErrorDetail(candidate);
+      }
+    }
+  } catch {
+    // Plain-text bodies are still useful, after credential scrubbing.
+  }
+  return sanitizeErrorDetail(raw);
+}
 
 export class OpenAICompatibleProvider implements LLMProvider {
   readonly name: string;
@@ -58,16 +104,42 @@ export class OpenAICompatibleProvider implements LLMProvider {
     if (this.detectedContextWindow === null && !this.contextDetectionPromise) {
       this.contextDetectionPromise = this.detectContextWindow();
     }
+    const detected = this.detectedContextWindow ?? DEFAULT_CONTEXT_WINDOW;
+    // Rule: an operator-provided window is a cap. Detection may lower the
+    // effective window, but never raise it above the configured limit (#181).
+    const configured = this.config.contextWindow;
+    const contextWindow =
+      configured !== undefined && configured > 0
+        ? Math.min(detected, configured)
+        : detected;
     return {
       id: this.config.model,
       name: this.config.model,
       provider: this.name,
-      contextWindow: this.detectedContextWindow ?? DEFAULT_CONTEXT_WINDOW,
+      contextWindow,
       maxOutputTokens: this.config.maxTokens,
       supportsToolUse: this.supportsToolUse(),
       supportsImages: false,
       supportsStreaming: true,
     };
+  }
+
+  /**
+   * Settle context-window detection before any caller reads `modelInfo()`.
+   * Detection is started lazily by `modelInfo()` as well, so both paths share
+   * one promise and a failed probe leaves the deterministic default in place.
+   */
+  async ready(): Promise<void> {
+    if (this.detectedContextWindow !== null) return;
+    if (!this.contextDetectionPromise) {
+      this.contextDetectionPromise = this.detectContextWindow();
+    }
+    try {
+      await this.contextDetectionPromise;
+    } catch {
+      // Detection swallows its own errors; guard against future changes so a
+      // probe failure never blocks the first turn (#177).
+    }
   }
 
   /**
@@ -80,9 +152,11 @@ export class OpenAICompatibleProvider implements LLMProvider {
     // n_ctx the server was started with.
     try {
       const base = (this.config.baseUrl ?? "").replace(/\/v1\/?$/, "");
-      const res = await resilientFetch(`${base}/props`, undefined, {
-        timeoutMs: this.config.requestTimeoutMs,
-      });
+      const res = await resilientFetch(
+        `${base}/props`,
+        { headers: this.buildHeaders() },
+        { timeoutMs: this.config.requestTimeoutMs, maxRetries: 0 },
+      );
       if (res.ok) {
         const data = (await res.json()) as {
           default_generation_settings?: { n_ctx?: number };
@@ -103,9 +177,11 @@ export class OpenAICompatibleProvider implements LLMProvider {
     // Fallback: try /v1/models for OpenAI-compatible servers that
     // expose max_context_length in the model object.
     try {
-      const res = await resilientFetch(this.joinUrl("/models"), undefined, {
-        timeoutMs: this.config.requestTimeoutMs,
-      });
+      const res = await resilientFetch(
+        this.joinUrl("/models"),
+        { headers: this.buildHeaders() },
+        { timeoutMs: this.config.requestTimeoutMs, maxRetries: 0 },
+      );
       if (res.ok) {
         const data = (await res.json()) as {
           data?: Array<{ id: string; max_context_length?: number }>;
@@ -134,6 +210,27 @@ export class OpenAICompatibleProvider implements LLMProvider {
   ): AsyncIterable<StreamDelta> {
     if (options?.abortSignal?.aborted) {
       yield { type: "error", error: "Request aborted before send" };
+      yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
+      return;
+    }
+
+    // Safety net for callers that bypass the agent's context fit (#186):
+    // reject an over-budget prompt locally instead of asking the server to
+    // render it. The budget is the same helper the agent uses.
+    await this.ready();
+    const budget = inputBudget(this);
+    const estimated = messages.reduce(
+      (total, message) =>
+        total +
+        this.countTokens(this.flattenContent(message.content)) +
+        PER_MESSAGE_TOKEN_OVERHEAD,
+      0,
+    );
+    if (estimated > budget) {
+      yield {
+        type: "error",
+        error: `Prompt is too large for the context window (about ${estimated} tokens, budget ${budget}). Shorten the prompt or pick a model with a larger context window.`,
+      };
       yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
       return;
     }
@@ -185,6 +282,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     // those get exactly one immediate retry.
     const self = this;
     const attempt = async function* (): AsyncIterable<StreamDelta> {
+      let retryCount = 0;
       try {
         const response = await resilientFetch(
           url,
@@ -196,23 +294,33 @@ export class OpenAICompatibleProvider implements LLMProvider {
           {
             signal: options?.abortSignal,
             timeoutMs: self.config.requestTimeoutMs,
+            onRetry: () => {
+              retryCount += 1;
+            },
           },
         );
 
         if (!response.ok || !response.body) {
+          const detail = await responseErrorDetail(response);
           let hint = "";
           if (response.status === 500) {
             hint =
-              " — likely a context window overflow or the model crashed. Try 'New chat' to clear history.";
+              "likely a context window overflow or the model crashed. Try 'New chat' to clear history.";
+          } else if (response.status === 507) {
+            hint = "server storage is full — free space or reduce the prompt.";
           } else if (response.status === 400) {
-            hint = " — malformed request. Check the model name in your config.";
+            hint = "malformed request. Check the model name in your config.";
           } else if (response.status === 404) {
             hint =
-              " — endpoint not found. Does your baseUrl end with /v1 (e.g. http://host:8000/v1)?";
+              "endpoint not found. Does your baseUrl end with /v1 (e.g. http://host:8000/v1)?";
           }
+          const diagnostics = `model=${self.config.model} endpoint=${self.safeEndpoint()} status=${response.status} attempts=${retryCount + 1}`;
+          const extra = [hint, detail ? `server: ${detail}` : ""]
+            .filter(Boolean)
+            .join(" ");
           yield {
             type: "error",
-            error: `Request failed: ${response.status} ${response.statusText}${hint}`,
+            error: `Request failed: ${response.status} ${response.statusText} (${diagnostics})${extra ? ` — ${extra}` : ""}`,
           };
           yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
           return;
@@ -287,6 +395,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       max_tokens: options?.maxTokens ?? this.config.maxTokens,
     };
 
+    let retryCount = 0;
     try {
       const response = await resilientFetch(
         url,
@@ -298,6 +407,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
         {
           signal: options?.abortSignal,
           timeoutMs: this.config.requestTimeoutMs,
+          onRetry: () => {
+            retryCount += 1;
+          },
         },
       );
 
@@ -313,9 +425,11 @@ export class OpenAICompatibleProvider implements LLMProvider {
       }
 
       if (!response.ok || !response.body) {
+        const detail = await responseErrorDetail(response);
+        const diagnostics = `model=${this.config.model} endpoint=${this.safeEndpoint()} status=${response.status} attempts=${retryCount + 1}`;
         yield {
           type: "error",
-          error: `Completion request failed: ${response.status} ${response.statusText}`,
+          error: `Completion request failed: ${response.status} ${response.statusText} (${diagnostics})${detail ? ` — ${detail}` : ""}`,
         };
         yield { type: "done", usage: { inputTokens: 0, outputTokens: 0 } };
         return;
@@ -368,6 +482,23 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
   dispose(): void {
     // Stateless fetch; nothing to release.
+  }
+
+  /** Endpoint label for diagnostics, with any embedded credentials removed. */
+  private safeEndpoint(): string {
+    const raw = this.config.baseUrl ?? "<default>";
+    try {
+      const url = new URL(raw);
+      url.username = "";
+      url.password = "";
+      for (const key of [...url.searchParams.keys()]) {
+        if (/key|token|secret|password/i.test(key))
+          url.searchParams.delete(key);
+      }
+      return url.toString();
+    } catch {
+      return raw;
+    }
   }
 
   private buildHeaders(): Record<string, string> {
@@ -560,14 +691,12 @@ export class OpenAICompatibleProvider implements LLMProvider {
     messages: LLMMessage[],
     nativeTools = false,
   ): Array<Record<string, unknown>> {
-    // Trim to fit the context window — llama.cpp and small vLLM
-    // instances return 500 Internal Server Error when exceeded.
-    // Keep a generous budget for the response, trim from the start
-    // (oldest user/assistant pairs) while preserving the system message
-    // and the last few turns.
-    const trimmed = this.trimForContext(messages);
+    // No second trimming pass here (#186): AgentController's context manager
+    // already fits the message list, preserves every system message and moves
+    // tool-call/result groups atomically. A local suffix walk here used to drop
+    // fitting middle turns and split tool groups on the wire.
     const result: Array<Record<string, unknown>> = [];
-    for (const msg of trimmed) {
+    for (const msg of messages) {
       const content = this.flattenContent(msg.content);
       // Native tool round-trips must stay structurally linked: an
       // assistant turn that only carried tool calls has empty text but is
@@ -614,50 +743,6 @@ export class OpenAICompatibleProvider implements LLMProvider {
       result.push({ role, content });
     }
     return result;
-  }
-
-  /**
-   * Trim messages to fit within the context window. Keeps the system
-   * message (if any) plus the most recent turns up to ~75% of the
-   * context budget, leaving room for the response.
-   */
-  private trimForContext(messages: LLMMessage[]): LLMMessage[] {
-    // Rough token estimate: 4 chars per token. Conservative.
-    const estimate = (m: LLMMessage): number => {
-      const content =
-        typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-      return Math.ceil(content.length / 4) + 10; // +10 for role/overhead
-    };
-    // Budget: 75% of model's contextWindow, or default 3000 tokens
-    // if no contextWindow is known.
-    const modelInfo = this.modelInfo();
-    const ctxWindow = modelInfo.contextWindow || 4096;
-    const budget = Math.floor(ctxWindow * 0.75);
-
-    let totalTokens = 0;
-    const kept: LLMMessage[] = [];
-    // Always keep the system message if it's first.
-    let startIdx = 0;
-    if (messages[0]?.role === "system") {
-      kept.push(messages[0]);
-      totalTokens += estimate(messages[0]);
-      startIdx = 1;
-    }
-    // Walk backwards from the newest message, keeping what fits.
-    const recent: LLMMessage[] = [];
-    for (let i = messages.length - 1; i >= startIdx; i--) {
-      const tokens = estimate(messages[i]);
-      if (totalTokens + tokens > budget) break;
-      totalTokens += tokens;
-      recent.unshift(messages[i]);
-    }
-    // Always keep the last non-system message even when it exceeds the budget.
-    // Without this, a large file attachment causes the user's message to be
-    // silently dropped and the LLM only sees the system prompt.
-    if (recent.length === 0 && messages.length > startIdx) {
-      recent.push(messages[messages.length - 1]);
-    }
-    return [...kept, ...recent];
   }
 
   private flattenContent(content: string | ContentBlock[]): string {

@@ -66,9 +66,10 @@ export function upsertProviderInYaml(
         parsed && typeof parsed === "object"
           ? (parsed as Record<string, unknown>)
           : {};
-    } catch {
-      // Untrusted/legacy content — start clean rather than clobber valid keys.
-      root = {};
+    } catch (err) {
+      // Never replace user-authored YAML we could not parse (issue #179).
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Cannot parse config YAML: ${message}`);
     }
   } else {
     root = {};

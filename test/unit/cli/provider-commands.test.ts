@@ -86,6 +86,7 @@ describe("cli provider commands", () => {
   }
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
     for (const dir of dirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -183,6 +184,57 @@ describe("cli provider commands", () => {
     const code = await runProviderCommand({ name: "config-show" }, deps);
     expect(code).toBe(0);
     expect(JSON.parse(out.join("")).config.userRules).toBe("Be terse.");
+  });
+
+  it("config set provider updates the effective registry assignment", async () => {
+    const { deps, registry, home } = createCmdHarness();
+    const configPath = path.join(home, ".champ", "config.yaml");
+    vi.stubEnv("CHAMP_CONFIG", configPath);
+    const old = await registry.add({
+      name: "Old",
+      provider: "vllm",
+      baseUrl: "http://localhost:8000/v1",
+      models: [{ id: "old-model" }],
+    });
+    await registry.setAssignment("default", old.id, "old-model");
+    await registry.add({
+      name: "New",
+      provider: "ollama",
+      baseUrl: "http://localhost:11434",
+      models: [{ id: "new-model" }],
+    });
+
+    const code = await runProviderCommand(
+      { name: "config-set", key: "provider", value: "ollama" },
+      deps,
+    );
+
+    expect(code).toBe(0);
+    const assignment = await registry.resolveAssignment("default");
+    expect(assignment?.endpoint.provider).toBe("ollama");
+    expect(fs.readFileSync(configPath, "utf8")).toMatch(/^provider: ollama$/m);
+  });
+
+  it("config show reports the effective provider source", async () => {
+    const { deps, registry, out } = createCmdHarness();
+    const ep = await registry.add({
+      name: "Active",
+      provider: "vllm",
+      baseUrl: "http://localhost:8000/v1",
+      models: [{ id: "active-model" }],
+    });
+    await registry.setAssignment("default", ep.id, "active-model");
+
+    const code = await runProviderCommand({ name: "config-show" }, deps);
+    expect(code).toBe(0);
+    const parsed = JSON.parse(out.join("")) as {
+      effective?: { provider?: string; model?: string; source?: string };
+      selection?: { source?: string };
+    };
+    expect(parsed.effective?.provider).toBe("vllm");
+    expect(parsed.effective?.model).toBe("active-model");
+    expect(parsed.effective?.source).toBeTruthy();
+    expect(parsed.effective?.source).toBe(parsed.selection?.source);
   });
 
   it("config validate reports invalid YAML and exits 1", async () => {

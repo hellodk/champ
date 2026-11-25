@@ -2,7 +2,7 @@
  * TDD: guided setup wizard flow controller (ticket #118).
  * Decision rules:
  *   - endpoint probe 401 → prompt for and store an API key
- *   - cloud provider with stored key → keep the current model, skip picking
+ *   - cloud provider with stored key → still discover and offer models
  *   - otherwise pick from the auto-discovered model list
  */
 import { describe, it, expect, vi } from "vitest";
@@ -68,9 +68,12 @@ describe("runWizard (#118)", () => {
     expect(outcome.apiKey).toBeUndefined();
   });
 
-  it("auto-keeps the configured model for a cloud provider with a stored key", async () => {
-    const fetchModels = vi.fn(async () => ["claude-sonnet-4-20250514"]);
-    const pickModel = vi.fn(async () => "gpt-4o");
+  it("discovers and offers models for a cloud provider with a stored key", async () => {
+    const fetchModels = vi.fn(async () => [
+      "claude-sonnet-4-20250514",
+      "claude-haiku-4-5-20251001",
+    ]);
+    const pickModel = vi.fn(async () => "claude-sonnet-4-20250514");
     const outcome = await run(
       baseDeps({
         pickProvider: vi.fn(async () => "claude"),
@@ -81,9 +84,31 @@ describe("runWizard (#118)", () => {
     );
     expect(outcome.status).toBe("ok");
     if (outcome.status !== "ok") return;
-    expect(fetchModels).not.toHaveBeenCalled();
-    expect(pickModel).not.toHaveBeenCalled();
+    expect(fetchModels).toHaveBeenCalledWith(
+      "claude",
+      "http://localhost:11434",
+    );
+    expect(pickModel).toHaveBeenCalledWith([
+      "claude-sonnet-4-20250514",
+      "claude-haiku-4-5-20251001",
+    ]);
+    expect(outcome.model).toBe("claude-sonnet-4-20250514");
+  });
+
+  it("leaves the configured model untouched when cloud discovery finds none", async () => {
+    const pickModel = vi.fn(async () => "gpt-4o");
+    const outcome = await run(
+      baseDeps({
+        pickProvider: vi.fn(async () => "claude"),
+        hasStoredApiKey: vi.fn(async () => true),
+        fetchModels: vi.fn(async () => []),
+        pickModel,
+      }),
+    );
+    expect(outcome.status).toBe("ok");
+    if (outcome.status !== "ok") return;
     expect(outcome.model).toBeUndefined();
+    expect(pickModel).not.toHaveBeenCalled();
   });
 
   it("picks from discovered models for a self-hosted provider", async () => {

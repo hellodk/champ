@@ -53,3 +53,30 @@ export async function selectActiveModel(
   await registry.setAssignment("default", match.id, model);
   return { ok: true, endpointId: match.id, model };
 }
+
+/**
+ * Make an endpoint for `providerName` the effective default. `config.yaml`
+ * alone is not consulted by the CLI once the registry has assignments, so
+ * `champ config set provider` must re-point the registry too (issue #187).
+ */
+export async function selectProviderAsDefault(
+  registry: ActiveModelRegistry,
+  providerName: string,
+): Promise<{ endpointId: string; model: string }> {
+  const endpoints = await registry.list();
+  const needle = providerName.trim().toLowerCase();
+  const match =
+    endpoints.find((ep) => ep.id.toLowerCase() === needle) ??
+    endpoints.find((ep) => ep.name.toLowerCase() === needle) ??
+    endpoints.find((ep) => ep.provider.toLowerCase() === needle);
+
+  if (!match) {
+    throw new Error(`no endpoint in providers.json matches "${providerName}"`);
+  }
+  const model =
+    match.models[0]?.id ??
+    catalogEntry(match.provider).defaultModel ??
+    "default";
+  await registry.setAssignment("default", match.id, model);
+  return { endpointId: match.id, model };
+}

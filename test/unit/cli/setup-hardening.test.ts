@@ -11,7 +11,11 @@ import { ChainCredentialStore } from "@/config/credential-store";
 import { EndpointRegistry } from "@/config/endpoint-registry";
 import { discoverModels, testEndpoint } from "@/config/model-discovery";
 import { EndpointRepository } from "@/config/provider-repository";
-import { runSetup, type SetupPrompts } from "@/cli/setup";
+import {
+  formatVerificationLine,
+  runSetup,
+  type SetupPrompts,
+} from "@/cli/setup";
 
 const keyring = (): KeyringBackend => {
   const map = new Map<string, string>();
@@ -83,7 +87,10 @@ describe("cli setup hardening", () => {
 
     expect(result.saved).toBe(true);
     expect(result.verified).toBe(true);
-    expect(lines.some((line) => /^Verification: ok\b/.test(line))).toBe(true);
+    expect(
+      lines.some((line) => /^Verification: connectivity\+auth ok\b/.test(line)),
+    ).toBe(true);
+    expect(lines.some((line) => /^Verification: ok\b/.test(line))).toBe(false);
     expect(pickTasks).toHaveBeenCalledTimes(1);
 
     if (!result.endpointId) throw new Error("missing endpoint id");
@@ -130,5 +137,29 @@ describe("cli setup hardening", () => {
     });
     expect(first.saved).toBe(true);
     expect(await registry.hasStoredCredentialForProvider("openai")).toBe(true);
+  });
+
+  it("labels connectivity-only verification explicitly", () => {
+    const line = formatVerificationLine({
+      ok: true,
+      mode: "connectivity+auth",
+      statusCode: 200,
+      detail: "reachable (use --inference to test generation)",
+    });
+
+    expect(line).toMatch(/^Verification: connectivity\+auth ok\b/);
+    expect(line).not.toMatch(/^Verification: ok\b/);
+  });
+
+  it("labels inference verification as inference", () => {
+    const line = formatVerificationLine({
+      ok: true,
+      mode: "inference",
+      statusCode: 200,
+      detail: "inference ok (m1)",
+    });
+
+    expect(line).toMatch(/^Verification: inference ok\b/);
+    expect(line).toContain("inference ok (m1)");
   });
 });

@@ -8,7 +8,10 @@ import {
   type CredentialWriteStatus,
 } from "../config/credential-store";
 import type { EndpointRegistry } from "../config/endpoint-registry";
-import { discoverModels } from "../config/model-discovery";
+import {
+  discoverModels,
+  type EndpointTestResult,
+} from "../config/model-discovery";
 import {
   catalogEntry,
   legacySecretIdForProvider,
@@ -52,6 +55,20 @@ export interface RunSetupResult {
   endpointId?: string;
   /** Result of the post-save connectivity/auth verification, when available. */
   verified?: boolean;
+}
+
+/**
+ * Format the post-save probe result without implying generation was tested.
+ * `testEndpoint()` defaults to connectivity+auth, so an unqualified
+ * "Verification: ok" would overstate what actually happened (issue #184).
+ */
+export function formatVerificationLine(result: EndpointTestResult): string {
+  const mode = result.mode === "inference" ? "inference" : "connectivity+auth";
+  return `Verification: ${mode} ${result.ok ? "ok" : "FAIL"}${
+    result.statusCode ? ` status=${result.statusCode}` : ""
+  }${result.latencyMs ? ` ${result.latencyMs}ms` : ""}${
+    result.detail || result.error ? ` (${result.detail ?? result.error})` : ""
+  }`;
 }
 
 export async function runSetup(deps: RunSetupDeps): Promise<RunSetupResult> {
@@ -248,13 +265,15 @@ export async function runSetup(deps: RunSetupDeps): Promise<RunSetupResult> {
       model: chosenModel,
     });
     verified = testResult.ok;
-    deps.writeLine(
-      `Verification: ${verified ? "ok" : "FAIL"}${testResult.statusCode ? ` status=${testResult.statusCode}` : ""}${testResult.latencyMs ? ` ${testResult.latencyMs}ms` : ""}`,
-    );
+    deps.writeLine(formatVerificationLine(testResult));
   } catch (err) {
     verified = false;
     deps.writeLine(
-      `Verification: FAIL (${err instanceof Error ? err.message : String(err)})`,
+      formatVerificationLine({
+        ok: false,
+        mode: "connectivity+auth",
+        error: err instanceof Error ? err.message : String(err),
+      }),
     );
   }
 

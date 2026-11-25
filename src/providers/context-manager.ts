@@ -13,6 +13,26 @@ import { truncateToolOutput } from "../utils/tool-output-budget";
 const DEFAULT_RESERVED_FOR_OUTPUT = 4096;
 const PER_MESSAGE_OVERHEAD = 4;
 
+/**
+ * Shared input budget: context window minus the provider's configured output
+ * reservation. Every consumer (agent fitting and provider-side safety check)
+ * uses this one calculation so the two can never disagree (#186).
+ */
+export function inputBudget(
+  provider: LLMProvider,
+  reservedForOutput?: number,
+): number {
+  const info = provider.modelInfo();
+  const configured = provider.config?.maxTokens ?? 0;
+  const desired = configured > 0 ? configured : DEFAULT_RESERVED_FOR_OUTPUT;
+  const reserved =
+    reservedForOutput ?? Math.min(desired, Math.floor(info.contextWindow / 2));
+  return Math.max(0, info.contextWindow - reserved);
+}
+
+/** Per-message overhead used by both budget consumers. */
+export const PER_MESSAGE_TOKEN_OVERHEAD = PER_MESSAGE_OVERHEAD;
+
 /** Chars per token assumed when converting an over-budget amount to a cut. */
 const CHARS_PER_TOKEN = 4;
 
@@ -249,19 +269,14 @@ export class ContextWindowManager {
   /**
    * Returns the token budget available for input messages.
    *
-   * Reserved output defaults to `min(4096, contextWindow / 2)`:
-   *  - Large windows (≥ 8 192): reserves 4 096 tokens (~25–50%)
-   *  - Small windows (< 8 192): reserves up to 50% to keep a usable
-   *    output buffer even on tiny models
+   * Reserved output defaults to `min(provider.config.maxTokens, contextWindow / 2)`:
+   * the provider's configured output budget wins over the old fixed 4 096
+   * default (#183), while a small window still keeps a usable input budget.
    *
    * Pass `reservedForOutput` to the constructor to override this.
    */
   availableTokens(_messages: LLMMessage[]): number {
-    const info = this.provider.modelInfo();
-    const reserved =
-      this.reservedForOutput ??
-      Math.min(DEFAULT_RESERVED_FOR_OUTPUT, Math.floor(info.contextWindow / 2));
-    return Math.max(0, info.contextWindow - reserved);
+    return inputBudget(this.provider, this.reservedForOutput);
   }
 
   /**
@@ -555,7 +570,7 @@ export class ContextWindowManager {
 
     if (this.estimateTokens(current) > budget) {
       console.warn(
-        `Champ: context window — still over budget after trimming tool results (${this.estimateTokens(current)} > ${budget}); the newest message is larger than the window`,
+        `Champ: context window — still over budget after trimming tool results (${this.estimateTokens(current)} > ${budget}); reduce the system prompt (repo map/tool catalogue) or the newest user message`,
       );
     }
     return current;

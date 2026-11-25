@@ -552,12 +552,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // config source since #118), then reload. The legacy champ.* VS Code
         // settings were removed from package.json, so writing them here throws
         // "not a registered configuration" (#123).
-        await this.persistProviderSettings(
-          msg.provider,
-          msg.model,
-          msg.baseUrl,
-        );
-        await vscode.commands.executeCommand("champ.reloadProvider");
+        try {
+          await this.persistProviderSettings(
+            msg.provider,
+            msg.model,
+            msg.baseUrl,
+          );
+          await vscode.commands.executeCommand("champ.reloadProvider");
+        } catch (err) {
+          // A malformed config must not be replaced by generated YAML (#179).
+          void vscode.window.showErrorMessage(
+            `Champ: cannot save config: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       } else if (isCopyToClipboardRequest(msg)) {
         // navigator.clipboard is blocked in VS Code webviews — route through extension host
         void vscode.env.clipboard.writeText(msg.text);

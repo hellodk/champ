@@ -68,6 +68,8 @@ export interface ProviderConfig {
    * above what config pins, even if the runtime advertises more. Ticket #119.
    */
   contextWindow?: number;
+  /** Maximum output tokens for this provider (endpoint-level setting, #183). */
+  maxTokens?: number;
   /** Per-provider decode overrides (ticket #120). Overrides win over the task profile. */
   options?: {
     temperature?: number;
