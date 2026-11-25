@@ -58,6 +58,10 @@ describe("release automation", () => {
   it("waits for the version PR to merge and hands its commit to publishing", () => {
     expect(workflow).toContain("sha: ${{ steps.merge_wait.outputs.sha }}");
     expect(workflow).toContain('gh api "repos/$GITHUB_REPOSITORY/pulls/$PR"');
+    expect(workflow).toContain("jq -r .merged");
+    expect(workflow).toContain(
+      'if [[ "$state" == "closed" && "$merged" == "true" ]]; then',
+    );
     expect(workflow).toContain("sleep 20");
     expect(workflow).toContain("needs: version");
     expect(workflow).toContain("always() &&");
