@@ -34,4 +34,12 @@ describe("VSIX browser runtime packaging", () => {
     expect(e2e).toContain("macos-latest");
     expect(e2e).toContain("playwright install --with-deps chromium");
   });
+
+  it("keeps the required E2E check name while adding macOS coverage", () => {
+    const ci = fs.readFileSync(".github/workflows/ci.yml", "utf8");
+    expect(ci).toContain("name: E2E Tests\n");
+    expect(ci).toMatch(
+      /e2e-status:\s*\n\s*name: E2E Tests\s*\n\s*needs: e2e-tests/,
+    );
+  });
 });

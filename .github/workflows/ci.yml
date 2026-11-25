@@ -87,6 +87,22 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm run test:e2e
 
+  # Branch protection requires the "E2E Tests" context. The matrix renames its
+  # jobs, so this aggregate reports the required name and fails if either OS
+  # leg fails.
+  e2e-status:
+    name: E2E Tests
+    needs: e2e-tests
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check matrix result
+        run: |
+          if [[ "${{ needs['e2e-tests'].result }}" != "success" ]]; then
+            echo "one or more E2E matrix jobs failed"
+            exit 1
+          fi
+
   supply-chain:
     name: Supply Chain
     runs-on: ubuntu-latest
