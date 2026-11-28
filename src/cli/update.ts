@@ -117,45 +117,77 @@ async function fetchReleaseTarget(
   repo: { owner: string; repo: string },
   fetchFn: UpdateFetchFn,
 ): Promise<ReleaseTarget | null> {
+  // `/releases/latest` follows GitHub's "latest" marker, which is not semver
+  // ordered. Select the highest stable release that actually carries a CLI
+  // tarball so a stale marker cannot hide a newer published artifact.
   const response = await fetchFn(
-    `https://api.github.com/repos/${repo.owner}/${repo.repo}/releases/latest`,
+    `https://api.github.com/repos/${repo.owner}/${repo.repo}/releases?per_page=100`,
   );
   if (!response.ok) return null;
 
-  const release = (await response.json()) as {
-    tag_name?: unknown;
-    assets?: unknown;
-  };
-  const tag = typeof release.tag_name === "string" ? release.tag_name : "";
-  const version = tag.replace(/^v/, "");
-  if (!/^\d+\.\d+\.\d+/.test(version)) return null;
+  const payload = await response.json();
+  if (!Array.isArray(payload)) return null;
 
-  const assets = Array.isArray(release.assets) ? release.assets : [];
-  const candidate = assets
-    .filter((asset): asset is { name: string; browser_download_url: string } =>
-      Boolean(
-        asset &&
-        typeof asset === "object" &&
-        typeof (asset as { name?: unknown }).name === "string" &&
-        /\.(tgz|tar\.gz)$/.test((asset as { name: string }).name) &&
-        typeof (asset as { browser_download_url?: unknown })
-          .browser_download_url === "string",
-      ),
-    )
-    .sort((a, b) =>
-      a.name.startsWith("champ-cli-") === b.name.startsWith("champ-cli-")
-        ? 0
-        : a.name.startsWith("champ-cli-")
-          ? -1
-          : 1,
-    )[0];
-  if (!candidate) return null;
+  const candidates: Array<ReleaseTarget & { publishedAt: number }> = [];
+  for (const item of payload) {
+    const release = item as {
+      tag_name?: unknown;
+      draft?: unknown;
+      prerelease?: unknown;
+      published_at?: unknown;
+      assets?: unknown;
+    };
+    if (release.draft === true || release.prerelease === true) continue;
 
+    const tag = typeof release.tag_name === "string" ? release.tag_name : "";
+    const version = tag.replace(/^v/, "");
+    if (!/^\d+\.\d+\.\d+/.test(version)) continue;
+
+    const assets = Array.isArray(release.assets) ? release.assets : [];
+    const candidate = assets
+      .filter(
+        (asset): asset is { name: string; browser_download_url: string } =>
+          Boolean(
+            asset &&
+            typeof asset === "object" &&
+            typeof (asset as { name?: unknown }).name === "string" &&
+            /\.(tgz|tar\.gz)$/.test((asset as { name: string }).name) &&
+            typeof (asset as { browser_download_url?: unknown })
+              .browser_download_url === "string",
+          ),
+      )
+      .sort((a, b) =>
+        a.name.startsWith("champ-cli-") === b.name.startsWith("champ-cli-")
+          ? 0
+          : a.name.startsWith("champ-cli-")
+            ? -1
+            : 1,
+      )[0];
+    if (!candidate) continue;
+
+    const parsed = Date.parse(
+      typeof release.published_at === "string" ? release.published_at : "",
+    );
+    candidates.push({
+      tag,
+      version,
+      assetName: candidate.name,
+      assetUrl: candidate.browser_download_url,
+      publishedAt: Number.isFinite(parsed) ? parsed : 0,
+    });
+  }
+
+  candidates.sort(
+    (a, b) =>
+      compareSemver(b.version, a.version) || b.publishedAt - a.publishedAt,
+  );
+  const best = candidates[0];
+  if (!best) return null;
   return {
-    tag,
-    version,
-    assetName: candidate.name,
-    assetUrl: candidate.browser_download_url,
+    tag: best.tag,
+    version: best.version,
+    assetName: best.assetName,
+    assetUrl: best.assetUrl,
   };
 }
 
@@ -344,23 +376,13 @@ export async function runUpdateCommand(
         target = null;
       }
 
-      if (target) {
-        const versionCmp = compareSemver(target.version, currentVersion);
+      if (
+        target &&
+        (options.force || compareSemver(target.version, currentVersion) > 0)
+      ) {
         if (options.check) {
-          if (versionCmp > 0) {
-            stdout(
-              `Update available: champ ${currentVersion} -> ${target.version} (${target.tag}). Run 'champ update' to install.\n`,
-            );
-          } else {
-            stdout(
-              `Already up to date: champ ${currentVersion} (${target.tag}).\n`,
-            );
-          }
-          return 0;
-        }
-        if (!options.force && versionCmp <= 0) {
           stdout(
-            `Already up to date: champ ${currentVersion} (${target.tag}).\n`,
+            `Update available: champ ${currentVersion} -> ${target.version} (${target.tag}). Run 'champ update' to install.\n`,
           );
           return 0;
         }
@@ -401,7 +423,9 @@ export async function runUpdateCommand(
       }
 
       stderr(
-        "[champ] no published CLI tarball; building from default branch...\n",
+        target
+          ? "[champ] no newer published CLI tarball; checking default branch...\n"
+          : "[champ] no published CLI tarball; building from default branch...\n",
       );
     }
   }

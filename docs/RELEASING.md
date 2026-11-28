@@ -35,6 +35,13 @@ whose HEAD subject starts with `chore(release):` skips this stage, which prevent
 a version commit from planning another release. `concurrency` serialises
 releases if several commits reach `master` close together.
 
+The version PR must be opened with the `RELEASE_TOKEN` repository secret — a
+fine-grained personal access token with `Contents: write` and `Pull requests:
+write` on this repository. A PR created with the default `GITHUB_TOKEN` triggers
+its `pull_request` workflows in approval-required state, so required checks never
+run and auto-merge cannot complete. Create the secret in Settings → Secrets and
+variables → Actions before enabling automated releases.
+
 ### Stage 2 — publish (version commit merged to master)
 
 1. Read the version from the merged `package.json` on `master`.
@@ -81,11 +88,13 @@ push `master`; the workflow is the single publisher.
 
 ## Installing a release
 
-`scripts/champ install latest` downloads the VSIX asset from the latest GitHub
-release. `champ update` downloads the `champ-cli-<version>.tgz` asset from that
-same release by default. `champ update --ref <branch-or-tag>` is the edge
-channel: it still clones, builds, and installs locally. If no published CLI
-asset is available, `champ update` falls back to that build path.
+`scripts/champ install latest` downloads the VSIX asset from the GitHub release
+marked latest. `champ update` picks the highest-semver stable release that
+carries a `champ-cli-<version>.tgz` asset, so a stale GitHub "latest" marker
+cannot hide a newer published CLI. If no published release is newer than the
+installed CLI, `champ update` checks the default branch and builds it when it
+contains a newer version or commit. `champ update --ref <branch-or-tag>` is the
+edge channel: it always clones, builds, and installs locally.
 
 ## Commit convention
 

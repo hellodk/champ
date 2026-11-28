@@ -80,15 +80,23 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # A PR opened with GITHUB_TOKEN triggers pull_request workflows in
+      # approval-required state, so required checks never run and auto-merge
+      # stalls. RELEASE_TOKEN belongs to a trusted account and lets CI start
+      # without manual approval.
       - name: Bump version and open auto-merge PR
         id: bump
         if: steps.skip.outputs.skip != 'true'
         env:
           NEXT: ${{ steps.meta.outputs.next }}
           TAG: ${{ steps.meta.outputs.tag }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           set -euo pipefail
+          test -n "$GH_TOKEN" || {
+            echo "RELEASE_TOKEN secret is required to open the version PR"
+            exit 1
+          }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           pnpm version "$NEXT" --no-git-tag-version
@@ -242,4 +250,4 @@ jobs:
           git tag "$TAG" "$SHA"
           git push origin "$TAG"
           gh release create "${TAG}" "$VSIX" "$TGZ" \
-            --title "Champ v${TAG#v}" --target "$SHA" --generate-notes
+            --title "Champ v${TAG#v}" --target "$SHA" --generate-notes --latest
