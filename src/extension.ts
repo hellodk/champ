@@ -134,11 +134,18 @@ import { RateLimitedProvider } from "./providers/rate-limited-provider";
 import { resolveActiveWorkspaceFolder } from "./extension-utils";
 import { AuditLog } from "./observability/audit-log";
 import { ChampServer } from "./server/champ-server";
+import { ActivationContext } from "./application";
 
 /**
  * Module-level singletons. Held so the deactivate() hook can dispose
  * them cleanly.
  */
+let activationContext: ActivationContext | undefined;
+
+export function getActivationContext(): ActivationContext | undefined {
+  return activationContext;
+}
+
 let providerRegistry: ProviderRegistry | undefined;
 let chatViewProvider: ChatViewProvider | undefined;
 let metrics: MetricsCollector | undefined;
@@ -268,10 +275,22 @@ export async function activate(
 ): Promise<void> {
   console.log("Champ extension activating...");
 
+  const workspaceRoot =
+    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+
+  activationContext = new ActivationContext({
+    vsContext: context,
+    workspaceRoot,
+  });
+
   // ---- Singletons that don't depend on the provider ------------------
   providerRegistry = new ProviderRegistry();
   metrics = new MetricsCollector();
   teamRunner = new TeamRunner();
+  activationContext.register("providerRegistry", providerRegistry);
+  activationContext.register("metrics", metrics);
+  activationContext.register("teamRunner", teamRunner);
+
   const factory = new ProviderFactory();
   const endpointRepository = new EndpointRepository();
   const endpointCredentials = new SharedCredentialStore(context.secrets);
@@ -281,12 +300,15 @@ export async function activate(
     discovery: { discoverModels, testEndpoint },
     now: () => new Date().toISOString(),
   });
+  activationContext.register("endpointRegistry", endpointRegistry);
+
   const modelSelection = new ModelSelectionService(endpointRepository, (msg) =>
     console.warn(msg),
   );
 
   // ---- Tool registry --------------------------------------------------
   const toolRegistry = new ToolRegistry();
+  activationContext.register("toolRegistry", toolRegistry);
   toolRegistry.register(readFileTool);
   toolRegistry.register(editFileTool);
   toolRegistry.register(createFileTool);
@@ -354,6 +376,7 @@ export async function activate(
   statusBarItem.tooltip = "Champ — click to open settings";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
+  activationContext.register("statusBarItem", statusBarItem);
 
   analyticsChannel = vscode.window.createOutputChannel("Champ Analytics");
   context.subscriptions.push(analyticsChannel);
@@ -362,9 +385,6 @@ export async function activate(
   // We use a stub provider until the real one loads. This way the chat
   // view, commands, and inline completion can register before any
   // network/SDK errors happen.
-  const workspaceRoot =
-    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
-
   // A malformed managed/user policy must stop activation, not silently
   // produce an empty policy layer. Project grants require workspace trust.
   const policyEngine = createPolicyEngine({
@@ -374,6 +394,7 @@ export async function activate(
 
   // ---- Audit log (tamper-evident append-only log of all agent actions) ----
   auditLog = new AuditLog(workspaceRoot);
+  activationContext.register("auditLog", auditLog);
   void auditLog.initialize().catch((err) => {
     console.warn("[Champ] AuditLog initialization failed:", err);
   });
@@ -421,6 +442,9 @@ export async function activate(
   workflowStore = workspaceRoot ? new WorkflowStore(workspaceRoot) : undefined;
   teamRunStore = workspaceRoot ? new TeamRunStore(workspaceRoot) : undefined;
   teamLoader = workspaceRoot ? new TeamLoader(workspaceRoot) : undefined;
+  if (workflowStore) activationContext.register("workflowStore", workflowStore);
+  if (teamRunStore) activationContext.register("teamRunStore", teamRunStore);
+  if (teamLoader) activationContext.register("teamLoader", teamLoader);
 
   const stubProvider = createStubProvider("not-configured");
   const inlineProviderRef: { current: LLMProvider } = { current: stubProvider };
@@ -459,6 +483,8 @@ export async function activate(
   sessionStore = new SessionStore(
     path.join(workspaceRoot, ".champ", "sessions"),
   );
+  activationContext.register("agentManager", agentManager);
+  activationContext.register("sessionStore", sessionStore);
 
   // ---- MCP (Model Context Protocol) server connections ----------------
   mcpClientManager = new MCPClientManager();
@@ -468,6 +494,8 @@ export async function activate(
     toolRegistry,
     context.secrets,
   );
+  activationContext.register("mcpClientManager", mcpClientManager);
+  activationContext.register("mcpRegistry", mcpRegistry);
   mcpRegistry.onStatusChange = () => broadcastMcpStatus();
 
   // Wire sampling support: MCP servers can request LLM completions from Champ.
@@ -522,6 +550,7 @@ export async function activate(
 
   // ---- Smart Router (multi-provider model discovery) ----------------
   smartRouter = new SmartRouter();
+  activationContext.register("smartRouter", smartRouter);
   smartRouter.setTieBreak(cachedYamlConfig?.routing?.tieBreak ?? "model-id");
   // Register static catalogs for cloud providers that cannot be auto-discovered
   // via network scanning (they have no baseUrl to query). Without this the model
@@ -663,6 +692,7 @@ export async function activate(
             smartRouter,
             cachedYamlConfig ?? {},
           );
+          activationContext?.register("indexingService", indexingService);
           // Trigger auto-index immediately after IndexingService is ready.
           // triggerAutoIndex probes embedding provider reachability before calling initialize().
           if (indexingService) {
@@ -1004,6 +1034,7 @@ export async function activate(
     context.extension.packageJSON.version as string,
     policyEngine,
   );
+  activationContext.register("chatViewProvider", chatViewProvider);
   chatViewProvider.setContextResolver(contextResolver);
   if (checkpointManager) {
     chatViewProvider.setCheckpointManager(checkpointManager);
@@ -1557,6 +1588,7 @@ export async function activate(
             smartRouter,
             cachedYamlConfig ?? {},
           );
+          activationContext?.register("indexingService", indexingService);
           return indexingService;
         },
         withProgress: async (options, task) => {
@@ -4006,6 +4038,7 @@ export async function activate(
           resolvedUserId,
           wsHash,
         );
+        activationContext?.register("analyticsExporter", analyticsExporter);
       }
       // SmartRouter.discover() handles all model detection. If no YAML,
       // also register the active provider from VS Code settings.
@@ -4048,6 +4081,7 @@ export async function activate(
         }
       }
       persistentRunner = baseRunner;
+      activationContext?.register("persistentRunner", persistentRunner);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       lastProviderError = message; // Cache for onWebviewReady re-broadcast if webview isn't ready yet
@@ -4088,6 +4122,7 @@ export async function activate(
         }
       }
       triggerManager = new TriggerManager();
+      activationContext?.register("triggerManager", triggerManager);
       triggerManager.loadTriggers(
         cachedYamlConfig.triggers,
         async (agentName, filePath) => {
@@ -4802,11 +4837,27 @@ export async function activate(
     dispose: () => clearInterval(rediscoveryTimer),
   });
 
+  await activationContext.lifecycle.start();
+
   console.log("Champ extension activated");
 }
 
-export function deactivate(): void {
+export async function deactivate(): Promise<void> {
   activeRunCounts.clear(); // Clear stale concurrent run counts
+
+  // Unified application lifecycle teardown
+  if (activationContext) {
+    try {
+      await activationContext.dispose();
+    } catch (err) {
+      console.error(
+        "Champ: error during lifecycle disposal:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+    activationContext = undefined;
+  }
+
   triggerManager?.disposeAll();
   triggerManager = undefined;
   void mcpRegistry?.disposeAll();
@@ -4849,6 +4900,17 @@ export function deactivate(): void {
     (smartRouter as unknown as { dispose?: () => void })?.dispose?.();
   } catch {}
   smartRouter = undefined;
+
+  try {
+    (persistentRunner as unknown as { dispose?: () => void })?.dispose?.();
+  } catch {}
+  persistentRunner = undefined;
+
+  teamRunner = undefined;
+  workflowStore = undefined;
+  teamRunStore = undefined;
+  teamLoader = undefined;
+  activeWorkflowSession = undefined;
 
   agentControllerRef.current = undefined;
   sessionAnalytics = undefined;
