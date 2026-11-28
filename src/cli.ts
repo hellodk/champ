@@ -30,6 +30,8 @@
  */
 import * as fs from "fs";
 import * as path from "path";
+import { execFileSync } from "child_process";
+import { tmpdir } from "os";
 import { createInterface, type Interface as Readline } from "readline";
 import { format } from "util";
 import { parseCliArgs, USAGE, type CliFlags, type CliMode } from "./cli/args";
@@ -130,12 +132,17 @@ import {
   SessionLog,
   type SessionReplay,
 } from "./session/session-log";
-import { newSessionId } from "./session/ids";
+import { isValidSessionId, newSessionId } from "./session/ids";
 import type { LLMMessage, TokenUsage } from "./providers/types";
 import { runTui } from "./tui/app";
 import { dedupeEndpointSummaries, resolveTuiSelection } from "./tui/endpoints";
 import type { EndpointSummary } from "./tui/state";
 import type { TuiRuntime, TuiTurnEvents } from "./tui/runtime";
+import {
+  mapMcpStatus,
+  toolResultFromCompletion,
+  usageFromSummary,
+} from "./tui/runtime-mapping";
 
 export const EXIT_OK = 0;
 export const EXIT_FAILURE = 1;
@@ -670,6 +677,22 @@ function sessionInfo(log: SessionLog | null): string {
     ? `, checkpoint "${replay.checkpoint.label}" at ${replay.checkpoint.upTo} messages`
     : ", no checkpoint";
   return `${log.id} — ${replay.recorded} messages${checkpoint}\n  ${log.path}`;
+}
+
+/** Open the prompt in $EDITOR (or CHAMP_EDITOR) and return the edited text. */
+async function editPromptExternally(text: string): Promise<string | null> {
+  const editor = process.env.CHAMP_EDITOR ?? process.env.EDITOR;
+  if (!editor) return null;
+  const directory = fs.mkdtempSync(path.join(tmpdir(), "champ-editor-"));
+  const file = path.join(directory, "prompt.txt");
+  try {
+    fs.writeFileSync(file, text, "utf8");
+    const [binary, ...args] = editor.split(/\s+/).filter(Boolean);
+    execFileSync(binary, [...args, file], { stdio: "inherit" });
+    return fs.readFileSync(file, "utf8");
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 }
 
 /** Translate registry endpoints into the read-only view consumed by the TUI. */
@@ -1404,13 +1427,20 @@ async function main(): Promise<number> {
       },
     },
   });
+  let headlessMcpRegistry:
+    | Awaited<ReturnType<typeof loadHeadlessMcpServers>>
+    | undefined;
   if (config.mcp?.servers?.length) {
     try {
-      await loadHeadlessMcpServers(toolRegistry, config.mcp.servers, {
-        secrets: createCliMcpSecretResolver(endpointCredentials),
-        onError: (server, error) =>
-          process.stderr.write(`[mcp] ${server}: ${error}\n`),
-      });
+      headlessMcpRegistry = await loadHeadlessMcpServers(
+        toolRegistry,
+        config.mcp.servers,
+        {
+          secrets: createCliMcpSecretResolver(endpointCredentials),
+          onError: (server, error) =>
+            process.stderr.write(`[mcp] ${server}: ${error}\n`),
+        },
+      );
     } catch (err) {
       process.stderr.write(
         `[mcp] could not load servers: ${err instanceof Error ? err.message : String(err)}\n`,
@@ -1509,6 +1539,7 @@ async function main(): Promise<number> {
   // `--session <id>` opts a run into the append-only session log, resuming
   // when the log exists. The REPL always keeps one: the user is in it.
   let sessionLog: SessionLog | null = null;
+  const usageHistory: import("./tui/insights").UsageRecord[] = [];
   let isResuming = false;
   try {
     if (flags.session) {
@@ -1691,6 +1722,8 @@ async function main(): Promise<number> {
         askApproval: (description: string) => Promise<boolean>,
       ) => {
         const trimmed = text.trim();
+        const toolStarts = new Map<string, { id: string; startedAt: string }>();
+        const turnStartedAt = Date.now();
         if (!trimmed)
           return { text: "", aborted: false, status: "success" as TurnStatus };
 
@@ -1789,23 +1822,82 @@ async function main(): Promise<number> {
         const runEvents = {
           onText: events.onText,
           onTool: (call: {
+            id?: string;
             name: string;
             arguments?: Record<string, unknown>;
           }) => {
+            const id = call.id ?? call.name ?? "tool";
             const args = JSON.stringify(call.arguments ?? {});
+            const startedAt = new Date().toISOString();
+            toolStarts.set(id, { id, startedAt });
             const shown = args.length > 200 ? `${args.slice(0, 200)}…` : args;
-            events.onTool?.(call.name, shown);
+            if (!events.onToolEvent) events.onTool?.(call.name, shown);
+            events.onToolEvent?.({ id, name: call.name, args, startedAt });
           },
           onToolResult: (res: ToolCompletionEvent) => {
-            events.onToolResult?.(res.name ?? "tool", res.output, res.success);
+            const id = res.id ?? res.name ?? "tool";
+            if (!events.onToolResultEvent) {
+              events.onToolResult?.(
+                res.name ?? "tool",
+                res.output,
+                res.success,
+              );
+            }
+            events.onToolResultEvent?.(
+              toolResultFromCompletion(
+                {
+                  ...res,
+                  approval: autoApprove ? "auto" : res.approval,
+                },
+                toolStarts.get(id) ?? { id },
+              ),
+            );
           },
           onError: events.onError,
-          onDone: (summary: { tools: number; usage: TokenUsage }) =>
+          onUsage: (usage: TokenUsage) => {
+            const record = usageFromSummary(usage, {
+              at: new Date().toISOString(),
+              model: initialSelection.model || provider.config.model,
+              provider: String(registryChoice?.endpoint.provider ?? "config"),
+              latencyMs: Date.now() - turnStartedAt,
+              costUsd: 0,
+            });
+            usageHistory.push(record);
+            events.onUsage?.(record);
+          },
+          onDone: (summary: { tools: number; usage: TokenUsage }) => {
             events.onDone?.({
               tools: summary.tools,
               inputTokens: summary.usage.inputTokens,
               outputTokens: summary.usage.outputTokens,
-            }),
+            });
+            events.onContext?.({
+              usedTokens: Math.ceil(
+                (liveController ?? controller)
+                  .getHistory()
+                  .reduce(
+                    (total, message) =>
+                      total +
+                      (typeof message.content === "string"
+                        ? message.content.length
+                        : message.content.length * 16),
+                    0,
+                  ) / 4,
+              ),
+              limit: 128000,
+              model: initialSelection.model || provider.config.model,
+              messages: (liveController ?? controller).getHistory().length,
+              compactions: sessionLog?.checkpoint
+                ? [
+                    {
+                      at: new Date(sessionLog.checkpoint.at).toISOString(),
+                      label: sessionLog.checkpoint.label,
+                      elided: sessionLog.replay().elided,
+                    },
+                  ]
+                : [],
+            });
+          },
         };
 
         if (resolved.kind === "skill") {
@@ -2038,9 +2130,39 @@ async function main(): Promise<number> {
                       )
                       .join(" ")
                 : "";
+              let customLabel = "";
+              try {
+                customLabel = (
+                  await fs.promises.readFile(
+                    path.join(
+                      SessionLog.dirFor(workspace),
+                      `${session.meta.id}.label`,
+                    ),
+                    "utf8",
+                  )
+                ).trim();
+              } catch {
+                // No custom label yet; derive one from the log metadata.
+              }
+              let parentId: string | undefined;
+              try {
+                parentId = (
+                  await fs.promises.readFile(
+                    path.join(
+                      SessionLog.dirFor(workspace),
+                      `${session.meta.id}.parent`,
+                    ),
+                    "utf8",
+                  )
+                ).trim();
+              } catch {
+                // Root sessions have no parent marker.
+              }
               return {
                 id: session.meta.id,
-                label: `${session.messages} message(s)${session.meta.model ? ` · ${session.meta.model}` : ""}`,
+                label:
+                  customLabel ||
+                  `${session.messages} message(s)${session.meta.model ? ` · ${session.meta.model}` : ""}`,
                 updatedAt: `${new Date(session.lastActivityAt).toLocaleString(
                   "en-IN",
                   {
@@ -2051,6 +2173,7 @@ async function main(): Promise<number> {
                   },
                 )} IST`,
                 preview: preview.slice(0, 120),
+                ...(parentId ? { parentId, forkedFrom: parentId } : {}),
               };
             }),
           );
@@ -2087,6 +2210,181 @@ async function main(): Promise<number> {
             messages,
           };
         },
+        renameSession: async (id, label) => {
+          if (!isValidSessionId(id))
+            throw new Error(`invalid session id: ${id}`);
+          const trimmed = label.trim();
+          if (!trimmed) throw new Error("label is required");
+          await fs.promises.writeFile(
+            path.join(SessionLog.dirFor(workspace), `${id}.label`),
+            trimmed,
+            "utf8",
+          );
+          return `renamed ${id} to ${trimmed}`;
+        },
+        forkSession: async (id, label) => {
+          if (!isValidSessionId(id))
+            throw new Error(`invalid session id: ${id}`);
+          const raw = await fs.promises.readFile(
+            SessionLog.pathFor(workspace, id),
+            "utf8",
+          );
+          const [header, ...rest] = raw.split("\n");
+          const parsed = JSON.parse(header) as Record<string, unknown>;
+          const newId = newSessionId();
+          const forkedHeader = JSON.stringify({ ...parsed, id: newId });
+          await fs.promises.writeFile(
+            SessionLog.pathFor(workspace, newId),
+            [forkedHeader, ...rest].join("\n"),
+            { encoding: "utf8", flag: "wx" },
+          );
+          if (label.trim()) {
+            await fs.promises.writeFile(
+              path.join(SessionLog.dirFor(workspace), `${newId}.label`),
+              label.trim(),
+              "utf8",
+            );
+          }
+          await fs.promises.writeFile(
+            path.join(SessionLog.dirFor(workspace), `${newId}.parent`),
+            id,
+            "utf8",
+          );
+          return `forked ${id} to ${newId}`;
+        },
+        deleteSession: async (id) => {
+          if (!isValidSessionId(id))
+            throw new Error(`invalid session id: ${id}`);
+          const directory = SessionLog.dirFor(workspace);
+          for (const file of [`${id}.jsonl`, `${id}.label`, `${id}.parent`]) {
+            try {
+              await fs.promises.unlink(path.join(directory, file));
+            } catch (err) {
+              if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+            }
+          }
+          return `deleted ${id}`;
+        },
+        listMcpServers: async () =>
+          headlessMcpRegistry
+            ? headlessMcpRegistry.getStatus().map(mapMcpStatus)
+            : [],
+        restartMcpServer: async (name) => {
+          if (!headlessMcpRegistry) return "no MCP servers are configured";
+          const known = headlessMcpRegistry
+            .getStatus()
+            .some((status) => status.name === name);
+          if (!known) throw new Error(`unknown MCP server "${name}"`);
+          await headlessMcpRegistry.reconnect(name);
+          return `restarted ${name}`;
+        },
+        listCheckpoints: async () => {
+          if (!sessionLog) return [];
+          const raw = await fs.promises.readFile(sessionLog.path, "utf8");
+          return raw.split("\n").flatMap((line) => {
+            try {
+              const record = JSON.parse(line) as {
+                kind?: string;
+                seq?: number;
+                at?: number;
+                label?: string;
+              };
+              if (record.kind !== "checkpoint") return [];
+              return [
+                {
+                  id: `cp-${record.seq}`,
+                  label: String(record.label ?? "checkpoint"),
+                  at: new Date(record.at ?? 0).toISOString(),
+                  checkpointId: `cp-${record.seq}`,
+                },
+              ];
+            } catch {
+              return [];
+            }
+          });
+        },
+        rewindTo: async (checkpointId) => {
+          if (!sessionLog) throw new Error("no session for this run");
+          const match = /^cp-(\d+)$/.exec(checkpointId);
+          if (!match) throw new Error(`invalid checkpoint "${checkpointId}"`);
+          const seq = Number(match[1]);
+          const raw = await fs.promises.readFile(sessionLog.path, "utf8");
+          const lines = raw.split("\n");
+          const target = lines.findIndex((line) => {
+            try {
+              const record = JSON.parse(line) as {
+                kind?: string;
+                seq?: number;
+              };
+              return record.kind === "checkpoint" && record.seq === seq;
+            } catch {
+              return false;
+            }
+          });
+          if (target === -1)
+            throw new Error(`unknown checkpoint "${checkpointId}"`);
+          const kept = lines.slice(0, target + 1).filter(Boolean);
+          const tmp = `${sessionLog.path}.rewind`;
+          await fs.promises.writeFile(tmp, `${kept.join("\n")}\n`, "utf8");
+          await fs.promises.rename(tmp, sessionLog.path);
+          const reopened = await SessionLog.open(workspace, sessionLog.id);
+          if (!reopened) throw new Error("session log could not be reopened");
+          sessionLog = reopened;
+          controller.setHistory(resumedHistory(reopened.replay()));
+          return `rewound to ${checkpointId}`;
+        },
+        getContext: async () => {
+          const history = (liveController ?? controller).getHistory();
+          const usedTokens = Math.ceil(
+            history.reduce(
+              (total, message) =>
+                total +
+                (typeof message.content === "string"
+                  ? message.content.length
+                  : message.content.length * 16),
+              0,
+            ) / 4,
+          );
+          const checkpoint = sessionLog?.checkpoint;
+          return {
+            usedTokens,
+            limit: 128000,
+            model: initialSelection.model || provider.config.model,
+            messages: history.length,
+            compactions: checkpoint
+              ? [
+                  {
+                    at: new Date(checkpoint.at).toISOString(),
+                    label: checkpoint.label,
+                    elided: sessionLog?.replay().elided ?? 0,
+                  },
+                ]
+              : [],
+          };
+        },
+        listUsage: async () => [...usageHistory],
+        listPlan: async () => {
+          if (!sessionLog) return [];
+          const checkpoints = sessionLog.replay().checkpoint
+            ? [
+                {
+                  id: `cp-${sessionLog.checkpoint?.seq ?? 0}`,
+                  text: sessionLog.checkpoint?.label ?? "checkpoint",
+                  status: "done" as const,
+                },
+              ]
+            : [];
+          return [
+            ...checkpoints,
+            { id: "next", text: "Continue the current task", status: "active" },
+          ];
+        },
+        listCommands: async () =>
+          Object.entries(CHAT_COMMAND_HELP).map(([name, description]) => ({
+            name,
+            description,
+          })),
+        openExternalEditor: editPromptExternally,
         listReviews: async () => {
           const entries = await reviewStore.list();
           return entries.map((entry) => ({

@@ -2,22 +2,89 @@
  * Pure state container for the full-screen Ink TUI.
  *
  * Keeping transitions here makes the user interface testable without a
- * terminal and gives the chat, provider and config screens one shared source
- * of truth.
+ * terminal and gives every screen one shared source of truth.
  */
+import {
+  composerBackspace,
+  composerDelete,
+  composerInsert,
+  composerMove,
+  composerReplace,
+  composerText,
+  emptyComposer,
+  type ComposerMove,
+  type ComposerState,
+} from "./composer";
+import {
+  appendUsage,
+  type ContextSnapshot,
+  type UsageRecord,
+} from "./insights";
+import {
+  applyMcpHealth,
+  markMcpRestarting,
+  type McpHealth,
+  type McpServerStatus,
+} from "./mcp";
+import {
+  advancePlan,
+  setPlan,
+  updatePlanStep,
+  type PlanStep,
+  type PlanStepInput,
+  type PlanStepStatus,
+} from "./plan";
+import {
+  emptyRecovery,
+  recordRecovery,
+  redoRecovery,
+  rewindRecovery,
+  undoRecovery,
+  type RecoverySnapshot,
+  type RecoveryState,
+} from "./recovery";
+import {
+  deleteSession,
+  forkSession,
+  moveSessionTab,
+  renameSession,
+} from "./session-ops";
+import {
+  enqueueTask,
+  finishTask,
+  startNextTask,
+  taskStateForSession,
+  type SessionExecutionState,
+  type TuiTask,
+  type TuiTaskInput,
+} from "./tasks";
+import {
+  toolSummary,
+  type ToolRecord,
+  type ToolResultEvent,
+  type ToolStartEvent,
+} from "./tool-events";
+
 export type TuiScreen =
   | "chat"
   | "providers"
   | "config"
   | "help"
   | "sessions"
-  | "review";
+  | "review"
+  | "tasks"
+  | "plan"
+  | "context"
+  | "usage"
+  | "mcp";
 
 export interface TuiSessionSummary {
   id: string;
   label: string;
   updatedAt: string;
   preview?: string;
+  parentId?: string;
+  forkedFrom?: string;
 }
 
 export interface TuiReviewSummary {
@@ -35,6 +102,8 @@ export interface ChatMessage {
   text: string;
   timestamp: string;
   streaming?: boolean;
+  /** Links a transcript entry to the full structured tool event. */
+  toolId?: string;
 }
 
 export interface EndpointSummary {
@@ -96,6 +165,24 @@ export interface TuiState {
   truncated: boolean;
   /** Tool messages whose full output is expanded in the transcript. */
   expandedTools: string[];
+  /** Multiline prompt draft with an explicit cursor. */
+  composer: ComposerState;
+  /** Global command palette overlay. */
+  paletteOpen: boolean;
+  paletteQuery: string;
+  paletteCursor: number;
+  /** Full structured tool events keyed by tool id, never truncated here. */
+  toolRecords: Record<string, ToolRecord>;
+  tasks: TuiTask[];
+  sessionExecutions: Record<string, SessionExecutionState>;
+  plan: PlanStep[];
+  context: ContextSnapshot;
+  usage: UsageRecord[];
+  mcpServers: McpServerStatus[];
+  recovery: RecoveryState;
+  sessionTabs: string[];
+  activeSessionTab: number;
+  activeSessionId?: string;
 }
 
 export type TuiAction =
@@ -140,7 +227,49 @@ export type TuiAction =
       totalLines: number;
       viewportLines: number;
       addedLines: number;
-    };
+    }
+  | { type: "composer/insert"; text: string }
+  | { type: "composer/backspace" }
+  | { type: "composer/delete" }
+  | { type: "composer/move"; move: ComposerMove }
+  | { type: "composer/replace"; text: string }
+  | { type: "palette/open" }
+  | { type: "palette/close" }
+  | { type: "palette/query"; value: string }
+  | { type: "palette/cursor"; delta: number }
+  | { type: "tool/start"; event: ToolStartEvent }
+  | { type: "tool/result"; event: ToolResultEvent }
+  | { type: "tasks/enqueue"; task: TuiTaskInput }
+  | { type: "tasks/start"; sessionId: string }
+  | {
+      type: "tasks/finish";
+      id: string;
+      status: "done" | "failed" | "cancelled";
+    }
+  | { type: "plan/set"; steps: readonly PlanStepInput[] }
+  | { type: "plan/advance" }
+  | { type: "plan/step"; id: string; status: PlanStepStatus }
+  | { type: "context/set"; snapshot: ContextSnapshot }
+  | { type: "usage/add"; record: UsageRecord }
+  | { type: "usage/set"; records: UsageRecord[] }
+  | { type: "mcp/set"; servers: McpServerStatus[] }
+  | { type: "mcp/restarting"; name: string }
+  | { type: "mcp/health"; name: string; health: McpHealth; error?: string }
+  | { type: "recovery/record"; snapshot: RecoverySnapshot }
+  | { type: "recovery/undo" }
+  | { type: "recovery/redo" }
+  | { type: "recovery/rewind"; id: string }
+  | { type: "sessions/rename"; id: string; label: string }
+  | {
+      type: "sessions/fork";
+      id: string;
+      newId: string;
+      label: string;
+    }
+  | { type: "sessions/delete"; id: string }
+  | { type: "sessions/tab/add"; id: string }
+  | { type: "sessions/tab/close" }
+  | { type: "sessions/tab/move"; delta: number };
 
 export interface TuiInitialState {
   workspace: string;
@@ -158,6 +287,11 @@ const SCREENS: TuiScreen[] = [
   "help",
   "sessions",
   "review",
+  "tasks",
+  "plan",
+  "context",
+  "usage",
+  "mcp",
 ];
 export const TRANSCRIPT_PAGE_SIZE = 18;
 const MAX_MESSAGES = 2000;
@@ -215,7 +349,63 @@ export function initialTuiState(input: TuiInitialState): TuiState {
     viewportLines: 0,
     truncated: false,
     expandedTools: [],
+    composer: emptyComposer(),
+    paletteOpen: false,
+    paletteQuery: "",
+    paletteCursor: 0,
+    toolRecords: {},
+    tasks: [],
+    sessionExecutions: {},
+    plan: [],
+    context: {
+      usedTokens: 0,
+      limit: 128000,
+      model: input.model,
+      messages: 0,
+      compactions: [],
+    },
+    usage: [],
+    mcpServers: [],
+    recovery: emptyRecovery({
+      id: "session-start",
+      label: "Session start",
+      at: now(),
+    }),
+    sessionTabs: [],
+    activeSessionTab: 0,
+    activeSessionId: undefined,
   };
+}
+
+function withInput(state: TuiState, value: string): TuiState {
+  return {
+    ...state,
+    input: value,
+    composer: composerReplace(state.composer, value),
+  };
+}
+
+function withComposer(state: TuiState, composer: ComposerState): TuiState {
+  const value = composerText(composer);
+  return {
+    ...state,
+    composer,
+    input: value,
+    draftInput: value,
+    historyCursor: null,
+  };
+}
+
+function withExecution(
+  state: TuiState,
+  tasks: TuiTask[],
+  sessionIds: readonly string[],
+): TuiState {
+  const executions = { ...state.sessionExecutions };
+  for (const sessionId of sessionIds) {
+    executions[sessionId] = taskStateForSession(tasks, sessionId);
+  }
+  return { ...state, tasks, sessionExecutions: executions };
 }
 
 function clampCursor(state: TuiState, delta: number): number {
@@ -234,6 +424,7 @@ function appendMessage(
   role: ChatRole,
   text: string,
   streaming: boolean,
+  toolId?: string,
 ): ChatMessage[] {
   const last = state.messages[state.messages.length - 1];
   if (
@@ -251,6 +442,7 @@ function appendMessage(
     text,
     timestamp: now(),
     streaming: streaming && role === "assistant",
+    ...(toolId === undefined ? {} : { toolId }),
   };
   return [...state.messages, message].slice(-MAX_MESSAGES);
 }
@@ -265,8 +457,7 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
     }
     case "input/set":
       return {
-        ...state,
-        input: action.value,
+        ...withInput(state, action.value),
         historyCursor: null,
         draftInput: action.value,
       };
@@ -278,6 +469,7 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
         status: "Thinking…",
         messages: appendMessage(state, "user", submitted, false),
         input: "",
+        composer: emptyComposer(),
         draftInput: "",
         historyCursor: null,
         history: submitted ? [...state.history, submitted] : state.history,
@@ -435,9 +627,8 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
           ? state.history.length - 1
           : Math.max(0, state.historyCursor - 1);
       return {
-        ...state,
+        ...withInput(state, state.history[cursor]),
         historyCursor: cursor,
-        input: state.history[cursor],
       };
     }
     case "history/next": {
@@ -445,12 +636,14 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
       const next = state.historyCursor + 1;
       if (next >= state.history.length) {
         return {
-          ...state,
+          ...withInput(state, state.draftInput),
           historyCursor: null,
-          input: state.draftInput,
         };
       }
-      return { ...state, historyCursor: next, input: state.history[next] };
+      return {
+        ...withInput(state, state.history[next]),
+        historyCursor: next,
+      };
     }
     case "transcript/metrics": {
       const max = Math.max(0, action.totalLines - action.viewportLines);
@@ -492,6 +685,189 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
         expandedTools: state.expandedTools.includes(action.id)
           ? state.expandedTools.filter((id) => id !== action.id)
           : [...state.expandedTools, action.id],
+      };
+    case "composer/insert":
+      return withComposer(state, composerInsert(state.composer, action.text));
+    case "composer/backspace":
+      return withComposer(state, composerBackspace(state.composer));
+    case "composer/delete":
+      return withComposer(state, composerDelete(state.composer));
+    case "composer/move":
+      return withComposer(state, composerMove(state.composer, action.move));
+    case "composer/replace":
+      return withComposer(state, composerReplace(state.composer, action.text));
+    case "palette/open":
+      return {
+        ...state,
+        paletteOpen: true,
+        paletteQuery: "",
+        paletteCursor: 0,
+      };
+    case "palette/close":
+      return { ...state, paletteOpen: false };
+    case "palette/query":
+      return { ...state, paletteQuery: action.value, paletteCursor: 0 };
+    case "palette/cursor":
+      return {
+        ...state,
+        paletteCursor: Math.max(0, state.paletteCursor + action.delta),
+      };
+    case "tool/start": {
+      const record: ToolRecord = { start: action.event };
+      return {
+        ...state,
+        messages: appendMessage(
+          state,
+          "tool",
+          toolSummary(record, 120),
+          false,
+          action.event.id,
+        ),
+        toolRecords: { ...state.toolRecords, [action.event.id]: record },
+      };
+    }
+    case "tool/result": {
+      const previous = state.toolRecords[action.event.id];
+      const record: ToolRecord = previous
+        ? { ...previous, result: action.event }
+        : {
+            start: {
+              id: action.event.id,
+              name: action.event.name,
+              args: "",
+            },
+            result: action.event,
+          };
+      const firstLine = action.event.output.trim().split("\n")[0] ?? "";
+      const text = `${action.event.success ? "✓" : "✗"} ${action.event.name}${
+        firstLine ? ` → ${firstLine.slice(0, 80)}` : ""
+      }`;
+      return {
+        ...state,
+        messages: appendMessage(
+          state,
+          action.event.success ? "system" : "error",
+          text,
+          false,
+          action.event.id,
+        ),
+        toolRecords: { ...state.toolRecords, [action.event.id]: record },
+      };
+    }
+    case "tasks/enqueue": {
+      const tasks = enqueueTask(state.tasks, action.task, now());
+      return withExecution(state, tasks, [action.task.sessionId]);
+    }
+    case "tasks/start": {
+      const tasks = startNextTask(state.tasks, action.sessionId, now());
+      return withExecution(state, tasks, [action.sessionId]);
+    }
+    case "tasks/finish": {
+      const task = state.tasks.find((item) => item.id === action.id);
+      const tasks = finishTask(state.tasks, action.id, action.status, now());
+      return withExecution(state, tasks, task ? [task.sessionId] : []);
+    }
+    case "plan/set":
+      return { ...state, plan: setPlan(action.steps) };
+    case "plan/advance":
+      return { ...state, plan: advancePlan(state.plan) };
+    case "plan/step":
+      return {
+        ...state,
+        plan: updatePlanStep(state.plan, action.id, action.status),
+      };
+    case "context/set":
+      return { ...state, context: action.snapshot };
+    case "usage/add":
+      return { ...state, usage: appendUsage(state.usage, action.record) };
+    case "usage/set":
+      return { ...state, usage: action.records.slice(-200) };
+    case "mcp/set":
+      return { ...state, mcpServers: action.servers };
+    case "mcp/restarting":
+      return {
+        ...state,
+        mcpServers: markMcpRestarting(state.mcpServers, action.name),
+      };
+    case "mcp/health":
+      return {
+        ...state,
+        mcpServers: applyMcpHealth(
+          state.mcpServers,
+          action.name,
+          action.health,
+          action.error,
+        ),
+      };
+    case "recovery/record":
+      return {
+        ...state,
+        recovery: recordRecovery(state.recovery, action.snapshot),
+      };
+    case "recovery/undo":
+      return { ...state, recovery: undoRecovery(state.recovery) };
+    case "recovery/redo":
+      return { ...state, recovery: redoRecovery(state.recovery) };
+    case "recovery/rewind":
+      return {
+        ...state,
+        recovery: rewindRecovery(state.recovery, action.id),
+      };
+    case "sessions/rename":
+      return {
+        ...state,
+        sessions: renameSession(state.sessions, action.id, action.label),
+      };
+    case "sessions/fork":
+      return {
+        ...state,
+        sessions: forkSession(
+          state.sessions,
+          action.id,
+          action.newId,
+          action.label,
+        ),
+        sessionTabs: [...state.sessionTabs, action.newId].slice(-8),
+      };
+    case "sessions/delete": {
+      const sessions = deleteSession(state.sessions, action.id);
+      const tabs = state.sessionTabs.filter((tab) => tab !== action.id);
+      return {
+        ...state,
+        sessions,
+        sessionTabs: tabs,
+        activeSessionTab: Math.min(
+          state.activeSessionTab,
+          Math.max(0, tabs.length - 1),
+        ),
+      };
+    }
+    case "sessions/tab/add": {
+      if (state.sessionTabs.includes(action.id)) return state;
+      const tabs = [...state.sessionTabs, action.id].slice(-8);
+      return { ...state, sessionTabs: tabs, activeSessionTab: tabs.length - 1 };
+    }
+    case "sessions/tab/close": {
+      const tabs = state.sessionTabs.filter(
+        (_tab, index) => index !== state.activeSessionTab,
+      );
+      return {
+        ...state,
+        sessionTabs: tabs,
+        activeSessionTab: Math.min(
+          state.activeSessionTab,
+          Math.max(0, tabs.length - 1),
+        ),
+      };
+    }
+    case "sessions/tab/move":
+      return {
+        ...state,
+        activeSessionTab: moveSessionTab(
+          state.sessionTabs,
+          state.activeSessionTab,
+          action.delta,
+        ),
       };
     default:
       return state;

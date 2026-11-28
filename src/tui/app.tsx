@@ -26,6 +26,14 @@ import {
   type TuiSessionSummary,
 } from "./state";
 import { buildTranscriptLines, TRANSCRIPT_VIEWPORT_LINES } from "./transcript";
+import { shouldSubmitOnEnter } from "./composer";
+import { contextBudget, usageLine, usageTotals } from "./insights";
+import { mcpSummary } from "./mcp";
+import { buildPaletteActions, filterPaletteActions } from "./palette";
+import { planProgress, type PlanStepInput } from "./plan";
+import { canRedo, canUndo, type RecoverySnapshot } from "./recovery";
+import { sessionLineage } from "./session-ops";
+import { toolDetailLines } from "./tool-events";
 import type { TuiConfigEntry, TuiRuntime } from "./runtime";
 import { dedupeEndpointSummaries, resolveTuiSelection } from "./endpoints";
 import { filterSessions } from "../session/search";
@@ -52,16 +60,26 @@ const SCREENS: Array<{ id: TuiScreen; label: string }> = [
   { id: "help", label: "Help" },
   { id: "sessions", label: "Sessions" },
   { id: "review", label: "Review" },
+  { id: "tasks", label: "Tasks" },
+  { id: "plan", label: "Plan" },
+  { id: "context", label: "Context" },
+  { id: "usage", label: "Usage" },
+  { id: "mcp", label: "MCP" },
 ];
 
 /** Context-sensitive hints replace a flat key dump in the footer. */
 const FOOTER_HINTS: Record<TuiScreen, string> = {
-  chat: "? help · Tab screens · Ctrl-C exit",
+  chat: "? help · Ctrl-P palette · Ctrl-O editor · Ctrl-E tool · Tab screens",
   providers: "↑↓ select · U models · ? help",
   config: "S set · I editor · ? help",
   help: "? advanced · Esc chat",
-  sessions: "Type to filter · Enter resume · Ctrl-U clear · ? help",
+  sessions: "F2 rename · F fork · Del delete · Ctrl-T tab · ? help",
   review: "A accept · R reject · ? help",
+  tasks: "↑↓ select · A start · X cancel · Esc chat",
+  plan: "Enter advance · 1-9 block step · Esc chat",
+  context: "C checkpoint · K compact · Z undo · Y redo · Esc chat",
+  usage: "↑↓ history · Esc chat",
+  mcp: "↑↓ select · R restart · Esc chat",
 };
 
 const ROLE_GLYPHS: Record<ChatRole, string> = {
@@ -244,7 +262,32 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
     open: boolean;
   }>({ key: CONFIG_KEYS[0].key, value: "", open: false });
   const [configEntries, setConfigEntries] = useState<TuiConfigEntry[]>([]);
+  const [sessionPrompt, setSessionPrompt] = useState<{
+    kind: "rename" | "fork";
+    value: string;
+  } | null>(null);
+  const [recoverySnapshots, setRecoverySnapshots] = useState<
+    RecoverySnapshot[]
+  >([]);
+  const [runtimeCommands, setRuntimeCommands] = useState<
+    Array<{ name: string; description: string }>
+  >([]);
+  const [mcpCursor, setMcpCursor] = useState(0);
+  const [taskCursor, setTaskCursor] = useState(0);
   const palette = PALETTES[theme];
+
+  // Task prompts are kept outside reducer state because the queue is driven
+  // by async turns; the reducer only owns their visible status.
+  const queuedPrompts = useRef(
+    new Map<string, { text: string; sessionId: string; status: string }>(),
+  );
+  const activeTurn = useRef<{ id: string; sessionId: string } | null>(null);
+  const taskSequence = useRef(0);
+  const planSteps = useRef<PlanStepInput[]>([]);
+  const runTurnRef = useRef<
+    | ((text: string, taskId?: string, sessionId?: string) => Promise<void>)
+    | null
+  >(null);
 
   useEffect(() => {
     let alive = true;
@@ -283,10 +326,17 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
 
   useEffect(() => {
     let alive = true;
-    if (state.screen === "sessions" && runtime.listSessions) {
-      void runtime.listSessions().then((sessions) => {
-        if (alive) dispatch({ type: "sessions/set", sessions });
-      });
+    if (state.screen === "sessions") {
+      if (runtime.listSessions) {
+        void runtime.listSessions().then((sessions) => {
+          if (alive) dispatch({ type: "sessions/set", sessions });
+        });
+      }
+      if (runtime.listCheckpoints) {
+        void runtime.listCheckpoints().then((snapshots) => {
+          if (alive) setRecoverySnapshots(snapshots);
+        });
+      }
     }
     if (state.screen === "review" && runtime.listReviews) {
       void runtime.listReviews().then((reviews) => {
@@ -298,10 +348,62 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         if (alive) setConfigEntries(entries);
       });
     }
+    if (state.screen === "context" && runtime.getContext) {
+      void runtime.getContext().then((snapshot) => {
+        if (alive) dispatch({ type: "context/set", snapshot });
+      });
+    }
+    if (state.screen === "usage" && runtime.listUsage) {
+      void runtime.listUsage().then((records) => {
+        if (alive) dispatch({ type: "usage/set", records });
+      });
+    }
+    if (state.screen === "plan" && runtime.listPlan) {
+      void runtime.listPlan().then((steps) => {
+        if (alive) {
+          planSteps.current = [...steps];
+          dispatch({ type: "plan/set", steps });
+        }
+      });
+    }
+    if (state.screen === "mcp" && runtime.listMcpServers) {
+      void runtime.listMcpServers().then((servers) => {
+        if (alive) {
+          dispatch({ type: "mcp/set", servers });
+          setMcpCursor(0);
+        }
+      });
+    }
     return () => {
       alive = false;
     };
   }, [runtime, state.screen]);
+
+  useEffect(() => {
+    let alive = true;
+    if (runtime.listCommands) {
+      void runtime.listCommands().then((commands) => {
+        if (alive) setRuntimeCommands(commands);
+      });
+    }
+    return () => {
+      alive = false;
+    };
+  }, [runtime]);
+
+  const paletteActions = useMemo(
+    () => buildPaletteActions(SCREENS, runtimeCommands),
+    [runtimeCommands],
+  );
+  const visiblePaletteActions = useMemo(
+    () => filterPaletteActions(paletteActions, state.paletteQuery),
+    [paletteActions, state.paletteQuery],
+  );
+
+  const refreshSessions = useCallback(async () => {
+    if (!runtime.listSessions) return;
+    dispatch({ type: "sessions/set", sessions: await runtime.listSessions() });
+  }, [runtime]);
 
   const suggestions = useMemo(
     () =>
@@ -309,105 +411,209 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
     [state.input],
   );
 
-  const submit = useCallback(async () => {
-    const text = state.input.trim();
-    if (!text || state.busy) return;
-
-    if (text === "/exit" || text === "/quit" || text === "/q") {
-      runtime.exit();
-      exit();
-      return;
-    }
-    if (text === "/clear") {
-      dispatch({ type: "messages/clear" });
-      return;
-    }
-    if (text === "/help") {
-      dispatch({ type: "screen/set", screen: "help" });
-      return;
-    }
-    const canonical = canonicalChatCommand(text);
-    if (text === "/providers" || canonical === "/model") {
-      dispatch({ type: "screen/set", screen: "providers" });
-      return;
-    }
-    if (canonical === "/sessions") {
-      dispatch({ type: "screen/set", screen: "sessions" });
-      return;
-    }
-    if (text.startsWith("/") && runtime.command) {
-      const canonical = canonicalChatCommand(text);
-      const commandText = canonical
-        ? [canonical, ...text.trim().split(/\s+/).slice(1)].join(" ")
-        : text;
-      const output = await runtime.command(commandText);
-      if (output !== null) {
+  const runTurn = useCallback(
+    async (text: string, taskId?: string, sessionId?: string) => {
+      const id = taskId ?? `task-${(taskSequence.current += 1)}`;
+      const session = sessionId ?? "main";
+      activeTurn.current = { id, sessionId: session };
+      if (taskId) dispatch({ type: "tasks/start", sessionId: session });
+      dispatch({ type: "turn/start" });
+      try {
+        const result = await runtime.submit(
+          text,
+          {
+            onText: (chunk) =>
+              dispatch({
+                type: "message/stream",
+                role: "assistant",
+                text: chunk,
+              }),
+            // Legacy callbacks keep existing adapters working. The CLI adapter
+            // skips them when it emits structured events, so transcripts never
+            // contain the same tool twice.
+            onTool: (name, args) =>
+              dispatch({
+                type: "message/add",
+                role: "tool",
+                text: `${name} ${truncate(args, 120)}`,
+              }),
+            onToolResult: (name, output, success) => {
+              const firstLine = output.trim().split("\n")[0] || "";
+              const summary = firstLine ? ` → ${truncate(firstLine, 80)}` : "";
+              dispatch({
+                type: "message/add",
+                role: success ? "system" : "error",
+                text: `${success ? "✓" : "✗"} ${name}${summary}`,
+              });
+            },
+            onToolEvent: (event) => {
+              dispatch({ type: "tool/start", event });
+              planSteps.current = [
+                ...planSteps.current
+                  .filter((step) => step.id !== event.id)
+                  .map((step) =>
+                    step.status === "active"
+                      ? { ...step, status: "done" as const }
+                      : step,
+                  ),
+                { id: event.id, text: event.name, status: "active" },
+              ];
+              dispatch({ type: "plan/set", steps: planSteps.current });
+            },
+            onToolResultEvent: (event) => {
+              dispatch({ type: "tool/result", event });
+              planSteps.current = planSteps.current.map((step) =>
+                step.id === event.id
+                  ? {
+                      ...step,
+                      status: event.success
+                        ? ("done" as const)
+                        : ("blocked" as const),
+                    }
+                  : step,
+              );
+              if (!planSteps.current.some((step) => step.status === "active")) {
+                const next = planSteps.current.find(
+                  (step) => step.status === "pending",
+                );
+                if (next) next.status = "active";
+              }
+              dispatch({ type: "plan/set", steps: planSteps.current });
+            },
+            onPlan: (steps) => {
+              planSteps.current = [...steps];
+              dispatch({ type: "plan/set", steps });
+            },
+            onUsage: (record) => dispatch({ type: "usage/add", record }),
+            onContext: (snapshot) =>
+              dispatch({ type: "context/set", snapshot }),
+            onError: (message) =>
+              dispatch({ type: "message/add", role: "error", text: message }),
+            onDone: (summary) =>
+              dispatch({
+                type: "status/set",
+                text: `tools=${summary.tools} tokens ${summary.inputTokens}/${summary.outputTokens}`,
+              }),
+          },
+          (description) =>
+            new Promise<boolean>((resolve) => {
+              setApproval({ description, resolve });
+            }),
+        );
+        dispatch({
+          type: "status/set",
+          text: result.aborted
+            ? "Aborted"
+            : result.error
+              ? `Error: ${truncate(result.error, 90)}`
+              : "Ready",
+        });
+      } catch (err) {
         dispatch({
           type: "message/add",
-          role: "system",
-          text: output,
+          role: "error",
+          text: err instanceof Error ? err.message : String(err),
         });
+      } finally {
+        activeTurn.current = null;
+        if (taskId) {
+          dispatch({ type: "tasks/finish", id, status: "done" });
+        }
+        dispatch({ type: "turn/stop" });
+      }
+    },
+    [runtime],
+  );
+  runTurnRef.current = runTurn;
+
+  const submit = useCallback(
+    async (override?: string, background = false) => {
+      const text = (override ?? state.input).trim();
+      if (!text) return;
+
+      if (!override) {
+        if (text === "/exit" || text === "/quit" || text === "/q") {
+          runtime.exit();
+          exit();
+          return;
+        }
+        if (text === "/clear") {
+          dispatch({ type: "messages/clear" });
+          return;
+        }
+        if (text === "/help") {
+          dispatch({ type: "screen/set", screen: "help" });
+          return;
+        }
+        const canonical = canonicalChatCommand(text);
+        if (text === "/providers" || canonical === "/model") {
+          dispatch({ type: "screen/set", screen: "providers" });
+          return;
+        }
+        if (canonical === "/sessions") {
+          dispatch({ type: "screen/set", screen: "sessions" });
+          return;
+        }
+        if (text.startsWith("/") && runtime.command) {
+          const commandText = canonical
+            ? [canonical, ...text.trim().split(/\s+/).slice(1)].join(" ")
+            : text;
+          const output = await runtime.command(commandText);
+          if (output !== null) {
+            dispatch({ type: "message/add", role: "system", text: output });
+            return;
+          }
+        }
+      }
+
+      const sessionId =
+        state.sessionTabs[state.activeSessionTab] ??
+        state.activeSessionId ??
+        "main";
+      const id = `task-${(taskSequence.current += 1)}`;
+      queuedPrompts.current.set(id, {
+        text,
+        sessionId,
+        status: activeTurn.current || background ? "queued" : "running",
+      });
+      dispatch({
+        type: "tasks/enqueue",
+        task: { id, sessionId, label: truncate(text, 42), background },
+      });
+      if (!activeTurn.current && !background) {
+        queuedPrompts.current.get(id)!.status = "running";
+        await runTurn(text, id, sessionId);
+      } else {
+        const waiting = [...queuedPrompts.current.values()].filter(
+          (entry) => entry.status === "queued",
+        ).length;
+        dispatch({
+          type: "status/set",
+          text: `Queued ${waiting} task(s) for ${sessionId}`,
+        });
+      }
+    },
+    [
+      exit,
+      runtime,
+      runTurn,
+      state.activeSessionId,
+      state.activeSessionTab,
+      state.input,
+      state.sessionTabs,
+    ],
+  );
+
+  useEffect(() => {
+    if (state.busy || activeTurn.current) return;
+    for (const [id, entry] of queuedPrompts.current) {
+      if (entry.status === "queued") {
+        entry.status = "running";
+        void runTurnRef.current?.(entry.text, id, entry.sessionId);
         return;
       }
     }
-
-    dispatch({ type: "turn/start" });
-    try {
-      const result = await runtime.submit(
-        text,
-        {
-          onText: (chunk) =>
-            dispatch({
-              type: "message/stream",
-              role: "assistant",
-              text: chunk,
-            }),
-          onTool: (name, args) =>
-            dispatch({
-              type: "message/add",
-              role: "tool",
-              text: `${name} ${truncate(args, 120)}`,
-            }),
-          onToolResult: (name, output, success) => {
-            const firstLine = output.trim().split("\n")[0] || "";
-            const summary = firstLine ? ` → ${truncate(firstLine, 80)}` : "";
-            dispatch({
-              type: "message/add",
-              role: success ? "system" : "error",
-              text: `${success ? "✓" : "✗"} ${name}${summary}`,
-            });
-          },
-          onError: (message) =>
-            dispatch({ type: "message/add", role: "error", text: message }),
-          onDone: (summary) =>
-            dispatch({
-              type: "status/set",
-              text: `tools=${summary.tools} tokens ${summary.inputTokens}/${summary.outputTokens}`,
-            }),
-        },
-        (description) =>
-          new Promise<boolean>((resolve) => {
-            setApproval({ description, resolve });
-          }),
-      );
-      dispatch({
-        type: "status/set",
-        text: result.aborted
-          ? "Aborted"
-          : result.error
-            ? `Error: ${truncate(result.error, 90)}`
-            : "Ready",
-      });
-    } catch (err) {
-      dispatch({
-        type: "message/add",
-        role: "error",
-        text: err instanceof Error ? err.message : String(err),
-      });
-    } finally {
-      dispatch({ type: "turn/stop" });
-    }
-  }, [exit, runtime, state.busy, state.input]);
+  }, [state.busy]);
 
   const openSetup = useCallback(
     (target?: EndpointSummary) => {
@@ -500,12 +706,8 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         }
         dispatch({ type: "transcript/bottom" });
         dispatch({ type: "status/set", text: resumed.summary });
-        if (runtime.listSessions) {
-          dispatch({
-            type: "sessions/set",
-            sessions: await runtime.listSessions(),
-          });
-        }
+        dispatch({ type: "sessions/tab/add", id });
+        await refreshSessions();
       } catch (err) {
         dispatch({
           type: "status/set",
@@ -513,7 +715,111 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         });
       }
     },
-    [runtime],
+    [runtime, refreshSessions],
+  );
+
+  const sessionOperation = useCallback(
+    async (kind: "rename" | "fork" | "delete", value = "") => {
+      const selected = filterSessions(state.sessions, state.sessionFilter)[
+        state.sessionCursor
+      ];
+      if (!selected) return;
+      try {
+        if (kind === "rename") {
+          if (!runtime.renameSession) return;
+          dispatch({
+            type: "status/set",
+            text: await runtime.renameSession(selected.id, value),
+          });
+          dispatch({
+            type: "sessions/rename",
+            id: selected.id,
+            label: value,
+          });
+        } else if (kind === "fork") {
+          if (!runtime.forkSession) return;
+          const result = await runtime.forkSession(selected.id, value);
+          const newId = /to (\S+)/.exec(result)?.[1] ?? `fork-${Date.now()}`;
+          dispatch({
+            type: "sessions/fork",
+            id: selected.id,
+            newId,
+            label: value || `${selected.label} fork`,
+          });
+          dispatch({ type: "status/set", text: result });
+        } else {
+          if (!runtime.deleteSession) return;
+          dispatch({
+            type: "status/set",
+            text: await runtime.deleteSession(selected.id),
+          });
+          dispatch({ type: "sessions/delete", id: selected.id });
+        }
+        setSessionPrompt(null);
+        await refreshSessions();
+      } catch (err) {
+        dispatch({
+          type: "status/set",
+          text: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [
+      refreshSessions,
+      runtime,
+      state.sessionCursor,
+      state.sessionFilter,
+      state.sessions,
+    ],
+  );
+
+  const recoveryOperation = useCallback(
+    async (
+      kind: "checkpoint" | "compact" | "undo" | "redo" | "rewind",
+      id?: string,
+    ) => {
+      try {
+        if (kind === "checkpoint" || kind === "compact") {
+          if (!runtime.command) return;
+          const command =
+            kind === "checkpoint"
+              ? `/checkpoint ${id ?? "tui checkpoint"}`
+              : "/compact";
+          const message = await runtime.command(command);
+          if (message) dispatch({ type: "status/set", text: message });
+          if (runtime.listCheckpoints) {
+            const snapshots = await runtime.listCheckpoints();
+            setRecoverySnapshots(snapshots);
+            const newest = snapshots[snapshots.length - 1];
+            if (newest) dispatch({ type: "recovery/record", snapshot: newest });
+          }
+          return;
+        }
+        if (!runtime.rewindTo) return;
+        const target =
+          kind === "undo"
+            ? state.recovery.past[state.recovery.past.length - 1]
+            : kind === "redo"
+              ? state.recovery.future[0]
+              : (state.recovery.past.find((item) => item.id === id) ??
+                recoverySnapshots.find((item) => item.id === id));
+        if (!target) return;
+        const checkpointId = target.checkpointId ?? target.id;
+        dispatch({
+          type: "status/set",
+          text: await runtime.rewindTo(checkpointId),
+        });
+        if (kind === "undo") dispatch({ type: "recovery/undo" });
+        else if (kind === "redo") dispatch({ type: "recovery/redo" });
+        else dispatch({ type: "recovery/rewind", id: target.id });
+      } catch (err) {
+        dispatch({
+          type: "status/set",
+          text: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [recoverySnapshots, runtime, state.recovery],
   );
 
   const reviewAction = useCallback(
@@ -535,6 +841,30 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
           type: "status/set",
           text: err instanceof Error ? err.message : String(err),
         });
+      }
+    },
+    [runtime],
+  );
+
+  const restartMcp = useCallback(
+    async (name: string) => {
+      if (!runtime.restartMcpServer) return;
+      dispatch({ type: "mcp/restarting", name });
+      try {
+        dispatch({
+          type: "status/set",
+          text: await runtime.restartMcpServer(name),
+        });
+      } catch (err) {
+        dispatch({
+          type: "mcp/health",
+          name,
+          health: "down",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      if (runtime.listMcpServers) {
+        dispatch({ type: "mcp/set", servers: await runtime.listMcpServers() });
       }
     },
     [runtime],
@@ -587,6 +917,80 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       } else {
         runtime.exit();
         exit();
+      }
+      return;
+    }
+
+    if (key.ctrl && input.toLowerCase() === "p") {
+      dispatch({ type: state.paletteOpen ? "palette/close" : "palette/open" });
+      return;
+    }
+
+    if (state.paletteOpen) {
+      const selected =
+        visiblePaletteActions[
+          Math.min(
+            state.paletteCursor,
+            Math.max(0, visiblePaletteActions.length - 1),
+          )
+        ];
+      if (key.escape) {
+        dispatch({ type: "palette/close" });
+        return;
+      }
+      if (key.upArrow) {
+        dispatch({ type: "palette/cursor", delta: -1 });
+        return;
+      }
+      if (key.downArrow) {
+        dispatch({ type: "palette/cursor", delta: 1 });
+        return;
+      }
+      if (key.return && selected) {
+        if (selected.screen) {
+          dispatch({ type: "screen/set", screen: selected.screen });
+        } else {
+          const name = selected.id.replace(/^command:/, "");
+          dispatch({ type: "input/set", value: `/${name} ` });
+          dispatch({ type: "screen/set", screen: "chat" });
+        }
+        dispatch({ type: "palette/close" });
+        return;
+      }
+      if (key.backspace || key.delete) {
+        dispatch({
+          type: "palette/query",
+          value: state.paletteQuery.slice(0, -1),
+        });
+        return;
+      }
+      if (input.length > 0 && !key.ctrl && !key.meta) {
+        dispatch({ type: "palette/query", value: state.paletteQuery + input });
+      }
+      return;
+    }
+
+    if (sessionPrompt) {
+      if (key.escape) {
+        setSessionPrompt(null);
+        return;
+      }
+      if (key.return) {
+        void sessionOperation(sessionPrompt.kind, sessionPrompt.value);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setSessionPrompt({
+          ...sessionPrompt,
+          value: sessionPrompt.value.slice(0, -1),
+        });
+        return;
+      }
+      if (input.length > 0 && !key.ctrl && !key.meta) {
+        setSessionPrompt({
+          ...sessionPrompt,
+          value: sessionPrompt.value + input,
+        });
       }
       return;
     }
@@ -726,32 +1130,73 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         if (lastTool) dispatch({ type: "tool/toggle", id: lastTool.id });
         return;
       }
-      if (state.busy) return;
+      if (key.ctrl && input === "o" && runtime.openExternalEditor) {
+        void runtime
+          .openExternalEditor(state.input)
+          .then((edited) => {
+            if (edited !== null) {
+              dispatch({ type: "composer/replace", text: edited });
+            }
+          })
+          .catch((err: unknown) =>
+            dispatch({
+              type: "status/set",
+              text: err instanceof Error ? err.message : String(err),
+            }),
+          );
+        return;
+      }
       if (key.return) {
-        void submit();
-      } else if (key.backspace || key.delete) {
-        dispatch({ type: "input/set", value: state.input.slice(0, -1) });
-      } else if (key.upArrow || key.downArrow) {
+        if (shouldSubmitOnEnter({ ctrl: key.ctrl, meta: key.meta })) {
+          void submit();
+        } else {
+          dispatch({ type: "composer/insert", text: "\n" });
+        }
+        return;
+      }
+      if (key.backspace) {
+        dispatch({ type: "composer/backspace" });
+        return;
+      }
+      if (key.delete) {
+        dispatch({ type: "composer/delete" });
+        return;
+      }
+      if (key.leftArrow) {
+        dispatch({ type: "composer/move", move: "left" });
+        return;
+      }
+      if (key.rightArrow) {
+        dispatch({ type: "composer/move", move: "right" });
+        return;
+      }
+      if (key.upArrow || key.downArrow) {
         if (state.input === "") {
           dispatch({
             type: "transcript/scroll",
             delta: key.upArrow ? -1 : 1,
           });
+        } else if (state.composer.lines.length > 1) {
+          dispatch({
+            type: "composer/move",
+            move: key.upArrow ? "up" : "down",
+          });
         } else {
           dispatch({ type: key.upArrow ? "history/prev" : "history/next" });
         }
-      } else if (
-        input.length > 0 &&
-        !key.ctrl &&
-        !key.meta &&
-        !input.startsWith("\x1b")
-      ) {
-        const clean = sanitizePaste(input);
-        if (clean.length > 0) {
-          dispatch({ type: "input/set", value: state.input + clean });
-          setCompletionIndex(0);
-        }
+        return;
       }
+      if (
+        state.busy ||
+        input.length === 0 ||
+        key.ctrl ||
+        key.meta ||
+        input.startsWith("\x1b")
+      ) {
+        return;
+      }
+      dispatch({ type: "composer/insert", text: input });
+      setCompletionIndex(0);
       return;
     }
 
@@ -1025,23 +1470,121 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
     }
 
     if (state.screen === "sessions") {
+      const selected = state.sessions[state.sessionCursor];
       if (key.upArrow) dispatch({ type: "sessions/cursor", delta: -1 });
       else if (key.downArrow) dispatch({ type: "sessions/cursor", delta: 1 });
-      else if (key.return) {
-        const selected = visibleSessions[state.sessionCursor];
-        if (selected) void resumeSession(selected.id);
+      else if (key.return && selected) void resumeSession(selected.id);
+      else if (key.ctrl && input === "u") {
+        dispatch({ type: "sessions/filter", value: "" });
+      } else if (state.sessionFilter === "" && selected && input === "N") {
+        setSessionPrompt({ kind: "rename", value: selected.label });
+      } else if (state.sessionFilter === "" && selected && input === "F") {
+        setSessionPrompt({ kind: "fork", value: `${selected.label} fork` });
+      } else if (
+        state.sessionFilter === "" &&
+        selected &&
+        (key.delete || input === "D")
+      ) {
+        void sessionOperation("delete");
+      } else if (
+        state.sessionFilter === "" &&
+        selected &&
+        ((key.ctrl && input === "t") || input === "T")
+      ) {
+        dispatch({ type: "sessions/tab/add", id: selected.id });
+      } else if (state.sessionFilter === "" && input === "[") {
+        dispatch({ type: "sessions/tab/move", delta: -1 });
+      } else if (state.sessionFilter === "" && input === "]") {
+        dispatch({ type: "sessions/tab/move", delta: 1 });
       } else if (key.backspace || key.delete) {
         dispatch({
           type: "sessions/filter",
           value: state.sessionFilter.slice(0, -1),
         });
-      } else if (key.ctrl && input === "u") {
-        dispatch({ type: "sessions/filter", value: "" });
       } else if (input.length === 1 && !key.ctrl && !key.meta) {
         dispatch({
           type: "sessions/filter",
           value: state.sessionFilter + input,
         });
+      }
+      return;
+    }
+
+    if (state.screen === "tasks") {
+      const selected =
+        state.tasks[Math.min(taskCursor, Math.max(0, state.tasks.length - 1))];
+      if (key.upArrow) {
+        setTaskCursor((cursor) => Math.max(0, cursor - 1));
+      } else if (key.downArrow) {
+        setTaskCursor((cursor) =>
+          Math.min(Math.max(0, state.tasks.length - 1), cursor + 1),
+        );
+      } else if (input.toLowerCase() === "a" && selected) {
+        dispatch({ type: "tasks/start", sessionId: selected.sessionId });
+      } else if (input.toLowerCase() === "x" && selected) {
+        dispatch({
+          type: "tasks/finish",
+          id: selected.id,
+          status: "cancelled",
+        });
+      }
+      return;
+    }
+
+    if (state.screen === "plan") {
+      if (key.return) dispatch({ type: "plan/advance" });
+      else if (/^[1-9]$/.test(input)) {
+        const step = state.plan[Number(input) - 1];
+        if (step)
+          dispatch({ type: "plan/step", id: step.id, status: "blocked" });
+      }
+      return;
+    }
+
+    if (state.screen === "context") {
+      if (key.upArrow) {
+        setTaskCursor((cursor) => Math.max(0, cursor - 1));
+      } else if (key.downArrow) {
+        setTaskCursor((cursor) =>
+          Math.min(Math.max(0, recoverySnapshots.length - 1), cursor + 1),
+        );
+      } else if (key.return) {
+        const snapshot = recoverySnapshots[taskCursor];
+        if (snapshot) void recoveryOperation("rewind", snapshot.id);
+      } else if (input.toLowerCase() === "c") {
+        void recoveryOperation("checkpoint");
+      } else if (input.toLowerCase() === "k") {
+        void recoveryOperation("compact");
+      } else if (input.toLowerCase() === "z") {
+        void recoveryOperation("undo");
+      } else if (input.toLowerCase() === "y") {
+        void recoveryOperation("redo");
+      }
+      return;
+    }
+
+    if (state.screen === "usage") {
+      if (key.upArrow) setTaskCursor((cursor) => Math.max(0, cursor - 1));
+      else if (key.downArrow) {
+        setTaskCursor((cursor) =>
+          Math.min(Math.max(0, state.usage.length - 1), cursor + 1),
+        );
+      }
+      return;
+    }
+
+    if (state.screen === "mcp") {
+      const server =
+        state.mcpServers[
+          Math.min(mcpCursor, Math.max(0, state.mcpServers.length - 1))
+        ];
+      if (key.upArrow) setMcpCursor((cursor) => Math.max(0, cursor - 1));
+      else if (key.downArrow) {
+        setMcpCursor((cursor) =>
+          Math.min(Math.max(0, state.mcpServers.length - 1), cursor + 1),
+        );
+      } else if (input.toLowerCase() === "r" && server) {
+        void restartMcp(server.name);
       }
       return;
     }
@@ -1089,6 +1632,22 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
   const filteredModels = endpoint
     ? filterModels(endpoint.models, modelPicker.filter)
     : [];
+  const expandedToolId = state.expandedTools[state.expandedTools.length - 1];
+  const expandedToolRecord = state.messages.find(
+    (message) => message.id === expandedToolId,
+  )?.toolId
+    ? state.toolRecords[
+        state.messages.find((message) => message.id === expandedToolId)!.toolId!
+      ]
+    : undefined;
+  const toolDetails = expandedToolRecord
+    ? toolDetailLines(expandedToolRecord)
+    : [];
+  const activeTabId = state.sessionTabs[state.activeSessionTab];
+  const composerLine = (line: string, index: number): string =>
+    index === state.composer.row
+      ? `${line.slice(0, state.composer.col)}▌${line.slice(state.composer.col)}`
+      : line;
 
   return (
     <Box flexDirection="column" height="100%" width="100%">
@@ -1203,6 +1762,18 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
                 : `line ${transcriptStart + 1}-${transcriptEnd} of ${transcriptLines.length}${state.scrollOffset > 0 ? " (scrolled)" : ""}${state.unseen > 0 ? ` ↓ ${state.unseen} new` : ""}${state.truncated ? " (older turns trimmed)" : ""}`}
             </Text>
           </Panel>
+          {expandedToolRecord && (
+            <Panel title="Tool detail (Ctrl-E to close)" palette={palette}>
+              {toolDetails.map((line) => (
+                <Box key={line.label} flexDirection="column">
+                  <Text bold color={palette.accent}>
+                    {line.label}
+                  </Text>
+                  <Text color={palette.text}>{line.value || "(empty)"}</Text>
+                </Box>
+              ))}
+            </Panel>
+          )}
           {approval && (
             <Box
               flexDirection="column"
@@ -1222,10 +1793,27 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
             </Box>
           )}
           <Box borderStyle="round" borderColor={palette.border} paddingX={1}>
-            <Text color={palette.accent}>{"› "}</Text>
             <Text color={state.busy ? palette.muted : palette.text}>
-              {state.busy ? "working…" : state.input || "type a message"}
+              <Text color={palette.accent}>{"› "}</Text>
+              {state.busy
+                ? "working…"
+                : state.input === ""
+                  ? "type a message"
+                  : composerLine(state.composer.lines[0], 0)}
             </Text>
+            {!state.busy &&
+              state.composer.lines.slice(1).map((line, index) => (
+                <Text key={index} color={palette.text}>
+                  {composerLine(line, index + 1)}
+                </Text>
+              ))}
+            {[...queuedPrompts.current.values()].some(
+              (entry) => entry.status === "queued",
+            ) && (
+              <Text color={palette.warning}>
+                {`queued: ${[...queuedPrompts.current.values()].filter((entry) => entry.status === "queued").length}`}
+              </Text>
+            )}
           </Box>
           {suggestions.length > 0 && (
             <Box
@@ -1434,9 +2022,26 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       {state.screen === "sessions" && (
         <Panel title="Sessions" palette={palette}>
           <Text color={palette.muted}>
-            Type to filter id/title/message · ↑↓ select · Enter resume · Ctrl-U
-            clear · Esc chat
+            N rename · F fork · D delete · T tab · [/] switch tab · Enter resume
+            · type to filter
           </Text>
+          {state.sessionTabs.length > 0 && (
+            <Text color={palette.muted}>
+              {`tabs: ${state.sessionTabs
+                .map(
+                  (id, index) =>
+                    `${index === state.activeSessionTab ? "[" : " "}${id}${index === state.activeSessionTab ? "]" : ""}`,
+                )
+                .join(" ")}`}
+            </Text>
+          )}
+          {activeTabId && (
+            <Text color={palette.accent}>
+              {`lineage: ${sessionLineage(state.sessions, activeTabId)
+                .map((item) => item.label)
+                .join(" → ")}`}
+            </Text>
+          )}
           <Text color={palette.accent}>
             {state.sessionFilter
               ? `filter: ${state.sessionFilter}▌`
@@ -1457,7 +2062,7 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
                   index === state.sessionCursor ? palette.accent : palette.text
                 }
               >
-                {`${index === state.sessionCursor ? "▸" : " "} ${item.id} — ${truncate(item.label, 44)} · ${item.updatedAt}${item.preview ? ` · ${truncate(item.preview, 40)}` : ""}`}
+                {`${index === state.sessionCursor ? "▸" : " "} ${item.id} — ${truncate(item.label, 44)} · ${item.updatedAt}${item.parentId ? ` · child of ${item.parentId}` : ""}${item.preview ? ` · ${truncate(item.preview, 40)}` : ""}`}
               </Text>
             ))
           )}
@@ -1487,16 +2092,159 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         </Panel>
       )}
 
+      {state.screen === "tasks" && (
+        <Panel title="Tasks" palette={palette}>
+          <Text color={palette.muted}>
+            ↑↓ select · A start · X cancel · background tasks stay queued per
+            session
+          </Text>
+          {state.tasks.length === 0 ? (
+            <Text color={palette.warning}>No tasks yet.</Text>
+          ) : (
+            state.tasks.map((task, index) => (
+              <Text
+                key={task.id}
+                bold={index === taskCursor}
+                color={index === taskCursor ? palette.accent : palette.text}
+              >
+                {`${index === taskCursor ? "▸" : " "} ${task.id} [${task.status}] ${task.sessionId}${task.background ? " · background" : ""} — ${task.label}`}
+              </Text>
+            ))
+          )}
+          {Object.entries(state.sessionExecutions).map(([id, status]) => (
+            <Text key={id} color={palette.muted}>
+              {`${id}: ${status}`}
+            </Text>
+          ))}
+        </Panel>
+      )}
+
+      {state.screen === "plan" && (
+        <Panel title="Execution plan" palette={palette}>
+          <Text color={palette.muted}>
+            Live tool steps · Enter advance · 1-9 mark blocked
+          </Text>
+          <Text color={palette.accent}>
+            {`${planProgress(state.plan).done}/${planProgress(state.plan).total} · ${planProgress(state.plan).percent}%`}
+          </Text>
+          {state.plan.length === 0 ? (
+            <Text color={palette.warning}>No plan yet — run a prompt.</Text>
+          ) : (
+            state.plan.map((step, index) => (
+              <Text key={step.id} color={palette.text}>
+                {`${index + 1}. [${step.status}] ${step.text}`}
+              </Text>
+            ))
+          )}
+        </Panel>
+      )}
+
+      {state.screen === "context" && (
+        <Panel title="Context" palette={palette}>
+          <Text color={palette.muted}>
+            C checkpoint · K compact · ↑↓ snapshot · Enter rewind · Z undo · Y
+            redo
+          </Text>
+          <Text bold color={palette.accent}>
+            {`${contextBudget(state.context).bar} ${contextBudget(state.context).percent}%`}
+          </Text>
+          <Text color={palette.text}>
+            {`${contextBudget(state.context).used}/${state.context.limit} tokens · ${contextBudget(state.context).remaining} remaining · ${state.context.messages} messages · ${state.context.model}`}
+          </Text>
+          <Text bold color={palette.panelTitle}>
+            Compaction history
+          </Text>
+          {state.context.compactions.length === 0 ? (
+            <Text color={palette.muted}>No checkpoints yet.</Text>
+          ) : (
+            state.context.compactions.map((entry, index) => (
+              <Text key={`${entry.at}-${index}`} color={palette.text}>
+                {`${entry.label} · ${entry.at} · ${entry.elided} elided`}
+              </Text>
+            ))
+          )}
+          <Text bold color={palette.panelTitle}>
+            Recovery snapshots
+          </Text>
+          {recoverySnapshots.length === 0 ? (
+            <Text color={palette.muted}>No snapshots yet.</Text>
+          ) : (
+            recoverySnapshots.map((snapshot, index) => (
+              <Text
+                key={snapshot.id}
+                bold={index === taskCursor}
+                color={index === taskCursor ? palette.accent : palette.text}
+              >
+                {`${index === taskCursor ? "▸" : " "} ${snapshot.label} — ${snapshot.at}${canUndo(state.recovery) && state.recovery.present.id === snapshot.id ? " (present)" : ""}`}
+              </Text>
+            ))
+          )}
+          <Text color={palette.muted}>
+            {`undo=${canUndo(state.recovery)} redo=${canRedo(state.recovery)}`}
+          </Text>
+        </Panel>
+      )}
+
+      {state.screen === "usage" && (
+        <Panel title="Usage & cost" palette={palette}>
+          <Text color={palette.muted}>↑↓ select a turn</Text>
+          <Text color={palette.accent}>
+            {`${usageTotals(state.usage).turns} turns · in=${usageTotals(state.usage).inputTokens} out=${usageTotals(state.usage).outputTokens} cache=${usageTotals(state.usage).cacheReadTokens}/${usageTotals(state.usage).cacheWriteTokens} · $${usageTotals(state.usage).costUsd.toFixed(4)} · ${usageTotals(state.usage).latencyMs}ms`}
+          </Text>
+          {state.usage.length === 0 ? (
+            <Text color={palette.warning}>No usage recorded yet.</Text>
+          ) : (
+            state.usage.map((record, index) => (
+              <Text
+                key={`${record.at}-${index}`}
+                bold={index === taskCursor}
+                color={index === taskCursor ? palette.accent : palette.text}
+              >
+                {`${index === taskCursor ? "▸" : " "} ${record.at} — ${usageLine(record)}`}
+              </Text>
+            ))
+          )}
+        </Panel>
+      )}
+
+      {state.screen === "mcp" && (
+        <Panel title="MCP servers" palette={palette}>
+          <Text color={palette.muted}>↑↓ select · R restart selected</Text>
+          {state.mcpServers.length === 0 ? (
+            <Text color={palette.warning}>No MCP servers configured.</Text>
+          ) : (
+            state.mcpServers.map((server, index) => (
+              <Text
+                key={server.name}
+                bold={index === mcpCursor}
+                color={
+                  server.health === "healthy"
+                    ? palette.success
+                    : server.health === "down"
+                      ? palette.error
+                      : palette.warning
+                }
+              >
+                {`${index === mcpCursor ? "▸" : " "} ${mcpSummary(server)}${index === mcpCursor ? "  ← R to restart" : ""}`}
+              </Text>
+            ))
+          )}
+        </Panel>
+      )}
+
       {state.screen === "help" && (
         <Panel title="Help" palette={palette}>
           <Text bold color={palette.panelTitle}>
             Essentials
           </Text>
           <Text color={palette.text}>
+            Ctrl-P — command palette · Ctrl-O — edit prompt in $EDITOR
+          </Text>
+          <Text color={palette.text}>
             Tab — cycle screens · Esc — return to chat
           </Text>
           <Text color={palette.text}>
-            Ctrl-C — abort turn or exit · ? — toggle advanced
+            Enter — submit · Ctrl-Enter — newline · Ctrl-C — abort or exit
           </Text>
           <Text color={palette.text}>
             Providers: U pick model · E edit · A add · T test
@@ -1534,6 +2282,49 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
             </Text>
           )}
         </Panel>
+      )}
+
+      {state.paletteOpen && (
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor={palette.accent}
+          paddingX={1}
+        >
+          <Text bold color={palette.panelTitle}>
+            {`Command palette — ${state.paletteQuery || "type to search"}▌`}
+          </Text>
+          {visiblePaletteActions.slice(0, 10).map((action, index) => (
+            <Text
+              key={action.id}
+              bold={index === state.paletteCursor}
+              color={
+                index === state.paletteCursor ? palette.accent : palette.muted
+              }
+            >
+              {`${index === state.paletteCursor ? "▸" : " "} ${action.label} — ${action.description}`}
+            </Text>
+          ))}
+          {visiblePaletteActions.length === 0 && (
+            <Text color={palette.warning}>No matching actions.</Text>
+          )}
+        </Box>
+      )}
+      {sessionPrompt && (
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor={palette.accent}
+          paddingX={1}
+        >
+          <Text bold color={palette.panelTitle}>
+            {sessionPrompt.kind === "rename"
+              ? "Rename session"
+              : "Fork session"}
+          </Text>
+          <Text color={palette.text}>{`${sessionPrompt.value}▌`}</Text>
+          <Text color={palette.muted}>Enter confirm · Esc cancel</Text>
+        </Box>
       )}
 
       <Box justifyContent="space-between" paddingX={1}>
