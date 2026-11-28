@@ -44,6 +44,11 @@ import { resilientFetch } from "./providers/http-resilience";
 import { runWizard } from "./config/setup-wizard";
 import { SharedCredentialStore } from "./config/credential-store";
 import { EndpointRegistry } from "./config/endpoint-registry";
+import { createCanonicalRouteSource } from "./config/canonical-route-source";
+import {
+  modelEvidenceSummary,
+  runtimeStatusSummary,
+} from "./config/model-display";
 import { selectActiveModel } from "./config/active-model";
 import { discoverModels, testEndpoint } from "./config/model-discovery";
 import {
@@ -55,7 +60,8 @@ import {
   legacySecretIdForProvider,
   PROVIDER_CATALOG,
 } from "./config/provider-catalog";
-import type { ProviderKind } from "./config/provider-model";
+import type { ModelTarget, ProviderKind } from "./config/provider-model";
+import type { RouteTask } from "./config/model-router";
 import { EndpointRepository } from "./config/provider-repository";
 import {
   ConfigLoader,
@@ -380,6 +386,8 @@ export async function activate(
 
   analyticsChannel = vscode.window.createOutputChannel("Champ Analytics");
   context.subscriptions.push(analyticsChannel);
+  const routingChannel = vscode.window.createOutputChannel("Champ Routing");
+  context.subscriptions.push(routingChannel);
 
   // ---- Agent controller (created with a placeholder provider) --------
   // We use a stub provider until the real one loads. This way the chat
@@ -527,6 +535,43 @@ export async function activate(
   ]);
   const CLOUD_PROVIDERS = new Set(["claude", "openai", "gemini"]);
 
+  /** Metadata for the exact endpoint/model targets shown in the picker. */
+  type PickerModelMetadata = {
+    contextWindow?: number;
+    evidence?: string;
+    status?: string;
+    pinned?: boolean;
+  };
+  const modelMetadata = new Map<string, PickerModelMetadata>();
+
+  async function refreshModelMetadata(): Promise<void> {
+    const [doc, selection] = await Promise.all([
+      endpointRegistry.readDocument(),
+      endpointRegistry.getSelection().catch(() => undefined),
+    ]);
+    const next = new Map<string, PickerModelMetadata>();
+    for (const endpoint of doc.endpoints) {
+      for (const model of endpoint.models) {
+        const target = { endpointId: endpoint.id, modelId: model.id };
+        next.set(`${endpoint.name}/${model.id}`, {
+          contextWindow:
+            model.overrides?.contextWindow ??
+            model.contextWindow ??
+            endpoint.contextWindow,
+          evidence: modelEvidenceSummary(model),
+          status: runtimeStatusSummary(endpointRegistry.runtime, target),
+          pinned:
+            selection?.pinned?.endpointId === endpoint.id &&
+            selection.pinned.modelId === model.id,
+        });
+      }
+    }
+    modelMetadata.clear();
+    for (const [key, value] of next) modelMetadata.set(key, value);
+  }
+
+  void refreshModelMetadata();
+
   /** Build the model picker list, marking cloud models without keys as unavailable. */
   function buildModelList(
     discovered: import("./providers/smart-router").DiscoveredModel[],
@@ -537,10 +582,26 @@ export async function activate(
         const missingKey =
           CLOUD_PROVIDERS.has(m.providerName) &&
           !cloudKeyStatus.get(m.providerName);
+        const detail = modelMetadata.get(`${m.providerName}/${m.id}`);
         return {
           providerName: m.providerName,
           modelName: m.id,
-          label: `${m.id} (${m.providerName}) ${m.capabilities.join(", ")}`,
+          label: [
+            `${m.id} (${m.providerName})`,
+            m.capabilities.join(","),
+            detail?.pinned ? "pinned" : "smart",
+            detail?.contextWindow
+              ? `ctx=${detail.contextWindow}`
+              : "ctx=unknown",
+            `evidence=${detail?.evidence ?? "none"}`,
+            `status=${detail?.status ?? "unknown"}`,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          evidence: detail?.evidence,
+          contextWindow: detail?.contextWindow,
+          status: detail?.status,
+          pinned: detail?.pinned,
           unavailable: missingKey
             ? "API key not set — click to configure"
             : undefined,
@@ -674,10 +735,29 @@ export async function activate(
   // Wire SmartRouter into AgentController and AgentManager for per-message
   // model selection (coding tasks → best coding model, ask/plan → chat model).
   agentController.setSmartRouter(smartRouter);
+  agentController.setRoutingRuntime(endpointRegistry);
+  agentController.setRoutingObserver({
+    onDecision: (event) => {
+      routingChannel.appendLine(
+        JSON.stringify({ type: "route_decision", ...event }),
+      );
+    },
+    onFailure: (event) => {
+      routingChannel.appendLine(
+        JSON.stringify({ type: "route_failure", ...event }),
+      );
+    },
+    onFailover: (event) => {
+      routingChannel.appendLine(
+        JSON.stringify({ type: "route_failover", ...event }),
+      );
+    },
+  });
   agentManager?.setSmartRouter(smartRouter);
   // When the router discovers models, (re-)initialize the indexing service
   // so it can pick up a newly available embedding model automatically.
   smartRouter.onChange(() => {
+    void refreshModelMetadata();
     if (cachedYamlConfig?.indexing?.enabled !== false && smartRouter) {
       indexingService?.dispose();
       const gen = ++indexingGeneration;
@@ -1088,7 +1168,11 @@ export async function activate(
         else if (mode === "plan") taskType = "chat";
         else if (mode === "ask") taskType = "chat";
 
-        const route = smartRouter.select(taskType);
+        const route = smartRouter.select(
+          taskType,
+          undefined,
+          session.metadata.id,
+        );
         if (route) {
           // If SmartRouter picked a model whose ID differs from the
           // provider's configured model (e.g., Ollama has a different
@@ -2061,6 +2145,18 @@ export async function activate(
           );
           return;
         }
+        const previousSelection = await endpointRegistry.getSelection();
+        await endpointRegistry.setSelection({
+          scope: { kind: "endpoint", endpointId: selected.endpointId! },
+          preference: previousSelection?.preference ?? "balanced",
+          pinned: {
+            endpointId: selected.endpointId!,
+            modelId: selected.model!,
+          },
+          ...(previousSelection?.failover
+            ? { failover: previousSelection.failover }
+            : {}),
+        });
       },
     ),
     vscode.commands.registerCommand(
@@ -2261,6 +2357,91 @@ export async function activate(
         void smartRouter.discover();
         void vscode.window.showInformationMessage(
           "Champ: re-scanning all providers for models...",
+        );
+      }
+    }),
+    vscode.commands.registerCommand("champ.explainRoute", () => {
+      const decision = smartRouter?.getLastRouteDecision?.() ?? null;
+      routingChannel.appendLine(
+        JSON.stringify(
+          decision
+            ? { type: "route_explanation", decision }
+            : { type: "route_explanation", reason: "no routing decision yet" },
+        ),
+      );
+      routingChannel.show(true);
+    }),
+    vscode.commands.registerCommand("champ.createEndpointPool", async () => {
+      const value = await vscode.window.showInputBox({
+        prompt: "Create a pool as <name>:<endpoint-id,endpoint-id>",
+        placeHolder: "local:ep_a,ep_b",
+      });
+      if (!value) return;
+      const separator = value.indexOf(":");
+      const name = (separator < 0 ? value : value.slice(0, separator)).trim();
+      const endpointIds = (separator < 0 ? "" : value.slice(separator + 1))
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean);
+      if (!name || endpointIds.length === 0) {
+        void vscode.window.showErrorMessage(
+          "Champ: use <name>:<endpoint-id,...> to create a pool.",
+        );
+        return;
+      }
+      try {
+        const pool = await endpointRegistry.addPool({ name, endpointIds });
+        routingChannel.appendLine(
+          JSON.stringify({ type: "pool_created", pool }),
+        );
+        void vscode.window.showInformationMessage(
+          `Champ: pool ${pool.name} (${pool.id}) created with ${pool.endpointIds.length} endpoint(s).`,
+        );
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Champ: failed to create pool — ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }),
+    vscode.commands.registerCommand("champ.selectRoutingPool", async () => {
+      try {
+        const pools = await endpointRegistry.listPools();
+        if (pools.length === 0) {
+          void vscode.window.showInformationMessage(
+            "Champ: no endpoint pools configured.",
+          );
+          return;
+        }
+        const picked = await vscode.window.showQuickPick(
+          pools.map((pool) => ({
+            label: pool.name,
+            description: pool.id,
+            detail: `endpoints: ${pool.endpointIds.join(", ") || "none"}`,
+            pool,
+          })),
+          { placeHolder: "Select the routing pool scope" },
+        );
+        if (!picked) return;
+        const previous = await endpointRegistry.getSelection();
+        await endpointRegistry.setSelection({
+          scope: { kind: "pool", poolId: picked.pool.id },
+          preference: previous?.preference ?? "balanced",
+          pinned: null,
+          ...(previous?.failover ? { failover: previous.failover } : {}),
+        });
+        routingChannel.appendLine(
+          JSON.stringify({
+            type: "pool_scope",
+            poolId: picked.pool.id,
+            name: picked.pool.name,
+          }),
+        );
+        void vscode.window.showInformationMessage(
+          `Champ: routing scope set to pool ${picked.pool.name}.`,
+        );
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Champ: failed to set pool scope — ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }),
@@ -3878,6 +4059,17 @@ export async function activate(
       // Register all configured providers with SmartRouter — each gets
       // its OWN provider instance so routing actually switches backends.
       if (smartRouter) {
+        const endpointProviders = new Map<
+          string,
+          { provider: LLMProvider; name: string; type: string }
+        >();
+        if (resolvedSelection) {
+          endpointProviders.set(resolvedSelection.endpoint.id, {
+            provider: newProvider,
+            name: newProvider.name,
+            type: resolvedSelection.endpoint.provider,
+          });
+        }
         smartRouter.registerProvider(
           newProvider.name,
           newProvider,
@@ -3913,6 +4105,11 @@ export async function activate(
               ep.provider,
               ep.baseUrl,
             );
+            endpointProviders.set(ep.id, {
+              provider: epProvider,
+              name: ep.name,
+              type: ep.provider,
+            });
           } catch {
             // Endpoint construction failed — skip.
           }
@@ -4019,6 +4216,46 @@ export async function activate(
             }
           }
         });
+        if (registryDoc && endpointProviders.size > 0) {
+          const taskPins: Partial<Record<RouteTask, ModelTarget>> = {};
+          if (!registryDoc.selection?.pinned) {
+            for (const taskKey of [
+              "coding",
+              "chat",
+              "completion",
+              "embedding",
+            ] as const) {
+              const assign = registryDoc.assignments[taskKey];
+              const ep = assign
+                ? registryDoc.endpoints.find(
+                    (item) => item.id === assign.endpointId,
+                  )
+                : undefined;
+              if (ep?.models.some((m) => m.id === assign!.model)) {
+                taskPins[taskKey] = {
+                  endpointId: ep.id,
+                  modelId: assign!.model,
+                };
+              }
+            }
+          }
+          smartRouter.setCanonicalRouteSource(
+            createCanonicalRouteSource({
+              doc: registryDoc,
+              router: endpointRegistry.router,
+              taskPins,
+              resolveProvider: (endpointId, modelId) => {
+                const entry = endpointProviders.get(endpointId);
+                if (!entry) return null;
+                return {
+                  ...entry,
+                  provider:
+                    entry.provider.withModel?.(modelId) ?? entry.provider,
+                };
+              },
+            }),
+          );
+        }
         void smartRouter.discover();
       }
       // Rebuild telemetry exporter whenever config reloads.

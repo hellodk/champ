@@ -256,6 +256,83 @@ describe("CredentialStore", () => {
     expect(await backend.get("ep_win01")).toBeUndefined();
   });
 
+  it("OsKeyringBackend uses Linux secret-tool with the secret on stdin", async () => {
+    const calls: Array<{
+      command: string;
+      args: string[];
+      stdinText?: string;
+    }> = [];
+    let stored: string | undefined;
+    const backend = new OsKeyringBackend({
+      platform: "linux",
+      env: { DBUS_SESSION_BUS_ADDRESS: "unix:path=/tmp/bus" },
+      commandExists: (cmd) => cmd === "secret-tool",
+      runCommand: async (command, args, stdinText) => {
+        calls.push({ command, args, stdinText });
+        if (args[0] === "store") {
+          stored = stdinText;
+          return { code: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "lookup") {
+          return {
+            code: stored === undefined ? 1 : 0,
+            stdout: stored ?? "",
+            stderr: "",
+          };
+        }
+        stored = undefined;
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    expect(backend.isAvailable()).toBe(true);
+    await backend.set("ep_linux01", "linux-secret");
+    expect(calls[0].args.join(" ")).not.toContain("linux-secret");
+    expect(calls[0].stdinText).toBe("linux-secret");
+    expect(await backend.get("ep_linux01")).toBe("linux-secret");
+    await backend.delete("ep_linux01");
+    expect(await backend.get("ep_linux01")).toBeUndefined();
+  });
+
+  it("OsKeyringBackend uses macOS keychain via security -i stdin", async () => {
+    const calls: Array<{
+      command: string;
+      args: string[];
+      stdinText?: string;
+    }> = [];
+    let stored: string | undefined;
+    const backend = new OsKeyringBackend({
+      platform: "darwin",
+      env: {},
+      commandExists: (cmd) => cmd === "security",
+      runCommand: async (command, args, stdinText) => {
+        calls.push({ command, args, stdinText });
+        if (args[0] === "-i") {
+          stored = stdinText?.match(/-w ("(?:[^"\\]|\\.)*")/)?.[1];
+          stored = stored ? JSON.parse(stored) : undefined;
+          return { code: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "find-generic-password") {
+          return {
+            code: stored === undefined ? 1 : 0,
+            stdout: stored ?? "",
+            stderr: "",
+          };
+        }
+        stored = undefined;
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    expect(backend.isAvailable()).toBe(true);
+    await backend.set("ep_mac01", "mac-secret");
+    expect(calls[0].args.join(" ")).not.toContain("mac-secret");
+    expect(calls[0].stdinText).toContain('-w "mac-secret"');
+    expect(await backend.get("ep_mac01")).toBe("mac-secret");
+    await backend.delete("ep_mac01");
+    expect(await backend.get("ep_mac01")).toBeUndefined();
+  });
+
   it("ChainCredentialStore.setWithStatus reports non-persistent env storage when keyring is unavailable", async () => {
     const backend = makeMockBackend(false);
     const env: Record<string, string | undefined> = {};

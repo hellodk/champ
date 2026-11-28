@@ -21,6 +21,8 @@ export interface DiscoveryDeps {
   requestTimeoutMs?: number;
   discoveryDeadlineMs?: number;
   testDeadlineMs?: number;
+  /** Optional caller cancellation, shared by discovery and onboarding. */
+  signal?: AbortSignal;
 }
 
 export interface EndpointTestResult {
@@ -69,7 +71,88 @@ function parseCapabilities(value: unknown): string[] | undefined {
   return caps.length > 0 ? caps : undefined;
 }
 
-function parseOllamaTags(payload: unknown, seenAt: string): DiscoveredModel[] {
+const CAPABILITY_ALIASES: Record<
+  string,
+  "chat" | "tools" | "embeddings" | "images" | "structuredOutput"
+> = {
+  chat: "chat",
+  general: "chat",
+  instruct: "chat",
+  tools: "tools",
+  tool_calling: "tools",
+  "tool-calling": "tools",
+  embedding: "embeddings",
+  embeddings: "embeddings",
+  images: "images",
+  vision: "images",
+  multimodal: "images",
+  structured_output: "structuredOutput",
+  "structured-output": "structuredOutput",
+  json: "structuredOutput",
+};
+
+/** Attach only capabilities the server explicitly reported. */
+function applyServerCapabilities(
+  labels: string[] | undefined,
+  model: DiscoveredModel,
+  seenAt: string,
+): void {
+  if (!labels || labels.length === 0) return;
+  model.capabilities = labels;
+  model.capabilitySet = {};
+  model.capabilityEvidence = {};
+  for (const label of labels) {
+    const key = CAPABILITY_ALIASES[label.trim().toLowerCase()];
+    if (!key) continue;
+    model.capabilitySet[key] = "yes";
+    model.capabilityEvidence[key] = { source: "server", observedAt: seenAt };
+  }
+  if (Object.keys(model.capabilitySet).length === 0) {
+    delete model.capabilitySet;
+    delete model.capabilityEvidence;
+  }
+}
+
+function parseGeminiModels(
+  payload: unknown,
+  seenAt: string,
+): DiscoveredModel[] {
+  if (!payload || typeof payload !== "object") return [];
+  const rawModels = (payload as { models?: unknown }).models;
+  if (!Array.isArray(rawModels)) return [];
+  const result: DiscoveredModel[] = [];
+  for (const raw of rawModels) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    if (typeof item.name !== "string" || !item.name.trim()) continue;
+    const model: DiscoveredModel = { id: item.name, lastSeenAt: seenAt };
+    if (typeof item.displayName === "string")
+      model.displayName = item.displayName;
+    const context = parseFiniteContext(item.inputTokenLimit);
+    if (context !== undefined) {
+      model.contextWindow = context;
+      model.contextWindowEvidence = { source: "server", observedAt: seenAt };
+    }
+    if (
+      typeof item.outputTokenLimit === "number" &&
+      Number.isFinite(item.outputTokenLimit)
+    ) {
+      model.maxOutputTokens = item.outputTokenLimit;
+    }
+    applyServerCapabilities(
+      parseCapabilities(item.capabilities),
+      model,
+      seenAt,
+    );
+    result.push(model);
+  }
+  return result;
+}
+
+export function parseOllamaTags(
+  payload: unknown,
+  seenAt: string,
+): DiscoveredModel[] {
   if (!payload || typeof payload !== "object") return [];
   const rawModels = (payload as { models?: unknown }).models;
   if (!Array.isArray(rawModels)) return [];
@@ -94,14 +177,17 @@ function parseOllamaTags(payload: unknown, seenAt: string): DiscoveredModel[] {
       parseFiniteContext(item.context_length) ??
       parseFiniteContext(item.contextWindow);
     if (ctx !== undefined) model.contextWindow = ctx;
-    const caps = parseCapabilities(item.capabilities);
-    if (caps) model.capabilities = caps;
+    applyServerCapabilities(
+      parseCapabilities(item.capabilities),
+      model,
+      seenAt,
+    );
     result.push(model);
   }
   return result;
 }
 
-function parseOpenAIModels(
+export function parseOpenAIModels(
   payload: unknown,
   seenAt: string,
 ): DiscoveredModel[] {
@@ -129,12 +215,17 @@ function parseOpenAIModels(
       parseFiniteContext(item.max_model_len) ??
       parseFiniteContext(meta?.n_ctx_train);
     if (ctx !== undefined) model.contextWindow = ctx;
-    const caps = parseCapabilities(item.capabilities);
-    if (caps) model.capabilities = caps;
+    applyServerCapabilities(
+      parseCapabilities(item.capabilities),
+      model,
+      seenAt,
+    );
     result.push(model);
   }
   return result;
 }
+
+export { parseGeminiModels };
 
 async function runWithDeadline<T>(
   deadlineMs: number,

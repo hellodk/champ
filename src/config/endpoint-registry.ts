@@ -24,10 +24,20 @@ import {
   type CredentialRef,
   type DiscoveredModel,
   type Endpoint,
+  type EndpointPool,
+  type ModelSelectionConfig,
+  type ModelTarget,
   type ProviderKind,
   type ProvidersDocument,
+  type RoutingPreference,
   type TaskAssignment,
 } from "./provider-model";
+import {
+  ModelRouter,
+  type RouteDecision,
+  type RouteDecisionInput,
+} from "./model-router";
+import { RuntimeState, type FailureClass } from "./runtime-status";
 import type { EndpointRepository } from "./provider-repository";
 
 export class DuplicateEndpointError extends Error {
@@ -102,6 +112,8 @@ function endpointDedupKey(ep: Endpoint): string {
 export class EndpointRegistry {
   private readonly deps: EndpointRegistryDeps;
   private readonly listeners = new Set<() => void>();
+  readonly runtime = new RuntimeState();
+  readonly router = new ModelRouter(this.runtime);
 
   constructor(deps: EndpointRegistryDeps) {
     this.deps = deps;
@@ -270,6 +282,31 @@ export class EndpointRegistry {
         }
       }
 
+      for (const pool of doc.pools ?? []) {
+        pool.endpointIds = pool.endpointIds.filter(
+          (endpointId) => endpointId !== id,
+        );
+        if (
+          doc.selection?.scope.kind === "pool" &&
+          doc.selection.scope.poolId === pool.id &&
+          pool.endpointIds.length === 0
+        ) {
+          doc.selection.scope = { kind: "global", allowCloud: false };
+        }
+      }
+      if (doc.selection?.pinned?.endpointId === id) {
+        doc.selection.pinned = null;
+      }
+      if (
+        doc.selection?.scope.kind === "endpoint" &&
+        doc.selection.scope.endpointId === id
+      ) {
+        const replacement = doc.endpoints.find((ep) => ep.enabled);
+        doc.selection.scope = replacement
+          ? { kind: "endpoint", endpointId: replacement.id }
+          : { kind: "global", allowCloud: false };
+      }
+
       if (removed.isDefault) {
         const replacement = doc.endpoints.find((ep) => ep.enabled);
         if (replacement) {
@@ -348,6 +385,142 @@ export class EndpointRegistry {
       await this.deps.repository.write(doc);
     });
     this.emitChange();
+  }
+
+  async listPools(): Promise<EndpointPool[]> {
+    return (await this.deps.repository.read()).pools ?? [];
+  }
+
+  async addPool(input: {
+    id?: string;
+    name: string;
+    endpointIds: string[];
+    preference?: RoutingPreference;
+    allowCloud?: boolean;
+  }): Promise<EndpointPool> {
+    const created = await this.deps.repository.withLock(async () => {
+      const doc = await this.deps.repository.read();
+      const id = input.id?.trim() || `pool_${randomUUID().slice(0, 8)}`;
+      if ((doc.pools ?? []).some((pool) => pool.id === id)) {
+        throw new Error(`Endpoint pool "${id}" already exists`);
+      }
+      const known = new Set(doc.endpoints.map((ep) => ep.id));
+      const endpointIds = [...new Set(input.endpointIds)].filter((endpointId) =>
+        known.has(endpointId),
+      );
+      const pool: EndpointPool = {
+        id,
+        name: input.name.trim(),
+        endpointIds,
+        ...(input.preference || input.allowCloud !== undefined
+          ? {
+              routing: {
+                ...(input.preference ? { preference: input.preference } : {}),
+                ...(input.allowCloud !== undefined
+                  ? { allowCloud: input.allowCloud }
+                  : {}),
+              },
+            }
+          : {}),
+      };
+      doc.pools = [...(doc.pools ?? []), pool];
+      await this.deps.repository.write(doc);
+      return pool;
+    });
+    this.emitChange();
+    return created;
+  }
+
+  async updatePool(
+    id: string,
+    patch: {
+      name?: string;
+      endpointIds?: string[];
+      preference?: RoutingPreference;
+      allowCloud?: boolean;
+    },
+  ): Promise<EndpointPool> {
+    const updated = await this.deps.repository.withLock(async () => {
+      const doc = await this.deps.repository.read();
+      const pool = (doc.pools ?? []).find((item) => item.id === id);
+      if (!pool) throw new Error(`Endpoint pool "${id}" not found`);
+      if (patch.name !== undefined) pool.name = patch.name.trim();
+      if (patch.endpointIds !== undefined) {
+        const known = new Set(doc.endpoints.map((ep) => ep.id));
+        pool.endpointIds = [...new Set(patch.endpointIds)].filter(
+          (endpointId) => known.has(endpointId),
+        );
+      }
+      if (patch.preference !== undefined || patch.allowCloud !== undefined) {
+        pool.routing = {
+          ...pool.routing,
+          ...(patch.preference !== undefined
+            ? { preference: patch.preference }
+            : {}),
+          ...(patch.allowCloud !== undefined
+            ? { allowCloud: patch.allowCloud }
+            : {}),
+        };
+      }
+      await this.deps.repository.write(doc);
+      return pool;
+    });
+    this.emitChange();
+    return updated;
+  }
+
+  async removePool(id: string): Promise<void> {
+    await this.deps.repository.withLock(async () => {
+      const doc = await this.deps.repository.read();
+      doc.pools = (doc.pools ?? []).filter((pool) => pool.id !== id);
+      if (
+        doc.selection?.scope.kind === "pool" &&
+        doc.selection.scope.poolId === id
+      ) {
+        doc.selection.scope = { kind: "global", allowCloud: false };
+      }
+      await this.deps.repository.write(doc);
+    });
+    this.emitChange();
+  }
+
+  async getSelection(): Promise<ModelSelectionConfig | undefined> {
+    return (await this.deps.repository.read()).selection;
+  }
+
+  async setSelection(config: ModelSelectionConfig): Promise<void> {
+    await this.deps.repository.withLock(async () => {
+      const doc = await this.deps.repository.read();
+      doc.selection = config;
+      await this.deps.repository.write(doc);
+    });
+    this.emitChange();
+  }
+
+  async resolveRoute(
+    input: Omit<RouteDecisionInput, "doc">,
+  ): Promise<RouteDecision> {
+    const doc = await this.deps.repository.read();
+    return this.router.decide({ ...input, doc });
+  }
+
+  beginRequest(target: ModelTarget): () => void {
+    return this.runtime.beginRequest(target);
+  }
+
+  recordFailure(
+    target: { endpointId: string; modelId: string },
+    error: FailureClass,
+  ): void {
+    this.runtime.recordFailure(target, error);
+  }
+
+  recordSuccess(
+    target: { endpointId: string; modelId: string },
+    latencyMs?: number,
+    ttftMs?: number,
+  ): void {
+    this.runtime.recordSuccess(target, latencyMs, ttftMs);
   }
 
   async clearCredential(id: string): Promise<void> {
@@ -462,6 +635,27 @@ export class EndpointRegistry {
         if (!assignment) continue;
         const mapped = idMap.get(assignment.endpointId);
         if (mapped) assignment.endpointId = mapped;
+      }
+
+      for (const pool of doc.pools ?? []) {
+        pool.endpointIds = [
+          ...new Set(
+            pool.endpointIds.map(
+              (endpointId) => idMap.get(endpointId) ?? endpointId,
+            ),
+          ),
+        ];
+      }
+      const pinned = doc.selection?.pinned;
+      if (pinned) {
+        const mapped = idMap.get(pinned.endpointId);
+        if (mapped) doc.selection!.pinned = { ...pinned, endpointId: mapped };
+      }
+      const endpointScope = doc.selection?.scope;
+      if (endpointScope?.kind === "endpoint") {
+        const mapped = idMap.get(endpointScope.endpointId);
+        if (mapped)
+          doc.selection!.scope = { kind: "endpoint", endpointId: mapped };
       }
 
       doc.endpoints = doc.endpoints.filter((ep) => !toRemove.has(ep.id));

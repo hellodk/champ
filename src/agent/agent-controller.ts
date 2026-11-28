@@ -55,8 +55,71 @@ import {
 import { SystemPromptBuilder } from "./system-prompt-builder";
 import { StagedEdits } from "./staged-edits";
 import type { ResponseCache } from "../providers/response-cache";
+import { classifyFailure, type FailureClass } from "../config/runtime-status";
 
 export { PromptInjectionError };
+
+/** Minimal runtime hook implemented by the endpoint registry. */
+export interface RoutingRuntimeSink {
+  beginRequest(target: { endpointId: string; modelId: string }): () => void;
+  recordSuccess(
+    target: { endpointId: string; modelId: string },
+    latencyMs?: number,
+    ttftMs?: number,
+  ): void;
+  recordFailure(
+    target: { endpointId: string; modelId: string },
+    error: import("../config/runtime-status").FailureClass,
+  ): void;
+}
+
+/** Sanitized routing decision event. Never includes prompts or credentials. */
+export interface RoutingDecisionEvent {
+  task: string;
+  decision: import("../config/model-router").RouteDecision;
+  selectedProvider: string;
+  selectedModel: string;
+  actualProvider: string;
+  actualModel: string;
+  requestId?: string;
+  sessionId?: string;
+  runId?: string;
+  turnId?: string;
+  traceId?: string;
+  spanId?: string;
+}
+
+/** Sanitized routing failure. The original error text is never emitted. */
+export interface RoutingFailureEvent {
+  target: { endpointId: string; modelId: string };
+  error: FailureClass;
+  requestId?: string;
+  sessionId?: string;
+  runId?: string;
+  turnId?: string;
+  traceId?: string;
+  spanId?: string;
+}
+
+/** Sanitized failover attempt. Error text is never emitted. */
+export interface RoutingFailoverEvent {
+  attempt: number;
+  from: { endpointId: string; modelId: string };
+  to: { endpointId: string; modelId: string };
+  error: FailureClass;
+  requestId?: string;
+  sessionId?: string;
+  runId?: string;
+  turnId?: string;
+  traceId?: string;
+  spanId?: string;
+}
+
+export interface RoutingObserver {
+  onDecision(event: RoutingDecisionEvent): void;
+  onFailure?(event: RoutingFailureEvent): void;
+  onFailover?(event: RoutingFailoverEvent): void;
+}
 
 const DEFAULT_MAX_ITERATIONS = 25;
 /** First reduction step for an oversized repo map (issue #176). */
@@ -148,6 +211,8 @@ export class AgentController {
   private readonly piiScanner = new PiiScanner();
   private promptGuard = new PromptGuard();
   private smartRouter: SmartRouter | null = null;
+  private routingRuntime?: RoutingRuntimeSink;
+  private routingObserver?: RoutingObserver;
   private metrics?: import("../observability/metrics-collector").MetricsCollector;
   // Inline import type avoids a top-level circular-dependency risk; analytics
   // is optional infrastructure and should not be in the core import chain.
@@ -299,6 +364,16 @@ export class AgentController {
 
   setSmartRouter(router: SmartRouter): void {
     this.smartRouter = router;
+  }
+
+  /** Attach runtime health/load recording for canonical model targets. */
+  setRoutingRuntime(sink: RoutingRuntimeSink | undefined): void {
+    this.routingRuntime = sink;
+  }
+
+  /** Attach a structured decision observer used by CLI and extension diagnostics. */
+  setRoutingObserver(observer: RoutingObserver | undefined): void {
+    this.routingObserver = observer;
   }
 
   setPromptGuardEnabled(enabled: boolean): void {
@@ -510,35 +585,86 @@ export class AgentController {
       // Selection is done once per message (not per-iteration) to avoid
       // tool-calling format mismatches mid-conversation.
       let activeProvider = this.provider;
-      if (this.smartRouter) {
-        const taskType = this.modeToTaskType(this.mode);
-        const routed = this.smartRouter.select(taskType);
-        if (routed) {
-          const routedPromptBased = !routed.provider.supportsToolUse();
-          const currentPromptBased = !this.provider.supportsToolUse();
-          const hasHistory = this.history.length > 0;
+      const taskType = this.modeToTaskType(this.mode);
+      const routed =
+        this.smartRouter?.select(taskType, undefined, correlation.sessionId) ??
+        null;
+      let runtimeTarget: { endpointId: string; modelId: string } | null = null;
+      if (routed) {
+        const routedPromptBased = !routed.provider.supportsToolUse();
+        const currentPromptBased = !this.provider.supportsToolUse();
+        const hasHistory = this.history.length > 0;
 
-          if (routedPromptBased === currentPromptBased || !hasHistory) {
-            // Same tool format, or no history yet — safe to route. The CLI
-            // registers one provider per endpoint (pinned to its first
-            // model), so clone it for the routed model before use. Without
-            // this the route changes but the request still sends the old id.
-            activeProvider =
-              routed.model.id !== routed.provider.config.model
-                ? (routed.provider.withModel?.(routed.model.id) ??
-                  routed.provider)
-                : routed.provider;
-            console.log(
-              `Champ SmartRouter: ${this.mode} → ${routed.model.id} [${routed.reason}]`,
-            );
-          } else {
-            console.log(
-              `Champ SmartRouter: skipping ${routed.model.id} — ` +
-                `tool format mismatch with existing history`,
-            );
-          }
+        if (routedPromptBased === currentPromptBased || !hasHistory) {
+          // Same tool format, or no history yet — safe to route. The CLI
+          // registers one provider per endpoint (pinned to its first
+          // model), so clone it for the routed model before use. Without
+          // this the route changes but the request still sends the old id.
+          activeProvider =
+            routed.model.id !== routed.provider.config.model
+              ? (routed.provider.withModel?.(routed.model.id) ??
+                routed.provider)
+              : routed.provider;
+          runtimeTarget =
+            routed.decision?.target ??
+            this.smartRouter?.getLastRouteDecision?.()?.target ??
+            null;
+          console.log(
+            `Champ SmartRouter: ${this.mode} → ${routed.model.id} [${routed.reason}]`,
+          );
+        } else {
+          console.log(
+            `Champ SmartRouter: skipping ${routed.model.id} — ` +
+              `tool format mismatch with existing history`,
+          );
         }
       }
+
+      const routeDecision =
+        routed?.decision ?? this.smartRouter?.getLastRouteDecision?.() ?? null;
+      if (routeDecision && this.routingObserver) {
+        const info = activeProvider.modelInfo();
+        this.routingObserver.onDecision({
+          task: taskType,
+          decision: routeDecision,
+          selectedProvider:
+            routed?.provider.name ?? info.provider ?? activeProvider.name,
+          selectedModel: routed?.model.id ?? info.id ?? info.name,
+          actualProvider: info.provider ?? activeProvider.name,
+          actualModel: info.id ?? info.name,
+          requestId: routeDecision.requestId,
+          sessionId: correlation.sessionId,
+          runId: correlation.runId,
+          turnId: correlation.turnId,
+          traceId: correlation.traceContext?.traceId,
+          spanId: correlation.traceContext?.spanId,
+        });
+      }
+      const emitRoutingFailure = (error: FailureClass): void => {
+        if (!runtimeTarget || !this.routingObserver?.onFailure) return;
+        this.routingObserver.onFailure({
+          target: runtimeTarget,
+          error,
+          ...(routeDecision?.requestId !== undefined
+            ? { requestId: routeDecision.requestId }
+            : {}),
+          ...(correlation.sessionId !== undefined
+            ? { sessionId: correlation.sessionId }
+            : {}),
+          ...(correlation.runId !== undefined
+            ? { runId: correlation.runId }
+            : {}),
+          ...(correlation.turnId !== undefined
+            ? { turnId: correlation.turnId }
+            : {}),
+          ...(correlation.traceContext?.traceId !== undefined
+            ? { traceId: correlation.traceContext.traceId }
+            : {}),
+          ...(correlation.traceContext?.spanId !== undefined
+            ? { spanId: correlation.traceContext.spanId }
+            : {}),
+        });
+      };
 
       // Settle async provider metadata (e.g. context-window detection) before
       // any budget or system-prompt work. Otherwise the first turn is planned
@@ -860,114 +986,258 @@ export class AgentController {
           }
         }
 
-        const stream = activeProvider.chat(requestMessages, {
-          // Native tool defs only when the provider says it supports them.
-          tools: usePromptBased ? undefined : allTools,
-          abortSignal: options.abortSignal,
-          taskHint: "coding",
-        });
+        // Failover is opt-in via selection.failover and only replayed before
+        // any output is committed. A candidate must share the tool format and
+        // context window so the already-built prompt and tool loop stay valid.
+        type FailoverCandidate = {
+          target: { endpointId: string; modelId: string };
+          provider: LLMProvider;
+        };
+        const originalToolFormat = activeProvider.supportsToolUse();
+        const originalContextWindow = activeProvider.modelInfo().contextWindow;
+        let failoverCandidates: FailoverCandidate[] = [];
+        let failoverAttempt = 0;
+        const retryable = (failure: FailureClass): boolean =>
+          failure !== "auth" && failure !== "model_not_found";
+        const resolveCandidates = (
+          failure: FailureClass,
+        ): FailoverCandidate[] => {
+          if (!retryable(failure)) return [];
+          if (failoverAttempt > 0) {
+            return failoverCandidates.slice(failoverAttempt);
+          }
+          if (!routeDecision || !runtimeTarget || !this.smartRouter) return [];
+          const targets =
+            this.smartRouter.safeAlternatives?.(
+              routeDecision,
+              runtimeTarget,
+              failure,
+            ) ?? [];
+          const found: FailoverCandidate[] = [];
+          for (const target of targets) {
+            const route = this.smartRouter.resolveTarget?.(target);
+            if (!route) continue;
+            if (route.provider.supportsToolUse() !== originalToolFormat)
+              continue;
+            if (route.model.contextWindow !== originalContextWindow) continue;
+            found.push({ target, provider: route.provider });
+          }
+          return found;
+        };
 
-        // The backend continues from the seed we appended, so the buffered
-        // assistant text must start there too — otherwise the streamed output
-        // is just the tail of the tag and the assembled tool call would be
-        // missing its opener.
-        if (prefillNeeded) {
-          assistantText = TOOL_CALL_START_PREFIX;
-        }
-
-        const requestStartTime = Date.now();
-        let firstTokenTime = 0;
+        // A failure is only replayed when no delta reached the UI and no tool
+        // call started — there is nothing to duplicate in that window.
         let errorOccurred = false;
-        for await (const delta of stream) {
-          if (
-            !firstTokenTime &&
-            (delta.type === "text" ||
-              delta.type === "reasoning" ||
-              delta.type === "tool_call_start")
-          ) {
-            firstTokenTime = Date.now();
+        while (true) {
+          if (failoverAttempt > 0) {
+            const next = failoverCandidates[failoverAttempt - 1];
+            if (!next) break;
+            activeProvider = next.provider;
+            runtimeTarget = next.target;
           }
 
-          if (delta.type === "text" && delta.text) {
-            assistantText += delta.text;
-            if (!usePromptBased) {
-              // Native mode: stream text directly to the UI for live render.
-              this.emit(delta);
-              collectedText.push(delta.text);
+          const stream = activeProvider.chat(requestMessages, {
+            // Native tool defs only when the provider says it supports them.
+            tools: usePromptBased ? undefined : allTools,
+            abortSignal: options.abortSignal,
+            taskHint: "coding",
+          });
+
+          // The backend continues from the seed we appended, so the buffered
+          // assistant text must start there too — otherwise the streamed output
+          // is just the tail of the tag and the assembled tool call would be
+          // missing its opener.
+          assistantText = "";
+          if (prefillNeeded) {
+            assistantText = TOOL_CALL_START_PREFIX;
+          }
+
+          const requestStartTime = Date.now();
+          let firstTokenTime = 0;
+          let emittedInAttempt = false;
+          let retryFailure: FailureClass | null = null;
+          const releaseRuntime = runtimeTarget
+            ? this.routingRuntime?.beginRequest(runtimeTarget)
+            : undefined;
+          try {
+            for await (const delta of stream) {
+              if (
+                !firstTokenTime &&
+                (delta.type === "text" ||
+                  delta.type === "reasoning" ||
+                  delta.type === "tool_call_start")
+              ) {
+                firstTokenTime = Date.now();
+              }
+
+              if (delta.type === "text" && delta.text) {
+                assistantText += delta.text;
+                if (!usePromptBased) {
+                  // Native mode: stream text directly to the UI for live render.
+                  this.emit(delta);
+                  emittedInAttempt = true;
+                  collectedText.push(delta.text);
+                }
+                // In prompt-based mode we buffer the text so we can strip out
+                // the <tool_call> XML before showing it to the user.
+              } else if (delta.type === "tool_call_start" && delta.toolCall) {
+                // In native mode, if no text has been streamed yet, emit a synthetic
+                // prefix so the user sees activity rather than a silent spinner.
+                if (
+                  !usePromptBased &&
+                  assistantText.length === 0 &&
+                  pendingToolCalls.length === 0
+                ) {
+                  this.emit({
+                    type: "text",
+                    text: `Using \`${delta.toolCall.name}\`…\n`,
+                  });
+                  emittedInAttempt = true;
+                }
+                pendingToolCalls.push(delta.toolCall);
+                toolStartTimes.set(delta.toolCall.id, Date.now());
+                this.emit(delta);
+                emittedInAttempt = true;
+              } else if (delta.type === "tool_call_end") {
+                this.emit(delta);
+                emittedInAttempt = true;
+              } else if (delta.type === "done") {
+                totalInputTokens += delta.usage.inputTokens;
+                totalOutputTokens += delta.usage.outputTokens;
+                activeBudget?.record({
+                  provider: activeProvider.name,
+                  model:
+                    activeProvider.modelInfo().id ??
+                    activeProvider.modelInfo().name,
+                  inputTokens: delta.usage.inputTokens,
+                  outputTokens: delta.usage.outputTokens,
+                  cacheReadTokens:
+                    delta.usage.cacheReadTokens ??
+                    delta.usage.cachedInputTokens,
+                  cacheWriteTokens: delta.usage.cacheWriteTokens,
+                });
+
+                const ttft = firstTokenTime
+                  ? firstTokenTime - requestStartTime
+                  : Date.now() - requestStartTime;
+                const totalLatency = Date.now() - requestStartTime;
+                this.metrics?.recordRequest({
+                  requestLatency: ttft,
+                  totalLatency,
+                  inputTokens: delta.usage.inputTokens,
+                  outputTokens: delta.usage.outputTokens,
+                  cachedInputTokens: delta.usage.cachedInputTokens,
+                  reasoningTokens: delta.usage.reasoningTokens,
+                  provider: activeProvider.name,
+                  model:
+                    activeProvider.modelInfo().id ??
+                    activeProvider.modelInfo().name,
+                  runId: correlation.runId,
+                  sessionId: correlation.sessionId,
+                  turnId: correlation.turnId,
+                  traceId: correlation.traceContext?.traceId,
+                  spanId: correlation.traceContext?.spanId,
+                });
+                if (runtimeTarget) {
+                  this.routingRuntime?.recordSuccess(
+                    runtimeTarget,
+                    totalLatency,
+                    ttft,
+                  );
+                }
+
+                // Anchor future estimates on the provider's authoritative prompt
+                // token count for this prefix (#137). The prefill seed (prompt-based
+                // continuation only) is a constant small delta, so recording against
+                // `messagesToSend` keeps the measured prefix aligned with the next
+                // turn's history while staying conservative.
+                contextManager.recordUsage(
+                  messagesToSend,
+                  delta.usage.inputTokens,
+                );
+                this.emit(delta);
+                emittedInAttempt = true;
+                break;
+              } else if (delta.type === "error") {
+                const failure = classifyFailure(delta.error);
+                if (runtimeTarget) {
+                  this.routingRuntime?.recordFailure(runtimeTarget, failure);
+                  emitRoutingFailure(failure);
+                }
+                const candidates = emittedInAttempt
+                  ? []
+                  : resolveCandidates(failure);
+                if (candidates.length > 0) {
+                  failoverCandidates = candidates;
+                  retryFailure = failure;
+                  break;
+                }
+                this.emit(delta);
+                emittedInAttempt = true;
+                this.metrics?.recordFailure(delta.error);
+                errorOccurred = true;
+                break;
+              } else {
+                this.emit(delta);
+                emittedInAttempt = true;
+              }
             }
-            // In prompt-based mode we buffer the text so we can strip out
-            // the <tool_call> XML before showing it to the user.
-          } else if (delta.type === "tool_call_start" && delta.toolCall) {
-            // In native mode, if no text has been streamed yet, emit a synthetic
-            // prefix so the user sees activity rather than a silent spinner.
-            if (
-              !usePromptBased &&
-              assistantText.length === 0 &&
-              pendingToolCalls.length === 0
-            ) {
-              this.emit({
-                type: "text",
-                text: `Using \`${delta.toolCall.name}\`…\n`,
+          } catch (err) {
+            const failure = classifyFailure(err);
+            if (runtimeTarget) {
+              this.routingRuntime?.recordFailure(runtimeTarget, failure);
+              emitRoutingFailure(failure);
+            }
+            if (!emittedInAttempt && resolveCandidates(failure).length > 0) {
+              failoverCandidates = resolveCandidates(failure);
+              retryFailure = failure;
+            } else {
+              throw err;
+            }
+          } finally {
+            releaseRuntime?.();
+          }
+
+          if (retryFailure !== null) {
+            const from = runtimeTarget;
+            const next = failoverCandidates[failoverAttempt];
+            if (from && next) {
+              this.routingObserver?.onFailover?.({
+                attempt: failoverAttempt + 1,
+                from,
+                to: next.target,
+                error: retryFailure,
+                ...(routeDecision?.requestId !== undefined
+                  ? { requestId: routeDecision.requestId }
+                  : {}),
+                ...(correlation.sessionId !== undefined
+                  ? { sessionId: correlation.sessionId }
+                  : {}),
+                ...(correlation.runId !== undefined
+                  ? { runId: correlation.runId }
+                  : {}),
+                ...(correlation.turnId !== undefined
+                  ? { turnId: correlation.turnId }
+                  : {}),
+                ...(correlation.traceContext?.traceId !== undefined
+                  ? { traceId: correlation.traceContext.traceId }
+                  : {}),
+                ...(correlation.traceContext?.spanId !== undefined
+                  ? { spanId: correlation.traceContext.spanId }
+                  : {}),
               });
+              failoverAttempt += 1;
+              continue;
             }
-            pendingToolCalls.push(delta.toolCall);
-            toolStartTimes.set(delta.toolCall.id, Date.now());
-            this.emit(delta);
-          } else if (delta.type === "tool_call_end") {
-            this.emit(delta);
-          } else if (delta.type === "done") {
-            totalInputTokens += delta.usage.inputTokens;
-            totalOutputTokens += delta.usage.outputTokens;
-            activeBudget?.record({
-              provider: activeProvider.name,
-              model:
-                activeProvider.modelInfo().id ??
-                activeProvider.modelInfo().name,
-              inputTokens: delta.usage.inputTokens,
-              outputTokens: delta.usage.outputTokens,
-              cacheReadTokens:
-                delta.usage.cacheReadTokens ?? delta.usage.cachedInputTokens,
-              cacheWriteTokens: delta.usage.cacheWriteTokens,
-            });
-
-            const ttft = firstTokenTime
-              ? firstTokenTime - requestStartTime
-              : Date.now() - requestStartTime;
-            const totalLatency = Date.now() - requestStartTime;
-            this.metrics?.recordRequest({
-              requestLatency: ttft,
-              totalLatency,
-              inputTokens: delta.usage.inputTokens,
-              outputTokens: delta.usage.outputTokens,
-              cachedInputTokens: delta.usage.cachedInputTokens,
-              reasoningTokens: delta.usage.reasoningTokens,
-              provider: activeProvider.name,
-              model:
-                activeProvider.modelInfo().id ??
-                activeProvider.modelInfo().name,
-              runId: correlation.runId,
-              sessionId: correlation.sessionId,
-              turnId: correlation.turnId,
-              traceId: correlation.traceContext?.traceId,
-              spanId: correlation.traceContext?.spanId,
-            });
-
-            // Anchor future estimates on the provider's authoritative prompt
-            // token count for this prefix (#137). The prefill seed (prompt-based
-            // continuation only) is a constant small delta, so recording against
-            // `messagesToSend` keeps the measured prefix aligned with the next
-            // turn's history while staying conservative.
-            contextManager.recordUsage(messagesToSend, delta.usage.inputTokens);
-            this.emit(delta);
-            break;
-          } else if (delta.type === "error") {
-            this.emit(delta);
-            this.metrics?.recordFailure(delta.error);
             errorOccurred = true;
-            break;
-          } else {
-            this.emit(delta);
+            this.emit({
+              type: "error",
+              error:
+                `All ${failoverAttempt + 1} routed model attempt(s) failed ` +
+                `(${retryFailure}); no safe alternative remains.`,
+            });
           }
+          break;
         }
         if (errorOccurred) {
           hadError = true;

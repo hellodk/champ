@@ -36,12 +36,83 @@ export type CredentialRef =
   | { kind: "env"; name: string }
   | null;
 
+export type CapabilityState = "yes" | "no" | "unknown";
+
+export type CapabilityEvidenceSource = "server" | "probe" | "user" | "catalog";
+
+export interface CapabilityEvidence {
+  source: CapabilityEvidenceSource;
+  observedAt?: string;
+  detail?: string;
+}
+
+export interface ModelCapabilitySet {
+  chat: CapabilityState;
+  tools: CapabilityState;
+  embeddings: CapabilityState;
+  images: CapabilityState;
+  structuredOutput: CapabilityState;
+}
+
+export interface ModelUserOverrides {
+  pinned?: boolean;
+  capabilityOverrides?: Partial<ModelCapabilitySet>;
+  contextWindow?: number;
+}
+
 export interface DiscoveredModel {
   id: string;
   displayName?: string;
+  /** Legacy free-form capability labels, preserved for existing frontends. */
   capabilities?: string[];
   contextWindow?: number;
   lastSeenAt?: string;
+  /** Evidence-based capability state. Unknown is never upgraded by a guess. */
+  capabilitySet?: Partial<ModelCapabilitySet>;
+  capabilityEvidence?: Partial<
+    Record<keyof ModelCapabilitySet, CapabilityEvidence>
+  >;
+  contextWindowEvidence?: CapabilityEvidence;
+  maxOutputTokens?: number;
+  qualityHint?: number;
+  speedHint?: "fast" | "medium" | "slow";
+  latencyMs?: number;
+  ttftMs?: number;
+  /** Only present when a known price exists; otherwise cost stays unknown. */
+  costPerMillionInputUsd?: number;
+  costPerMillionOutputUsd?: number;
+  overrides?: ModelUserOverrides;
+}
+
+export interface ModelTarget {
+  endpointId: string;
+  modelId: string;
+}
+
+export type RoutingPreference = "quality" | "balanced" | "fast";
+
+export type RouteScope =
+  | { kind: "endpoint"; endpointId: string }
+  | { kind: "pool"; poolId: string }
+  | { kind: "global"; allowCloud: boolean };
+
+export interface ModelSelectionConfig {
+  scope: RouteScope;
+  preference: RoutingPreference;
+  pinned: ModelTarget | null;
+  /** Explicit opt-in for safe automatic failover. Absent means disabled. */
+  failover?: { enabled: boolean; maxAttempts?: number };
+}
+
+export interface EndpointPool {
+  id: string;
+  name: string;
+  /** Endpoint IDs only; never endpoint names or provider names. */
+  endpointIds: string[];
+  routing?: {
+    preference?: RoutingPreference;
+    allowCloud?: boolean;
+  };
 }
 
 export interface Endpoint {
@@ -92,6 +163,10 @@ export interface ProvidersDocument {
   endpoints: Endpoint[];
   assignments: Partial<Record<TaskAssignment, TaskEndpointAssignment>>;
   routingMode: "auto" | "manual";
+  /** Optional named endpoint sets; absent means no multi-endpoint routing. */
+  pools?: EndpointPool[];
+  /** Optional canonical selection state; absent preserves legacy behaviour. */
+  selection?: ModelSelectionConfig;
 }
 
 /** Optional workspace reference stored at `<workspace>/.champ/provider.json`. */

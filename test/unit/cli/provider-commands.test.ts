@@ -374,6 +374,191 @@ describe("cli provider commands", () => {
     expect(out.join("")).toContain('Routing mode set to "manual"');
   });
 
+  it("model smart clears the pin while preserving scope", async () => {
+    const { deps, registry } = createCmdHarness();
+    const ep = await registry.add({
+      name: "Local Ollama",
+      provider: "ollama",
+      baseUrl: "http://localhost:11434",
+      models: [{ id: "llama3.1" }],
+    });
+    await registry.setSelection({
+      scope: { kind: "endpoint", endpointId: ep.id },
+      pinned: { endpointId: ep.id, modelId: "llama3.1" },
+      preference: "balanced",
+    });
+
+    const code = await runProviderCommand(
+      { name: "model-smart", preference: "quality" },
+      deps,
+    );
+    expect(code).toBe(0);
+    const selection = await registry.getSelection();
+    expect(selection).toMatchObject({
+      scope: { kind: "endpoint", endpointId: ep.id },
+      preference: "quality",
+    });
+    expect(selection?.pinned).toBeNull();
+  });
+
+  it("model scope requires explicit opt-in for global cloud routing", async () => {
+    const { deps, registry } = createCmdHarness();
+    await registry.add({
+      name: "Cloud",
+      provider: "openai",
+      baseUrl: "https://api.openai.com/v1",
+      models: [{ id: "gpt-4o-mini" }],
+    });
+
+    const denied = await runProviderCommand(
+      { name: "model-scope", scope: "global" },
+      deps,
+    );
+    expect(denied).toBe(0);
+    expect((await registry.getSelection())?.scope).toEqual({
+      kind: "global",
+      allowCloud: false,
+    });
+
+    const allowed = await runProviderCommand(
+      { name: "model-scope", scope: "global", allowCloud: true },
+      deps,
+    );
+    expect(allowed).toBe(0);
+    expect((await registry.getSelection())?.scope).toEqual({
+      kind: "global",
+      allowCloud: true,
+    });
+  });
+
+  it("model pool add creates a selectable pool", async () => {
+    const { deps, registry, out } = createCmdHarness();
+    const first = await registry.add({
+      name: "Local A",
+      provider: "ollama",
+      baseUrl: "http://localhost:11434",
+      models: [{ id: "m1" }],
+    });
+    const second = await registry.add({
+      name: "Local B",
+      provider: "vllm",
+      baseUrl: "http://localhost:8000/v1",
+      models: [{ id: "m2" }],
+    });
+
+    const code = await runProviderCommand(
+      {
+        name: "model-pool-add",
+        poolName: "Local pool",
+        endpointIds: [first.id, second.id],
+      },
+      deps,
+    );
+    expect(code).toBe(0);
+    const pool = (await registry.listPools())[0];
+    expect(pool.endpointIds).toEqual([first.id, second.id]);
+    expect(out.join("")).toContain(pool.id);
+
+    const scopeCode = await runProviderCommand(
+      { name: "model-scope", scope: "pool", id: pool.id },
+      deps,
+    );
+    expect(scopeCode).toBe(0);
+    expect((await registry.getSelection())?.scope).toEqual({
+      kind: "pool",
+      poolId: pool.id,
+    });
+  });
+
+  it("model failover on/off persists an explicit opt-in policy", async () => {
+    const { deps, registry, out } = createCmdHarness();
+    const endpoint = await registry.add({
+      name: "Failover EP",
+      provider: "ollama",
+      baseUrl: "http://localhost:11434",
+      models: [{ id: "m1" }],
+    });
+
+    expect(
+      await runProviderCommand(
+        { name: "model-failover", enabled: true, maxAttempts: 2 },
+        deps,
+      ),
+    ).toBe(0);
+    expect((await registry.getSelection())?.failover).toEqual({
+      enabled: true,
+      maxAttempts: 2,
+    });
+    expect(out.join("")).toContain("Safe failover enabled");
+
+    expect(
+      await runProviderCommand(
+        { name: "model-failover", enabled: false },
+        deps,
+      ),
+    ).toBe(0);
+    expect((await registry.getSelection())?.failover).toBeUndefined();
+    expect((await registry.getSelection())?.scope).toEqual({
+      kind: "endpoint",
+      endpointId: endpoint.id,
+    });
+  });
+
+  it("model scope preserves an enabled failover policy", async () => {
+    const { deps, registry } = createCmdHarness();
+    await registry.setSelection({
+      scope: { kind: "global", allowCloud: false },
+      preference: "quality",
+      pinned: null,
+      failover: { enabled: true, maxAttempts: 2 },
+    });
+    await runProviderCommand({ name: "model-scope", scope: "global" }, deps);
+    expect((await registry.getSelection())?.failover).toEqual({
+      enabled: true,
+      maxAttempts: 2,
+    });
+  });
+
+  it("models --details shows pinned status, evidence, context and runtime status", async () => {
+    const { deps, registry, out } = createCmdHarness();
+    const ep = await registry.add({
+      name: "Local Ollama",
+      provider: "ollama",
+      baseUrl: "http://localhost:11434",
+      models: [
+        {
+          id: "llama3.1",
+          contextWindow: 8192,
+          lastSeenAt: "2026-11-28T00:00:00.000Z",
+          capabilitySet: { chat: "yes", tools: "no" },
+          capabilityEvidence: {
+            chat: { source: "probe", observedAt: "2026-11-28T00:00:00.000Z" },
+          },
+        },
+      ],
+    });
+    await registry.setSelection({
+      scope: { kind: "endpoint", endpointId: ep.id },
+      preference: "balanced",
+      pinned: { endpointId: ep.id, modelId: "llama3.1" },
+    });
+
+    const code = await runProviderCommand(
+      { name: "models", details: true },
+      deps,
+    );
+    expect(code).toBe(0);
+    const text = out.join("");
+    expect(text).toContain(
+      `Selection: scope=endpoint pinned=${ep.id}/llama3.1 preference=balanced`,
+    );
+    expect(text).toContain(`${ep.id}/llama3.1`);
+    expect(text).toContain("name=Local Ollama");
+    expect(text).toContain("ctx=8192");
+    expect(text).toContain("evidence=chat:probe");
+    expect(text).toContain("status=");
+  });
+
   it("provider test supports --inference mode", async () => {
     const { deps, registry, out } = createCmdHarness();
     const ep = await registry.add({

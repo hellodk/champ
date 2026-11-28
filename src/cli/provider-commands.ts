@@ -7,15 +7,23 @@ import * as path from "path";
 import { spawnSync } from "child_process";
 import type { CredentialStore } from "../config/credential-store";
 import { champHome } from "../config/home";
+import { onboardEndpoint } from "../config/endpoint-onboarding";
 import { selectProviderAsDefault } from "../config/active-model";
 import { setConfigValue } from "./config-editor";
 import {
   EndpointNotFoundError,
   type EndpointRegistry,
 } from "../config/endpoint-registry";
+import {
+  modelEvidenceSummary,
+  runtimeStatusSummary,
+} from "../config/model-display";
 import type {
   CredentialRef,
   Endpoint,
+  ModelSelectionConfig,
+  RouteScope,
+  RoutingPreference,
   TaskAssignment,
   WorkspaceProviderRef,
 } from "../config/provider-model";
@@ -32,14 +40,41 @@ export type ProviderCommand =
   | { name: "setup" }
   | { name: "provider-list" }
   | { name: "provider-add" }
+  | {
+      name: "provider-onboard";
+      url: string;
+      apiKey?: string;
+      endpointName?: string;
+    }
   | { name: "provider-edit"; id: string }
   | { name: "provider-remove"; id: string }
   | { name: "provider-test"; id: string; inference?: boolean }
   | { name: "provider-discover"; id: string }
-  | { name: "models"; id?: string }
-  | { name: "models-refresh"; id?: string }
+  | { name: "models"; id?: string; details?: boolean }
+  | { name: "models-refresh"; id?: string; details?: boolean }
   | { name: "model-use"; endpointAndModel: string; workspace?: boolean }
   | { name: "model-assign"; task: TaskAssignment; endpointAndModel: string }
+  | { name: "model-smart"; preference?: RoutingPreference }
+  | {
+      name: "model-scope";
+      scope: RouteScope["kind"];
+      id?: string;
+      allowCloud?: boolean;
+      preference?: RoutingPreference;
+    }
+  | {
+      name: "model-pool-add";
+      poolName: string;
+      endpointIds: string[];
+      preference?: RoutingPreference;
+      allowCloud?: boolean;
+    }
+  | { name: "model-pool-remove"; id: string }
+  | {
+      name: "model-failover";
+      enabled: boolean;
+      maxAttempts?: number;
+    }
   | { name: "config-show" }
   | { name: "config-set"; key: string; value: string }
   | { name: "config-edit" }
@@ -64,6 +99,8 @@ export interface CommandDeps {
     written: boolean;
   }>;
   scrubSecrets?: (opts: { dryRun: boolean }) => Promise<ScrubSecretsResult>;
+  /** Injectable discovery transport; defaults to global fetch. */
+  onboardingFetch?: typeof globalThis.fetch;
 }
 
 function redactCredentialRef(ref: CredentialRef): string {
@@ -130,6 +167,51 @@ export async function runProviderCommand(
           writeLine: (line) => deps.stderr(`${line}\n`),
         });
         return res.saved ? 0 : 1;
+      }
+
+      case "provider-onboard": {
+        const result = await onboardEndpoint(
+          {
+            url: cmd.url,
+            apiKey: cmd.apiKey,
+            name: cmd.endpointName,
+          },
+          {
+            fetch: deps.onboardingFetch ?? fetch,
+            now: () => new Date().toISOString(),
+            requestTimeoutMs: 5_000,
+          },
+        );
+        const added = await deps.registry.add({
+          id: result.endpoint.id,
+          name: result.endpoint.name,
+          provider: result.endpoint.provider,
+          baseUrl: result.endpoint.baseUrl,
+          credential: result.endpoint.credential,
+          enabled: true,
+          models: result.models,
+          options: result.endpoint.options,
+        });
+        if (cmd.apiKey && added.credential) {
+          await deps.credentials.set(added.credential, cmd.apiKey);
+        }
+        for (const warning of result.warnings) {
+          deps.stderr(`champ: ${warning}\n`);
+        }
+        if (result.error) {
+          deps.stderr(`champ: onboarding incomplete: ${result.error}\n`);
+          deps.stdout(
+            `Saved ${added.id} with ${result.models.length} manually entered model(s).\n`,
+          );
+          return 1;
+        }
+        deps.stdout(
+          `Detected ${result.protocol}; saved ${added.id} (${added.name}) with ${result.models.length} model(s).\n`,
+        );
+        for (const model of result.models) {
+          deps.stdout(`${added.id}/${model.id}\n`);
+        }
+        return 0;
       }
 
       case "provider-list": {
@@ -240,6 +322,23 @@ export async function runProviderCommand(
         }
 
         const forceRefresh = cmd.name === "models-refresh";
+        const selection = cmd.details
+          ? await deps.registry.getSelection()
+          : undefined;
+        if (selection) {
+          const pinned = selection.pinned
+            ? `${selection.pinned.endpointId}/${selection.pinned.modelId}`
+            : "no";
+          deps.stdout(
+            `Selection: scope=${selection.scope.kind} pinned=${pinned} preference=${selection.preference}\n`,
+          );
+          const doc = await deps.registry.readDocument();
+          for (const pool of doc.pools ?? []) {
+            deps.stdout(
+              `Pool: ${pool.id} endpoints=${pool.endpointIds.join(",") || "none"}\n`,
+            );
+          }
+        }
         for (const ep of targets) {
           const models =
             forceRefresh || ep.models.length === 0
@@ -252,7 +351,21 @@ export async function runProviderCommand(
             continue;
           }
           for (const m of models) {
-            deps.stdout(`${ep.id}/${m.id}\n`);
+            if (!selection) {
+              deps.stdout(`${ep.id}/${m.id}\n`);
+              continue;
+            }
+            const context =
+              m.overrides?.contextWindow ?? m.contextWindow ?? ep.contextWindow;
+            const status = runtimeStatusSummary(deps.registry.runtime, {
+              endpointId: ep.id,
+              modelId: m.id,
+            });
+            deps.stdout(
+              `${ep.id}/${m.id}\tname=${ep.name}\tctx=${context ?? "unknown"}\t` +
+                `evidence=${modelEvidenceSummary(m)}\tstatus=${status}\t` +
+                `lastSeen=${m.lastSeenAt ?? "unknown"}\n`,
+            );
           }
         }
         return 0;
@@ -302,6 +415,116 @@ export async function runProviderCommand(
         const target = findEndpoint(endpoints, endpointId);
         await deps.registry.setAssignment(cmd.task, target.id, model);
         deps.stdout(`Task "${cmd.task}" assigned to ${target.id}/${model}\n`);
+        return 0;
+      }
+
+      case "model-smart": {
+        const current = await deps.registry.getSelection();
+        const endpoints = await deps.registry.list();
+        const fallback =
+          endpoints.find((ep) => ep.enabled && ep.isDefault) ??
+          endpoints.find((ep) => ep.enabled);
+        const scope: RouteScope =
+          current?.scope ??
+          (fallback
+            ? { kind: "endpoint", endpointId: fallback.id }
+            : { kind: "global", allowCloud: false });
+        const selection: ModelSelectionConfig = {
+          scope,
+          preference: cmd.preference ?? current?.preference ?? "balanced",
+          pinned: null,
+          ...(current?.failover ? { failover: current.failover } : {}),
+        };
+        await deps.registry.setSelection(selection);
+        deps.stdout(
+          `SmartRoute enabled in ${scope.kind} scope with ${selection.preference} preference.\n`,
+        );
+        return 0;
+      }
+
+      case "model-scope": {
+        const current = await deps.registry.getSelection();
+        let scope: RouteScope;
+        if (cmd.scope === "endpoint") {
+          const endpoints = await deps.registry.list();
+          const target = findEndpoint(endpoints, cmd.id ?? "");
+          scope = { kind: "endpoint", endpointId: target.id };
+        } else if (cmd.scope === "pool") {
+          const pools = await deps.registry.listPools();
+          const pool =
+            pools.find((item) => item.id === cmd.id) ??
+            pools.find((item) => item.name === cmd.id);
+          if (!pool) throw new Error(`Endpoint pool "${cmd.id}" not found`);
+          scope = { kind: "pool", poolId: pool.id };
+        } else {
+          scope = { kind: "global", allowCloud: cmd.allowCloud === true };
+        }
+        const preference = cmd.preference ?? current?.preference ?? "balanced";
+        await deps.registry.setSelection({
+          scope,
+          preference,
+          pinned: null,
+          ...(current?.failover ? { failover: current.failover } : {}),
+        });
+        deps.stdout(
+          `Routing scope set to ${scope.kind} (preference=${preference}).\n`,
+        );
+        return 0;
+      }
+
+      case "model-pool-add": {
+        const endpoints = await deps.registry.list();
+        const endpointIds = cmd.endpointIds.map(
+          (id) => findEndpoint(endpoints, id).id,
+        );
+        const pool = await deps.registry.addPool({
+          name: cmd.poolName,
+          endpointIds,
+          ...(cmd.preference ? { preference: cmd.preference } : {}),
+          ...(cmd.allowCloud !== undefined
+            ? { allowCloud: cmd.allowCloud }
+            : {}),
+        });
+        deps.stdout(
+          `Pool ${pool.id} (${pool.name}) created with ${pool.endpointIds.length} endpoint(s).\n`,
+        );
+        return 0;
+      }
+
+      case "model-pool-remove": {
+        await deps.registry.removePool(cmd.id);
+        deps.stdout(`Pool ${cmd.id} removed.\n`);
+        return 0;
+      }
+
+      case "model-failover": {
+        const current = await deps.registry.getSelection();
+        const endpoints = await deps.registry.list();
+        const fallback =
+          endpoints.find((ep) => ep.enabled && ep.isDefault) ??
+          endpoints.find((ep) => ep.enabled);
+        const scope: RouteScope =
+          current?.scope ??
+          (fallback
+            ? { kind: "endpoint", endpointId: fallback.id }
+            : { kind: "global", allowCloud: false });
+        const selection: ModelSelectionConfig = {
+          scope,
+          preference: current?.preference ?? "balanced",
+          pinned: current?.pinned ?? null,
+        };
+        if (cmd.enabled) {
+          selection.failover = {
+            enabled: true,
+            maxAttempts: cmd.maxAttempts ?? current?.failover?.maxAttempts ?? 1,
+          };
+        }
+        await deps.registry.setSelection(selection);
+        deps.stdout(
+          cmd.enabled
+            ? `Safe failover enabled (max ${selection.failover?.maxAttempts ?? 1} retry attempt(s)).\n`
+            : "Safe failover disabled.\n",
+        );
         return 0;
       }
 

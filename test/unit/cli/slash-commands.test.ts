@@ -18,7 +18,9 @@ import type { AgentController } from "@/agent/agent-controller";
 import type { ToolRegistry } from "@/tools/registry";
 import type { McpRegistry } from "@/mcp/mcp-registry";
 
-function createMockController(overrides: Partial<AgentController> = {}): AgentController {
+function createMockController(
+  overrides: Partial<AgentController> = {},
+): AgentController {
   const metrics = new MetricsCollector();
   return {
     getProvider: () => ({
@@ -38,8 +40,16 @@ function createMockController(overrides: Partial<AgentController> = {}): AgentCo
     ],
     getToolRegistry: () => ({
       getAll: () => [
-        { name: "read_file", description: "Read file", requiresApproval: false },
-        { name: "write_file", description: "Write file", requiresApproval: true },
+        {
+          name: "read_file",
+          description: "Read file",
+          requiresApproval: false,
+        },
+        {
+          name: "write_file",
+          description: "Write file",
+          requiresApproval: true,
+        },
       ],
     }),
     getMetrics: () => metrics,
@@ -207,7 +217,9 @@ describe("/usage and formatUsageReport", () => {
     expect(report).toContain("Total Requests:    2");
     expect(report).toContain("Input Tokens:      300");
     expect(report).toContain("Output Tokens:     60");
-    expect(report).toContain("Rolling Window (2 recent requests in sample buffer):");
+    expect(report).toContain(
+      "Rolling Window (2 recent requests in sample buffer):",
+    );
     expect(report).toContain("Rolling Tokens In: 300");
     expect(report).toContain("Rolling Tokens Out:60");
     expect(report).toContain("Rolling Avg TTFT:");
@@ -227,7 +239,9 @@ describe("/usage and formatUsageReport", () => {
     };
 
     const report = formatUsageReport(ctx);
-    expect(report).toContain("Observability metrics collector is not wired in this session.");
+    expect(report).toContain(
+      "Observability metrics collector is not wired in this session.",
+    );
   });
 });
 
@@ -254,14 +268,60 @@ describe("/context and formatContextReport", () => {
     expect(report).toContain("Context Window:    200,000 tokens");
     expect(report).toContain("Output Reserved:   4,096 tokens");
     expect(report).toContain("Usable Input Budget:195,904 tokens");
-    expect(report).toContain("History Messages:  4 (1 user, 1 assistant, 1 tool, 1 system)");
+    expect(report).toContain(
+      "History Messages:  4 (1 user, 1 assistant, 1 tool, 1 system)",
+    );
     expect(report).toContain("Remaining Capacity:");
     expect(report).toContain('Active Checkpoint: "step-1" at 2 messages');
-    expect(report).toContain('Compaction State:  Earliest messages elided to checkpoint "step-1"');
+    expect(report).toContain(
+      'Compaction State:  Earliest messages elided to checkpoint "step-1"',
+    );
   });
 });
 
 describe("/route and formatRouteReport", () => {
+  it("explains canonical scope, source, pins and exclusions", () => {
+    const decision = {
+      target: { endpointId: "ep_a", modelId: "m1" },
+      scope: "pool" as const,
+      scopeKey: "pool_local",
+      pinned: false,
+      source: "selection" as const,
+      reason: "ranked by explicit balanced preference",
+      preference: "balanced" as const,
+      candidates: [{ endpointId: "ep_a", modelId: "m1" }],
+      excluded: [
+        {
+          target: { endpointId: "ep_b", modelId: "m2" },
+          reason: "no proven tools",
+        },
+      ],
+      alternatives: [],
+    };
+    const controller = createMockController({
+      getSmartRouter: () =>
+        ({
+          getMode: () => "smart",
+          getModels: () => [],
+          select: () => null,
+          getLastRouteDecision: () => decision,
+        }) as never,
+    });
+    const ctx: SlashCommandContext = {
+      workspace: "/test/workspace",
+      controller,
+    };
+
+    const report = formatRouteReport(ctx);
+    expect(report).toContain("Decision Source:   selection");
+    expect(report).toContain("Scope:             pool/pool_local");
+    expect(report).toContain("Pinned:            no");
+    expect(report).toContain(
+      "Reason:            ranked by explicit balanced preference",
+    );
+    expect(report).toContain("excluded: ep_b/m2 — no proven tools");
+  });
+
   it("reports direct mode when SmartRouter is not configured", () => {
     const controller = createMockController();
     const ctx: SlashCommandContext = {
@@ -271,7 +331,9 @@ describe("/route and formatRouteReport", () => {
 
     const report = formatRouteReport(ctx);
     expect(report).toContain("Smart Router & Model Routing");
-    expect(report).toContain('Active Mode:       agent (mapped to task: "coding")');
+    expect(report).toContain(
+      'Active Mode:       agent (mapped to task: "coding")',
+    );
     expect(report).toContain("Active Provider:   anthropic");
     expect(report).toContain("Active Model:      claude-3-5-sonnet-20241022");
     expect(report).toContain("Router Mode:       Direct");
@@ -303,7 +365,8 @@ describe("/route and formatRouteReport", () => {
     };
 
     const controller = createMockController({
-      getSmartRouter: () => mockRouter as unknown as ReturnType<AgentController["getSmartRouter"]>,
+      getSmartRouter: () =>
+        mockRouter as unknown as ReturnType<AgentController["getSmartRouter"]>,
     });
     const ctx: SlashCommandContext = {
       workspace: "/test/workspace",
@@ -315,7 +378,9 @@ describe("/route and formatRouteReport", () => {
     expect(report).toContain("Discovered Models: 2");
     expect(report).toContain("Router Selection Decision:");
     expect(report).toContain("Selected Model:  claude-3-5-haiku-20241022");
-    expect(report).toContain("Reasoning:       Cost efficiency preferred for coding");
+    expect(report).toContain(
+      "Reasoning:       Cost efficiency preferred for coding",
+    );
     expect(report).toContain("Candidate Models:");
     expect(report).toContain("claude-3-5-haiku-20241022");
   });
@@ -396,8 +461,16 @@ describe("/tools and formatToolsReport", () => {
     const controller = createMockController({ getMetrics: () => metrics });
     const toolRegistry: ToolRegistry = {
       getAll: () => [
-        { name: "read_file", description: "Read file", requiresApproval: false },
-        { name: "write_file", description: "Write file", requiresApproval: true },
+        {
+          name: "read_file",
+          description: "Read file",
+          requiresApproval: false,
+        },
+        {
+          name: "write_file",
+          description: "Write file",
+          requiresApproval: true,
+        },
       ],
     } as unknown as ToolRegistry;
 
@@ -449,7 +522,12 @@ describe("/mcp and formatMcpReport", () => {
         new Map([
           [
             "code-review-mcp",
-            [{ name: "security-audit", description: "Audit security of git diff" }],
+            [
+              {
+                name: "security-audit",
+                description: "Audit security of git diff",
+              },
+            ],
           ],
         ]),
       getAnalytics: () => ({
@@ -491,9 +569,13 @@ describe("/doctor and formatDoctorReport", () => {
     const report = await formatDoctorReport(ctx);
     expect(report).toContain("Champ Doctor & System Health");
     expect(report).toContain("Overall Status:    HEALTHY (PASS)");
-    expect(report).toContain("Provider\tanthropic configured (Claude 3.5 Sonnet)");
+    expect(report).toContain(
+      "Provider\tanthropic configured (Claude 3.5 Sonnet)",
+    );
     expect(report).toContain("Workspace\t/my/project");
-    expect(report).toContain(`Rate Table\tVersion ${PRICING_TABLE_VERSION} loaded`);
+    expect(report).toContain(
+      `Rate Table\tVersion ${PRICING_TABLE_VERSION} loaded`,
+    );
   });
 
   it("delegates to custom doctor callback when provided", async () => {
@@ -525,32 +607,70 @@ describe("executeSlashCommand dispatch", () => {
       controller,
     };
 
-    expect(await executeSlashCommand("/cost", ctx)).toContain("Budget & Cost Report");
-    expect(await executeSlashCommand("/pricing", ctx)).toContain("Budget & Cost Report");
-    expect(await executeSlashCommand("/budget", ctx)).toContain("Budget & Cost Report");
+    expect(await executeSlashCommand("/cost", ctx)).toContain(
+      "Budget & Cost Report",
+    );
+    expect(await executeSlashCommand("/pricing", ctx)).toContain(
+      "Budget & Cost Report",
+    );
+    expect(await executeSlashCommand("/budget", ctx)).toContain(
+      "Budget & Cost Report",
+    );
 
-    expect(await executeSlashCommand("/usage", ctx)).toContain("Token & Telemetry Usage");
-    expect(await executeSlashCommand("/tokens", ctx)).toContain("Token & Telemetry Usage");
-    expect(await executeSlashCommand("/metrics", ctx)).toContain("Token & Telemetry Usage");
+    expect(await executeSlashCommand("/usage", ctx)).toContain(
+      "Token & Telemetry Usage",
+    );
+    expect(await executeSlashCommand("/tokens", ctx)).toContain(
+      "Token & Telemetry Usage",
+    );
+    expect(await executeSlashCommand("/metrics", ctx)).toContain(
+      "Token & Telemetry Usage",
+    );
 
-    expect(await executeSlashCommand("/context", ctx)).toContain("Context Window Telemetry");
-    expect(await executeSlashCommand("/ctx", ctx)).toContain("Context Window Telemetry");
+    expect(await executeSlashCommand("/context", ctx)).toContain(
+      "Context Window Telemetry",
+    );
+    expect(await executeSlashCommand("/ctx", ctx)).toContain(
+      "Context Window Telemetry",
+    );
 
-    expect(await executeSlashCommand("/route", ctx)).toContain("Smart Router & Model Routing");
-    expect(await executeSlashCommand("/router", ctx)).toContain("Smart Router & Model Routing");
-    expect(await executeSlashCommand("/routing", ctx)).toContain("Smart Router & Model Routing");
+    expect(await executeSlashCommand("/route", ctx)).toContain(
+      "Smart Router & Model Routing",
+    );
+    expect(await executeSlashCommand("/router", ctx)).toContain(
+      "Smart Router & Model Routing",
+    );
+    expect(await executeSlashCommand("/routing", ctx)).toContain(
+      "Smart Router & Model Routing",
+    );
 
-    expect(await executeSlashCommand("/tasks", ctx)).toContain("Agent Tasks & Step History");
-    expect(await executeSlashCommand("/task", ctx)).toContain("Agent Tasks & Step History");
+    expect(await executeSlashCommand("/tasks", ctx)).toContain(
+      "Agent Tasks & Step History",
+    );
+    expect(await executeSlashCommand("/task", ctx)).toContain(
+      "Agent Tasks & Step History",
+    );
 
-    expect(await executeSlashCommand("/tools", ctx)).toContain("Registered Tools & Performance");
-    expect(await executeSlashCommand("/tool", ctx)).toContain("Registered Tools & Performance");
+    expect(await executeSlashCommand("/tools", ctx)).toContain(
+      "Registered Tools & Performance",
+    );
+    expect(await executeSlashCommand("/tool", ctx)).toContain(
+      "Registered Tools & Performance",
+    );
 
-    expect(await executeSlashCommand("/mcp", ctx)).toContain("Model Context Protocol (MCP) Status");
+    expect(await executeSlashCommand("/mcp", ctx)).toContain(
+      "Model Context Protocol (MCP) Status",
+    );
 
-    expect(await executeSlashCommand("/doctor", ctx)).toContain("Champ Doctor & System Health");
-    expect(await executeSlashCommand("/health", ctx)).toContain("Champ Doctor & System Health");
-    expect(await executeSlashCommand("/check", ctx)).toContain("Champ Doctor & System Health");
+    expect(await executeSlashCommand("/doctor", ctx)).toContain(
+      "Champ Doctor & System Health",
+    );
+    expect(await executeSlashCommand("/health", ctx)).toContain(
+      "Champ Doctor & System Health",
+    );
+    expect(await executeSlashCommand("/check", ctx)).toContain(
+      "Champ Doctor & System Health",
+    );
   });
 
   it("returns null for unrecognized commands", async () => {

@@ -33,9 +33,13 @@ Saving `~/.champ/providers.json` or `~/.champ/config.yaml` triggers automatic ho
 Add or refresh an endpoint with `champ setup` / `champ provider discover <id>`, then list the selectable ids:
 
 ```bash
-champ models [refresh] [--endpoint <id>]              # prints <endpoint-id>/<model-id>
-champ model use <id>/<model> [--workspace]            # default assignment (or workspace override)
+champ models [refresh] [--endpoint <id>] [--details]  # prints <endpoint-id>/<model-id> plus evidence/status
+champ model use <id>/<model> [--workspace]            # exact pinned target (or workspace override)
 champ model assign <task> <id>/<model>                # task: default | coding | chat | completion | embedding
+champ model smart [--preference <p>]                  # clear the pin and rank inside the current scope
+champ model scope <endpoint|pool|global> [id]         # choose the eligible scope
+champ model pool add <name> <id,id,...>               # create an explicit endpoint pool
+champ model failover <on|off> [--max-attempts <n>]    # explicit opt-in, 1-3 retries
 champ config routing auto                             # auto | manual
 ```
 
