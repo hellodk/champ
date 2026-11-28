@@ -124,6 +124,7 @@ export class GeminiProvider implements LLMProvider {
 
       let inputTokens = 0;
       let outputTokens = 0;
+      let cachedTokens = 0;
 
       for await (const chunk of result.stream as AsyncIterable<
         Record<string, unknown>
@@ -157,15 +158,29 @@ export class GeminiProvider implements LLMProvider {
         }
 
         const usageMeta = chunk.usageMetadata as
-          | { promptTokenCount?: number; candidatesTokenCount?: number }
+          | {
+              promptTokenCount?: number;
+              candidatesTokenCount?: number;
+              cachedContentTokenCount?: number;
+            }
           | undefined;
         if (usageMeta) {
           inputTokens = usageMeta.promptTokenCount ?? inputTokens;
           outputTokens = usageMeta.candidatesTokenCount ?? outputTokens;
+          if (usageMeta.cachedContentTokenCount !== undefined) {
+            cachedTokens = usageMeta.cachedContentTokenCount;
+          }
         }
       }
 
-      yield { type: "done", usage: { inputTokens, outputTokens } };
+      yield {
+        type: "done",
+        usage: {
+          inputTokens,
+          outputTokens,
+          cachedInputTokens: cachedTokens,
+        },
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       yield { type: "error", error: message };

@@ -61,14 +61,43 @@ describe("MetricsCollector buffer bounds", () => {
     for (let i = 0; i < CAP + 50; i++) {
       collector.recordRequest({
         requestLatency: i,
-        totalLatency: i,
-        inputTokens: 1,
-        outputTokens: 1,
+        totalLatency: i * 2,
+        inputTokens: 10,
+        outputTokens: 5,
       });
     }
     const snap = collector.snapshot();
     expect(snap.totals.requests).toBe(CAP + 50);
-    expect(collector.getMetrics().totalRequests).toBe(CAP + 50);
+    expect(snap.tokens.inputTokens).toBe((CAP + 50) * 10);
+    expect(snap.tokens.outputTokens).toBe((CAP + 50) * 5);
+
+    const metrics = collector.getMetrics();
+    expect(metrics.totalRequests).toBe(CAP + 50);
+    // Cumulative counters reflect all CAP + 50 requests
+    expect(metrics.totalTokensIn).toBe((CAP + 50) * 10);
+    expect(metrics.totalTokensOut).toBe((CAP + 50) * 5);
+    expect(metrics.cumulativeTokensIn).toBe((CAP + 50) * 10);
+    expect(metrics.cumulativeTokensOut).toBe((CAP + 50) * 5);
+    // Rolling token counters reflect only the retained CAP records
+    expect(metrics.rollingTokensIn).toBe(CAP * 10);
+    expect(metrics.rollingTokensOut).toBe(CAP * 5);
+    expect(metrics.retainedRequestCount).toBe(CAP);
+
+    // Rolling average reflects retained sample (i = 50 to 1049, totalLatency = 100 to 2098)
+    const expectedRollingAvg = ((50 + (CAP + 49)) / 2) * 2;
+    expect(metrics.rollingAverageLatency).toBeCloseTo(expectedRollingAvg);
+    expect(metrics.averageLatency).toBeCloseTo(expectedRollingAvg);
+
+    // Lifetime average reflects all (i = 0 to 1049)
+    const expectedLifetimeAvg = ((0 + (CAP + 49)) / 2) * 2;
+    expect(metrics.lifetimeAverageLatency).toBeCloseTo(expectedLifetimeAvg);
+
+    // Histogram distributions are populated for both totalLatency and TTFT
+    expect(metrics.latencyHistogram.count).toBe(CAP + 50);
+    expect(metrics.firstTokenLatencyHistogram.count).toBe(CAP + 50);
+    expect(metrics.latencyHistogram.min).toBe(0);
+    expect(metrics.latencyHistogram.max).toBe((CAP + 49) * 2);
+    expect(metrics.latencyHistogram.p50).toBeGreaterThan(0);
   });
 
   it("caps agentSteps at 1000 with accurate totals", () => {

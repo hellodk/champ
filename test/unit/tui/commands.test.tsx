@@ -49,6 +49,14 @@ describe("TUI slash commands", () => {
       "/compact",
       "/help",
       "/exit",
+      "/cost",
+      "/usage",
+      "/context",
+      "/route",
+      "/tasks",
+      "/tools",
+      "/mcp",
+      "/doctor",
     ]);
     for (const command of CHAT_COMMANDS) {
       expect(CHAT_COMMAND_HELP[command]).toBeTruthy();

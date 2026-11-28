@@ -7,7 +7,7 @@
  * agent behaviour or duplicating the turn loop.
  */
 import type { AgentController } from "../agent/agent-controller";
-import type { BudgetEnforcer } from "../config/budget";
+import { quoteCost, type BudgetEnforcer } from "../config/budget";
 import type { PolicyEngine } from "../policy/engine";
 import type { StreamDelta, ToolCall, TokenUsage } from "../providers/types";
 
@@ -17,9 +17,33 @@ export type TurnController = Pick<
   "onStreamDelta" | "processMessage"
 >;
 
+export interface TurnContextInfo {
+  used: number;
+  window: number;
+  remaining: number;
+  percentUsed: number;
+}
+
+export interface TurnCostInfo {
+  usd: number | null;
+  known: boolean;
+  pricingVersion: string;
+  source: string;
+}
+
 export interface TurnSummary {
   tools: number;
   usage: TokenUsage;
+  durationMs?: number;
+  toolDurationMs?: number;
+  firstTokenMs?: number;
+  model?: string;
+  provider?: string;
+  cost?: TurnCostInfo;
+  context?: TurnContextInfo;
+  retries?: number;
+  fallbacks?: number;
+  compactions?: number;
 }
 
 export interface ToolCompletionEvent {
@@ -118,6 +142,11 @@ export async function executeTurn({
 }: ExecuteTurnOptions): Promise<TurnOutcome> {
   let sawText = false;
   let tools = 0;
+  const startTime = Date.now();
+  let firstTokenTime = 0;
+  let toolDurationMs = 0;
+  const toolStartTimes = new Map<string, number>();
+
   // Error deltas are how providers and the budget enforcer report failures —
   // processMessage returns normally in that case, so the only way a caller can
   // tell the turn failed is by surfacing the delta here.
@@ -129,14 +158,26 @@ export async function executeTurn({
   const dispose = controller.onStreamDelta((delta: StreamDelta) => {
     switch (delta.type) {
       case "text":
-        events.onText?.(delta.text);
-        sawText = true;
+      case "reasoning":
+        if (!firstTokenTime) firstTokenTime = Date.now();
+        if (delta.type === "text") {
+          events.onText?.(delta.text);
+          sawText = true;
+        }
         break;
       case "tool_call_start":
+        if (!firstTokenTime) firstTokenTime = Date.now();
         events.onTool?.(delta.toolCall);
         tools++;
+        if (delta.toolCall.id) {
+          toolStartTimes.set(delta.toolCall.id, Date.now());
+        }
         break;
-      case "tool_call_end":
+      case "tool_call_end": {
+        if (delta.toolCallId && toolStartTimes.has(delta.toolCallId)) {
+          toolDurationMs += Date.now() - toolStartTimes.get(delta.toolCallId)!;
+          toolStartTimes.delete(delta.toolCallId);
+        }
         events.onToolResult?.({
           id: delta.toolCallId,
           name: delta.toolName,
@@ -144,6 +185,7 @@ export async function executeTurn({
           success: delta.toolSuccess ?? false,
         });
         break;
+      }
       case "error":
         streamError ??= delta.error;
         events.onError?.(delta.error);
@@ -151,6 +193,12 @@ export async function executeTurn({
       case "done":
         usage.inputTokens = delta.usage.inputTokens;
         usage.outputTokens = delta.usage.outputTokens;
+        if (delta.usage.cachedInputTokens !== undefined) {
+          usage.cachedInputTokens = delta.usage.cachedInputTokens;
+        }
+        if (delta.usage.reasoningTokens !== undefined) {
+          usage.reasoningTokens = delta.usage.reasoningTokens;
+        }
         events.onUsage?.(delta.usage);
         break;
       default:
@@ -170,7 +218,72 @@ export async function executeTurn({
       onBeforeMutation,
     });
     if (!sawText && result.text) events.onText?.(result.text);
-    events.onDone?.({ tools, usage });
+
+    // Extract provider and model metadata from controller if available
+    const maybeController = controller as unknown as {
+      getProvider?: () => {
+        name: string;
+        modelInfo: () => {
+          id?: string;
+          name: string;
+          contextWindow: number;
+        };
+      };
+    };
+    const providerObj = maybeController.getProvider?.();
+    const model = providerObj
+      ? (providerObj.modelInfo().id ?? providerObj.modelInfo().name)
+      : undefined;
+    const providerName = providerObj?.name;
+    const contextWindow = providerObj?.modelInfo().contextWindow ?? 0;
+    const contextUsed = usage.inputTokens + usage.outputTokens;
+    const contextRemaining = Math.max(0, contextWindow - contextUsed);
+    const percentUsed =
+      contextWindow > 0
+        ? Math.min(100, Math.round((contextUsed / contextWindow) * 100))
+        : 0;
+
+    let costInfo: TurnCostInfo | undefined;
+    if (providerName && model) {
+      const quote = quoteCost(
+        providerName,
+        model,
+        usage.inputTokens,
+        usage.outputTokens,
+        usage.cachedInputTokens ?? 0,
+      );
+      costInfo = {
+        usd: quote.usd,
+        known: quote.known,
+        pricingVersion: quote.pricingVersion,
+        source: quote.source,
+      };
+    }
+
+    const durationMs = Date.now() - startTime;
+    const firstTokenMs = firstTokenTime
+      ? firstTokenTime - startTime
+      : undefined;
+
+    events.onDone?.({
+      tools,
+      usage,
+      durationMs,
+      toolDurationMs,
+      firstTokenMs,
+      model,
+      provider: providerName,
+      cost: costInfo,
+      context:
+        contextWindow > 0
+          ? {
+              used: contextUsed,
+              window: contextWindow,
+              remaining: contextRemaining,
+              percentUsed,
+            }
+          : undefined,
+    });
     const outcome = {
       text: result.text,
       ...(streamError ? { error: streamError } : {}),

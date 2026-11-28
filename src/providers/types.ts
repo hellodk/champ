@@ -110,6 +110,10 @@ export type StreamDelta =
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 }
 
 /**

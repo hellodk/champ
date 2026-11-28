@@ -137,6 +137,8 @@ export class OpenAIProvider implements LLMProvider {
       >();
       let inputTokens = 0;
       let outputTokens = 0;
+      let cachedTokens = 0;
+      let reasoningTokens = 0;
 
       for await (const chunk of stream as AsyncIterable<
         Record<string, unknown>
@@ -150,11 +152,22 @@ export class OpenAIProvider implements LLMProvider {
           | Array<Record<string, unknown>>
           | undefined;
         const usage = chunk.usage as
-          | { prompt_tokens?: number; completion_tokens?: number }
+          | {
+              prompt_tokens?: number;
+              completion_tokens?: number;
+              prompt_tokens_details?: { cached_tokens?: number };
+              completion_tokens_details?: { reasoning_tokens?: number };
+            }
           | undefined;
         if (usage) {
           inputTokens = usage.prompt_tokens ?? inputTokens;
           outputTokens = usage.completion_tokens ?? outputTokens;
+          if (usage.prompt_tokens_details?.cached_tokens !== undefined) {
+            cachedTokens = usage.prompt_tokens_details.cached_tokens;
+          }
+          if (usage.completion_tokens_details?.reasoning_tokens !== undefined) {
+            reasoningTokens = usage.completion_tokens_details.reasoning_tokens;
+          }
         }
         if (!choices || choices.length === 0) continue;
 
@@ -217,7 +230,15 @@ export class OpenAIProvider implements LLMProvider {
         }
       }
 
-      yield { type: "done", usage: { inputTokens, outputTokens } };
+      yield {
+        type: "done",
+        usage: {
+          inputTokens,
+          outputTokens,
+          cachedInputTokens: cachedTokens,
+          reasoningTokens,
+        },
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       yield { type: "error", error: message };

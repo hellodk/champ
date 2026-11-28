@@ -143,6 +143,7 @@ export class AgentController {
   private readonly piiScanner = new PiiScanner();
   private promptGuard = new PromptGuard();
   private smartRouter: SmartRouter | null = null;
+  private metrics?: import("../observability/metrics-collector").MetricsCollector;
   // Inline import type avoids a top-level circular-dependency risk; analytics
   // is optional infrastructure and should not be in the core import chain.
   private analyticsInstance:
@@ -258,6 +259,35 @@ export class AgentController {
   ): void {
     this.analyticsInstance = analytics;
     this.analyticsAgentName = agentName;
+  }
+
+  getAnalytics(): import("../observability/agent-analytics").AgentAnalytics | null {
+    return this.analyticsInstance;
+  }
+
+  /** Attach a MetricsCollector to track live requests, token counts, latencies, and tool calls. */
+  setMetrics(
+    metrics: import("../observability/metrics-collector").MetricsCollector,
+  ): void {
+    this.metrics = metrics;
+  }
+
+  getMetrics():
+    | import("../observability/metrics-collector").MetricsCollector
+    | undefined {
+    return this.metrics;
+  }
+
+  getToolRegistry(): ToolRegistry {
+    return this.toolRegistry;
+  }
+
+  getSmartRouter(): SmartRouter | null {
+    return this.smartRouter;
+  }
+
+  getBudget(): import("../config/budget").BudgetEnforcer | undefined {
+    return this.budget;
   }
 
   setSmartRouter(router: SmartRouter): void {
@@ -461,6 +491,7 @@ export class AgentController {
     options: ProcessMessageOptions = {},
   ): Promise<ProcessMessageResult> {
     this._isProcessing = true;
+    const messageStartTime = Date.now();
     try {
       const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
@@ -833,8 +864,19 @@ export class AgentController {
           assistantText = TOOL_CALL_START_PREFIX;
         }
 
+        const requestStartTime = Date.now();
+        let firstTokenTime = 0;
         let errorOccurred = false;
         for await (const delta of stream) {
+          if (
+            !firstTokenTime &&
+            (delta.type === "text" ||
+              delta.type === "reasoning" ||
+              delta.type === "tool_call_start")
+          ) {
+            firstTokenTime = Date.now();
+          }
+
           if (delta.type === "text" && delta.text) {
             assistantText += delta.text;
             if (!usePromptBased) {
@@ -872,7 +914,28 @@ export class AgentController {
                 activeProvider.modelInfo().name,
               inputTokens: delta.usage.inputTokens,
               outputTokens: delta.usage.outputTokens,
+              cacheReadTokens:
+                delta.usage.cacheReadTokens ?? delta.usage.cachedInputTokens,
+              cacheWriteTokens: delta.usage.cacheWriteTokens,
             });
+
+            const ttft = firstTokenTime
+              ? firstTokenTime - requestStartTime
+              : Date.now() - requestStartTime;
+            const totalLatency = Date.now() - requestStartTime;
+            this.metrics?.recordRequest({
+              requestLatency: ttft,
+              totalLatency,
+              inputTokens: delta.usage.inputTokens,
+              outputTokens: delta.usage.outputTokens,
+              cachedInputTokens: delta.usage.cachedInputTokens,
+              reasoningTokens: delta.usage.reasoningTokens,
+              provider: activeProvider.name,
+              model:
+                activeProvider.modelInfo().id ??
+                activeProvider.modelInfo().name,
+            });
+
             // Anchor future estimates on the provider's authoritative prompt
             // token count for this prefix (#137). The prefill seed (prompt-based
             // continuation only) is a constant small delta, so recording against
@@ -883,6 +946,7 @@ export class AgentController {
             break;
           } else if (delta.type === "error") {
             this.emit(delta);
+            this.metrics?.recordFailure(delta.error);
             errorOccurred = true;
             break;
           } else {
@@ -1128,15 +1192,33 @@ export class AgentController {
             fileEditDiff: result.metadata?.fileEditDiff,
           });
 
-          // Record tool call for analytics
+          // Record tool call for analytics and metrics
+          const toolStart = toolStartTimes.get(call.id) ?? Date.now();
+          toolStartTimes.delete(call.id);
+          const toolDuration = Date.now() - toolStart;
+
+          if (this.metrics) {
+            try {
+              this.metrics.recordToolCall({
+                toolName: call.name,
+                startTime: toolStart,
+                durationMs: toolDuration,
+                success: result.success,
+                args: call.arguments,
+                result: result.success ? result.output.slice(0, 200) : undefined,
+                error: result.success ? undefined : result.output,
+              });
+            } catch {
+              // Ignore metrics errors
+            }
+          }
+
           if (analyticsActive && this.analyticsInstance) {
-            const toolStart = toolStartTimes.get(call.id) ?? Date.now();
-            toolStartTimes.delete(call.id);
             this.analyticsInstance.recordToolCall(this.analyticsAgentName, {
               toolName: call.name,
               args: call.arguments,
               startTime: toolStart,
-              durationMs: Date.now() - toolStart,
+              durationMs: toolDuration,
               success: result.success,
               result: result.success ? result.output.slice(0, 200) : undefined,
               error: result.success ? undefined : result.output,
@@ -1230,6 +1312,26 @@ export class AgentController {
           );
         } catch {
           // ignore — analytics failure must not break the message path
+        }
+      }
+
+      if (this.metrics) {
+        try {
+          this.metrics.recordAgentStep({
+            agentName: this.analyticsAgentName,
+            startTime: messageStartTime,
+            endTime: Date.now(),
+            durationMs: Date.now() - messageStartTime,
+            input:
+              typeof userText === "string"
+                ? userText.slice(0, 200)
+                : "complex message",
+            output: collectedText.join("").slice(0, 200),
+            success: iterationRan && !hadError,
+            error: hadError ? "error occurred during turn" : undefined,
+          });
+        } catch {
+          // ignore — metrics failure must not break the message path
         }
       }
 
