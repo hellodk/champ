@@ -90,6 +90,14 @@ export interface HybridRetrievalOptions {
   now?: () => number;
 }
 
+export interface HybridRetrievalTelemetry {
+  durationMs: number;
+  semanticCount: number;
+  keywordCount: number;
+  symbolCount: number;
+  fusedCount: number;
+}
+
 export interface HybridRetrievalResult {
   hits: RetrievalHit[];
   terms: string[];
@@ -98,6 +106,7 @@ export interface HybridRetrievalResult {
   /** True when ripgrep (or its fallback) contributed at least one hit. */
   keywordUsed: boolean;
   warnings: string[];
+  telemetry?: HybridRetrievalTelemetry;
 }
 
 const KEYWORD_FILE_EXTS = new Set([
@@ -111,6 +120,8 @@ const KEYWORD_FILE_EXTS = new Set([
   ".go",
   ".rs",
   ".java",
+  ".tf",
+  ".hcl",
   ".kt",
   ".swift",
   ".rb",
@@ -439,9 +450,8 @@ export function deduplicateHits(hits: RetrievalHit[]): RetrievalHit[] {
     existing.symbolName ??= hit.symbolName;
     existing.chunkType ??= hit.chunkType;
     existing.sources = sources;
-    existing.score = clamp(
-      Math.max(existing.score, hit.score) + 0.05 * (sources.length - 1),
-    );
+    // Proper RRF aggregation: sum the reciprocal ranks across confirming channels
+    existing.score = clamp(existing.score + hit.score);
   }
   return merged;
 }
@@ -456,6 +466,7 @@ export async function hybridRetrieve(
   getIndex: SemanticIndexGetter | undefined,
   options: HybridRetrievalOptions = {},
 ): Promise<HybridRetrievalResult> {
+  const startTime = (options.now ?? Date.now)();
   const trimmed = query.trim();
   if (!trimmed) {
     return {
@@ -464,12 +475,22 @@ export async function hybridRetrieve(
       semanticUsed: false,
       keywordUsed: false,
       warnings: [],
+      telemetry: {
+        durationMs: 0,
+        semanticCount: 0,
+        keywordCount: 0,
+        symbolCount: 0,
+        fusedCount: 0,
+      },
     };
   }
   const topK = Math.max(1, Math.min(options.topK ?? 8, 20));
   const terms = queryTerms(trimmed);
   const warnings: string[] = [];
   const hits: RetrievalHit[] = [];
+  let semanticCount = 0;
+  let keywordCount = 0;
+  let symbolCount = 0;
   const root = path.resolve(workspaceRoot);
   const relative = (filePath: string): string =>
     path.isAbsolute(filePath) ? path.relative(root, filePath) : filePath;
@@ -488,6 +509,7 @@ export async function hybridRetrieve(
         if (!insideWorkspace(root, filePath)) continue;
         if (result.similarity < (options.minSimilarity ?? 0.55)) continue;
         semanticUsed = true;
+        semanticCount++;
         hits.push({
           filePath,
           startLine: result.startLine,
@@ -523,6 +545,7 @@ export async function hybridRetrieve(
     if (count >= (options.maxKeywordHitsPerFile ?? 5)) continue;
     perFile.set(filePath, count + 1);
     if (hit.text.trim()) keywordUsed = true;
+    keywordCount++;
     hits.push({
       filePath,
       startLine: hit.line,
@@ -596,6 +619,7 @@ export async function hybridRetrieve(
               symbol.replace(/[^a-z0-9]/g, "").includes(term),
           ) || trimmed.toLowerCase().includes(symbol);
         if (!matched) continue;
+        symbolCount++;
         symbolHits.push({
           filePath,
           startLine: chunk.startLine,
@@ -612,15 +636,30 @@ export async function hybridRetrieve(
     hits.push(...symbolHits);
   }
 
-  // An exact occurrence of the query phrase is strong evidence of relevance.
-  // Rank scores differ by only a few thousandths between neighbouring ranks,
+  // An exact occurrence of the query phrase or confirmed symbol is strong evidence.
+  // Rank scores differ by small increments between neighbouring ranks,
   // so weight that evidence above them before falling back to path order.
   const phrase = trimmed.toLowerCase();
-  const exactBonus = (hit: RetrievalHit): number =>
-    hit.snippet.toLowerCase().includes(phrase) ||
-    hit.symbolName?.toLowerCase().includes(phrase)
-      ? 0.02
-      : 0;
+  const exactBonus = (hit: RetrievalHit): number => {
+    let bonus = 0;
+    // Multi-channel consensus bonus
+    if (hit.sources.length > 1) {
+      bonus += 0.05 * (hit.sources.length - 1);
+    }
+    // Phrase match
+    if (
+      hit.snippet.toLowerCase().includes(phrase) ||
+      hit.symbolName?.toLowerCase().includes(phrase)
+    ) {
+      bonus += 0.03;
+    }
+    // Symbol term match
+    if (hit.symbolName && terms.includes(hit.symbolName.toLowerCase())) {
+      bonus += 0.04;
+    }
+    return bonus;
+  };
+
   const ranked = deduplicateHits(hits)
     .sort(
       (a, b) =>
@@ -636,5 +675,12 @@ export async function hybridRetrieve(
     semanticUsed,
     keywordUsed,
     warnings,
+    telemetry: {
+      durationMs: (options.now ?? Date.now)() - startTime,
+      semanticCount,
+      keywordCount,
+      symbolCount,
+      fusedCount: ranked.length,
+    },
   };
 }

@@ -60,4 +60,40 @@ describe("reciprocal rank fusion", () => {
     expect(result.hits[0]?.sources.sort()).toEqual(["keyword", "symbol"]);
     expect(result.hits[0]?.score).toBeGreaterThan(result.hits[1]?.score ?? 0);
   });
+
+  it("records retrieval telemetry metrics across channels", async () => {
+    const result = await hybridRetrieve(
+      "token cache",
+      ROOT,
+      async () => ({
+        isReady: () => true,
+        search: async () => [
+          {
+            filePath: "src/a.ts",
+            chunkText: "function tokenCache() {}",
+            startLine: 1,
+            endLine: 3,
+            chunkType: "function",
+            symbolName: "tokenCache",
+            similarity: 0.9,
+          },
+        ],
+      }),
+      {
+        keywordRunner: () => ({
+          hits: [{ filePath: "src/a.ts", line: 1, text: "tokenCache" }],
+        }),
+        chunker: {
+          chunkFile: async () => [],
+        },
+        readFile: async () => "",
+      },
+    );
+
+    expect(result.telemetry).toBeDefined();
+    expect(result.telemetry?.semanticCount).toBe(1);
+    expect(result.telemetry?.keywordCount).toBe(1);
+    expect(result.telemetry?.fusedCount).toBe(1);
+    expect(result.telemetry?.durationMs).toBeGreaterThanOrEqual(0);
+  });
 });
