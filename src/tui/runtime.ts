@@ -5,9 +5,15 @@
  * hands this adapter across, so both frontends share providers, tools, rules,
  * sessions, policies and turn execution.
  */
+import type { CommandSuggestion } from "../cli/commands";
 import type { TuiSelection } from "./endpoints";
+import type { ContextSnapshot, UsageRecord } from "./insights";
+import type { McpServerStatus } from "./mcp";
+import type { PlanStepInput } from "./plan";
+import type { RecoverySnapshot } from "./recovery";
 import type { ThemeName } from "./theme";
 import type { ChatRole, EndpointSummary, TuiScreen } from "./state";
+import type { ToolResultEvent, ToolStartEvent } from "./tool-events";
 
 export interface TuiHeader {
   version: string;
@@ -27,6 +33,12 @@ export interface TuiTurnEvents {
     inputTokens: number;
     outputTokens: number;
   }) => void;
+  /** Structured events retain what the summary callbacks discard. */
+  onToolEvent?: (event: ToolStartEvent) => void;
+  onToolResultEvent?: (event: ToolResultEvent) => void;
+  onPlan?: (steps: PlanStepInput[]) => void;
+  onUsage?: (record: UsageRecord) => void;
+  onContext?: (snapshot: ContextSnapshot) => void;
 }
 
 export interface TuiTurnResult {
@@ -111,5 +123,18 @@ export interface TuiRuntime {
   listConfig?(): Promise<TuiConfigEntry[]>;
   setConfig?(key: string, value: string): Promise<string>;
   editConfig?(): Promise<string>;
+  /** Open the prompt in $EDITOR and return the edited text. */
+  openExternalEditor?(text: string): Promise<string | null>;
+  listCommands?(): Promise<CommandSuggestion[]>;
+  renameSession?(id: string, label: string): Promise<string>;
+  forkSession?(id: string, label: string): Promise<string>;
+  deleteSession?(id: string): Promise<string>;
+  listMcpServers?(): Promise<McpServerStatus[]>;
+  restartMcpServer?(name: string): Promise<string>;
+  listCheckpoints?(): Promise<RecoverySnapshot[]>;
+  rewindTo?(checkpointId: string): Promise<string>;
+  getContext?(): Promise<ContextSnapshot>;
+  listUsage?(): Promise<UsageRecord[]>;
+  listPlan?(): Promise<PlanStepInput[]>;
   exit(): void;
 }

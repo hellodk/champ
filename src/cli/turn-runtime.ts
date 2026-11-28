@@ -27,6 +27,12 @@ export interface ToolCompletionEvent {
   name?: string;
   output: string;
   success: boolean;
+  /** Optional execution metadata, supplied by richer tool runtimes. */
+  stderr?: string;
+  exitCode?: number;
+  durationMs?: number;
+  approval?: "approved" | "denied" | "auto";
+  error?: string;
 }
 
 export interface TurnEvents {
