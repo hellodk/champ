@@ -23,16 +23,35 @@ export interface TuiHeader {
   routingMode?: string;
 }
 
+export interface TuiTurnSummary {
+  tools: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
+  durationMs?: number;
+  toolDurationMs?: number;
+  firstTokenMs?: number;
+  model?: string;
+  provider?: string;
+  costUsd?: number | null;
+  costKnown?: boolean;
+  pricingVersion?: string;
+  contextUsed?: number;
+  contextWindow?: number;
+  contextRemaining?: number;
+  contextPercent?: number;
+  retries?: number;
+  fallbacks?: number;
+  compactions?: number;
+}
+
 export interface TuiTurnEvents {
   onText?: (chunk: string) => void;
   onTool?: (name: string, args: string) => void;
   onToolResult?: (name: string, output: string, success: boolean) => void;
   onError?: (message: string) => void;
-  onDone?: (summary: {
-    tools: number;
-    inputTokens: number;
-    outputTokens: number;
-  }) => void;
+  onDone?: (summary: TuiTurnSummary) => void;
   /** Structured events retain what the summary callbacks discard. */
   onToolEvent?: (event: ToolStartEvent) => void;
   onToolResultEvent?: (event: ToolResultEvent) => void;

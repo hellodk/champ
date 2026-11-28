@@ -139,6 +139,8 @@ export class ClaudeProvider implements LLMProvider {
         { id: string; name: string; argsJson: string }
       >();
 
+      let cacheReadTokens = 0;
+      let cacheWriteTokens = 0;
       for await (const event of stream as AsyncIterable<
         Record<string, unknown>
       >) {
@@ -151,9 +153,19 @@ export class ClaudeProvider implements LLMProvider {
 
         if (eventType === "message_start") {
           const msg = event.message as
-            | { usage?: { input_tokens?: number } }
+            | {
+                usage?: {
+                  input_tokens?: number;
+                  cache_read_input_tokens?: number;
+                  cache_creation_input_tokens?: number;
+                };
+              }
             | undefined;
           if (msg?.usage?.input_tokens) inputTokens = msg.usage.input_tokens;
+          if (msg?.usage?.cache_read_input_tokens)
+            cacheReadTokens = msg.usage.cache_read_input_tokens;
+          if (msg?.usage?.cache_creation_input_tokens)
+            cacheWriteTokens = msg.usage.cache_creation_input_tokens;
         } else if (eventType === "content_block_start") {
           const block = event.content_block as
             | { type: string; id?: string; name?: string }
@@ -198,12 +210,31 @@ export class ClaudeProvider implements LLMProvider {
             yield { type: "tool_call_end", toolCallId: partial.id };
           }
         } else if (eventType === "message_delta") {
-          const usage = event.usage as { output_tokens?: number } | undefined;
+          const usage = event.usage as
+            | {
+                output_tokens?: number;
+                cache_read_input_tokens?: number;
+                cache_creation_input_tokens?: number;
+              }
+            | undefined;
           if (usage?.output_tokens) outputTokens = usage.output_tokens;
+          if (usage?.cache_read_input_tokens)
+            cacheReadTokens = usage.cache_read_input_tokens;
+          if (usage?.cache_creation_input_tokens)
+            cacheWriteTokens = usage.cache_creation_input_tokens;
         }
       }
 
-      yield { type: "done", usage: { inputTokens, outputTokens } };
+      yield {
+        type: "done",
+        usage: {
+          inputTokens,
+          outputTokens,
+          cachedInputTokens: cacheReadTokens,
+          cacheReadTokens,
+          cacheWriteTokens,
+        },
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       yield { type: "error", error: message };

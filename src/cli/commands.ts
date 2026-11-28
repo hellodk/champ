@@ -14,6 +14,14 @@ export const CHAT_COMMANDS = [
   "/compact",
   "/help",
   "/exit",
+  "/cost",
+  "/usage",
+  "/context",
+  "/route",
+  "/tasks",
+  "/tools",
+  "/mcp",
+  "/doctor",
 ] as const;
 
 /** MCP commands stay gated until the MCP lifecycle is safe to reload. */
@@ -28,6 +36,17 @@ export function isChatCommand(value: string): value is ChatCommand {
 /** Accepted spellings that map onto a canonical command. */
 export const CHAT_COMMAND_ALIASES: Record<string, ChatCommand> = {
   "/models": "/model",
+  "/pricing": "/cost",
+  "/budget": "/cost",
+  "/tokens": "/usage",
+  "/metrics": "/usage",
+  "/ctx": "/context",
+  "/router": "/route",
+  "/routing": "/route",
+  "/task": "/tasks",
+  "/tool": "/tools",
+  "/health": "/doctor",
+  "/check": "/doctor",
 };
 
 /** Resolve a command name or alias; returns null for ordinary prompt text. */
@@ -95,4 +114,12 @@ export const CHAT_COMMAND_HELP: Record<ChatCommand, string> = {
   "/help": "show this command list",
   "/tui": "switch to the full-screen interface",
   "/exit": "leave Champ",
+  "/cost": "show token spend, pricing rates and budget limits",
+  "/usage": "show token consumption, TTFT/latency histograms and tool stats",
+  "/context": "show context window usage, remaining capacity and compaction status",
+  "/route": "show smart router decisions, model candidates and circuit breakers",
+  "/tasks": "show active and completed agent task steps with duration and token usage",
+  "/tools": "show registered tools catalog with invocation counts and execution times",
+  "/mcp": "show connected Model Context Protocol servers, tools and resources",
+  "/doctor": "run environment, provider and workspace health diagnostics",
 };

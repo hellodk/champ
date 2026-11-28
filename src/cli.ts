@@ -74,7 +74,10 @@ import {
   type ToolCompletionEvent,
   type TurnOutcome,
   type TurnStatus,
+  type TurnSummary,
 } from "./cli/turn-runtime";
+import { executeSlashCommand } from "./cli/slash-commands";
+import { MetricsCollector } from "./observability/metrics-collector";
 import { runUpdateCommand } from "./cli/update";
 import { runBrowserCommand } from "./cli/browser-commands";
 import { runReviewCommand } from "./cli/review-commands";
@@ -442,6 +445,12 @@ interface SessionOptions {
   onIndex?: () => Promise<string>;
   /** Active model id for `/status`. */
   model?: string;
+  /** Metrics collector tracking request latencies, tokens, and tool calls. */
+  metrics?: MetricsCollector;
+  /** Doctor health diagnostic callback. */
+  doctor?: () => Promise<{ healthy: boolean; lines: string[] }>;
+  /** Model Context Protocol registry. */
+  mcpRegistry?: import("./mcp/mcp-registry").McpRegistry;
 }
 
 function warnMissingTools(
@@ -600,11 +609,38 @@ async function runTurn(
   return outcome;
 }
 
-/** One line per turn on stderr: how much work the agent did. */
-function printSummary(info: { tools: number; usage: TokenUsage }): void {
-  process.stderr.write(
-    `[champ] tools=${info.tools} tokens in=${info.usage.inputTokens} out=${info.usage.outputTokens}\n`,
-  );
+/** Detailed turn telemetry on stderr: tokens, cost, latency, context, and tools. */
+function printSummary(info: TurnSummary): void {
+  const parts: string[] = [
+    `tools=${info.tools} tokens in=${info.usage.inputTokens} out=${info.usage.outputTokens}`,
+  ];
+  if (info.usage.cachedInputTokens)
+    parts.push(`cached=${info.usage.cachedInputTokens}`);
+  if (info.usage.reasoningTokens)
+    parts.push(`reasoning=${info.usage.reasoningTokens}`);
+  if (info.model) parts.push(`model=${info.model}`);
+  if (info.toolDurationMs !== undefined)
+    parts.push(`toolTime=${info.toolDurationMs}ms`);
+
+  if (info.context) {
+    parts.push(
+      `context=${info.context.used.toLocaleString()}/${info.context.window.toLocaleString()} (${info.context.percentUsed}% used, ${info.context.remaining.toLocaleString()} left)`,
+    );
+  }
+  if (info.cost) {
+    if (info.cost.known && info.cost.usd !== null) {
+      parts.push(`cost=$${info.cost.usd.toFixed(4)}`);
+    } else {
+      parts.push(`cost=unknown (${info.cost.pricingVersion})`);
+    }
+  }
+  if (info.durationMs !== undefined) {
+    const lat = `${(info.durationMs / 1000).toFixed(2)}s`;
+    const ttft =
+      info.firstTokenMs !== undefined ? ` (TTFT: ${info.firstTokenMs}ms)` : "";
+    parts.push(`latency=${lat}${ttft}`);
+  }
+  process.stderr.write(`[champ] ${parts.join(" · ")}\n`);
 }
 
 /**
@@ -804,6 +840,24 @@ async function runRepl(
         break;
       }
       const command = canonicalChatCommand(rawCommand) ?? rawCommand;
+
+      const slashOutput = await executeSlashCommand(command, {
+        workspace: opts.workspace,
+        controller,
+        metrics: opts.metrics ?? controller.getMetrics(),
+        budget: opts.budget,
+        policy: opts.policy,
+        rules: opts.rules,
+        toolRegistry: opts.toolRegistry,
+        sessionLog: opts.log,
+        doctor: opts.doctor,
+        mcpRegistry: opts.mcpRegistry,
+      });
+      if (slashOutput !== null) {
+        process.stderr.write(`${slashOutput}\n`);
+        rl.prompt();
+        continue;
+      }
 
       switch (command) {
         case "/help": {
@@ -1460,6 +1514,8 @@ async function main(): Promise<number> {
   }
 
   const controller = new AgentController(provider, toolRegistry, workspace);
+  const metrics = new MetricsCollector();
+  controller.setMetrics(metrics);
   liveController = controller;
   const switchModel = (params: { provider?: string; model: string }) =>
     switchLiveModel(
@@ -1865,11 +1921,28 @@ async function main(): Promise<number> {
             usageHistory.push(record);
             events.onUsage?.(record);
           },
-          onDone: (summary: { tools: number; usage: TokenUsage }) => {
+          onDone: (summary: TurnSummary) => {
             events.onDone?.({
               tools: summary.tools,
               inputTokens: summary.usage.inputTokens,
               outputTokens: summary.usage.outputTokens,
+              cachedInputTokens: summary.usage.cachedInputTokens,
+              reasoningTokens: summary.usage.reasoningTokens,
+              durationMs: summary.durationMs,
+              toolDurationMs: summary.toolDurationMs,
+              firstTokenMs: summary.firstTokenMs,
+              model: summary.model,
+              provider: summary.provider,
+              costUsd: summary.cost?.usd,
+              costKnown: summary.cost?.known,
+              pricingVersion: summary.cost?.pricingVersion,
+              contextUsed: summary.context?.used,
+              contextWindow: summary.context?.window,
+              contextRemaining: summary.context?.remaining,
+              contextPercent: summary.context?.percentUsed,
+              retries: summary.retries,
+              fallbacks: summary.fallbacks,
+              compactions: summary.compactions,
             });
             events.onContext?.({
               usedTokens: Math.ceil(
@@ -2060,6 +2133,34 @@ async function main(): Promise<number> {
         command: async (text) => {
           const [rawName, ...args] = text.trim().split(/\s+/);
           const name = canonicalChatCommand(rawName) ?? rawName;
+
+          const slashOutput = await executeSlashCommand(name, {
+            workspace,
+            controller: liveController ?? controller,
+            metrics: (liveController ?? controller).getMetrics(),
+            budget,
+            policy,
+            rules: rulesEngine,
+            toolRegistry,
+            sessionLog,
+            doctor: async () => {
+              const report = await settings.doctor();
+              const lines = [
+                ...report.checks.map(
+                  (check) =>
+                    `${check.ok ? "ok" : "FAIL"}\t${check.name}\t${check.detail}`,
+                ),
+                ...report.diagnostics
+                  .filter((d) => d.level !== "info")
+                  .map((d) => `${d.level}\t${d.code}\t${d.message}`),
+              ];
+              return { healthy: report.healthy, lines };
+            },
+          });
+          if (slashOutput !== null) {
+            return slashOutput;
+          }
+
           switch (name) {
             case "/status":
               return formatLiveStatus(
@@ -2507,6 +2608,20 @@ async function main(): Promise<number> {
           onExport,
           onIndex,
           model: provider.config.model,
+          metrics,
+          doctor: async () => {
+            const report = await settings.doctor();
+            const lines = [
+              ...report.checks.map(
+                (check) =>
+                  `${check.ok ? "ok" : "FAIL"}\t${check.name}\t${check.detail}`,
+              ),
+              ...report.diagnostics
+                .filter((d) => d.level !== "info")
+                .map((d) => `${d.level}\t${d.code}\t${d.message}`),
+            ];
+            return { healthy: report.healthy, lines };
+          },
           resolveContext: (text) => cliContextResolver.resolve(text),
         },
         `Champ ${cliVersion()} — model ${provider.config.model ?? "?"}. /help for commands.`,

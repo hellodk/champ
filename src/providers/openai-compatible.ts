@@ -527,6 +527,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
     let buffer = "";
     let inputTokens = 0;
     let outputTokens = 0;
+    let cachedTokens = 0;
+    let reasoningTokens = 0;
     // Tracks in-flight streamed tool calls: index -> {id, name}
     const openToolCalls = new Map<number, { id: string; name: string }>();
     let done = false;
@@ -581,7 +583,12 @@ export class OpenAICompatibleProvider implements LLMProvider {
                   text?: string;
                   finish_reason?: string | null;
                 }>;
-                usage?: { prompt_tokens?: number; completion_tokens?: number };
+                usage?: {
+                  prompt_tokens?: number;
+                  completion_tokens?: number;
+                  prompt_tokens_details?: { cached_tokens?: number };
+                  completion_tokens_details?: { reasoning_tokens?: number };
+                };
               };
               const choice = json.choices?.[0];
               // Handle both shapes so this parser works for chat and
@@ -664,6 +671,19 @@ export class OpenAICompatibleProvider implements LLMProvider {
               if (json.usage) {
                 inputTokens = json.usage.prompt_tokens ?? inputTokens;
                 outputTokens = json.usage.completion_tokens ?? outputTokens;
+                if (
+                  json.usage.prompt_tokens_details?.cached_tokens !== undefined
+                ) {
+                  cachedTokens =
+                    json.usage.prompt_tokens_details.cached_tokens;
+                }
+                if (
+                  json.usage.completion_tokens_details?.reasoning_tokens !==
+                  undefined
+                ) {
+                  reasoningTokens =
+                    json.usage.completion_tokens_details.reasoning_tokens;
+                }
               }
             } catch {
               // Skip malformed SSE payloads.
@@ -684,7 +704,15 @@ export class OpenAICompatibleProvider implements LLMProvider {
       };
     }
 
-    yield { type: "done", usage: { inputTokens, outputTokens } };
+    yield {
+      type: "done",
+      usage: {
+        inputTokens,
+        outputTokens,
+        cachedInputTokens: cachedTokens,
+        reasoningTokens,
+      },
+    };
   }
 
   private convertMessages(

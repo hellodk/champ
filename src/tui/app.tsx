@@ -489,25 +489,73 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
               dispatch({ type: "context/set", snapshot }),
             onError: (message) =>
               dispatch({ type: "message/add", role: "error", text: message }),
-            onDone: (summary) =>
+            onDone: (summary) => {
+              const telemetryParts: string[] = [];
+              telemetryParts.push(
+                `tools=${summary.tools}${summary.toolDurationMs !== undefined ? ` (${summary.toolDurationMs}ms)` : ""}`,
+              );
+              let tokenStr = `tokens in=${summary.inputTokens}`;
+              if (summary.cachedInputTokens) {
+                tokenStr += ` (cached: ${summary.cachedInputTokens})`;
+              }
+              tokenStr += ` out=${summary.outputTokens}`;
+              if (summary.reasoningTokens) {
+                tokenStr += ` (reasoning: ${summary.reasoningTokens})`;
+              }
+              telemetryParts.push(tokenStr);
+
+              if (summary.contextWindow) {
+                telemetryParts.push(
+                  `context=${summary.contextUsed?.toLocaleString() ?? 0}/${summary.contextWindow.toLocaleString()} (${summary.contextPercent ?? 0}% used, ${summary.contextRemaining?.toLocaleString() ?? 0} left)`,
+                );
+              }
+              if (summary.costUsd !== undefined) {
+                if (summary.costKnown && summary.costUsd !== null) {
+                  telemetryParts.push(`cost=$${summary.costUsd.toFixed(4)}`);
+                } else {
+                  telemetryParts.push(
+                    `cost=unknown (${summary.pricingVersion ?? "2026-11-01"})`,
+                  );
+                }
+              }
+              if (summary.durationMs !== undefined) {
+                const sec = `${(summary.durationMs / 1000).toFixed(2)}s`;
+                const ttft =
+                  summary.firstTokenMs !== undefined
+                    ? ` (TTFT: ${summary.firstTokenMs}ms)`
+                    : "";
+                telemetryParts.push(`latency=${sec}${ttft}`);
+              }
+              if (summary.model) {
+                telemetryParts.push(`model=${summary.model}`);
+              }
+
+              dispatch({
+                type: "message/add",
+                role: "system",
+                text: `[turn] ${telemetryParts.join(" · ")}`,
+              });
+
+              const shortStatus = `in=${summary.inputTokens}${summary.cachedInputTokens ? `(c:${summary.cachedInputTokens})` : ""} out=${summary.outputTokens}${summary.costUsd != null ? ` $${summary.costUsd.toFixed(4)}` : ""} · ${summary.durationMs ? `${(summary.durationMs / 1000).toFixed(1)}s` : "done"}`;
               dispatch({
                 type: "status/set",
-                text: `tools=${summary.tools} tokens ${summary.inputTokens}/${summary.outputTokens}`,
-              }),
+                text: shortStatus,
+              });
+            },
           },
           (description) =>
             new Promise<boolean>((resolve) => {
               setApproval({ description, resolve });
             }),
         );
-        dispatch({
-          type: "status/set",
-          text: result.aborted
-            ? "Aborted"
-            : result.error
-              ? `Error: ${truncate(result.error, 90)}`
-              : "Ready",
-        });
+        if (result.aborted) {
+          dispatch({ type: "status/set", text: "Aborted" });
+        } else if (result.error) {
+          dispatch({
+            type: "status/set",
+            text: `Error: ${truncate(result.error, 90)}`,
+          });
+        }
       } catch (err) {
         dispatch({
           type: "message/add",

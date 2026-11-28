@@ -77,7 +77,81 @@ describe("executeTurn", () => {
       },
     ]);
     expect(usage).toEqual({ inputTokens: 12, outputTokens: 5 });
-    expect(onDone).toHaveBeenCalledWith({ tools: 1, usage });
+    expect(onDone).toHaveBeenCalledWith(
+      expect.objectContaining({ tools: 1, usage }),
+    );
+  });
+
+  it("reports rich telemetry including latency, TTFT, tool duration, model, cost and context", async () => {
+    const base = fakeController({}, [
+      { type: "text", text: "Hello " },
+      {
+        type: "tool_call_start",
+        toolCall: { id: "1", name: "read_file", arguments: { path: "x" } },
+      },
+      {
+        type: "tool_call_end",
+        toolCallId: "1",
+        toolName: "read_file",
+        toolResult: "contents",
+        toolSuccess: true,
+      },
+      {
+        type: "done",
+        usage: {
+          inputTokens: 100,
+          outputTokens: 50,
+          cachedInputTokens: 20,
+        },
+      },
+    ]);
+
+    const controller = {
+      ...base,
+      getProvider: () => ({
+        name: "anthropic",
+        modelInfo: () => ({
+          id: "claude-3-5-sonnet-20241022",
+          name: "Claude 3.5 Sonnet",
+          contextWindow: 200000,
+        }),
+      }),
+    };
+
+    const onDone = vi.fn();
+    await executeTurn({
+      controller,
+      text: "hi",
+      events: { onDone },
+    });
+
+    expect(onDone).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: 1,
+        usage: {
+          inputTokens: 100,
+          outputTokens: 50,
+          cachedInputTokens: 20,
+        },
+        durationMs: expect.any(Number),
+        toolDurationMs: expect.any(Number),
+        firstTokenMs: expect.any(Number),
+        model: "claude-3-5-sonnet-20241022",
+        provider: "anthropic",
+        cost: expect.objectContaining({
+          usd: expect.any(Number),
+          known: true,
+          pricingVersion: "2026-11-01",
+          source: "table",
+        }),
+        context: expect.objectContaining({
+          used: 150,
+          window: 200000,
+          remaining: 199850,
+          percentUsed: 0,
+        }),
+      }),
+    );
   });
 
   it("writes a final reply once when no text delta was streamed", async () => {
