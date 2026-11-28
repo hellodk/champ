@@ -130,6 +130,11 @@ export interface TuiRuntime {
     input: TuiAddEndpointInput,
   ): Promise<string>;
   selectModel(endpointId: string, model: string): Promise<string>;
+  listPools?(): Promise<
+    Array<{ id: string; name: string; endpointIds: string[] }>
+  >;
+  addPool?(name: string, endpointIds: string[]): Promise<string>;
+  selectPoolScope?(poolId: string): Promise<string>;
   testEndpoint(endpointId: string): Promise<string>;
   validate(): Promise<string[]>;
   doctor(): Promise<TuiDoctorReport>;

@@ -71,7 +71,7 @@ const SCREENS: Array<{ id: TuiScreen; label: string }> = [
 /** Context-sensitive hints replace a flat key dump in the footer. */
 const FOOTER_HINTS: Record<TuiScreen, string> = {
   chat: "? help · Ctrl-P palette · Ctrl-O editor · Ctrl-E tool · Tab screens",
-  providers: "↑↓ select · U models · ? help",
+  providers: "↑↓ select · U models · R refresh · P pool · O scope · ? help",
   config: "S set · I editor · ? help",
   help: "? advanced · Esc chat",
   sessions: "F2 rename · F fork · Del delete · Ctrl-T tab · ? help",
@@ -265,6 +265,10 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
   const [configEntries, setConfigEntries] = useState<TuiConfigEntry[]>([]);
   const [sessionPrompt, setSessionPrompt] = useState<{
     kind: "rename" | "fork";
+    value: string;
+  } | null>(null);
+  const [poolPrompt, setPoolPrompt] = useState<{
+    kind: "create" | "select";
     value: string;
   } | null>(null);
   const [recoverySnapshots, setRecoverySnapshots] = useState<
@@ -822,6 +826,56 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
     ],
   );
 
+  const poolOperation = useCallback(
+    async (kind: "create" | "select", value: string) => {
+      try {
+        if (kind === "create") {
+          if (!runtime.addPool) return;
+          const [name, ids] = value.split(":", 2);
+          const endpointIds = (ids ?? "")
+            .split(",")
+            .map((id) => id.trim())
+            .filter(Boolean);
+          if (!name?.trim() || endpointIds.length === 0) {
+            dispatch({
+              type: "status/set",
+              text: "Use <name>:<endpoint-id,...> to create a pool",
+            });
+            return;
+          }
+          dispatch({
+            type: "status/set",
+            text: await runtime.addPool(name.trim(), endpointIds),
+          });
+        } else {
+          if (!runtime.selectPoolScope) return;
+          const pools = (await runtime.listPools?.()) ?? [];
+          const pool =
+            pools.find((item) => item.id === value.trim()) ??
+            pools.find((item) => item.name === value.trim());
+          if (!pool) {
+            dispatch({
+              type: "status/set",
+              text: `Pool "${value.trim()}" not found`,
+            });
+            return;
+          }
+          dispatch({
+            type: "status/set",
+            text: await runtime.selectPoolScope(pool.id),
+          });
+        }
+        setPoolPrompt(null);
+      } catch (err) {
+        dispatch({
+          type: "status/set",
+          text: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [runtime],
+  );
+
   const recoveryOperation = useCallback(
     async (
       kind: "checkpoint" | "compact" | "undo" | "redo" | "rewind",
@@ -1015,6 +1069,31 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       }
       if (input.length > 0 && !key.ctrl && !key.meta) {
         dispatch({ type: "palette/query", value: state.paletteQuery + input });
+      }
+      return;
+    }
+
+    if (poolPrompt) {
+      if (key.escape) {
+        setPoolPrompt(null);
+        return;
+      }
+      if (key.return) {
+        void poolOperation(poolPrompt.kind, poolPrompt.value);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setPoolPrompt({
+          ...poolPrompt,
+          value: poolPrompt.value.slice(0, -1),
+        });
+        return;
+      }
+      if (input.length > 0 && !key.ctrl && !key.meta) {
+        setPoolPrompt({
+          ...poolPrompt,
+          value: poolPrompt.value + input,
+        });
       }
       return;
     }
@@ -1394,6 +1473,20 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
             ),
           });
         }
+      } else if (input.toLowerCase() === "r") {
+        void runtime
+          .refreshEndpoints()
+          .then((endpoints) => dispatch({ type: "endpoints/set", endpoints }))
+          .catch((err: unknown) =>
+            dispatch({
+              type: "status/set",
+              text: err instanceof Error ? err.message : String(err),
+            }),
+          );
+      } else if (input.toLowerCase() === "p" && runtime.addPool) {
+        setPoolPrompt({ kind: "create", value: "" });
+      } else if (input.toLowerCase() === "o" && runtime.selectPoolScope) {
+        setPoolPrompt({ kind: "select", value: "" });
       } else if (input.toLowerCase() === "t") {
         if (endpoint) {
           void runtime
@@ -1895,7 +1988,8 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       {state.screen === "providers" && (
         <Panel title="Endpoints" palette={palette}>
           <Text color={palette.muted}>
-            ↑↓ select · U pick model · E edit · A add · T test · ? help
+            ↑↓ select · U pick model · R refresh · E edit · A add · T test · ?
+            help
           </Text>
           {state.endpoints.length === 0 ? (
             <Text color={palette.warning}>
@@ -1949,14 +2043,21 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
                 const active =
                   endpoint.id === state.selectedEndpointId &&
                   model === state.selectedModel;
+                const detail = endpoint.modelDetails?.[model];
                 return (
-                  <Text
-                    key={model}
-                    bold={selected}
-                    color={selected ? palette.accent : palette.text}
-                  >
-                    {`${selected ? "▸" : " "} ${index + 1}. ${modelLabel(model)}${active ? " ✓" : ""}`}
-                  </Text>
+                  <Box key={model} flexDirection="column">
+                    <Text
+                      bold={selected}
+                      color={selected ? palette.accent : palette.text}
+                    >
+                      {`${selected ? "▸" : " "} ${index + 1}. ${modelLabel(model)}${active ? " ✓" : ""}`}
+                    </Text>
+                    {detail && (
+                      <Text color={palette.muted}>
+                        {`    pinned=${detail.pinned ? "yes" : "no"} ctx=${detail.context ?? "unknown"} evidence=${detail.evidence ?? "none"} status=${detail.status ?? "unknown"}`}
+                      </Text>
+                    )}
+                  </Box>
                 );
               })}
               {filteredModels.length === 0 && (
@@ -2298,7 +2399,8 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
             Enter — submit · Ctrl-Enter — newline · Ctrl-C — abort or exit
           </Text>
           <Text color={palette.text}>
-            Providers: U pick model · E edit · A add · T test
+            Providers: U pick model · E edit · A add · T test · R refresh · P
+            pool · O scope
           </Text>
           <Text color={palette.text}>
             Sessions: type to filter, Enter resume · Review: A accept, R reject
@@ -2359,6 +2461,27 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
           {visiblePaletteActions.length === 0 && (
             <Text color={palette.warning}>No matching actions.</Text>
           )}
+        </Box>
+      )}
+      {poolPrompt && (
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor={palette.accent}
+          paddingX={1}
+        >
+          <Text bold color={palette.panelTitle}>
+            {poolPrompt.kind === "create"
+              ? "Create endpoint pool"
+              : "Select routing pool"}
+          </Text>
+          <Text color={palette.muted}>
+            {poolPrompt.kind === "create"
+              ? "name:endpoint-id,endpoint-id"
+              : "pool id or name"}
+          </Text>
+          <Text color={palette.text}>{`${poolPrompt.value}▌`}</Text>
+          <Text color={palette.muted}>Enter confirm · Esc cancel</Text>
         </Box>
       )}
       {sessionPrompt && (

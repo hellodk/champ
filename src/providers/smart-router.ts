@@ -8,6 +8,9 @@
  */
 import type { LLMProvider } from "./types";
 import type { ModelTieBreak } from "../config/model-selection";
+import type { RouteDecision, RouteTask } from "../config/model-router";
+import type { ModelTarget } from "../config/provider-model";
+import type { FailureClass } from "../config/runtime-status";
 
 export type TaskType = "coding" | "chat" | "completion" | "embedding";
 export type ModelCapability = "coding" | "general" | "embedding" | "instruct";
@@ -35,6 +38,26 @@ export interface RouteResult {
   model: DiscoveredModel;
   provider: LLMProvider;
   reason: string;
+  /** Present only when the canonical authority produced this decision. */
+  decision?: RouteDecision;
+}
+
+/**
+ * Optional canonical authority. When set, SmartRouter is only a compatibility
+ * facade: all selection decisions come from this source and the legacy
+ * name/size scoring below is never consulted.
+ */
+export interface CanonicalRouteSource {
+  select(input: { task: RouteTask; sessionKey?: string }): RouteResult | null;
+  getLastDecision?(): RouteDecision | null;
+  /** Safe failover targets from the canonical decision, when explicitly enabled. */
+  safeAlternatives?(
+    decision: RouteDecision,
+    failed: ModelTarget,
+    error: FailureClass,
+  ): ModelTarget[];
+  /** Resolve an exact endpoint/model target to a live provider. */
+  resolveTarget?(target: ModelTarget): RouteResult | null;
 }
 
 interface ProviderEntry {
@@ -76,6 +99,7 @@ export class SmartRouter {
     provider: string;
     model: string;
   }> = [];
+  private canonicalRouteSource: CanonicalRouteSource | null = null;
 
   /**
    * Register a provider that can be scanned for models.
@@ -264,21 +288,61 @@ export class SmartRouter {
    * locked selection. In smart mode, scores all models and picks the best.
    * Pass `currentFile` to allow user routing rules to match by file extension.
    */
-  select(taskType: TaskType, currentFile?: string): RouteResult | null {
-    // Fix 6: cache lookup — include currentFile in key when rules exist
-    const cacheKey = `${taskType}:${this.mode}:${this.manualModelId ?? ""}:${this.routingRules.length > 0 ? (currentFile ?? "") : ""}`;
+  /** Attach the canonical routing authority. Pass null to restore legacy mode. */
+  setCanonicalRouteSource(source: CanonicalRouteSource | null): void {
+    this.canonicalRouteSource = source;
+    this.routeCache.clear();
+  }
+
+  /** Canonical decision behind the last select(), including a no-target decision. */
+  getLastRouteDecision(): RouteDecision | null {
+    return this.canonicalRouteSource?.getLastDecision?.() ?? null;
+  }
+
+  select(
+    taskType: TaskType,
+    currentFile?: string,
+    sessionKey?: string,
+  ): RouteResult | null {
+    // Fix 6: cache lookup — include currentFile and session in the key.
+    const cacheKey = `${taskType}:${this.mode}:${this.manualModelId ?? ""}:${sessionKey ?? ""}:${this.routingRules.length > 0 ? (currentFile ?? "") : ""}`;
     if (this.routeCache.has(cacheKey))
       return this.routeCache.get(cacheKey) ?? null;
 
-    const result = this._selectUncached(taskType, currentFile);
+    const result = this._selectUncached(taskType, currentFile, sessionKey);
     this.routeCache.set(cacheKey, result);
     return result;
+  }
+
+  /** Safe alternatives from the canonical decision (opt-in policy only). */
+  safeAlternatives(
+    decision: RouteDecision,
+    failed: ModelTarget,
+    error: FailureClass,
+  ): ModelTarget[] {
+    return (
+      this.canonicalRouteSource?.safeAlternatives?.(decision, failed, error) ??
+      []
+    );
+  }
+
+  /** Resolve a canonical target without running a new selection. */
+  resolveTarget(target: ModelTarget): RouteResult | null {
+    return this.canonicalRouteSource?.resolveTarget?.(target) ?? null;
   }
 
   private _selectUncached(
     taskType: TaskType,
     currentFile?: string,
+    sessionKey?: string,
   ): RouteResult | null {
+    if (this.canonicalRouteSource) {
+      return this.canonicalRouteSource.select({
+        task: taskType as RouteTask,
+        ...(sessionKey !== undefined ? { sessionKey } : {}),
+      });
+    }
+
     // User-defined routing rules take highest priority (before task overrides
     // and automatic routing). This allows per-file-type or per-task overrides
     // that map directly to a named provider + model.

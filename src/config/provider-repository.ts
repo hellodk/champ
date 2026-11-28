@@ -18,10 +18,20 @@ import {
   isProviderKind,
   isTaskAssignment,
   PROVIDERS_DOCUMENT_VERSION,
+  type CapabilityEvidence,
+  type CapabilityEvidenceSource,
+  type CapabilityState,
   type CredentialRef,
   type DiscoveredModel,
   type Endpoint,
+  type EndpointPool,
+  type ModelCapabilitySet,
+  type ModelSelectionConfig,
+  type ModelTarget,
+  type ModelUserOverrides,
   type ProvidersDocument,
+  type RouteScope,
+  type RoutingPreference,
   type TaskAssignment,
   type TaskEndpointAssignment,
 } from "./provider-model";
@@ -96,6 +106,108 @@ function normalizeCredentialRef(raw: unknown): CredentialRef | undefined {
   return undefined;
 }
 
+const CAPABILITY_STATES: readonly CapabilityState[] = ["yes", "no", "unknown"];
+const EVIDENCE_SOURCES: readonly CapabilityEvidenceSource[] = [
+  "server",
+  "probe",
+  "user",
+  "catalog",
+];
+const ROUTING_PREFERENCES: readonly RoutingPreference[] = [
+  "quality",
+  "balanced",
+  "fast",
+];
+
+function normalizeCapabilityState(raw: unknown): CapabilityState | undefined {
+  return typeof raw === "string" &&
+    (CAPABILITY_STATES as readonly string[]).includes(raw)
+    ? (raw as CapabilityState)
+    : undefined;
+}
+
+function normalizeEvidence(raw: unknown): CapabilityEvidence | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  if (
+    typeof raw.source !== "string" ||
+    !(EVIDENCE_SOURCES as readonly string[]).includes(raw.source)
+  ) {
+    return undefined;
+  }
+  const evidence: CapabilityEvidence = {
+    source: raw.source as CapabilityEvidenceSource,
+  };
+  if (typeof raw.observedAt === "string") evidence.observedAt = raw.observedAt;
+  if (typeof raw.detail === "string") evidence.detail = raw.detail;
+  return evidence;
+}
+
+function normalizeCapabilitySet(
+  raw: unknown,
+): Partial<ModelCapabilitySet> | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  const result: Partial<ModelCapabilitySet> = {};
+  for (const key of [
+    "chat",
+    "tools",
+    "embeddings",
+    "images",
+    "structuredOutput",
+  ] as const) {
+    const value = normalizeCapabilityState(raw[key]);
+    if (value) result[key] = value;
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function normalizeCapabilityEvidence(
+  raw: unknown,
+): Partial<Record<keyof ModelCapabilitySet, CapabilityEvidence>> | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  const result: Partial<Record<keyof ModelCapabilitySet, CapabilityEvidence>> =
+    {};
+  for (const key of [
+    "chat",
+    "tools",
+    "embeddings",
+    "images",
+    "structuredOutput",
+  ] as const) {
+    const evidence = normalizeEvidence(raw[key]);
+    if (evidence) result[key] = evidence;
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function normalizeUserOverrides(raw: unknown): ModelUserOverrides | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  const result: ModelUserOverrides = {};
+  if (typeof raw.pinned === "boolean") result.pinned = raw.pinned;
+  const caps = normalizeCapabilitySet(raw.capabilityOverrides);
+  if (caps) result.capabilityOverrides = caps;
+  if (
+    typeof raw.contextWindow === "number" &&
+    Number.isFinite(raw.contextWindow) &&
+    raw.contextWindow > 0
+  ) {
+    result.contextWindow = raw.contextWindow;
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function normalizePreference(raw: unknown): RoutingPreference | undefined {
+  return typeof raw === "string" &&
+    (ROUTING_PREFERENCES as readonly string[]).includes(raw)
+    ? (raw as RoutingPreference)
+    : undefined;
+}
+
+function normalizePositiveNumber(raw: unknown): number | undefined {
+  return typeof raw === "number" && Number.isFinite(raw) && raw > 0
+    ? raw
+    : undefined;
+}
+
 function normalizeModels(raw: unknown): DiscoveredModel[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const models: DiscoveredModel[] = [];
@@ -115,16 +227,137 @@ function normalizeModels(raw: unknown): DiscoveredModel[] | undefined {
         (c): c is string => typeof c === "string",
       );
     }
-    if (
-      typeof item.contextWindow === "number" &&
-      Number.isFinite(item.contextWindow)
-    ) {
-      model.contextWindow = item.contextWindow;
-    }
+    const contextWindow = normalizePositiveNumber(item.contextWindow);
+    if (contextWindow !== undefined) model.contextWindow = contextWindow;
     if (typeof item.lastSeenAt === "string") model.lastSeenAt = item.lastSeenAt;
+    const capabilitySet = normalizeCapabilitySet(item.capabilitySet);
+    if (capabilitySet) model.capabilitySet = capabilitySet;
+    const capabilityEvidence = normalizeCapabilityEvidence(
+      item.capabilityEvidence,
+    );
+    if (capabilityEvidence) model.capabilityEvidence = capabilityEvidence;
+    const contextEvidence = normalizeEvidence(item.contextWindowEvidence);
+    if (contextEvidence) model.contextWindowEvidence = contextEvidence;
+    for (const key of [
+      "maxOutputTokens",
+      "qualityHint",
+      "latencyMs",
+      "ttftMs",
+      "costPerMillionInputUsd",
+      "costPerMillionOutputUsd",
+    ] as const) {
+      const value = normalizePositiveNumber(item[key]);
+      if (value !== undefined) {
+        (model as unknown as Record<string, number>)[key] = value;
+      }
+    }
+    if (
+      item.speedHint === "fast" ||
+      item.speedHint === "medium" ||
+      item.speedHint === "slow"
+    ) {
+      model.speedHint = item.speedHint;
+    }
+    const overrides = normalizeUserOverrides(item.overrides);
+    if (overrides) model.overrides = overrides;
     models.push(model);
   }
   return models;
+}
+
+function normalizeTarget(raw: unknown): ModelTarget | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  if (typeof raw.endpointId !== "string" || !raw.endpointId.trim())
+    return undefined;
+  if (typeof raw.modelId !== "string" || !raw.modelId.trim()) return undefined;
+  return { endpointId: raw.endpointId, modelId: raw.modelId };
+}
+
+function normalizeScope(raw: unknown): RouteScope | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  if (raw.kind === "endpoint" && typeof raw.endpointId === "string") {
+    return { kind: "endpoint", endpointId: raw.endpointId };
+  }
+  if (raw.kind === "pool" && typeof raw.poolId === "string") {
+    return { kind: "pool", poolId: raw.poolId };
+  }
+  if (raw.kind === "global") {
+    return { kind: "global", allowCloud: raw.allowCloud === true };
+  }
+  return undefined;
+}
+
+function normalizeFailover(
+  raw: unknown,
+): ModelSelectionConfig["failover"] | undefined {
+  if (!isPlainObject(raw) || raw.enabled !== true) return undefined;
+  const maxAttempts = raw.maxAttempts;
+  return {
+    enabled: true,
+    ...(typeof maxAttempts === "number" &&
+    Number.isInteger(maxAttempts) &&
+    maxAttempts >= 1 &&
+    maxAttempts <= 3
+      ? { maxAttempts }
+      : {}),
+  };
+}
+
+function normalizeSelection(raw: unknown): ModelSelectionConfig | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  const scope = normalizeScope(raw.scope);
+  const preference = normalizePreference(raw.preference);
+  if (!scope || !preference) return undefined;
+  const config: ModelSelectionConfig = {
+    scope,
+    preference,
+    pinned: raw.pinned === null ? null : (normalizeTarget(raw.pinned) ?? null),
+  };
+  const failover = normalizeFailover(raw.failover);
+  if (failover) config.failover = failover;
+  return config;
+}
+
+function normalizePools(
+  raw: unknown,
+  endpointIds: ReadonlySet<string>,
+): EndpointPool[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const pools: EndpointPool[] = [];
+  for (const item of raw) {
+    if (
+      !isPlainObject(item) ||
+      typeof item.id !== "string" ||
+      !item.id.trim() ||
+      typeof item.name !== "string" ||
+      !item.name.trim() ||
+      !Array.isArray(item.endpointIds)
+    ) {
+      continue;
+    }
+    const pool: EndpointPool = {
+      id: item.id,
+      name: item.name,
+      endpointIds: [
+        ...new Set(
+          item.endpointIds.filter(
+            (id): id is string => typeof id === "string" && endpointIds.has(id),
+          ),
+        ),
+      ],
+    };
+    if (isPlainObject(item.routing)) {
+      const routing: EndpointPool["routing"] = {};
+      const preference = normalizePreference(item.routing.preference);
+      if (preference) routing.preference = preference;
+      if (typeof item.routing.allowCloud === "boolean") {
+        routing.allowCloud = item.routing.allowCloud;
+      }
+      if (Object.keys(routing).length > 0) pool.routing = routing;
+    }
+    pools.push(pool);
+  }
+  return pools;
 }
 
 function normalizeEndpoint(raw: unknown): Endpoint | null {
@@ -191,12 +424,18 @@ function serializeDocument(doc: ProvidersDocument): ProvidersDocument {
       }
     }
   }
-  return {
+  const clean: ProvidersDocument = {
     version: PROVIDERS_DOCUMENT_VERSION,
     endpoints,
     assignments,
     routingMode: doc.routingMode === "manual" ? "manual" : "auto",
   };
+  const endpointIds = new Set(endpoints.map((ep) => ep.id));
+  const pools = normalizePools(doc.pools, endpointIds);
+  if (pools) clean.pools = pools;
+  const selection = normalizeSelection(doc.selection);
+  if (selection) clean.selection = selection;
+  return clean;
 }
 
 export class EndpointRepository {
@@ -289,13 +528,20 @@ export class EndpointRepository {
     }
 
     const routingMode = parsed.routingMode === "manual" ? "manual" : "auto";
-
-    return {
+    const doc: ProvidersDocument = {
       version: PROVIDERS_DOCUMENT_VERSION,
       endpoints,
       assignments,
       routingMode,
     };
+    const pools = normalizePools(
+      parsed.pools,
+      new Set(endpoints.map((ep) => ep.id)),
+    );
+    if (pools) doc.pools = pools;
+    const selection = normalizeSelection(parsed.selection);
+    if (selection) doc.selection = selection;
+    return doc;
   }
 
   async write(doc: ProvidersDocument): Promise<void> {

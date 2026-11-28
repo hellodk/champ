@@ -63,6 +63,14 @@ export interface CliFlags {
   noSkills: boolean;
   /** Optional endpoint id/name filter for `champ models` commands. */
   endpoint?: string;
+  /** Print capability evidence, context, pin and runtime status in `champ models`. */
+  details: boolean;
+  /** Ranking preference for SmartRoute scope commands. */
+  preference?: "quality" | "balanced" | "fast";
+  /** Retry budget for explicitly enabled safe failover. */
+  maxAttempts?: number;
+  /** Explicit opt-in for cloud targets in a global routing scope. */
+  allowCloud: boolean;
   /** Persist `champ model use` reference to `<workspace>/.champ/provider.json`. */
   workspace: boolean;
   /** Preview `champ config migrate` / `scrub-secrets` without writing changes. */
@@ -144,9 +152,15 @@ Usage:
   champ --sessions        List stored sessions for the workspace
   champ setup             Guided interactive provider setup
   champ provider <cmd>    Manage endpoints: list | add | edit <id> | remove <id> | test <id> [--inference] | discover <id>
-  champ models [refresh]  List or refresh discovered models
+  champ provider onboard <url> [--api-key <key>] [--endpoint <name>]  Detect and save an endpoint
+  champ models [refresh] [--details]  List or refresh discovered models
   champ model use <id/m>  Select default or workspace model
   champ model assign <t> <id/m>  Assign model to task: default | coding | chat | completion | embedding
+  champ model smart [--preference <p>]  Clear the pin and keep SmartRoute in the current scope
+  champ model scope <endpoint|pool|global> [id] [--allow-cloud]  Set routing scope
+  champ model pool add <name> <id,id,...>  Create a selectable endpoint pool
+  champ model pool remove <id>  Remove an endpoint pool
+  champ model failover <on|off> [--max-attempts <n>]  Opt in to safe failover
   champ config <cmd>      show | set <key> <value> | edit | validate | doctor | export --redact | migrate [--dry-run] | scrub-secrets [--dry-run] | routing <auto|manual>
   champ review <cmd>      list | show <id> | accept <id> | reject <id>  Review recorded edits
   champ policy <cmd>      show | validate   Inspect effective enterprise policy rules
@@ -182,6 +196,10 @@ Options:
       --list-skills       Print available skills and exit
       --no-skills         Ignore workspace/user skill directories
       --endpoint <id>     Filter \`models\` / \`models refresh\` by endpoint
+      --details           Show evidence, context, pin and runtime status for \`models\`
+      --preference <p>    SmartRoute preference: quality | balanced | fast
+      --max-attempts <n>  Safe failover retries for \`model failover on\` (1-3)
+      --allow-cloud       Explicit opt-in for cloud targets in a global scope
       --workspace         Write \`model use\` selection to workspace .champ/provider.json
       --dry-run           Preview \`config migrate\`, \`config scrub-secrets\`, or \`update\` without writing
       --redact            Required for \`config export\`; redacts all secret material
@@ -223,6 +241,8 @@ const VALUE_FLAGS: Record<string, keyof CliFlags> = {
   "--skill": "skill",
   "--file": "file",
   "--endpoint": "endpoint",
+  "--preference": "preference",
+  "--max-attempts": "maxAttempts",
   "--ref": "ref",
   "--repo": "repo",
   "--prefix": "prefix",
@@ -255,6 +275,8 @@ export function parseCliArgs(
     listSessions: false,
     listSkills: false,
     noSkills: false,
+    details: false,
+    allowCloud: false,
     workspace: false,
     dryRun: false,
     redact: false,
@@ -343,6 +365,14 @@ export function parseCliArgs(
       flags.check = true;
       continue;
     }
+    if (arg === "--details") {
+      flags.details = true;
+      continue;
+    }
+    if (arg === "--allow-cloud") {
+      flags.allowCloud = true;
+      continue;
+    }
     if (arg === "--force") {
       flags.force = true;
       continue;
@@ -395,6 +425,14 @@ export function parseCliArgs(
         flags.maxIterations = parsed;
         continue;
       }
+      if (valueKey === "maxAttempts") {
+        const parsed = Number(value);
+        if (!Number.isInteger(parsed) || parsed < 1 || parsed > 3) {
+          return error(`--max-attempts must be 1-3, got "${value}"`);
+        }
+        flags.maxAttempts = parsed;
+        continue;
+      }
       if (valueKey === "permissionProfile") {
         if (!isPermissionProfile(value)) {
           return error(
@@ -409,6 +447,15 @@ export function parseCliArgs(
           return error(`--theme must be dark or light, got "${value}"`);
         }
         flags.theme = value;
+        continue;
+      }
+      if (valueKey === "preference") {
+        if (value !== "quality" && value !== "balanced" && value !== "fast") {
+          return error(
+            `--preference must be quality, balanced or fast, got "${value}"`,
+          );
+        }
+        flags.preference = value;
         continue;
       }
       switch (valueKey) {
@@ -727,7 +774,7 @@ function parseProviderCommand(
       const sub = positionals[1];
       if (!sub) {
         return error(
-          'missing subcommand for "provider" (expected: list, add, edit, remove, test, discover)',
+          'missing subcommand for "provider" (expected: list, add, onboard, edit, remove, test, discover)',
         );
       }
       switch (sub) {
@@ -743,6 +790,22 @@ function parseProviderCommand(
             command: { name: "provider-add" },
             cwd: flags.cwd,
           };
+        case "onboard": {
+          const url = positionals[2] ?? flags.baseUrl;
+          if (!url) {
+            return error('missing URL for "provider onboard"');
+          }
+          return {
+            kind: "provider-command",
+            command: {
+              name: "provider-onboard",
+              url,
+              apiKey: flags.apiKey,
+              endpointName: flags.endpoint,
+            },
+            cwd: flags.cwd,
+          };
+        }
         case "test": {
           const id = positionals[2];
           if (!id) {
@@ -785,14 +848,22 @@ function parseProviderCommand(
       if (!sub) {
         return {
           kind: "provider-command",
-          command: { name: "models", id: flags.endpoint },
+          command: {
+            name: "models",
+            id: flags.endpoint,
+            details: flags.details || undefined,
+          },
           cwd: flags.cwd,
         };
       }
       if (sub === "refresh" && positionals.length === 2) {
         return {
           kind: "provider-command",
-          command: { name: "models-refresh", id: flags.endpoint },
+          command: {
+            name: "models-refresh",
+            id: flags.endpoint,
+            details: flags.details || undefined,
+          },
           cwd: flags.cwd,
         };
       }
@@ -833,6 +904,91 @@ function parseProviderCommand(
             name: "model-assign",
             task,
             endpointAndModel: target,
+          },
+          cwd: flags.cwd,
+        };
+      }
+      if (sub === "smart" && positionals.length === 2) {
+        return {
+          kind: "provider-command",
+          command: {
+            name: "model-smart",
+            preference: flags.preference,
+          },
+          cwd: flags.cwd,
+        };
+      }
+      if (sub === "scope") {
+        const scope = positionals[2];
+        if (scope !== "endpoint" && scope !== "pool" && scope !== "global") {
+          return error(
+            'expected scope for "model scope": endpoint, pool or global',
+          );
+        }
+        const id = positionals[3];
+        if (scope !== "global" && !id) {
+          return error(`missing id for "model scope ${scope}"`);
+        }
+        if (scope === "global" && positionals.length > 3) {
+          return error('unexpected arguments for "model scope global"');
+        }
+        return {
+          kind: "provider-command",
+          command: {
+            name: "model-scope",
+            scope,
+            id,
+            allowCloud: flags.allowCloud || undefined,
+            preference: flags.preference,
+          },
+          cwd: flags.cwd,
+        };
+      }
+      if (sub === "pool") {
+        const action = positionals[2];
+        if (action === "add") {
+          const name = positionals[3];
+          const ids = positionals[4];
+          if (!name || !ids) {
+            return error('expected "model pool add <name> <endpoint-id,...>"');
+          }
+          return {
+            kind: "provider-command",
+            command: {
+              name: "model-pool-add",
+              poolName: name,
+              endpointIds: ids
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean),
+              preference: flags.preference,
+              allowCloud: flags.allowCloud || undefined,
+            },
+            cwd: flags.cwd,
+          };
+        }
+        if (action === "remove") {
+          const id = positionals[3];
+          if (!id) return error('missing id for "model pool remove"');
+          return {
+            kind: "provider-command",
+            command: { name: "model-pool-remove", id },
+            cwd: flags.cwd,
+          };
+        }
+        return error(`unknown model pool action "${action ?? ""}"`);
+      }
+      if (sub === "failover") {
+        const mode = positionals[2];
+        if (mode !== "on" && mode !== "off") {
+          return error('expected "model failover <on|off>"');
+        }
+        return {
+          kind: "provider-command",
+          command: {
+            name: "model-failover",
+            enabled: mode === "on",
+            maxAttempts: flags.maxAttempts,
           },
           cwd: flags.cwd,
         };

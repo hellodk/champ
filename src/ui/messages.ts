@@ -153,6 +153,14 @@ export interface AvailableProviderModel {
    * shown in the list but rendered greyed-out with a click-to-fix action.
    */
   unavailable?: string;
+  /** Evidence-based capability summary, e.g. "chat:probe,tools:catalog". */
+  evidence?: string;
+  /** Known context window; undefined when the endpoint did not report one. */
+  contextWindow?: number;
+  /** Runtime health of this exact endpoint/model target. */
+  status?: string;
+  /** True when this exact target is the persisted pinned selection. */
+  pinned?: boolean;
 }
 
 export interface ProviderStatusMessage {

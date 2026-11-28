@@ -127,6 +127,18 @@
         "title": "Champ: Set Active Model"
       },
       {
+        "command": "champ.explainRoute",
+        "title": "Champ: Explain Last Routing Decision"
+      },
+      {
+        "command": "champ.createEndpointPool",
+        "title": "Champ: Create Endpoint Pool"
+      },
+      {
+        "command": "champ.selectRoutingPool",
+        "title": "Champ: Select Routing Pool Scope"
+      },
+      {
         "command": "champ.showOnboarding",
         "title": "Champ: Show Onboarding"
       },

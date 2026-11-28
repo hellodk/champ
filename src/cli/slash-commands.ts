@@ -132,14 +132,10 @@ export async function formatCostReport(
       `  Output Tokens:   ${quote1MOut.usd !== null ? `$${quote1MOut.usd.toFixed(2)}` : "unknown"}`,
     );
     if (quote1MCacheRead.usd !== null) {
-      lines.push(
-        `  Cache Read:      $${quote1MCacheRead.usd.toFixed(2)}`,
-      );
+      lines.push(`  Cache Read:      $${quote1MCacheRead.usd.toFixed(2)}`);
     }
     if (quote1MCacheWrite.usd !== null) {
-      lines.push(
-        `  Cache Write:     $${quote1MCacheWrite.usd.toFixed(2)}`,
-      );
+      lines.push(`  Cache Write:     $${quote1MCacheWrite.usd.toFixed(2)}`);
     }
   }
 
@@ -371,6 +367,30 @@ export function formatRouteReport(ctx: SlashCommandContext): string {
       lines.push(`  Reasoning:       ${selected.reason}`);
     }
 
+    const decision = smartRouter.getLastRouteDecision?.() ?? null;
+    if (decision) {
+      lines.push("");
+      lines.push("Canonical Decision:");
+      lines.push(`  Decision Source:   ${decision.source}`);
+      lines.push(`  Scope:             ${decision.scope}/${decision.scopeKey}`);
+      lines.push(`  Pinned:            ${decision.pinned ? "yes" : "no"}`);
+      lines.push(`  Preference:        ${decision.preference}`);
+      lines.push(`  Reason:            ${decision.reason}`);
+      lines.push(
+        `  Target:            ${decision.target ? `${decision.target.endpointId}/${decision.target.modelId}` : "none"}`,
+      );
+      for (const excluded of decision.excluded) {
+        lines.push(
+          `  excluded: ${excluded.target.endpointId}/${excluded.target.modelId} — ${excluded.reason}`,
+        );
+      }
+      for (const alternative of decision.alternatives) {
+        lines.push(
+          `  alternative: ${alternative.endpointId}/${alternative.modelId}`,
+        );
+      }
+    }
+
     if (models.length > 0) {
       lines.push("");
       lines.push("Candidate Models:");
@@ -493,8 +513,7 @@ export function formatToolsReport(ctx: SlashCommandContext): string {
       errors: 0,
       totalMs: 0,
     };
-    const avgMs =
-      stat.calls > 0 ? Math.round(stat.totalMs / stat.calls) : 0;
+    const avgMs = stat.calls > 0 ? Math.round(stat.totalMs / stat.calls) : 0;
     const nameCol = t.name.padEnd(20);
     const callsCol = String(stat.calls).padStart(5);
     const succCol = String(stat.success).padStart(8);
@@ -572,7 +591,9 @@ export async function formatMcpReport(
     lines.push(
       `  Success Rate:      ${Math.round((analytics.successRate ?? 0) * 100)}%`,
     );
-    lines.push(`  Average Latency:   ${Math.round(analytics.avgLatencyMs ?? 0)}ms`);
+    lines.push(
+      `  Average Latency:   ${Math.round(analytics.avgLatencyMs ?? 0)}ms`,
+    );
   }
 
   lines.push(

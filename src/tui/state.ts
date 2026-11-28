@@ -106,6 +106,13 @@ export interface ChatMessage {
   toolId?: string;
 }
 
+export interface EndpointModelDetail {
+  context?: number;
+  evidence?: string;
+  status?: string;
+  pinned?: boolean;
+}
+
 export interface EndpointSummary {
   id: string;
   name: string;
@@ -113,6 +120,8 @@ export interface EndpointSummary {
   baseUrl: string;
   hasCredential: boolean;
   models: string[];
+  /** Optional metadata for the selector; absent in legacy callers. */
+  modelDetails?: Record<string, EndpointModelDetail>;
 }
 
 export interface SetupDraft {

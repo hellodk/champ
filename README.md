@@ -196,8 +196,13 @@ champ config migrate
 | `champ setup`                                            | Interactive endpoint setup + model discovery          |
 | `champ provider list \| add \| edit <id> \| remove <id>` | Manage saved endpoints                                |
 | `champ provider test <id> \| discover <id>`              | Test connectivity/latency or refresh models           |
-| `champ models [refresh]`                                 | List or refresh discovered models                     |
-| `champ model use <id>/<model> [--workspace]`             | Set default model globally or for a repo              |
+| `champ provider onboard <url> [--api-key <key>]`         | Detect and save an endpoint                           |
+| `champ models [refresh] [--details]`                     | List/refresh models with evidence, context and status |
+| `champ model use <id>/<model> [--workspace]`             | Pin an exact endpoint/model globally or for a repo    |
+| `champ model smart [--preference <p>]`                   | Clear the pin and keep SmartRoute in the current scope |
+| `champ model scope <endpoint\|pool\|global> [id]`         | Select the eligible routing scope                     |
+| `champ model pool add <name> <id,id,...>`                 | Create a selectable endpoint pool                     |
+| `champ model failover <on\|off> [--max-attempts <n>]`     | Opt in to safe, bounded failover                      |
 | `champ config show \| migrate [--dry-run]`               | Inspect redacted config or import legacy YAML         |
 | `champ config set <key> <value> \| edit`                  | Edit a typed setting in place or open `$EDITOR`       |
 | `champ review list \| show \| accept \| reject <id>`     | Inspect and accept/reject recorded file edits         |
@@ -211,6 +216,9 @@ champ config migrate
 | `Champ: Show Effective Config`                         | Active config and origin diagnostics       |
 | `Champ: Index Workspace`                               | Rebuild / refresh RAG index                |
 | `Champ: Rescan Models`                                 | Re-discover models on configured endpoints |
+| `Champ: Explain Last Routing Decision`                 | Show the last canonical routing decision   |
+| `Champ: Create Endpoint Pool`                          | Create a named endpoint pool               |
+| `Champ: Select Routing Pool Scope`                     | Restrict routing to a pool                 |
 | `Champ: Set API Key`                                   | Store cloud keys in `SecretStorage`        |
 | `Champ: Save Checkpoint` / `Champ: Restore Checkpoint` | Snapshot & restore workspace state         |
 | `Champ: Run Multi-Agent Workflow`                      | Multi-agent orchestration entry point      |

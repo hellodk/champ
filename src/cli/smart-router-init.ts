@@ -8,8 +8,14 @@
  * feeds the picker, so `SmartRouter.select()` still sees an empty pool and
  * silently falls back to the provider's configured model.
  */
+import { createCanonicalRouteSource } from "../config/canonical-route-source";
 import type { ModelTieBreak } from "../config/model-selection";
-import type { Endpoint } from "../config/provider-model";
+import type {
+  Endpoint,
+  ModelTarget,
+  ProvidersDocument,
+} from "../config/provider-model";
+import type { RouteTask } from "../config/model-router";
 import type { SecretReader } from "../providers/factory";
 import type { LLMProvider } from "../providers/types";
 import {
@@ -29,6 +35,8 @@ export interface CliRouterInitInput {
     secrets: SecretReader,
   ) => Promise<LLMProvider>;
   tieBreak?: ModelTieBreak;
+  /** Persisted registry document. Absent means build an equivalent snapshot. */
+  doc?: ProvidersDocument;
 }
 
 /**
@@ -38,6 +46,12 @@ export interface CliRouterInitInput {
 export async function initializeCliRouter(
   input: CliRouterInitInput,
 ): Promise<SmartRouter | null> {
+  const doc: ProvidersDocument = input.doc ?? {
+    version: 1,
+    endpoints: input.endpoints,
+    assignments: input.assignments as ProvidersDocument["assignments"],
+    routingMode: "auto",
+  };
   const router = new SmartRouter();
   router.setTieBreak(input.tieBreak ?? "model-id");
   router.registerProvider(
@@ -46,6 +60,19 @@ export async function initializeCliRouter(
     input.endpoint.provider,
     input.endpoint.baseUrl,
   );
+  const providerByEndpoint = new Map<
+    string,
+    { provider: LLMProvider; name: string; type: string }
+  >([
+    [
+      input.endpoint.id,
+      {
+        provider: input.primaryProvider,
+        name: input.endpoint.name,
+        type: input.endpoint.provider,
+      },
+    ],
+  ]);
 
   const staticModels: DiscoveredModel[] = [];
   for (const ep of input.endpoints) {
@@ -55,6 +82,11 @@ export async function initializeCliRouter(
       try {
         const provider = await input.createProvider(ep, input.secretProvider);
         router.registerProvider(ep.name, provider, ep.provider, ep.baseUrl);
+        providerByEndpoint.set(ep.id, {
+          provider,
+          name: ep.name,
+          type: ep.provider,
+        });
       } catch {
         continue;
       }
@@ -86,17 +118,49 @@ export async function initializeCliRouter(
   router.registerStaticModels(staticModels);
   router.seedDiscoveredModels(staticModels);
 
-  for (const task of ["coding", "chat"] as const) {
-    const assignment = input.assignments[task];
-    if (!assignment?.model) continue;
-    // An endpoint id pins the override to a provider. Without it, duplicate
-    // model ids on two endpoints would resolve to whichever was registered
-    // first, silently routing a task to the wrong provider.
-    const endpoint = input.endpoints.find(
-      (ep) => ep.id === assignment.endpointId,
-    );
-    router.setTaskModel(task, assignment.model, endpoint?.name);
+  const taskPins: Partial<Record<RouteTask, ModelTarget>> = {};
+  if (!doc.selection?.pinned) {
+    for (const task of ["coding", "chat", "completion", "embedding"] as const) {
+      const assignment = input.assignments[task];
+      if (!assignment?.model) continue;
+      const endpoint = input.endpoints.find(
+        (ep) => ep.id === assignment.endpointId,
+      );
+      if (!endpoint?.models.some((model) => model.id === assignment.model)) {
+        continue;
+      }
+      taskPins[task] = {
+        endpointId: endpoint.id,
+        modelId: assignment.model,
+      };
+      // Keep the legacy picker in sync; canonical routing uses taskPins above.
+      router.setTaskModel(task, assignment.model, endpoint.name);
+    }
   }
+
+  router.setCanonicalRouteSource(
+    createCanonicalRouteSource({
+      doc,
+      taskPins,
+      resolveLegacyModel: (endpointId, modelId) => {
+        const endpoint = doc.endpoints.find((ep) => ep.id === endpointId);
+        return (
+          staticModels.find(
+            (item) =>
+              item.id === modelId && item.providerName === endpoint?.name,
+          ) ?? null
+        );
+      },
+      resolveProvider: (endpointId, modelId) => {
+        const entry = providerByEndpoint.get(endpointId);
+        if (!entry) return null;
+        return {
+          ...entry,
+          provider: entry.provider.withModel?.(modelId) ?? entry.provider,
+        };
+      },
+    }),
+  );
 
   return router;
 }

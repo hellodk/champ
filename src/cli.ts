@@ -107,9 +107,14 @@ import {
 import {
   isProviderKind,
   type Endpoint,
+  type ProvidersDocument,
   type TaskAssignment,
 } from "./config/provider-model";
 import { EndpointRepository } from "./config/provider-repository";
+import {
+  modelEvidenceSummary,
+  runtimeStatusSummary,
+} from "./config/model-display";
 import { createCliIndexingService } from "./indexing/cli-indexing";
 import { createCliContextResolver } from "./cli/context-resolver";
 import { initializeCliRouter } from "./cli/smart-router-init";
@@ -270,6 +275,7 @@ async function resolveProviderFromRegistry(
     Record<TaskAssignment, { endpointId: string; model: string }>
   >;
   endpoints: Endpoint[];
+  doc: ProvidersDocument;
 } | null> {
   const repository = new EndpointRepository();
   if (!fs.existsSync(repository.path())) {
@@ -316,6 +322,7 @@ async function resolveProviderFromRegistry(
     routingMode: doc.routingMode,
     assignments: doc.assignments,
     endpoints: doc.endpoints,
+    doc,
   };
 }
 
@@ -746,6 +753,7 @@ async function endpointSummaries(
 ): Promise<EndpointSummary[]> {
   const endpoints = await registry.list();
   const assignment = await registry.resolveAssignment("default");
+  const selection = await registry.getSelection().catch(() => undefined);
   const summaries = await Promise.all(
     endpoints.map(async (endpoint) => ({
       id: endpoint.id,
@@ -756,6 +764,25 @@ async function endpointSummaries(
         ? Boolean(await credentials.get(endpoint.credential))
         : false,
       models: endpoint.models.map((model) => model.id),
+      modelDetails: Object.fromEntries(
+        endpoint.models.map((model) => {
+          const target = { endpointId: endpoint.id, modelId: model.id };
+          return [
+            model.id,
+            {
+              context:
+                model.overrides?.contextWindow ??
+                model.contextWindow ??
+                endpoint.contextWindow,
+              evidence: modelEvidenceSummary(model),
+              status: runtimeStatusSummary(registry.runtime, target),
+              pinned:
+                selection?.pinned?.endpointId === endpoint.id &&
+                selection.pinned.modelId === model.id,
+            },
+          ];
+        }),
+      ),
     })),
   );
   return dedupeEndpointSummaries(summaries, assignment?.endpoint.id);
@@ -1516,6 +1543,27 @@ async function main(): Promise<number> {
   const controller = new AgentController(provider, toolRegistry, workspace);
   const metrics = new MetricsCollector();
   controller.setMetrics(metrics);
+  controller.setRoutingRuntime(endpointRegistry);
+  controller.setRoutingObserver({
+    onDecision: (event) => {
+      if (!flags.json && process.env.CHAMP_ROUTE_DEBUG !== "1") return;
+      process.stderr.write(
+        `${JSON.stringify({ type: "route_decision", ...event })}\n`,
+      );
+    },
+    onFailure: (event) => {
+      if (!flags.json && process.env.CHAMP_ROUTE_DEBUG !== "1") return;
+      process.stderr.write(
+        `${JSON.stringify({ type: "route_failure", ...event })}\n`,
+      );
+    },
+    onFailover: (event) => {
+      if (!flags.json && process.env.CHAMP_ROUTE_DEBUG !== "1") return;
+      process.stderr.write(
+        `${JSON.stringify({ type: "route_failover", ...event })}\n`,
+      );
+    },
+  });
   liveController = controller;
   const switchModel = (params: { provider?: string; model: string }) =>
     switchLiveModel(
@@ -1555,9 +1603,10 @@ async function main(): Promise<number> {
   controller.setMode(config.agent?.defaultMode ?? "agent");
   if (
     registryChoice &&
-    registryChoice.routingMode === "auto" &&
     !flags.model &&
-    (registryChoice.assignments.coding || registryChoice.assignments.chat)
+    (registryChoice.doc.selection ||
+      (registryChoice.routingMode === "auto" &&
+        (registryChoice.assignments.coding || registryChoice.assignments.chat)))
   ) {
     const cliRouter = await initializeCliRouter({
       endpoint: registryChoice.endpoint,
@@ -1575,6 +1624,7 @@ async function main(): Promise<number> {
           secretProvider: secrets,
         }),
       tieBreak: config.routing?.tieBreak,
+      doc: registryChoice.doc,
     });
     if (cliRouter) controller.setSmartRouter(cliRouter);
   }
@@ -2092,6 +2142,15 @@ async function main(): Promise<number> {
           return `Updated ${endpoint.name} (${endpoint.id})`;
         },
         selectModel: async (endpointId, model) => {
+          // Record the exact endpoint+model pair in the canonical selection so
+          // SmartRoute cannot silently drift to another endpoint later.
+          const previous = await endpointRegistry.getSelection();
+          await endpointRegistry.setSelection({
+            scope: { kind: "endpoint", endpointId },
+            preference: previous?.preference ?? "balanced",
+            pinned: { endpointId, modelId: model },
+            ...(previous?.failover ? { failover: previous.failover } : {}),
+          });
           // Rebuild and swap the running provider before reporting success, so
           // the TUI cannot claim a model the agent is not using (#178).
           const switched = await switchModel({ provider: endpointId, model });
@@ -2106,6 +2165,26 @@ async function main(): Promise<number> {
             // The registry remains the source of truth if config.yaml is absent.
           }
           return `Model ${switched.model} is now active`;
+        },
+        listPools: async () =>
+          (await endpointRegistry.listPools()).map((pool) => ({
+            id: pool.id,
+            name: pool.name,
+            endpointIds: [...pool.endpointIds],
+          })),
+        addPool: async (name, endpointIds) => {
+          const pool = await endpointRegistry.addPool({ name, endpointIds });
+          return `Pool ${pool.id} (${pool.name}) created with ${pool.endpointIds.length} endpoint(s)`;
+        },
+        selectPoolScope: async (poolId) => {
+          const previous = await endpointRegistry.getSelection();
+          await endpointRegistry.setSelection({
+            scope: { kind: "pool", poolId },
+            preference: previous?.preference ?? "balanced",
+            pinned: null,
+            ...(previous?.failover ? { failover: previous.failover } : {}),
+          });
+          return `Routing scope set to pool ${poolId}`;
         },
         testEndpoint: async (endpointId) => {
           const result = await endpointRegistry.test(endpointId);

@@ -94,13 +94,23 @@ champ config migrate [--dry-run]             # import URLs/models from ~/.champ/
 `champ models` prints selectable ids such as `ep_1234/qwen2.5-coder`. Pass that exact string to the selection commands:
 
 ```bash
-champ model use <id>/<model>                  # set the global default
+champ model use <id>/<model>                  # pin the exact global default
 champ model use <id>/<model> --workspace      # write <workspace>/.champ/provider.json instead
 champ model assign <task> <id>/<model>        # assign a model to a task
+champ model smart [--preference quality|balanced|fast]  # clear the pin, keep SmartRoute in scope
+champ model scope endpoint <id>               # only this endpoint is eligible
+champ model scope pool <pool-id>              # only pool members are eligible
+champ model scope global [--allow-cloud]      # opt in to global routing; cloud is excluded by default
+champ model pool add <name> <id,id,...>        # create an explicit endpoint pool
+champ model failover on [--max-attempts 2]     # opt in to bounded, safe failover
+champ model failover off                       # disable automatic failover
+champ models --details                        # show pin, evidence, context and runtime status
 champ config routing auto                     # routing mode: auto | manual
 ```
 
 `<task>` is one of `default`, `coding`, `chat`, `completion`, `embedding`. In `auto` mode, routing rules and capability/context matching choose among the discovered models; `manual` mode uses only explicit assignments and the default.
+
+Pinned selections always win. SmartRoute only moves across endpoint boundaries inside the selected scope, and global cloud routing requires the explicit `--allow-cloud` opt-in. `/route` prints the last canonical decision, including scope, source, exclusions and alternatives; the extension writes the same structured event to the **Champ Routing** output channel.
 
 For a single run, override without changing any stored config:
 
