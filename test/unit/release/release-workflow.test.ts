@@ -122,4 +122,13 @@ describe("release automation", () => {
     expect(docs).toContain("pull_request");
     expect(docs).toContain("waits for the PR to merge");
   });
+
+  it("uses a trusted token for the bot-authored version PR", () => {
+    expect(workflow).toContain("GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}");
+    expect(docs).toContain("RELEASE_TOKEN");
+  });
+
+  it("marks the published release as latest explicitly", () => {
+    expect(workflow).toContain("--latest");
+  });
 });

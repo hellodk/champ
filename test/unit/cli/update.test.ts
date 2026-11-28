@@ -12,6 +12,7 @@ import {
   validateRepoOrRef,
   type ExecFn,
   type UpdateDeps,
+  type UpdateFetchFn,
 } from "@/cli/update";
 
 interface RecordedCall {
@@ -406,24 +407,76 @@ describe("released tarball updates", () => {
     const name = assetName ?? `champ-cli-${version}.tgz`;
     const fetchFn = async (url: string) => {
       urls.push(url);
-      if (url.includes("/releases/latest")) {
+      if (url.includes("/releases?")) {
         return {
           ok: true,
-          json: async () => ({
-            tag_name: `v${version}`,
-            assets: [
-              {
-                name,
-                browser_download_url: `https://example.test/${name}`,
-              },
-            ],
-          }),
+          json: async () => [
+            {
+              tag_name: `v${version}`,
+              assets: [
+                {
+                  name,
+                  browser_download_url: `https://example.test/${name}`,
+                },
+              ],
+            },
+          ],
           arrayBuffer: async () => new ArrayBuffer(0),
         };
       }
       return {
         ok: true,
         arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      };
+    };
+    return { fetchFn, urls };
+  }
+
+  function releasesFetch(
+    releases: Array<{
+      tag: string;
+      assets?: string[];
+      draft?: boolean;
+      prerelease?: boolean;
+    }>,
+  ) {
+    const urls: string[] = [];
+    const payload = releases.map((release) => ({
+      tag_name: release.tag,
+      draft: release.draft ?? false,
+      prerelease: release.prerelease ?? false,
+      assets: (release.assets ?? []).map((name) => ({
+        name,
+        browser_download_url: `https://example.test/${name}`,
+      })),
+    }));
+    const fetchFn: UpdateFetchFn = async (url) => {
+      urls.push(url);
+      if (url.includes("/releases?")) {
+        return {
+          ok: true,
+          json: async () => payload,
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
+      }
+      if (url.includes("/releases/latest")) {
+        return {
+          ok: true,
+          json: async () => payload[0] ?? {},
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
+      }
+      if (url.startsWith("https://example.test/")) {
+        return {
+          ok: true,
+          arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+        };
+      }
+      return {
+        ok: false,
+        status: 404,
+        json: async () => ({}),
+        arrayBuffer: async () => new ArrayBuffer(0),
       };
     };
     return { fetchFn, urls };
@@ -451,7 +504,7 @@ describe("released tarball updates", () => {
       expect(code).toBe(0);
       expect(h.out.join("")).toContain("Updated champ to 2.2.0 (v2.2.0)");
       expect(urls[0]).toBe(
-        "https://api.github.com/repos/hellodk/champ/releases/latest",
+        "https://api.github.com/repos/hellodk/champ/releases?per_page=100",
       );
       expect(h.calls.some((c) => c.args[0] === "clone")).toBe(false);
       expect(h.calls.some((c) => c.args[0] === "esbuild.mjs")).toBe(false);
@@ -509,6 +562,148 @@ describe("released tarball updates", () => {
       expect(h.err.join("")).toContain("no published CLI tarball");
       expect(h.calls.some((c) => c.args[0] === "clone")).toBe(true);
       expect(h.out.join("")).toContain("Updated champ to 2.0.3 (5555555)");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  it("selects the highest semver release with a CLI tarball", async () => {
+    const h = makeHarness({
+      installedVersion: "2.0.2",
+      installedCommit: "1111111",
+    });
+    const { fetchFn, urls } = releasesFetch([
+      { tag: "v2.2.1", assets: ["champ-cli-2.2.1.tgz"] },
+      { tag: "v2.2.2", assets: ["champ-cli-2.2.2.tgz"] },
+    ]);
+    try {
+      const code = await runUpdateCommand(
+        { check: false, force: false },
+        { ...h.deps, fetchFn },
+      );
+      expect(code).toBe(0);
+      expect(h.out.join("")).toContain("Updated champ to 2.2.2 (v2.2.2)");
+      expect(urls[0]).toContain("/releases?");
+      const install = h.calls.find(
+        (c) => c.file === "npm" && c.args.includes("--global"),
+      );
+      expect(install?.args.at(-1)).toMatch(/champ-cli-2\.2\.2\.tgz$/);
+      expect(h.calls.some((c) => c.args[0] === "clone")).toBe(false);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  it("ignores drafts, prereleases, and releases without a CLI tarball", async () => {
+    const h = makeHarness({
+      installedVersion: "2.0.2",
+      installedCommit: "1111111",
+    });
+    const { fetchFn } = releasesFetch([
+      { tag: "v9.9.9", assets: ["champ-cli-9.9.9.tgz"], draft: true },
+      {
+        tag: "v9.8.8",
+        assets: ["champ-cli-9.8.8.tgz"],
+        prerelease: true,
+      },
+      { tag: "v2.2.0", assets: ["champ-2.2.0.vsix"] },
+      { tag: "v2.1.0", assets: ["champ-cli-2.1.0.tgz"] },
+    ]);
+    try {
+      const code = await runUpdateCommand(
+        { check: false, force: false },
+        { ...h.deps, fetchFn },
+      );
+      expect(code).toBe(0);
+      expect(h.out.join("")).toContain("Updated champ to 2.1.0 (v2.1.0)");
+      const install = h.calls.find(
+        (c) => c.file === "npm" && c.args.includes("--global"),
+      );
+      expect(install?.args.at(-1)).toMatch(/champ-cli-2\.1\.0\.tgz$/);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  it("builds the newer default branch when the newest published release is not newer", async () => {
+    const h = makeHarness({
+      installedVersion: "2.2.2",
+      installedCommit: "1111111",
+      remoteVersion: "2.3.0",
+      remoteSha: "5555555abcdef",
+    });
+    const { fetchFn } = releasesFetch([
+      { tag: "v2.2.1", assets: ["champ-cli-2.2.1.tgz"] },
+      { tag: "v2.2.2", assets: ["champ-cli-2.2.2.tgz"] },
+    ]);
+    try {
+      const code = await runUpdateCommand(
+        { check: false, force: false },
+        { ...h.deps, fetchFn },
+      );
+      expect(code).toBe(0);
+      expect(h.out.join("")).toContain("Updated champ to 2.3.0");
+      expect(h.err.join("")).toContain("building champ 2.3.0");
+      const install = h.calls.find(
+        (c) => c.file === "npm" && c.args.includes("--global"),
+      );
+      expect(install?.args.at(-1)).toMatch(/champ-2\.3\.0\.tgz$/);
+      expect(h.calls.some((c) => c.args[0] === "clone")).toBe(true);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  it("does not downgrade or rebuild when source version and commit match installed", async () => {
+    const h = makeHarness({
+      installedVersion: "2.2.2",
+      installedCommit: "5555555abcdef",
+      remoteVersion: "2.2.2",
+      remoteSha: "5555555abcdef",
+    });
+    const { fetchFn } = releasesFetch([
+      { tag: "v2.2.2", assets: ["champ-cli-2.2.2.tgz"] },
+    ]);
+    try {
+      const code = await runUpdateCommand(
+        { check: false, force: false },
+        { ...h.deps, fetchFn },
+      );
+      expect(code).toBe(0);
+      expect(h.out.join("")).toContain(
+        "Already up to date: champ 2.2.2 (5555555)",
+      );
+      expect(
+        h.calls.some((c) => c.file === "npm" && c.args.includes("--global")),
+      ).toBe(false);
+      expect(h.calls.some((c) => c.args[0] === "clone")).toBe(false);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  it("reports a newer default branch from --check when no published release is newer", async () => {
+    const h = makeHarness({
+      installedVersion: "2.2.2",
+      installedCommit: "1111111",
+      remoteVersion: "2.3.0",
+      remoteSha: "5555555abcdef",
+    });
+    const { fetchFn } = releasesFetch([
+      { tag: "v2.2.2", assets: ["champ-cli-2.2.2.tgz"] },
+    ]);
+    try {
+      const code = await runUpdateCommand(
+        { check: true, force: false },
+        { ...h.deps, fetchFn },
+      );
+      expect(code).toBe(0);
+      expect(h.out.join("")).toContain(
+        "Update available: champ 2.2.2 -> 2.3.0 (5555555)",
+      );
+      expect(
+        h.calls.some((c) => c.file === "npm" && c.args.includes("--global")),
+      ).toBe(false);
     } finally {
       h.cleanup();
     }
