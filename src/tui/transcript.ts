@@ -30,6 +30,62 @@ export interface TranscriptLine {
   segments?: MarkdownSegment[];
 }
 
+export interface CachedMessageLines {
+  text: string;
+  width: number;
+  lines: TranscriptLine[];
+}
+
+/**
+ * High-performance memoization cache for transcript lines.
+ * Avoids re-parsing unchanged markdown and re-wrapping lines on streaming deltas.
+ */
+export class TranscriptLineCache {
+  private cache = new Map<string, CachedMessageLines>();
+
+  get(messageId: string): CachedMessageLines | undefined {
+    return this.cache.get(messageId);
+  }
+
+  set(messageId: string, entry: CachedMessageLines): void {
+    this.cache.set(messageId, entry);
+  }
+
+  delete(messageId: string): boolean {
+    return this.cache.delete(messageId);
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  get size(): number {
+    return this.cache.size;
+  }
+
+  /**
+   * Prune entries for messages that have been removed or trimmed by retention caps.
+   */
+  prune(activeMessageIds: Set<string>): void {
+    for (const id of this.cache.keys()) {
+      if (!activeMessageIds.has(id)) {
+        this.cache.delete(id);
+      }
+    }
+  }
+}
+
+/** Default singleton cache instance used across TUI rendering turns. */
+const defaultLineCache = new TranscriptLineCache();
+
+export function getDefaultTranscriptLineCache(): TranscriptLineCache {
+  return defaultLineCache;
+}
+
+export function clearTranscriptLineCache(): void {
+  defaultLineCache.clear();
+}
+
 /** Word-wrap one paragraph, preserving explicit newlines and long words. */
 export function wrapTranscriptText(text: string, width: number): string[] {
   const limit = Math.max(1, Math.floor(width));
@@ -51,22 +107,38 @@ export function wrapTranscriptText(text: string, width: number): string[] {
   return output;
 }
 
-/** Expand messages into the lines the terminal actually paints. */
+/**
+ * Expand messages into the lines the terminal actually paints.
+ * Uses message-level line caching so only messages receiving new content are re-rendered.
+ */
 export function buildTranscriptLines(
   messages: ChatMessage[],
   width: number,
+  cache: TranscriptLineCache = defaultLineCache,
 ): TranscriptLine[] {
   const lines: TranscriptLine[] = [];
-  messages.forEach((message) => {
-    lines.push({
-      id: `${message.id}:role`,
-      messageId: message.id,
-      kind: "role",
-      role: message.role,
-      text: message.role.toUpperCase(),
-    });
+
+  for (const message of messages) {
+    const cached = cache.get(message.id);
+    if (cached && cached.text === message.text && cached.width === width) {
+      for (const line of cached.lines) {
+        lines.push(line);
+      }
+      continue;
+    }
+
+    const msgLines: TranscriptLine[] = [
+      {
+        id: `${message.id}:role`,
+        messageId: message.id,
+        kind: "role",
+        role: message.role,
+        text: message.role.toUpperCase(),
+      },
+    ];
+
     markdownToLines(message.text, width).forEach((line, index) => {
-      lines.push({
+      msgLines.push({
         id: `${message.id}:${index}`,
         messageId: message.id,
         kind: line.kind,
@@ -75,6 +147,23 @@ export function buildTranscriptLines(
         segments: line.segments,
       });
     });
-  });
+
+    cache.set(message.id, {
+      text: message.text,
+      width,
+      lines: msgLines,
+    });
+
+    for (const line of msgLines) {
+      lines.push(line);
+    }
+  }
+
+  // Periodic pruning if the cache has accumulated orphaned messages after retention trimming
+  if (cache.size > messages.length + 100) {
+    const activeIds = new Set(messages.map((m) => m.id));
+    cache.prune(activeIds);
+  }
+
   return lines;
 }
