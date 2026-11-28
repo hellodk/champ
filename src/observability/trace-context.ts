@@ -53,3 +53,77 @@ export function extractTraceContext(
   // accepted; the regex has already rejected malformed/reserved values.
   return make(traceId, spanId);
 }
+
+/**
+ * Traceable Execution Model correlation context:
+ * run_id
+ *   └── session_id
+ *         └── turn_id
+ *               ├── provider_request_id
+ *               ├── routing_decision_id
+ *               ├── context_compaction_id
+ *               ├── tool_call_id
+ *               ├── mcp_request_id
+ *               └── retrieval_query_id
+ */
+export interface ExecutionCorrelation {
+  runId: string;
+  sessionId: string;
+  turnId: string;
+  providerRequestId?: string;
+  routingDecisionId?: string;
+  contextCompactionId?: string;
+  toolCallId?: string;
+  mcpRequestId?: string;
+  retrievalQueryId?: string;
+  traceContext?: TraceContext;
+}
+
+export function createRunId(): string {
+  return `run-${hex(8)}`;
+}
+
+export function createTurnId(): string {
+  return `turn-${hex(6)}`;
+}
+
+export function createProviderRequestId(): string {
+  return `req-${hex(6)}`;
+}
+
+export function createRoutingDecisionId(): string {
+  return `route-${hex(6)}`;
+}
+
+export function createCompactionId(): string {
+  return `compact-${hex(6)}`;
+}
+
+export function createToolCallId(): string {
+  return `tool-${hex(6)}`;
+}
+
+export function createMcpRequestId(): string {
+  return `mcp-${hex(6)}`;
+}
+
+export function createRetrievalQueryId(): string {
+  return `retrieval-${hex(6)}`;
+}
+
+export function createExecutionCorrelation(
+  params?: Partial<ExecutionCorrelation>,
+): ExecutionCorrelation {
+  return {
+    runId: params?.runId ?? createRunId(),
+    sessionId: params?.sessionId ?? `sess-${hex(6)}`,
+    turnId: params?.turnId ?? createTurnId(),
+    providerRequestId: params?.providerRequestId,
+    routingDecisionId: params?.routingDecisionId,
+    contextCompactionId: params?.contextCompactionId,
+    toolCallId: params?.toolCallId,
+    mcpRequestId: params?.mcpRequestId,
+    retrievalQueryId: params?.retrievalQueryId,
+    traceContext: params?.traceContext ?? createTraceContext(),
+  };
+}

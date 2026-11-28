@@ -9,6 +9,10 @@
 import type { AgentController } from "../agent/agent-controller";
 import { quoteCost, type BudgetEnforcer } from "../config/budget";
 import type { PolicyEngine } from "../policy/engine";
+import {
+  createExecutionCorrelation,
+  type ExecutionCorrelation,
+} from "../observability/trace-context";
 import type { StreamDelta, ToolCall, TokenUsage } from "../providers/types";
 
 /** The smallest controller surface a turn needs. */
@@ -44,6 +48,11 @@ export interface TurnSummary {
   retries?: number;
   fallbacks?: number;
   compactions?: number;
+  runId?: string;
+  sessionId?: string;
+  turnId?: string;
+  traceId?: string;
+  spanId?: string;
 }
 
 export interface ToolCompletionEvent {
@@ -82,6 +91,7 @@ export interface ExecuteTurnOptions {
   onTurnEnd?: () => Promise<void>;
   /** Snapshot paths before mutating tools write. */
   onBeforeMutation?: (paths: string[]) => Promise<void>;
+  correlation?: Partial<ExecutionCorrelation>;
 }
 
 /** Additive outcome classification; exit codes are derived from this. */
@@ -139,7 +149,9 @@ export async function executeTurn({
   permissionProfile,
   onTurnEnd,
   onBeforeMutation,
+  correlation: initialCorrelation,
 }: ExecuteTurnOptions): Promise<TurnOutcome> {
+  const correlation = createExecutionCorrelation(initialCorrelation);
   let sawText = false;
   let tools = 0;
   const startTime = Date.now();
@@ -216,7 +228,8 @@ export async function executeTurn({
       policy,
       permissionProfile,
       onBeforeMutation,
-    });
+      correlation,
+    } as import("../agent/agent-controller").ProcessMessageOptions);
     if (!sawText && result.text) events.onText?.(result.text);
 
     // Extract provider and model metadata from controller if available
@@ -283,6 +296,11 @@ export async function executeTurn({
               percentUsed,
             }
           : undefined,
+      runId: correlation.runId,
+      sessionId: correlation.sessionId,
+      turnId: correlation.turnId,
+      traceId: correlation.traceContext?.traceId,
+      spanId: correlation.traceContext?.spanId,
     });
     const outcome = {
       text: result.text,

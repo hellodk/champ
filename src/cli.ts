@@ -2480,6 +2480,9 @@ async function main(): Promise<number> {
             { id: "next", text: "Continue the current task", status: "active" },
           ];
         },
+        getMetrics: () => (liveController ?? controller).getMetrics(),
+        getAnalytics: () =>
+          (liveController ?? controller).getAnalytics() ?? undefined,
         listCommands: async () =>
           Object.entries(CHAT_COMMAND_HELP).map(([name, description]) => ({
             name,

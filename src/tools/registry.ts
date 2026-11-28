@@ -220,8 +220,30 @@ function jsonTypeMatches(expected: string, value: unknown): boolean {
   }
 }
 
+export interface ToolMiddlewareContext {
+  toolName: string;
+  args: Record<string, unknown>;
+  context: ToolExecutionContext;
+  tool?: Tool;
+}
+
+export type ToolMiddleware = (
+  ctx: ToolMiddlewareContext,
+  next: () => Promise<ToolResult>,
+) => Promise<ToolResult>;
+
 export class ToolRegistry {
   private tools = new Map<string, Tool>();
+  private middlewares: ToolMiddleware[] = [];
+
+  /**
+   * Register middleware in the tool execution pipeline.
+   * Middlewares wrap tool calls in registration order.
+   */
+  use(middleware: ToolMiddleware): this {
+    this.middlewares.push(middleware);
+    return this;
+  }
 
   register(tool: Tool): void {
     this.tools.set(tool.name, tool);
@@ -251,7 +273,8 @@ export class ToolRegistry {
   }
 
   /**
-   * Execute a tool by name. Handles approval flow and error reporting.
+   * Execute a tool by name through the configured middleware pipeline.
+   * Handles approval flow, policy checks, mutation snapshots, and error reporting.
    */
   async execute(
     name: string,
@@ -259,7 +282,33 @@ export class ToolRegistry {
     context: ToolExecutionContext,
   ): Promise<ToolResult> {
     const tool = this.tools.get(name);
-    if (!tool) {
+    const midCtx: ToolMiddlewareContext = {
+      toolName: name,
+      args,
+      context,
+      tool,
+    };
+
+    let index = -1;
+    const dispatch = async (i: number): Promise<ToolResult> => {
+      if (i <= index) throw new Error("next() called multiple times");
+      index = i;
+      const fn = this.middlewares[i];
+      if (!fn) return this.executeCore(name, args, context, tool);
+      return fn(midCtx, () => dispatch(i + 1));
+    };
+
+    return dispatch(0);
+  }
+
+  private async executeCore(
+    name: string,
+    args: Record<string, unknown>,
+    context: ToolExecutionContext,
+    tool?: Tool,
+  ): Promise<ToolResult> {
+    const resolvedTool = tool ?? this.tools.get(name);
+    if (!resolvedTool) {
       return {
         success: false,
         output: `Unknown tool: ${name}`,
@@ -268,7 +317,7 @@ export class ToolRegistry {
 
     // Schema-validate BEFORE approval so the model gets fast, actionable
     // feedback instead of a runtime failure inside the tool (issue #106).
-    const validationError = validateToolArgs(tool, args);
+    const validationError = validateToolArgs(resolvedTool, args);
     if (validationError) {
       return {
         success: false,
@@ -280,9 +329,13 @@ export class ToolRegistry {
     // policy rules and approval prompts so neither a model instruction, a
     // project policy file nor `--yes` can grant a state-changing tool in a
     // read-only session.
-    const profileGate = evaluateProfileGate(context.permissionProfile, tool, {
-      headless: context.headless === true,
-    });
+    const profileGate = evaluateProfileGate(
+      context.permissionProfile,
+      resolvedTool,
+      {
+        headless: context.headless === true,
+      },
+    );
     if (profileGate.denied) {
       return {
         success: false,
@@ -290,7 +343,7 @@ export class ToolRegistry {
       };
     }
 
-    const policyDecision = evaluatePolicy(name, tool, args, context);
+    const policyDecision = evaluatePolicy(name, resolvedTool, args, context);
     if (policyDecision?.decision === "DENY") {
       return {
         success: false,
@@ -300,7 +353,7 @@ export class ToolRegistry {
 
     if (
       context.headless &&
-      tool.requiresApproval &&
+      resolvedTool.requiresApproval &&
       policyDecision?.decision !== "ALLOW"
     ) {
       return {
@@ -312,9 +365,9 @@ export class ToolRegistry {
       ? policyDecision.decision === "ASK"
       : context.permissionProfile === "autonomous"
         ? false
-        : profileGate.decision === "ASK" || tool.requiresApproval;
+        : profileGate.decision === "ASK" || resolvedTool.requiresApproval;
     if (needsApproval) {
-      const preview = tool.getPreview?.(args);
+      const preview = resolvedTool.getPreview?.(args);
       const approved = await context.requestApproval(
         `Tool "${name}" wants to execute with args: ${JSON.stringify(args, null, 2)}`,
         preview,
@@ -331,8 +384,8 @@ export class ToolRegistry {
     // approval (no point checkpointing a denied action) but strictly before
     // the tool touches disk. Failure fails closed — no mutation is attempted
     // without a recovery point.
-    if (context.onBeforeMutation && tool.mutationPaths) {
-      const paths = tool
+    if (context.onBeforeMutation && resolvedTool.mutationPaths) {
+      const paths = resolvedTool
         .mutationPaths(args)
         .filter((p) => typeof p === "string" && p.length > 0);
       if (paths.length > 0) {
@@ -349,7 +402,7 @@ export class ToolRegistry {
     }
 
     try {
-      return await tool.execute(args, context);
+      return await resolvedTool.execute(args, context);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {

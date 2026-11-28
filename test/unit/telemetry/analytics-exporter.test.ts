@@ -152,4 +152,49 @@ describe("AnalyticsExporter", () => {
     expect(emailAttr.value.stringValue).toBe("user@example.com");
     exp.dispose();
   });
+
+  it("emits hierarchical child spans under root span in OTLP payload", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(null, { status: 200 }));
+    const eventWithSpans: TelemetryEvent = {
+      ...sampleEvent,
+      spans: [
+        {
+          spanId: "child1234567890a",
+          name: "tool.read_file",
+          kind: 1,
+          startTimeUnixNano: "1000000000",
+          endTimeUnixNano: "2000000000",
+          attributes: [
+            { key: "tool.name", value: { stringValue: "read_file" } },
+            { key: "tool.success", value: { boolValue: true } },
+          ],
+        },
+      ],
+    };
+
+    const exp = new AnalyticsExporter(
+      { ...baseCfg, format: "otlp" },
+      "user-abc",
+      "ws-abc",
+    );
+    await exp.export(eventWithSpans);
+    const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as {
+      resourceSpans: Array<{ scopeSpans: Array<{ spans: any[] }> }>;
+    };
+    const spans = body.resourceSpans[0].scopeSpans[0].spans;
+    expect(spans).toHaveLength(2);
+
+    const rootSpan = spans[0];
+    const childSpan = spans[1];
+    expect(rootSpan.name).toBe("champ.agent_run");
+    expect(childSpan.name).toBe("tool.read_file");
+    expect(childSpan.parentSpanId).toBe(rootSpan.spanId);
+    expect(childSpan.traceId).toBe(rootSpan.traceId);
+    expect(childSpan.attributes).toEqual([
+      { key: "tool.name", value: { stringValue: "read_file" } },
+      { key: "tool.success", value: { boolValue: true } },
+    ]);
+    exp.dispose();
+  });
 });

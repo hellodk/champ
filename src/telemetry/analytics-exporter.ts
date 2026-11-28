@@ -2,6 +2,27 @@ import { EventBuffer } from "./event-buffer";
 import type { TelemetryConfig } from "../config/config-loader";
 import type { AgentRunReport } from "../agent-manager/types";
 
+export interface TelemetrySpanAttribute {
+  key: string;
+  value:
+    | { stringValue: string }
+    | { intValue: number }
+    | { boolValue: boolean }
+    | { doubleValue: number };
+}
+
+export interface TelemetrySpan {
+  traceId?: string;
+  spanId: string;
+  parentSpanId?: string;
+  name: string;
+  kind?: number; // 1 = INTERNAL, 3 = CLIENT
+  startTimeUnixNano: string;
+  endTimeUnixNano: string;
+  attributes: TelemetrySpanAttribute[];
+  status?: { code: number; message?: string };
+}
+
 export interface TelemetryEvent {
   runId: string;
   timestamp: string;
@@ -11,6 +32,7 @@ export interface TelemetryEvent {
   workspaceId: string;
   extensionVersion: string;
   report: AgentRunReport;
+  spans?: TelemetrySpan[];
 }
 
 const DEFAULT_BUFFER_EVENTS = 1_000;
@@ -90,43 +112,69 @@ export class AnalyticsExporter {
   }
 
   private toOtlpPayload(events: TelemetryEvent[]): string {
-    const spans = events.map((ev) => ({
-      traceId: ev.runId.replace(/-/g, "").padEnd(32, "0"),
-      spanId: ev.runId.replace(/-/g, "").slice(0, 16).padEnd(16, "0"),
-      name: "champ.agent_run",
-      kind: 3, // CLIENT
-      startTimeUnixNano: String(new Date(ev.timestamp).getTime() * 1_000_000),
-      endTimeUnixNano: String(
-        (new Date(ev.timestamp).getTime() + ev.report.totalDurationMs) *
-          1_000_000,
-      ),
-      attributes: [
-        { key: "user.id", value: { stringValue: ev.userId } },
-        { key: "session.id", value: { stringValue: ev.sessionId } },
-        { key: "workspace.id", value: { stringValue: ev.workspaceId } },
-        {
-          key: "extension.version",
-          value: { stringValue: ev.extensionVersion },
-        },
-        {
-          key: "tokens.input",
-          value: { intValue: ev.report.totalInputTokens },
-        },
-        {
-          key: "tokens.output",
-          value: { intValue: ev.report.totalOutputTokens },
-        },
-        { key: "run.success", value: { boolValue: ev.report.success } },
-        {
-          key: "run.duration_ms",
-          value: { intValue: ev.report.totalDurationMs },
-        },
-        ...(ev.userEmail && this.config.includeUserIdentity === true
-          ? [{ key: "user.email", value: { stringValue: ev.userEmail } }]
-          : []),
-      ],
-      status: { code: ev.report.success ? 1 : 2 },
-    }));
+    const allSpans: Array<Record<string, unknown>> = [];
+
+    for (const ev of events) {
+      const traceId = ev.runId.replace(/-/g, "").padEnd(32, "0");
+      const rootSpanId = ev.runId
+        .replace(/-/g, "")
+        .slice(0, 16)
+        .padEnd(16, "0");
+
+      allSpans.push({
+        traceId,
+        spanId: rootSpanId,
+        name: "champ.agent_run",
+        kind: 3, // CLIENT
+        startTimeUnixNano: String(new Date(ev.timestamp).getTime() * 1_000_000),
+        endTimeUnixNano: String(
+          (new Date(ev.timestamp).getTime() + ev.report.totalDurationMs) *
+            1_000_000,
+        ),
+        attributes: [
+          { key: "user.id", value: { stringValue: ev.userId } },
+          { key: "session.id", value: { stringValue: ev.sessionId } },
+          { key: "workspace.id", value: { stringValue: ev.workspaceId } },
+          {
+            key: "extension.version",
+            value: { stringValue: ev.extensionVersion },
+          },
+          {
+            key: "tokens.input",
+            value: { intValue: ev.report.totalInputTokens },
+          },
+          {
+            key: "tokens.output",
+            value: { intValue: ev.report.totalOutputTokens },
+          },
+          { key: "run.success", value: { boolValue: ev.report.success } },
+          {
+            key: "run.duration_ms",
+            value: { intValue: ev.report.totalDurationMs },
+          },
+          ...(ev.userEmail && this.config.includeUserIdentity === true
+            ? [{ key: "user.email", value: { stringValue: ev.userEmail } }]
+            : []),
+        ],
+        status: { code: ev.report.success ? 1 : 2 },
+      });
+
+      if (ev.spans && ev.spans.length > 0) {
+        for (const span of ev.spans) {
+          allSpans.push({
+            traceId: span.traceId ?? traceId,
+            spanId: span.spanId,
+            parentSpanId: span.parentSpanId ?? rootSpanId,
+            name: span.name,
+            kind: span.kind ?? 1,
+            startTimeUnixNano: span.startTimeUnixNano,
+            endTimeUnixNano: span.endTimeUnixNano,
+            attributes: span.attributes,
+            status: span.status ?? { code: 1 },
+          });
+        }
+      }
+    }
 
     return JSON.stringify({
       resourceSpans: [
@@ -140,7 +188,7 @@ export class AnalyticsExporter {
               },
             ],
           },
-          scopeSpans: [{ spans }],
+          scopeSpans: [{ spans: allSpans }],
         },
       ],
     });

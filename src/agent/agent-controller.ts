@@ -48,6 +48,10 @@ import { executionStatus, type ExecutionStatus } from "./execution-status";
 import { createContextSummariser } from "../providers/context-summariser";
 import { truncateToolOutput } from "../utils/tool-output-budget";
 import type { MemoryBank } from "../memory/memory-bank";
+import {
+  createExecutionCorrelation,
+  type ExecutionCorrelation,
+} from "../observability/trace-context";
 import { SystemPromptBuilder } from "./system-prompt-builder";
 import { StagedEdits } from "./staged-edits";
 import type { ResponseCache } from "../providers/response-cache";
@@ -79,6 +83,7 @@ export interface ProcessMessageOptions {
   /** Operator-selected permission profile, never derived from model output. */
   permissionProfile?: import("../policy/profiles").PermissionProfile;
   executionBackend?: import("../safety/execution-backend").ExecutionBackend;
+  correlation?: Partial<ExecutionCorrelation>;
 }
 
 export interface ProcessMessageResult {
@@ -261,7 +266,9 @@ export class AgentController {
     this.analyticsAgentName = agentName;
   }
 
-  getAnalytics(): import("../observability/agent-analytics").AgentAnalytics | null {
+  getAnalytics():
+    | import("../observability/agent-analytics").AgentAnalytics
+    | null {
     return this.analyticsInstance;
   }
 
@@ -492,6 +499,10 @@ export class AgentController {
   ): Promise<ProcessMessageResult> {
     this._isProcessing = true;
     const messageStartTime = Date.now();
+    const correlation = createExecutionCorrelation({
+      sessionId: options.correlation?.sessionId ?? this.analyticsAgentName,
+      ...options.correlation,
+    });
     try {
       const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
@@ -934,6 +945,11 @@ export class AgentController {
               model:
                 activeProvider.modelInfo().id ??
                 activeProvider.modelInfo().name,
+              runId: correlation.runId,
+              sessionId: correlation.sessionId,
+              turnId: correlation.turnId,
+              traceId: correlation.traceContext?.traceId,
+              spanId: correlation.traceContext?.spanId,
             });
 
             // Anchor future estimates on the provider's authoritative prompt
@@ -1205,8 +1221,14 @@ export class AgentController {
                 durationMs: toolDuration,
                 success: result.success,
                 args: call.arguments,
-                result: result.success ? result.output.slice(0, 200) : undefined,
+                result: result.success
+                  ? result.output.slice(0, 200)
+                  : undefined,
                 error: result.success ? undefined : result.output,
+                runId: correlation.runId,
+                sessionId: correlation.sessionId,
+                turnId: correlation.turnId,
+                toolCallId: call.id,
               });
             } catch {
               // Ignore metrics errors
@@ -1329,6 +1351,9 @@ export class AgentController {
             output: collectedText.join("").slice(0, 200),
             success: iterationRan && !hadError,
             error: hadError ? "error occurred during turn" : undefined,
+            runId: correlation.runId,
+            sessionId: correlation.sessionId,
+            turnId: correlation.turnId,
           });
         } catch {
           // ignore — metrics failure must not break the message path

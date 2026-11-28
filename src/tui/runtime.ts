@@ -14,6 +14,8 @@ import type { RecoverySnapshot } from "./recovery";
 import type { ThemeName } from "./theme";
 import type { ChatRole, EndpointSummary, TuiScreen } from "./state";
 import type { ToolResultEvent, ToolStartEvent } from "./tool-events";
+import type { MetricsCollector } from "../observability/metrics-collector";
+import type { AgentAnalytics } from "../observability/agent-analytics";
 
 export interface TuiHeader {
   version: string;
@@ -155,5 +157,7 @@ export interface TuiRuntime {
   getContext?(): Promise<ContextSnapshot>;
   listUsage?(): Promise<UsageRecord[]>;
   listPlan?(): Promise<PlanStepInput[]>;
+  getMetrics?(): MetricsCollector | undefined;
+  getAnalytics?(): AgentAnalytics | null | undefined;
   exit(): void;
 }
