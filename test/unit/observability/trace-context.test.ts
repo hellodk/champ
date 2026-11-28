@@ -7,6 +7,15 @@ import {
   createTraceContext,
   withSpan,
   extractTraceContext,
+  createRunId,
+  createTurnId,
+  createProviderRequestId,
+  createRoutingDecisionId,
+  createCompactionId,
+  createToolCallId,
+  createMcpRequestId,
+  createRetrievalQueryId,
+  createExecutionCorrelation,
   type TraceContext,
 } from "@/observability/trace-context";
 
@@ -51,5 +60,45 @@ describe("trace context", () => {
       traceparent: `00-${"a".repeat(32)}-${"b".repeat(16)}-01`,
     };
     expect(withSpan(parent, "child").traceId).toBe(parent.traceId);
+  });
+
+  describe("ExecutionCorrelation and ID generators", () => {
+    it("generates correctly formatted hierarchical identifiers", () => {
+      expect(createRunId()).toMatch(/^run-[0-9a-f]{16}$/);
+      expect(createTurnId()).toMatch(/^turn-[0-9a-f]{12}$/);
+      expect(createProviderRequestId()).toMatch(/^req-[0-9a-f]{12}$/);
+      expect(createRoutingDecisionId()).toMatch(/^route-[0-9a-f]{12}$/);
+      expect(createCompactionId()).toMatch(/^compact-[0-9a-f]{12}$/);
+      expect(createToolCallId()).toMatch(/^tool-[0-9a-f]{12}$/);
+      expect(createMcpRequestId()).toMatch(/^mcp-[0-9a-f]{12}$/);
+      expect(createRetrievalQueryId()).toMatch(/^retrieval-[0-9a-f]{12}$/);
+    });
+
+    it("creates an execution correlation context with generated defaults", () => {
+      const corr = createExecutionCorrelation();
+      expect(corr.runId).toMatch(/^run-[0-9a-f]{16}$/);
+      expect(corr.sessionId).toMatch(/^sess-[0-9a-f]{12}$/);
+      expect(corr.turnId).toMatch(/^turn-[0-9a-f]{12}$/);
+      expect(corr.traceContext?.traceparent).toMatch(TRACEPARENT);
+    });
+
+    it("preserves explicit parameters in execution correlation", () => {
+      const customTrace = createTraceContext();
+      const corr = createExecutionCorrelation({
+        runId: "run-custom-1",
+        sessionId: "session-abc",
+        turnId: "turn-123",
+        toolCallId: "tool-456",
+        providerRequestId: "req-789",
+        traceContext: customTrace,
+      });
+
+      expect(corr.runId).toBe("run-custom-1");
+      expect(corr.sessionId).toBe("session-abc");
+      expect(corr.turnId).toBe("turn-123");
+      expect(corr.toolCallId).toBe("tool-456");
+      expect(corr.providerRequestId).toBe("req-789");
+      expect(corr.traceContext).toBe(customTrace);
+    });
   });
 });

@@ -123,4 +123,69 @@ describe("ToolRegistry", () => {
     registry.unregister("read_file");
     expect(registry.get("read_file")).toBeUndefined();
   });
+
+  describe("middleware pipeline", () => {
+    it("executes registered middlewares in onion order", async () => {
+      const order: string[] = [];
+      const tool = createMockTool("read_file", false);
+      registry.register(tool);
+      const ctx = createMockContext();
+
+      registry
+        .use(async (midCtx, next) => {
+          order.push("mid1-enter");
+          const res = await next();
+          order.push("mid1-exit");
+          return res;
+        })
+        .use(async (midCtx, next) => {
+          order.push("mid2-enter");
+          const res = await next();
+          order.push("mid2-exit");
+          return res;
+        });
+
+      const res = await registry.execute("read_file", { input: "hello" }, ctx);
+      expect(res.success).toBe(true);
+      expect(order).toEqual([
+        "mid1-enter",
+        "mid2-enter",
+        "mid2-exit",
+        "mid1-exit",
+      ]);
+    });
+
+    it("allows middleware to short-circuit execution without calling next()", async () => {
+      const tool = createMockTool("read_file", false);
+      registry.register(tool);
+      const ctx = createMockContext();
+
+      registry.use(async (midCtx) => {
+        return {
+          success: false,
+          output: `Blocked by middleware for ${midCtx.toolName}`,
+        };
+      });
+
+      const res = await registry.execute("read_file", { input: "test" }, ctx);
+      expect(res.success).toBe(false);
+      expect(res.output).toBe("Blocked by middleware for read_file");
+      expect(tool.execute).not.toHaveBeenCalled();
+    });
+
+    it("throws when next() is called multiple times in middleware", async () => {
+      const tool = createMockTool("read_file", false);
+      registry.register(tool);
+      const ctx = createMockContext();
+
+      registry.use(async (_midCtx, next) => {
+        await next();
+        return next();
+      });
+
+      await expect(
+        registry.execute("read_file", { input: "test" }, ctx),
+      ).rejects.toThrow("next() called multiple times");
+    });
+  });
 });

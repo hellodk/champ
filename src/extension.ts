@@ -331,19 +331,18 @@ export async function activate(
     ),
   );
 
-  // ---- Audit log middleware: intercept every tool call ----------------
-  // Wrap toolRegistry.execute() so every tool invocation is logged to the
-  // append-only hash-chain audit log before the real tool runs.
-  const _originalRegistryExecute = toolRegistry.execute.bind(toolRegistry);
-  toolRegistry.execute = async (name, args, context) => {
-    const details = `tool=${name} args=${JSON.stringify(args).slice(0, 200)}`;
+  // ---- Tool execution middleware pipeline ---------------------------
+  // Register audit logging as formal middleware in the tool execution pipeline
+  // instead of runtime monkey-patching of toolRegistry.execute.
+  toolRegistry.use(async (ctx, next) => {
+    const details = `tool=${ctx.toolName} args=${JSON.stringify(ctx.args).slice(0, 200)}`;
     auditLog?.record(
       "tool_call",
       details,
-      (context as { sessionId?: string }).sessionId,
+      (ctx.context as { sessionId?: string }).sessionId,
     );
-    return _originalRegistryExecute(name, args, context);
-  };
+    return next();
+  });
 
   // ---- Status bar item -----------------------------------------------
   statusBarItem = vscode.window.createStatusBarItem(
@@ -4834,6 +4833,27 @@ export function deactivate(): void {
   );
   auditLog?.closeSync();
   auditLog = undefined;
+
+  // Explicit shutdown & disposal of agent manager, session store, router, and controllers
+  try {
+    (agentManager as unknown as { dispose?: () => void })?.dispose?.();
+  } catch {}
+  agentManager = undefined;
+
+  try {
+    (sessionStore as unknown as { dispose?: () => void })?.dispose?.();
+  } catch {}
+  sessionStore = undefined;
+
+  try {
+    (smartRouter as unknown as { dispose?: () => void })?.dispose?.();
+  } catch {}
+  smartRouter = undefined;
+
+  agentControllerRef.current = undefined;
+  sessionAnalytics = undefined;
+  lastAnalyticsReport = null;
+  cachedYamlConfig = null;
 }
 
 /**

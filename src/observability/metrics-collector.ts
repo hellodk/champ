@@ -13,6 +13,12 @@ export interface RequestRecord {
   model?: string;
   provider?: string;
   timestamp?: number;
+  runId?: string;
+  sessionId?: string;
+  turnId?: string;
+  providerRequestId?: string;
+  traceId?: string;
+  spanId?: string;
 }
 
 export interface AgentStepLog {
@@ -24,6 +30,9 @@ export interface AgentStepLog {
   output: string;
   success: boolean;
   error?: string;
+  runId?: string;
+  sessionId?: string;
+  turnId?: string;
 }
 
 export interface ToolCallLog {
@@ -34,6 +43,10 @@ export interface ToolCallLog {
   args: Record<string, unknown>;
   result?: string;
   error?: string;
+  runId?: string;
+  sessionId?: string;
+  turnId?: string;
+  toolCallId?: string;
 }
 
 export interface CompletionAcceptedLog {
@@ -198,10 +211,12 @@ function finalizeHistogram(
   state: HistogramState,
   sortedSample: number[],
 ): LatencyDistribution {
-  const buckets: LatencyBucket[] = DEFAULT_LATENCY_BUCKET_BOUNDS.map((le, i) => ({
-    le,
-    count: state.counts[i],
-  }));
+  const buckets: LatencyBucket[] = DEFAULT_LATENCY_BUCKET_BOUNDS.map(
+    (le, i) => ({
+      le,
+      count: state.counts[i],
+    }),
+  );
 
   return {
     buckets,
@@ -253,10 +268,10 @@ export class MetricsCollector {
     };
     this.pushBounded(this.requests, timestamped);
     this.requestCount++;
-    this.tokenInCount += (record.inputTokens || 0);
-    this.tokenOutCount += (record.outputTokens || 0);
-    this.cumulativeTotalLatency += (record.totalLatency || 0);
-    this.cumulativeFirstTokenLatency += (record.requestLatency || 0);
+    this.tokenInCount += record.inputTokens || 0;
+    this.tokenOutCount += record.outputTokens || 0;
+    this.cumulativeTotalLatency += record.totalLatency || 0;
+    this.cumulativeFirstTokenLatency += record.requestLatency || 0;
 
     recordToHistogram(this.totalLatencyHistogram, record.totalLatency || 0);
     recordToHistogram(
@@ -345,7 +360,9 @@ export class MetricsCollector {
       retainedCount > 0 ? retainedFirstToken / retainedCount : 0;
 
     const lifetimeAvgLatency =
-      this.requestCount > 0 ? this.cumulativeTotalLatency / this.requestCount : 0;
+      this.requestCount > 0
+        ? this.cumulativeTotalLatency / this.requestCount
+        : 0;
     const lifetimeAvgFirstToken =
       this.requestCount > 0
         ? this.cumulativeFirstTokenLatency / this.requestCount
