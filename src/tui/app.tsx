@@ -19,6 +19,7 @@ import { Box, render, Text, useApp, useInput } from "ink";
 import {
   initialTuiState,
   tuiReducer,
+  type ChatMessage,
   type ChatRole,
   type EndpointSummary,
   type TuiReviewSummary,
@@ -1662,19 +1663,23 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
   const visible = transcriptLines.slice(transcriptStart, transcriptEnd);
   const hiddenToolLines = useMemo(() => {
     const hidden = new Set<string>();
-    const firstBody = new Map<string, string>();
-    for (const line of transcriptLines) {
-      if (line.role !== "tool" || line.kind === "role") continue;
-      if (!firstBody.has(line.messageId))
-        firstBody.set(line.messageId, line.id);
-    }
     for (const line of visible) {
       if (line.role !== "tool" || line.kind === "role") continue;
       if (state.expandedTools.includes(line.messageId)) continue;
-      if (firstBody.get(line.messageId) !== line.id) hidden.add(line.id);
+      if (line.id !== `${line.messageId}:0`) hidden.add(line.id);
     }
     return hidden;
-  }, [transcriptLines, visible, state.expandedTools]);
+  }, [visible, state.expandedTools]);
+  const visibleMessagesMap = useMemo(() => {
+    const map = new Map<string, ChatMessage>();
+    const neededIds = new Set(visible.map((l) => l.messageId));
+    for (const message of state.messages) {
+      if (neededIds.has(message.id)) {
+        map.set(message.id, message);
+      }
+    }
+    return map;
+  }, [visible, state.messages]);
   const endpoint = state.endpoints[state.cursor];
   const session = runtime.header.sessionId;
   const filteredModels = endpoint
@@ -1740,9 +1745,7 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
             ) : (
               visible.map((line) => {
                 if (hiddenToolLines.has(line.id)) return null;
-                const parent = state.messages.find(
-                  (message) => message.id === line.messageId,
-                );
+                const parent = visibleMessagesMap.get(line.messageId);
                 const statusLine =
                   parent?.text.startsWith("✓") || parent?.text.startsWith("✗");
                 if (statusLine && line.kind === "role") return null;
