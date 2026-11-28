@@ -5,6 +5,15 @@
  * terminal and gives every screen one shared source of truth.
  */
 import {
+  categorizeTool,
+  DEFAULT_TRANSCRIPT_CONFIG,
+  nextVerbosity,
+  type ActivityEntry,
+  type ActivityGroup,
+  type TranscriptDisplayConfig,
+  type TranscriptVerbosity,
+} from "./activity";
+import {
   composerBackspace,
   composerDelete,
   composerInsert,
@@ -15,6 +24,7 @@ import {
   type ComposerMove,
   type ComposerState,
 } from "./composer";
+import type { TuiTurnSummary } from "./runtime";
 import {
   appendUsage,
   type ContextSnapshot,
@@ -106,6 +116,29 @@ export interface ChatMessage {
   toolId?: string;
 }
 
+export type TurnItem =
+  | { id: string; kind: "assistant_text"; text: string; streaming?: boolean }
+  | { id: string; kind: "activity_group"; group: ActivityGroup }
+  | { id: string; kind: "error"; text: string }
+  | { id: string; kind: "notice"; text: string };
+
+export type TranscriptTurnStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "aborted";
+
+export interface TranscriptTurn {
+  id: string;
+  /** Null for standalone system/command output notices. */
+  userMessage: string | null;
+  startedAt: string;
+  finishedAt?: string;
+  items: TurnItem[];
+  summary?: TuiTurnSummary;
+  status: TranscriptTurnStatus;
+}
+
 export interface EndpointModelDetail {
   context?: number;
   evidence?: string;
@@ -144,7 +177,16 @@ export interface TuiState {
   endpoints: EndpointSummary[];
   selectedEndpointId?: string;
   selectedModel?: string;
+  /** Structured turn-based transcript timeline rendered by the Chat screen. */
+  turns: TranscriptTurn[];
+  /** Legacy flat messages retained for backwards compatibility with existing callers. */
   messages: ChatMessage[];
+  /** Verbosity and footer visibility settings for the transcript. */
+  transcriptConfig: TranscriptDisplayConfig;
+  /** Activity group IDs currently expanded inline in the transcript. */
+  expandedActivityGroups: string[];
+  /** Tool ID currently shown in the redacted tool detail drawer, if any. */
+  inspectedToolId?: string;
   input: string;
   busy: boolean;
   status: string;
@@ -199,9 +241,26 @@ export type TuiAction =
   | { type: "screen/next" }
   | { type: "input/set"; value: string }
   | { type: "turn/start" }
+  | {
+      type: "turn/complete";
+      summary?: TuiTurnSummary;
+      status?: Exclude<TranscriptTurnStatus, "running">;
+    }
   | { type: "turn/stop" }
   | { type: "message/add"; role: ChatRole; text: string }
   | { type: "message/stream"; role: ChatRole; text: string }
+  | { type: "reasoning/stream"; text: string }
+  | {
+      type: "turns/replace";
+      turns: TranscriptTurn[];
+      toolRecords?: Record<string, ToolRecord>;
+    }
+  | { type: "activity/toggle"; groupId: string }
+  | { type: "activity/toggle-latest" }
+  | { type: "tool/inspect"; toolId?: string }
+  | { type: "verbosity/set"; verbosity: TranscriptVerbosity }
+  | { type: "verbosity/cycle" }
+  | { type: "transcript/config"; config: Partial<TranscriptDisplayConfig> }
   | { type: "status/set"; text: string }
   | { type: "endpoints/set"; endpoints: EndpointSummary[] }
   | { type: "endpoints/cursor"; delta: number }
@@ -287,6 +346,7 @@ export interface TuiInitialState {
   selectedEndpointId?: string;
   selectedModel?: string;
   status?: string;
+  transcriptConfig?: Partial<TranscriptDisplayConfig>;
 }
 
 const SCREENS: TuiScreen[] = [
@@ -304,11 +364,12 @@ const SCREENS: TuiScreen[] = [
 ];
 export const TRANSCRIPT_PAGE_SIZE = 18;
 const MAX_MESSAGES = 2000;
+const MAX_TURNS = 500;
 
 let sequence = 0;
-function nextId(): string {
+function nextId(prefix = "m"): string {
   sequence += 1;
-  return `m${sequence}`;
+  return `${prefix}${sequence}`;
 }
 
 function now(): string {
@@ -336,7 +397,14 @@ export function initialTuiState(input: TuiInitialState): TuiState {
     endpoints: input.endpoints,
     selectedEndpointId: input.selectedEndpointId,
     selectedModel: input.selectedModel,
+    turns: [],
     messages: [],
+    transcriptConfig: {
+      ...DEFAULT_TRANSCRIPT_CONFIG,
+      ...input.transcriptConfig,
+    },
+    expandedActivityGroups: [],
+    inspectedToolId: undefined,
     input: "",
     busy: false,
     status: input.status ?? "Ready",
@@ -446,7 +514,7 @@ function appendMessage(
     return [...state.messages.slice(0, -1), updated];
   }
   const message: ChatMessage = {
-    id: nextId(),
+    id: nextId("m"),
     role,
     text,
     timestamp: now(),
@@ -454,6 +522,430 @@ function appendMessage(
     ...(toolId === undefined ? {} : { toolId }),
   };
   return [...state.messages, message].slice(-MAX_MESSAGES);
+}
+
+function activeTurnIndex(turns: readonly TranscriptTurn[]): number {
+  const last = turns[turns.length - 1];
+  return last && last.status === "running" ? turns.length - 1 : -1;
+}
+
+function updateTurnAt(
+  turns: readonly TranscriptTurn[],
+  index: number,
+  updater: (turn: TranscriptTurn) => TranscriptTurn,
+): TranscriptTurn[] {
+  return turns.map((turn, idx) => (idx === index ? updater(turn) : turn));
+}
+
+function closeOpenReasoningInGroup(
+  group: ActivityGroup,
+  timestamp: string,
+): ActivityGroup {
+  const last = group.entries[group.entries.length - 1];
+  if (!last || last.kind !== "reasoning" || last.status !== "running") {
+    return group;
+  }
+  const durationMs = Math.max(
+    0,
+    Date.parse(timestamp) - Date.parse(last.startedAt),
+  );
+  return {
+    ...group,
+    entries: [
+      ...group.entries.slice(0, -1),
+      {
+        ...last,
+        status: "done",
+        finishedAt: timestamp,
+        durationMs: Number.isNaN(durationMs) ? last.durationMs : durationMs,
+      },
+    ],
+  };
+}
+
+function closeOpenReasoningInTurn(
+  turn: TranscriptTurn,
+  timestamp: string,
+): TranscriptTurn {
+  const last = turn.items[turn.items.length - 1];
+  if (!last || last.kind !== "activity_group") return turn;
+  const closed = closeOpenReasoningInGroup(last.group, timestamp);
+  if (closed === last.group) return turn;
+  return {
+    ...turn,
+    items: [...turn.items.slice(0, -1), { ...last, group: closed }],
+  };
+}
+
+function appendAssistantToTurns(
+  turns: readonly TranscriptTurn[],
+  text: string,
+  streaming: boolean,
+): TranscriptTurn[] {
+  const timestamp = now();
+  let index = activeTurnIndex(turns);
+  let working: TranscriptTurn[] = [...turns];
+  if (index === -1) {
+    const synthetic: TranscriptTurn = {
+      id: nextId("turn"),
+      userMessage: null,
+      startedAt: timestamp,
+      items: [],
+      status: streaming ? "running" : "completed",
+      ...(streaming ? {} : { finishedAt: timestamp }),
+    };
+    working = [...working, synthetic].slice(-MAX_TURNS);
+    index = working.length - 1;
+  }
+
+  return updateTurnAt(working, index, (rawTurn) => {
+    const turn = closeOpenReasoningInTurn(rawTurn, timestamp);
+    const last = turn.items[turn.items.length - 1];
+    if (streaming && last?.kind === "assistant_text" && last.streaming) {
+      return {
+        ...turn,
+        items: [
+          ...turn.items.slice(0, -1),
+          { ...last, text: last.text + text },
+        ],
+      };
+    }
+    return {
+      ...turn,
+      items: [
+        ...turn.items,
+        {
+          id: nextId("item"),
+          kind: "assistant_text",
+          text,
+          streaming,
+        },
+      ],
+    };
+  });
+}
+
+function appendReasoningToTurns(
+  turns: readonly TranscriptTurn[],
+  text: string,
+): TranscriptTurn[] {
+  if (!text) return [...turns];
+  const timestamp = now();
+  let index = activeTurnIndex(turns);
+  let working: TranscriptTurn[] = [...turns];
+  if (index === -1) {
+    working = [
+      ...working,
+      {
+        id: nextId("turn"),
+        userMessage: null,
+        startedAt: timestamp,
+        items: [],
+        status: "running" as const,
+      },
+    ].slice(-MAX_TURNS);
+    index = working.length - 1;
+  }
+
+  return updateTurnAt(working, index, (turn) => {
+    const items = turn.items.map((item, idx) =>
+      idx === turn.items.length - 1 && item.kind === "assistant_text"
+        ? { ...item, streaming: false }
+        : item,
+    );
+    const last = items[items.length - 1];
+    if (last?.kind === "activity_group") {
+      const lastEntry = last.group.entries[last.group.entries.length - 1];
+      if (lastEntry?.kind === "reasoning" && lastEntry.status === "running") {
+        const elapsed = Math.max(
+          0,
+          Date.parse(timestamp) - Date.parse(lastEntry.startedAt),
+        );
+        const updatedEntry: ActivityEntry = {
+          ...lastEntry,
+          reasoningText: (lastEntry.reasoningText ?? "") + text,
+          durationMs: Number.isNaN(elapsed) ? lastEntry.durationMs : elapsed,
+        };
+        return {
+          ...turn,
+          items: [
+            ...items.slice(0, -1),
+            {
+              ...last,
+              group: {
+                ...last.group,
+                entries: [...last.group.entries.slice(0, -1), updatedEntry],
+              },
+            },
+          ],
+        };
+      }
+      const entry: ActivityEntry = {
+        id: nextId("act"),
+        kind: "reasoning",
+        category: "thinking",
+        reasoningText: text,
+        startedAt: timestamp,
+        status: "running",
+      };
+      return {
+        ...turn,
+        items: [
+          ...items.slice(0, -1),
+          {
+            ...last,
+            group: {
+              ...last.group,
+              entries: [...last.group.entries, entry],
+            },
+          },
+        ],
+      };
+    }
+
+    const groupId = nextId("grp");
+    const entry: ActivityEntry = {
+      id: nextId("act"),
+      kind: "reasoning",
+      category: "thinking",
+      reasoningText: text,
+      startedAt: timestamp,
+      status: "running",
+    };
+    return {
+      ...turn,
+      items: [
+        ...items,
+        {
+          id: nextId("item"),
+          kind: "activity_group",
+          group: { id: groupId, entries: [entry] },
+        },
+      ],
+    };
+  });
+}
+
+function appendToolStartToTurns(
+  turns: readonly TranscriptTurn[],
+  event: ToolStartEvent,
+): TranscriptTurn[] {
+  const timestamp = event.startedAt ?? now();
+  let index = activeTurnIndex(turns);
+  let working: TranscriptTurn[] = [...turns];
+  if (index === -1) {
+    working = [
+      ...working,
+      {
+        id: nextId("turn"),
+        userMessage: null,
+        startedAt: timestamp,
+        items: [],
+        status: "running" as const,
+      },
+    ].slice(-MAX_TURNS);
+    index = working.length - 1;
+  }
+
+  const entry: ActivityEntry = {
+    id: nextId("act"),
+    kind: "tool",
+    category: categorizeTool(event.name),
+    toolId: event.id,
+    toolName: event.name,
+    startedAt: timestamp,
+    status: "running",
+  };
+
+  return updateTurnAt(working, index, (turn) => {
+    const items = turn.items.map((item, idx) =>
+      idx === turn.items.length - 1 && item.kind === "assistant_text"
+        ? { ...item, streaming: false }
+        : item,
+    );
+    const last = items[items.length - 1];
+    if (last?.kind === "activity_group") {
+      const closedGroup = closeOpenReasoningInGroup(last.group, timestamp);
+      return {
+        ...turn,
+        items: [
+          ...items.slice(0, -1),
+          {
+            ...last,
+            group: {
+              ...closedGroup,
+              entries: [...closedGroup.entries, entry],
+            },
+          },
+        ],
+      };
+    }
+    const groupId = nextId("grp");
+    return {
+      ...turn,
+      items: [
+        ...items,
+        {
+          id: nextId("item"),
+          kind: "activity_group",
+          group: { id: groupId, entries: [entry] },
+        },
+      ],
+    };
+  });
+}
+
+function completeToolInTurns(
+  turns: readonly TranscriptTurn[],
+  event: ToolResultEvent,
+): TranscriptTurn[] {
+  const timestamp = now();
+  const nextStatus: ActivityEntry["status"] = event.success ? "done" : "failed";
+
+  for (let t = turns.length - 1; t >= 0; t -= 1) {
+    const turn = turns[t];
+    for (let i = turn.items.length - 1; i >= 0; i -= 1) {
+      const item = turn.items[i];
+      if (item.kind !== "activity_group") continue;
+      const entryIdx = item.group.entries.findIndex(
+        (entry) => entry.kind === "tool" && entry.toolId === event.id,
+      );
+      if (entryIdx === -1) continue;
+      return updateTurnAt(turns, t, (targetTurn) => ({
+        ...targetTurn,
+        items: targetTurn.items.map((candidate, idx) => {
+          if (idx !== i || candidate.kind !== "activity_group") {
+            return candidate;
+          }
+          return {
+            ...candidate,
+            group: {
+              ...candidate.group,
+              entries: candidate.group.entries.map((entry, eIdx) =>
+                eIdx === entryIdx
+                  ? {
+                      ...entry,
+                      status: nextStatus,
+                      finishedAt: timestamp,
+                      durationMs: event.durationMs ?? entry.durationMs,
+                    }
+                  : entry,
+              ),
+            },
+          };
+        }),
+      }));
+    }
+  }
+
+  // Fallback when a result arrives without a matching start event.
+  const started = appendToolStartToTurns(turns, {
+    id: event.id,
+    name: event.name,
+    args: "",
+    startedAt: timestamp,
+  });
+  return completeToolInTurns(started, event);
+}
+
+function appendItemToActiveOrStandaloneTurn(
+  turns: readonly TranscriptTurn[],
+  item: { kind: "error"; text: string } | { kind: "notice"; text: string },
+): TranscriptTurn[] {
+  const timestamp = now();
+  const index = activeTurnIndex(turns);
+  if (item.kind === "error" && index !== -1) {
+    return updateTurnAt(turns, index, (turn) => ({
+      ...turn,
+      items: [...turn.items, { id: nextId("item"), ...item }],
+    }));
+  }
+  const standalone: TranscriptTurn = {
+    id: nextId("turn"),
+    userMessage: null,
+    startedAt: timestamp,
+    finishedAt: timestamp,
+    items: [{ id: nextId("item"), ...item }],
+    status: item.kind === "error" ? "failed" : "completed",
+  };
+  return [...turns, standalone].slice(-MAX_TURNS);
+}
+
+function finalizeActiveTurn(
+  turns: readonly TranscriptTurn[],
+  status: Exclude<TranscriptTurnStatus, "running">,
+  summary?: TuiTurnSummary,
+): TranscriptTurn[] {
+  const index = activeTurnIndex(turns);
+  const targetIndex =
+    index !== -1 ? index : summary && turns.length > 0 ? turns.length - 1 : -1;
+  if (targetIndex === -1) return [...turns];
+
+  const timestamp = now();
+  return updateTurnAt(turns, targetIndex, (turn) => ({
+    ...turn,
+    status: turn.status === "running" ? status : turn.status,
+    finishedAt: turn.finishedAt ?? timestamp,
+    ...(summary ? { summary } : {}),
+    items: turn.items.map((item) => {
+      if (item.kind === "assistant_text" && item.streaming) {
+        return { ...item, streaming: false };
+      }
+      if (item.kind === "activity_group") {
+        return {
+          ...item,
+          group: {
+            ...item.group,
+            entries: item.group.entries.map((entry) => {
+              if (entry.status !== "running") return entry;
+              const elapsed = Math.max(
+                0,
+                Date.parse(timestamp) - Date.parse(entry.startedAt),
+              );
+              return {
+                ...entry,
+                status: status === "completed" ? "done" : "failed",
+                finishedAt: timestamp,
+                durationMs:
+                  entry.durationMs ?? (Number.isNaN(elapsed) ? 0 : elapsed),
+              };
+            }),
+          },
+        };
+      }
+      return item;
+    }),
+  }));
+}
+
+export function latestActivityGroupId(
+  turns: readonly TranscriptTurn[],
+): string | undefined {
+  for (let t = turns.length - 1; t >= 0; t -= 1) {
+    const items = turns[t].items;
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const item = items[i];
+      if (item.kind === "activity_group") return item.group.id;
+    }
+  }
+  return undefined;
+}
+
+function latestToolIdInGroup(
+  turns: readonly TranscriptTurn[],
+  groupId: string,
+): string | undefined {
+  for (let t = turns.length - 1; t >= 0; t -= 1) {
+    for (const item of turns[t].items) {
+      if (item.kind !== "activity_group" || item.group.id !== groupId) continue;
+      for (let e = item.group.entries.length - 1; e >= 0; e -= 1) {
+        const entry = item.group.entries[e];
+        if (entry.kind === "tool" && entry.toolId) return entry.toolId;
+      }
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
@@ -472,17 +964,36 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
       };
     case "turn/start": {
       const submitted = state.input.trim();
+      const timestamp = now();
+      const nextTurn: TranscriptTurn = {
+        id: nextId("turn"),
+        userMessage: submitted,
+        startedAt: timestamp,
+        items: [],
+        status: "running",
+      };
       return {
         ...state,
         busy: true,
         status: "Thinking…",
+        turns: [...state.turns, nextTurn].slice(-MAX_TURNS),
         messages: appendMessage(state, "user", submitted, false),
         input: "",
         composer: emptyComposer(),
         draftInput: "",
         historyCursor: null,
         history: submitted ? [...state.history, submitted] : state.history,
-        truncated: state.truncated || state.messages.length >= MAX_MESSAGES,
+        truncated:
+          state.truncated ||
+          state.messages.length >= MAX_MESSAGES ||
+          state.turns.length >= MAX_TURNS,
+      };
+    }
+    case "turn/complete": {
+      const status = action.status ?? "completed";
+      return {
+        ...state,
+        turns: finalizeActiveTurn(state.turns, status, action.summary),
       };
     }
     case "turn/stop": {
@@ -491,19 +1002,137 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
           ? { ...message, streaming: false }
           : message,
       );
-      return { ...state, busy: false, messages };
-    }
-    case "message/add":
       return {
         ...state,
-        messages: appendMessage(state, action.role, action.text, false),
-        truncated: state.truncated || state.messages.length >= MAX_MESSAGES,
+        busy: false,
+        turns: finalizeActiveTurn(state.turns, "completed"),
+        messages,
       };
+    }
+    case "message/add": {
+      let turns = state.turns;
+      if (action.role === "user") {
+        const timestamp = now();
+        const userTurn: TranscriptTurn = {
+          id: nextId("turn"),
+          userMessage: action.text,
+          startedAt: timestamp,
+          finishedAt: timestamp,
+          items: [],
+          status: "completed",
+        };
+        turns = [...state.turns, userTurn].slice(-MAX_TURNS);
+      } else if (action.role === "assistant") {
+        turns = appendAssistantToTurns(state.turns, action.text, false);
+      } else if (action.role === "error") {
+        turns = appendItemToActiveOrStandaloneTurn(state.turns, {
+          kind: "error",
+          text: action.text,
+        });
+      } else if (action.role === "system") {
+        turns = appendItemToActiveOrStandaloneTurn(state.turns, {
+          kind: "notice",
+          text: action.text,
+        });
+      }
+      return {
+        ...state,
+        turns,
+        messages: appendMessage(state, action.role, action.text, false),
+        truncated:
+          state.truncated ||
+          state.messages.length >= MAX_MESSAGES ||
+          state.turns.length >= MAX_TURNS,
+      };
+    }
     case "message/stream":
       return {
         ...state,
+        turns:
+          action.role === "assistant"
+            ? appendAssistantToTurns(state.turns, action.text, true)
+            : state.turns,
         messages: appendMessage(state, action.role, action.text, true),
-        truncated: state.truncated || state.messages.length >= MAX_MESSAGES,
+        truncated:
+          state.truncated ||
+          state.messages.length >= MAX_MESSAGES ||
+          state.turns.length >= MAX_TURNS,
+      };
+    case "reasoning/stream":
+      return {
+        ...state,
+        turns: appendReasoningToTurns(state.turns, action.text),
+      };
+    case "turns/replace":
+      return {
+        ...state,
+        turns: action.turns.slice(-MAX_TURNS),
+        toolRecords: action.toolRecords ?? {},
+        expandedActivityGroups: [],
+        expandedTools: [],
+        inspectedToolId: undefined,
+        truncated: action.turns.length > MAX_TURNS,
+        scrollOffset: 0,
+        autoFollow: true,
+        unseen: 0,
+      };
+    case "activity/toggle": {
+      const wasExpanded = state.expandedActivityGroups.includes(action.groupId);
+      const expanded = wasExpanded
+        ? state.expandedActivityGroups.filter((id) => id !== action.groupId)
+        : [...state.expandedActivityGroups, action.groupId];
+      return {
+        ...state,
+        expandedActivityGroups: expanded,
+        inspectedToolId: wasExpanded
+          ? undefined
+          : latestToolIdInGroup(state.turns, action.groupId),
+      };
+    }
+    case "activity/toggle-latest": {
+      const groupId = latestActivityGroupId(state.turns);
+      if (!groupId) return state;
+      const wasExpanded = state.expandedActivityGroups.includes(groupId);
+      const expanded = wasExpanded
+        ? state.expandedActivityGroups.filter((id) => id !== groupId)
+        : [...state.expandedActivityGroups, groupId];
+      return {
+        ...state,
+        expandedActivityGroups: expanded,
+        inspectedToolId: wasExpanded
+          ? undefined
+          : latestToolIdInGroup(state.turns, groupId),
+      };
+    }
+    case "tool/inspect":
+      return { ...state, inspectedToolId: action.toolId };
+    case "verbosity/set":
+      return {
+        ...state,
+        transcriptConfig: {
+          ...state.transcriptConfig,
+          verbosity: action.verbosity,
+        },
+        status: `Verbosity: ${action.verbosity}`,
+      };
+    case "verbosity/cycle": {
+      const next = nextVerbosity(state.transcriptConfig.verbosity);
+      return {
+        ...state,
+        transcriptConfig: {
+          ...state.transcriptConfig,
+          verbosity: next,
+        },
+        status: `Verbosity: ${next}`,
+      };
+    }
+    case "transcript/config":
+      return {
+        ...state,
+        transcriptConfig: {
+          ...state.transcriptConfig,
+          ...action.config,
+        },
       };
     case "status/set":
       return { ...state, status: action.text };
@@ -578,7 +1207,13 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
     case "messages/clear":
       return {
         ...state,
+        turns: [],
         messages: [],
+        toolRecords: {},
+        expandedActivityGroups: [],
+        expandedTools: [],
+        inspectedToolId: undefined,
+        truncated: false,
         status: "New session",
         scrollOffset: 0,
         autoFollow: true,
@@ -725,6 +1360,7 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
       const record: ToolRecord = { start: action.event };
       return {
         ...state,
+        turns: appendToolStartToTurns(state.turns, action.event),
         messages: appendMessage(
           state,
           "tool",
@@ -753,6 +1389,7 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
       }`;
       return {
         ...state,
+        turns: completeToolInTurns(state.turns, action.event),
         messages: appendMessage(
           state,
           action.event.success ? "system" : "error",

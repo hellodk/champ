@@ -21,6 +21,8 @@ export interface ToolResultEvent {
   durationMs?: number;
   approval?: "approved" | "denied" | "auto";
   error?: string;
+  fileEditDiff?: { path: string; oldContent: string; newContent: string };
+  testsSummary?: { passed: number; failed: number; skipped: number };
 }
 
 export interface ToolRecord {
@@ -88,6 +90,12 @@ export function toolDetailLines(record: ToolRecord): ToolDetailLine[] {
   lines.push({ label: "approval", value: result.approval ?? "auto" });
   if (result.error) {
     lines.push({ label: "error", value: redactToolText(result.error) });
+  }
+  if (result.fileEditDiff) {
+    lines.push({
+      label: "file",
+      value: redactToolText(result.fileEditDiff.path),
+    });
   }
   return lines;
 }

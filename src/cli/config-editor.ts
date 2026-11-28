@@ -71,6 +71,32 @@ export const CONFIG_KEYS: readonly ConfigKey[] = [
     description: "editor inline completions",
     type: "boolean",
   },
+  {
+    key: "tui.transcript.verbosity",
+    description: "low | medium | high",
+    type: "string",
+    allowed: ["low", "medium", "high"],
+  },
+  {
+    key: "tui.transcript.showModel",
+    description: "show model name in turn footer",
+    type: "boolean",
+  },
+  {
+    key: "tui.transcript.showUsage",
+    description: "show token count in turn footer",
+    type: "boolean",
+  },
+  {
+    key: "tui.transcript.showContext",
+    description: "show context percentage in turn footer",
+    type: "boolean",
+  },
+  {
+    key: "tui.transcript.showCost",
+    description: "show cost in turn footer when known",
+    type: "boolean",
+  },
 ] as const;
 
 export interface ConfigFileOptions {

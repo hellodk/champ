@@ -19,16 +19,30 @@ import { Box, render, Text, useApp, useInput } from "ink";
 import {
   initialTuiState,
   tuiReducer,
-  type ChatMessage,
-  type ChatRole,
   type EndpointSummary,
   type TuiReviewSummary,
   type TuiScreen,
   type TuiSessionSummary,
 } from "./state";
-import { buildTranscriptLines, TRANSCRIPT_VIEWPORT_LINES } from "./transcript";
+import {
+  formatCompactDuration,
+  formatCompactTokens,
+  isTranscriptVerbosity,
+  nextVerbosity,
+  shortModelName,
+} from "./activity";
+import {
+  buildTurnTranscriptLines,
+  computeTranscriptViewportLines,
+  type TurnTranscriptLine,
+} from "./transcript";
 import { shouldSubmitOnEnter } from "./composer";
-import { contextBudget, usageLine, usageTotals } from "./insights";
+import {
+  contextBudget,
+  formatIstTimestamp,
+  usageLine,
+  usageTotals,
+} from "./insights";
 import { mcpSummary } from "./mcp";
 import { buildPaletteActions, filterPaletteActions } from "./palette";
 import { planProgress, type PlanStepInput } from "./plan";
@@ -70,7 +84,7 @@ const SCREENS: Array<{ id: TuiScreen; label: string }> = [
 
 /** Context-sensitive hints replace a flat key dump in the footer. */
 const FOOTER_HINTS: Record<TuiScreen, string> = {
-  chat: "? help · Ctrl-P palette · Ctrl-O editor · Ctrl-E tool · Tab screens",
+  chat: "? help · ^P palette · ^E activity · ^T verbosity · Tab",
   providers: "↑↓ select · U models · R refresh · P pool · O scope · ? help",
   config: "S set · I editor · ? help",
   help: "? advanced · Esc chat",
@@ -83,26 +97,148 @@ const FOOTER_HINTS: Record<TuiScreen, string> = {
   mcp: "↑↓ select · R restart · Esc chat",
 };
 
-const ROLE_GLYPHS: Record<ChatRole, string> = {
-  user: "❯",
-  assistant: "◆",
-  system: "·",
-  tool: "⚡",
-  error: "!",
-};
+function renderMarkdownSegments(
+  line: TurnTranscriptLine,
+  palette: Palette,
+): ReactNode {
+  const segments = line.segments ?? [{ text: line.text }];
+  return segments.map((segment, index) => (
+    <Text
+      key={index}
+      bold={segment.bold}
+      italic={segment.italic}
+      underline={segment.link}
+      inverse={segment.code || segment.highlight !== undefined}
+      color={
+        segment.code
+          ? palette.highlight
+          : highlightColor(segment.highlight, palette)
+      }
+    >
+      {segment.text}
+    </Text>
+  ));
+}
 
-function roleColor(role: ChatRole, palette: Palette): string {
-  switch (role) {
-    case "user":
-      return palette.accent;
+function renderTurnLine(line: TurnTranscriptLine, palette: Palette): ReactNode {
+  switch (line.kind) {
+    case "spacer":
+      return <Text key={line.id}> </Text>;
+    case "user_prompt":
+      return (
+        <Text key={line.id} bold color={palette.text}>
+          <Text color={palette.accent}>{"❯ "}</Text>
+          {line.text}
+        </Text>
+      );
+    case "user_continuation":
+      return (
+        <Text key={line.id} color={palette.text}>
+          {`  ${line.text}`}
+        </Text>
+      );
+    case "assistant_first":
+      return (
+        <Text key={line.id} color={palette.text}>
+          <Text bold color={palette.success}>
+            {"◆ "}
+          </Text>
+          {renderMarkdownSegments(line, palette)}
+        </Text>
+      );
+    case "activity_running":
+      return (
+        <Text key={line.id} color={palette.warning}>
+          {`  ⠋ ${line.text}`}
+          {line.meta ? (
+            <Text color={palette.muted}>{`  ${line.meta}`}</Text>
+          ) : null}
+        </Text>
+      );
+    case "activity_summary":
+      return (
+        <Text
+          key={line.id}
+          color={line.status === "failed" ? palette.error : palette.muted}
+        >
+          {`  ${line.expanded ? "▾" : "▸"} ${line.text}`}
+          {line.meta ? (
+            <Text color={palette.muted}>{`  ${line.meta}`}</Text>
+          ) : null}
+        </Text>
+      );
+    case "activity_highlight":
+      return (
+        <Text
+          key={line.id}
+          bold
+          color={line.status === "failed" ? palette.error : palette.success}
+        >
+          {`    ${line.text}`}
+        </Text>
+      );
+    case "activity_item":
+      return (
+        <Text
+          key={line.id}
+          color={
+            line.status === "failed"
+              ? palette.error
+              : line.status === "running"
+                ? palette.warning
+                : palette.text
+          }
+        >
+          {`    ${line.text}`}
+          {line.meta ? (
+            <Text color={palette.muted}>{` (${line.meta})`}</Text>
+          ) : null}
+        </Text>
+      );
+    case "activity_detail":
+      return (
+        <Text
+          key={line.id}
+          color={line.status === "failed" ? palette.error : palette.muted}
+        >
+          {`      ${line.text}`}
+        </Text>
+      );
+    case "reasoning":
+      return (
+        <Text key={line.id} italic color={palette.muted}>
+          {`      ${line.text}`}
+        </Text>
+      );
+    case "turn_footer":
+      return (
+        <Text key={line.id} color={palette.muted}>
+          {`  ${line.text}`}
+        </Text>
+      );
     case "error":
-      return palette.error;
-    case "tool":
-      return palette.warning;
-    case "system":
-      return palette.muted;
+      return (
+        <Text key={line.id} bold color={palette.error}>
+          {`  ! ${line.text}`}
+        </Text>
+      );
+    case "notice":
+      return (
+        <Text key={line.id} color={palette.muted}>
+          {`  ${line.text}`}
+        </Text>
+      );
     default:
-      return palette.success;
+      return (
+        <Text
+          key={line.id}
+          bold={line.kind === "heading"}
+          color={line.kind === "code" ? palette.muted : palette.text}
+        >
+          {"  "}
+          {renderMarkdownSegments(line, palette)}
+        </Text>
+      );
   }
 }
 
@@ -205,6 +341,7 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         endpoints,
         selectedEndpointId: selection.endpointId,
         selectedModel: selection.model,
+        transcriptConfig: runtime.transcriptConfig,
         status:
           staleStatus ??
           (endpoints.length === 0
@@ -216,9 +353,26 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
   });
 
   const transcriptWidth = Math.max(20, (process.stdout.columns ?? 80) - 6);
+  const viewportLines = computeTranscriptViewportLines(process.stdout.rows);
+  const expandedGroupsSet = useMemo(
+    () => new Set(state.expandedActivityGroups),
+    [state.expandedActivityGroups],
+  );
   const transcriptLines = useMemo(
-    () => buildTranscriptLines(state.messages, transcriptWidth),
-    [state.messages, transcriptWidth],
+    () =>
+      buildTurnTranscriptLines(state.turns, {
+        width: transcriptWidth,
+        config: state.transcriptConfig,
+        expandedGroups: expandedGroupsSet,
+        toolRecords: state.toolRecords,
+      }),
+    [
+      state.turns,
+      transcriptWidth,
+      state.transcriptConfig,
+      expandedGroupsSet,
+      state.toolRecords,
+    ],
   );
   const previousLineCount = useRef(transcriptLines.length);
   useEffect(() => {
@@ -230,16 +384,16 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
     if (
       addedLines > 0 ||
       state.totalLines !== transcriptLines.length ||
-      state.viewportLines !== TRANSCRIPT_VIEWPORT_LINES
+      state.viewportLines !== viewportLines
     ) {
       dispatch({
         type: "transcript/metrics",
         totalLines: transcriptLines.length,
-        viewportLines: TRANSCRIPT_VIEWPORT_LINES,
+        viewportLines,
         addedLines,
       });
     }
-  }, [transcriptLines, state.totalLines, state.viewportLines]);
+  }, [transcriptLines, state.totalLines, state.viewportLines, viewportLines]);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [setupField, setSetupField] = useState<SetupField>("name");
   const [doctorLines, setDoctorLines] = useState<string[]>([]);
@@ -288,6 +442,8 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
   );
   const activeTurn = useRef<{ id: string; sessionId: string } | null>(null);
   const taskSequence = useRef(0);
+  const legacyToolSeq = useRef(0);
+  const legacyToolQueues = useRef(new Map<string, string[]>());
   const planSteps = useRef<PlanStepInput[]>([]);
   const runTurnRef = useRef<
     | ((text: string, taskId?: string, sessionId?: string) => Promise<void>)
@@ -433,22 +589,40 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
                 role: "assistant",
                 text: chunk,
               }),
-            // Legacy callbacks keep existing adapters working. The CLI adapter
-            // skips them when it emits structured events, so transcripts never
-            // contain the same tool twice.
-            onTool: (name, args) =>
+            onReasoning: (chunk) =>
               dispatch({
-                type: "message/add",
-                role: "tool",
-                text: `${name} ${truncate(args, 120)}`,
+                type: "reasoning/stream",
+                text: chunk,
               }),
-            onToolResult: (name, output, success) => {
-              const firstLine = output.trim().split("\n")[0] || "";
-              const summary = firstLine ? ` → ${truncate(firstLine, 80)}` : "";
+            // Legacy callbacks normalize into structured tool events so test and
+            // custom adapters share the same turn + activity group pipeline.
+            onTool: (name, args) => {
+              const toolId = `legacy-tool-${(legacyToolSeq.current += 1)}`;
+              const queue = legacyToolQueues.current.get(name) ?? [];
+              queue.push(toolId);
+              legacyToolQueues.current.set(name, queue);
               dispatch({
-                type: "message/add",
-                role: success ? "system" : "error",
-                text: `${success ? "✓" : "✗"} ${name}${summary}`,
+                type: "tool/start",
+                event: {
+                  id: toolId,
+                  name,
+                  args,
+                  startedAt: new Date().toISOString(),
+                },
+              });
+            },
+            onToolResult: (name, output, success) => {
+              const queue = legacyToolQueues.current.get(name);
+              const toolId =
+                queue?.shift() ?? `legacy-tool-${(legacyToolSeq.current += 1)}`;
+              dispatch({
+                type: "tool/result",
+                event: {
+                  id: toolId,
+                  name,
+                  output,
+                  success,
+                },
               });
             },
             onToolEvent: (event) => {
@@ -495,56 +669,32 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
             onError: (message) =>
               dispatch({ type: "message/add", role: "error", text: message }),
             onDone: (summary) => {
-              const telemetryParts: string[] = [];
-              telemetryParts.push(
-                `tools=${summary.tools}${summary.toolDurationMs !== undefined ? ` (${summary.toolDurationMs}ms)` : ""}`,
-              );
-              let tokenStr = `tokens in=${summary.inputTokens}`;
-              if (summary.cachedInputTokens) {
-                tokenStr += ` (cached: ${summary.cachedInputTokens})`;
-              }
-              tokenStr += ` out=${summary.outputTokens}`;
-              if (summary.reasoningTokens) {
-                tokenStr += ` (reasoning: ${summary.reasoningTokens})`;
-              }
-              telemetryParts.push(tokenStr);
-
-              if (summary.contextWindow) {
-                telemetryParts.push(
-                  `context=${summary.contextUsed?.toLocaleString() ?? 0}/${summary.contextWindow.toLocaleString()} (${summary.contextPercent ?? 0}% used, ${summary.contextRemaining?.toLocaleString() ?? 0} left)`,
-                );
-              }
-              if (summary.costUsd !== undefined) {
-                if (summary.costKnown && summary.costUsd !== null) {
-                  telemetryParts.push(`cost=$${summary.costUsd.toFixed(4)}`);
-                } else {
-                  telemetryParts.push(
-                    `cost=unknown (${summary.pricingVersion ?? "2026-11-01"})`,
-                  );
-                }
-              }
-              if (summary.durationMs !== undefined) {
-                const sec = `${(summary.durationMs / 1000).toFixed(2)}s`;
-                const ttft =
-                  summary.firstTokenMs !== undefined
-                    ? ` (TTFT: ${summary.firstTokenMs}ms)`
-                    : "";
-                telemetryParts.push(`latency=${sec}${ttft}`);
-              }
-              if (summary.model) {
-                telemetryParts.push(`model=${summary.model}`);
-              }
-
               dispatch({
-                type: "message/add",
-                role: "system",
-                text: `[turn] ${telemetryParts.join(" · ")}`,
+                type: "turn/complete",
+                summary,
+                status: "completed",
               });
 
-              const shortStatus = `in=${summary.inputTokens}${summary.cachedInputTokens ? `(c:${summary.cachedInputTokens})` : ""} out=${summary.outputTokens}${summary.costUsd != null ? ` $${summary.costUsd.toFixed(4)}` : ""} · ${summary.durationMs ? `${(summary.durationMs / 1000).toFixed(1)}s` : "done"}`;
+              const totalTokens = summary.inputTokens + summary.outputTokens;
+              const statusParts: string[] = [];
+              if (summary.durationMs !== undefined) {
+                statusParts.push(formatCompactDuration(summary.durationMs));
+              }
+              if (totalTokens > 0) {
+                statusParts.push(`${formatCompactTokens(totalTokens)} tokens`);
+              }
+              if (
+                summary.costKnown &&
+                summary.costUsd !== null &&
+                summary.costUsd !== undefined &&
+                summary.costSource !== "local"
+              ) {
+                statusParts.push(`$${summary.costUsd.toFixed(4)}`);
+              }
               dispatch({
                 type: "status/set",
-                text: shortStatus,
+                text:
+                  statusParts.length > 0 ? statusParts.join(" · ") : "Ready",
               });
             },
           },
@@ -554,8 +704,10 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
             }),
         );
         if (result.aborted) {
+          dispatch({ type: "turn/complete", status: "aborted" });
           dispatch({ type: "status/set", text: "Aborted" });
         } else if (result.error) {
+          dispatch({ type: "turn/complete", status: "failed" });
           dispatch({
             type: "status/set",
             text: `Error: ${truncate(result.error, 90)}`,
@@ -591,19 +743,46 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
           return;
         }
         if (text === "/clear") {
+          dispatch({ type: "input/set", value: "" });
           dispatch({ type: "messages/clear" });
           return;
         }
         if (text === "/help") {
+          dispatch({ type: "input/set", value: "" });
           dispatch({ type: "screen/set", screen: "help" });
           return;
         }
         const canonical = canonicalChatCommand(text);
+        if (canonical === "/verbosity") {
+          const arg = text.trim().split(/\s+/)[1]?.toLowerCase();
+          dispatch({ type: "input/set", value: "" });
+          if (!arg) {
+            dispatch({
+              type: "message/add",
+              role: "system",
+              text: `Transcript verbosity: ${state.transcriptConfig.verbosity} (low | medium | high)`,
+            });
+            return;
+          }
+          if (!isTranscriptVerbosity(arg)) {
+            dispatch({
+              type: "message/add",
+              role: "error",
+              text: `Invalid verbosity "${arg}" — expected low, medium, or high`,
+            });
+            return;
+          }
+          dispatch({ type: "verbosity/set", verbosity: arg });
+          runtime.onVerbosityChange?.(arg);
+          return;
+        }
         if (text === "/providers" || canonical === "/model") {
+          dispatch({ type: "input/set", value: "" });
           dispatch({ type: "screen/set", screen: "providers" });
           return;
         }
         if (canonical === "/sessions") {
+          dispatch({ type: "input/set", value: "" });
           dispatch({ type: "screen/set", screen: "sessions" });
           return;
         }
@@ -613,6 +792,7 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
             : text;
           const output = await runtime.command(commandText);
           if (output !== null) {
+            dispatch({ type: "input/set", value: "" });
             dispatch({ type: "message/add", role: "system", text: output });
             return;
           }
@@ -654,6 +834,7 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       state.activeSessionTab,
       state.input,
       state.sessionTabs,
+      state.transcriptConfig.verbosity,
     ],
   );
 
@@ -750,12 +931,20 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       try {
         const resumed = await runtime.resumeSession(id);
         dispatch({ type: "messages/clear" });
-        for (const message of resumed.messages) {
+        if (resumed.turns) {
           dispatch({
-            type: "message/add",
-            role: message.role,
-            text: message.text,
+            type: "turns/replace",
+            turns: resumed.turns,
+            toolRecords: resumed.toolRecords,
           });
+        } else {
+          for (const message of resumed.messages) {
+            dispatch({
+              type: "message/add",
+              role: message.role,
+              text: message.text,
+            });
+          }
         }
         dispatch({ type: "transcript/bottom" });
         dispatch({ type: "status/set", text: resumed.summary });
@@ -1230,14 +1419,14 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       if (key.pageUp) {
         dispatch({
           type: "transcript/scroll",
-          delta: -TRANSCRIPT_VIEWPORT_LINES,
+          delta: -viewportLines,
         });
         return;
       }
       if (key.pageDown) {
         dispatch({
           type: "transcript/scroll",
-          delta: TRANSCRIPT_VIEWPORT_LINES,
+          delta: viewportLines,
         });
         return;
       }
@@ -1252,10 +1441,13 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         return;
       }
       if (key.ctrl && input === "e") {
-        const lastTool = [...state.messages]
-          .reverse()
-          .find((message) => message.role === "tool");
-        if (lastTool) dispatch({ type: "tool/toggle", id: lastTool.id });
+        dispatch({ type: "activity/toggle-latest" });
+        return;
+      }
+      if (key.ctrl && input === "t") {
+        const next = nextVerbosity(state.transcriptConfig.verbosity);
+        dispatch({ type: "verbosity/cycle" });
+        runtime.onVerbosityChange?.(next);
         return;
       }
       if (key.ctrl && input === "o" && runtime.openExternalEditor) {
@@ -1744,50 +1936,26 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
     }
   });
 
-  const scrollableLines = Math.max(
-    0,
-    transcriptLines.length - TRANSCRIPT_VIEWPORT_LINES,
-  );
+  const scrollableLines = Math.max(0, transcriptLines.length - viewportLines);
   const transcriptStart = Math.max(0, scrollableLines - state.scrollOffset);
   const transcriptEnd = Math.min(
     transcriptLines.length,
-    transcriptStart + TRANSCRIPT_VIEWPORT_LINES,
+    transcriptStart + viewportLines,
   );
   const visible = transcriptLines.slice(transcriptStart, transcriptEnd);
-  const hiddenToolLines = useMemo(() => {
-    const hidden = new Set<string>();
-    for (const line of visible) {
-      if (line.role !== "tool" || line.kind === "role") continue;
-      if (state.expandedTools.includes(line.messageId)) continue;
-      if (line.id !== `${line.messageId}:0`) hidden.add(line.id);
-    }
-    return hidden;
-  }, [visible, state.expandedTools]);
-  const visibleMessagesMap = useMemo(() => {
-    const map = new Map<string, ChatMessage>();
-    const neededIds = new Set(visible.map((l) => l.messageId));
-    for (const message of state.messages) {
-      if (neededIds.has(message.id)) {
-        map.set(message.id, message);
-      }
-    }
-    return map;
-  }, [visible, state.messages]);
   const endpoint = state.endpoints[state.cursor];
   const session = runtime.header.sessionId;
+  const displayModel = shortModelName(
+    state.selectedModel ?? runtime.header.model,
+  );
   const filteredModels = endpoint
     ? filterModels(endpoint.models, modelPicker.filter)
     : [];
-  const expandedToolId = state.expandedTools[state.expandedTools.length - 1];
-  const expandedToolRecord = state.messages.find(
-    (message) => message.id === expandedToolId,
-  )?.toolId
-    ? state.toolRecords[
-        state.messages.find((message) => message.id === expandedToolId)!.toolId!
-      ]
+  const inspectedToolRecord = state.inspectedToolId
+    ? state.toolRecords[state.inspectedToolId]
     : undefined;
-  const toolDetails = expandedToolRecord
-    ? toolDetailLines(expandedToolRecord)
+  const toolDetails = inspectedToolRecord
+    ? toolDetailLines(inspectedToolRecord)
     : [];
   const activeTabId = state.sessionTabs[state.activeSessionTab];
   const composerLine = (line: string, index: number): string =>
@@ -1807,8 +1975,7 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
           CHAMP <Text color={palette.accent}>v{runtime.header.version}</Text>
         </Text>
         <Text color={palette.muted}>
-          {state.selectedModel ?? runtime.header.model} ·{" "}
-          {truncate(runtime.header.workspace, 36)}
+          {displayModel} · {truncate(runtime.header.workspace, 36)}
           {session ? ` · ${session}` : ""}
         </Text>
       </Box>
@@ -1836,77 +2003,17 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
                 Ask anything. Type /help for commands.
               </Text>
             ) : (
-              visible.map((line) => {
-                if (hiddenToolLines.has(line.id)) return null;
-                const parent = visibleMessagesMap.get(line.messageId);
-                const statusLine =
-                  parent?.text.startsWith("✓") || parent?.text.startsWith("✗");
-                if (statusLine && line.kind === "role") return null;
-                if (statusLine && line.kind === "body") {
-                  return (
-                    <Text
-                      key={line.id}
-                      bold
-                      color={
-                        parent?.text.startsWith("✗")
-                          ? palette.error
-                          : palette.success
-                      }
-                    >
-                      {line.text}
-                    </Text>
-                  );
-                }
-                if (line.kind === "role") {
-                  const collapsed =
-                    line.role === "tool" &&
-                    !state.expandedTools.includes(line.messageId);
-                  return (
-                    <Text
-                      key={line.id}
-                      bold
-                      color={roleColor(line.role, palette)}
-                    >
-                      {`${ROLE_GLYPHS[line.role]} ${line.text}${collapsed ? " · Ctrl-E to expand" : ""}`}
-                    </Text>
-                  );
-                }
-                const segments = line.segments ?? [{ text: line.text }];
-                return (
-                  <Text
-                    key={line.id}
-                    bold={line.kind === "heading"}
-                    color={line.kind === "code" ? palette.muted : palette.text}
-                  >
-                    {segments.map((segment, index) => (
-                      <Text
-                        key={index}
-                        bold={segment.bold}
-                        italic={segment.italic}
-                        underline={segment.link}
-                        inverse={
-                          segment.code || segment.highlight !== undefined
-                        }
-                        color={
-                          segment.code
-                            ? palette.highlight
-                            : highlightColor(segment.highlight, palette)
-                        }
-                      >
-                        {segment.text}
-                      </Text>
-                    ))}
-                  </Text>
-                );
-              })
+              visible.map((line) => renderTurnLine(line, palette))
             )}
             <Text color={palette.muted}>
-              {transcriptLines.length === 0
-                ? "line 0 of 0"
-                : `line ${transcriptStart + 1}-${transcriptEnd} of ${transcriptLines.length}${state.scrollOffset > 0 ? " (scrolled)" : ""}${state.unseen > 0 ? ` ↓ ${state.unseen} new` : ""}${state.truncated ? " (older turns trimmed)" : ""}`}
+              {`${
+                transcriptLines.length === 0
+                  ? "line 0 of 0"
+                  : `line ${transcriptStart + 1}-${transcriptEnd} of ${transcriptLines.length}${state.scrollOffset > 0 ? " (scrolled)" : ""}${state.unseen > 0 ? ` ↓ ${state.unseen} new` : ""}${state.truncated ? " (older turns trimmed)" : ""}`
+              } · verbosity: ${state.transcriptConfig.verbosity}`}
             </Text>
           </Panel>
-          {expandedToolRecord && (
+          {inspectedToolRecord && (
             <Panel title="Tool detail (Ctrl-E to close)" palette={palette}>
               {toolDetails.map((line) => (
                 <Box key={line.label} flexDirection="column">
@@ -2341,7 +2448,7 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
         <Panel title="Usage & cost" palette={palette}>
           <Text color={palette.muted}>↑↓ select a turn</Text>
           <Text color={palette.accent}>
-            {`${usageTotals(state.usage).turns} turns · in=${usageTotals(state.usage).inputTokens} out=${usageTotals(state.usage).outputTokens} cache=${usageTotals(state.usage).cacheReadTokens}/${usageTotals(state.usage).cacheWriteTokens} · $${usageTotals(state.usage).costUsd.toFixed(4)} · ${usageTotals(state.usage).latencyMs}ms`}
+            {`${usageTotals(state.usage).turns} turns · in=${usageTotals(state.usage).inputTokens} out=${usageTotals(state.usage).outputTokens} cache=${usageTotals(state.usage).cacheReadTokens}/${usageTotals(state.usage).cacheWriteTokens} · ${usageTotals(state.usage).costKnown ? `$${usageTotals(state.usage).costUsd.toFixed(4)}` : `$${usageTotals(state.usage).costUsd.toFixed(4)} (+unknown)`} · ${usageTotals(state.usage).latencyMs}ms`}
           </Text>
           {state.usage.length === 0 ? (
             <Text color={palette.warning}>No usage recorded yet.</Text>
@@ -2352,7 +2459,7 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
                 bold={index === taskCursor}
                 color={index === taskCursor ? palette.accent : palette.text}
               >
-                {`${index === taskCursor ? "▸" : " "} ${record.at} — ${usageLine(record)}`}
+                {`${index === taskCursor ? "▸" : " "} ${formatIstTimestamp(record.at)} — ${usageLine(record)}`}
               </Text>
             ))
           )}
@@ -2417,7 +2524,10 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
                 Up/Down — transcript scroll or prompt history
               </Text>
               <Text color={palette.muted}>
-                Ctrl-E — expand the last tool call
+                Ctrl-E — expand or collapse the latest activity group
+              </Text>
+              <Text color={palette.muted}>
+                Ctrl-T — cycle transcript verbosity (low / medium / high)
               </Text>
               <Text color={palette.muted}>
                 Config: S set value · I editor · V validate · D doctor · E
@@ -2502,11 +2612,15 @@ export function App({ runtime }: { runtime: TuiRuntime }) {
       )}
 
       <Box justifyContent="space-between" paddingX={1}>
-        <Text color={palette.muted}>{truncate(state.status, 60)}</Text>
-        <Text color={palette.muted}>
-          {state.selectedModel ?? runtime.header.model} ·{" "}
-          {runtime.header.routingMode ?? "auto"} · {session ?? "no session"}
-        </Text>
+        <Box marginRight={1} flexShrink={0}>
+          <Text color={palette.muted}>{truncate(state.status, 60)}</Text>
+        </Box>
+        <Box marginRight={1}>
+          <Text color={palette.muted}>
+            {displayModel} · {runtime.header.routingMode ?? "auto"} ·{" "}
+            {session ?? "no session"}
+          </Text>
+        </Box>
         <Text color={palette.accent}>{FOOTER_HINTS[state.screen]}</Text>
       </Box>
     </Box>

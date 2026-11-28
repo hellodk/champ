@@ -116,9 +116,12 @@ describe("champ CLI — one-shot agent turn (dist/cli.js)", () => {
         // Traces and the per-turn summary go to stderr.
         expect(result.stderr).toContain("[tool] read_file");
         expect(result.stderr).toContain("[tool] edit_file");
+        // Usage accumulates across all 3 requests (1200+1500+1800=4500, 64+88+42=194)
+        // while context reflects the final request (1800+42=1,842).
         expect(result.stderr).toContain(
-          "[champ] tools=2 tokens in=1800 out=42",
+          "[champ] tools=2 tokens in=4500 out=194",
         );
+        expect(result.stderr).toContain("context=1,842/8,192");
         expect(result.stderr).not.toContain(
           "actions requiring approval are denied",
         );

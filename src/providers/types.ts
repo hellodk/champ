@@ -94,6 +94,11 @@ export type StreamDelta =
       toolResult?: string;
       toolSuccess?: boolean;
       fileEditDiff?: { path: string; oldContent: string; newContent: string };
+      toolDurationMs?: number;
+      exitCode?: number;
+      stderr?: string;
+      approval?: "approved" | "denied" | "auto";
+      testsSummary?: { passed: number; failed: number; skipped: number };
     }
   | { type: "done"; usage: TokenUsage }
   | { type: "error"; error: string }

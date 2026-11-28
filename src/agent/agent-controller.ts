@@ -147,6 +147,8 @@ export interface ProcessMessageOptions {
   permissionProfile?: import("../policy/profiles").PermissionProfile;
   executionBackend?: import("../safety/execution-backend").ExecutionBackend;
   correlation?: Partial<ExecutionCorrelation>;
+  /** Suppress synthetic "Using `tool`…" text deltas when the caller renders structured tool activity. */
+  suppressToolNarration?: boolean;
 }
 
 export interface ProcessMessageResult {
@@ -154,6 +156,12 @@ export interface ProcessMessageResult {
   toolCalls: Array<{ call: ToolCall; result: ToolResult }>;
   /** Additive outcome classification for headless exit-code mapping. */
   status?: ExecutionStatus;
+  /** Actual model/provider metadata that served this turn (including SmartRouter/failover). */
+  actualModel?: string;
+  actualProvider?: string;
+  contextWindow?: number;
+  fallbacks?: number;
+  compactions?: number;
 }
 
 export type StreamDeltaListener = (delta: StreamDelta) => void;
@@ -804,6 +812,8 @@ export class AgentController {
       // this buffer instead of disk. Flushed atomically after the loop ends.
       const stagedEdits = new StagedEdits();
 
+      let compactionsCount = 0;
+      let totalFailovers = 0;
       let iterationRan = false;
       for (let iteration = 0; iteration < maxIterations; iteration++) {
         if (options.abortSignal?.aborted) break;
@@ -891,6 +901,7 @@ export class AgentController {
           createContextSummariser(activeProvider, options.abortSignal),
         );
         if (messagesToSend.length < rawMessages.length) {
+          compactionsCount += 1;
           const dropped = rawMessages.length - messagesToSend.length;
           console.log(
             `Champ: context window — compacted ${dropped} oldest message(s) into summary`,
@@ -1085,6 +1096,7 @@ export class AgentController {
                 // prefix so the user sees activity rather than a silent spinner.
                 if (
                   !usePromptBased &&
+                  !options.suppressToolNarration &&
                   assistantText.length === 0 &&
                   pendingToolCalls.length === 0
                 ) {
@@ -1227,6 +1239,7 @@ export class AgentController {
                   : {}),
               });
               failoverAttempt += 1;
+              totalFailovers += 1;
               continue;
             }
             errorOccurred = true;
@@ -1258,6 +1271,7 @@ export class AgentController {
             }
           }
           const text = collectedText.join("");
+          const executedInfo = activeProvider.modelInfo();
           return {
             text,
             toolCalls: collectedToolCalls,
@@ -1267,6 +1281,11 @@ export class AgentController {
               aborted: options.abortSignal?.aborted,
               toolFailures,
             }),
+            actualModel: executedInfo.id ?? executedInfo.name,
+            actualProvider: activeProvider.name,
+            contextWindow: executedInfo.contextWindow,
+            ...(totalFailovers > 0 ? { fallbacks: totalFailovers } : {}),
+            ...(compactionsCount > 0 ? { compactions: compactionsCount } : {}),
           };
         }
 
@@ -1383,7 +1402,11 @@ export class AgentController {
 
         // Prompt-based mode: if the model produced tool calls with no visible
         // text, emit a synthetic prefix so the user isn't watching a silent spinner.
-        if (usePromptBased && pendingToolCalls.length > 0) {
+        if (
+          usePromptBased &&
+          !options.suppressToolNarration &&
+          pendingToolCalls.length > 0
+        ) {
           const hasNarration =
             (extractTextContent(assistantText) || "").trim().length > 0;
           if (!hasNarration) {
@@ -1468,6 +1491,11 @@ export class AgentController {
             output: redactedOutput,
           };
 
+          // Compute tool duration before emitting so UI consumers receive exact timing
+          const toolStart = toolStartTimes.get(call.id) ?? Date.now();
+          toolStartTimes.delete(call.id);
+          const toolDuration = Date.now() - toolStart;
+
           // Emit tool result so the UI can update the "Running..." card.
           this.emit({
             type: "tool_call_end",
@@ -1476,12 +1504,17 @@ export class AgentController {
             toolResult: redactedOutput,
             toolSuccess: result.success,
             fileEditDiff: result.metadata?.fileEditDiff,
+            toolDurationMs: toolDuration,
+            ...(result.metadata?.exitCode !== undefined
+              ? { exitCode: result.metadata.exitCode }
+              : {}),
+            ...(result.metadata?.stderr !== undefined
+              ? { stderr: result.metadata.stderr }
+              : {}),
+            ...(result.metadata?.testsSummary !== undefined
+              ? { testsSummary: result.metadata.testsSummary }
+              : {}),
           });
-
-          // Record tool call for analytics and metrics
-          const toolStart = toolStartTimes.get(call.id) ?? Date.now();
-          toolStartTimes.delete(call.id);
-          const toolDuration = Date.now() - toolStart;
 
           if (this.metrics) {
             try {
@@ -1653,6 +1686,7 @@ export class AgentController {
       }
 
       const text = collectedText.join("");
+      const executedInfo = activeProvider.modelInfo();
       return {
         text,
         toolCalls: collectedToolCalls,
@@ -1662,6 +1696,11 @@ export class AgentController {
           aborted: options.abortSignal?.aborted,
           toolFailures,
         }),
+        actualModel: executedInfo.id ?? executedInfo.name,
+        actualProvider: activeProvider.name,
+        contextWindow: executedInfo.contextWindow,
+        ...(totalFailovers > 0 ? { fallbacks: totalFailovers } : {}),
+        ...(compactionsCount > 0 ? { compactions: compactionsCount } : {}),
       };
     } finally {
       this._isProcessing = false;

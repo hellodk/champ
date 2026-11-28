@@ -54,4 +54,31 @@ describe("runtime event mapping", () => {
       provider: "p",
     });
   });
+
+  it("preserves cache tokens and nullable unknown cost in usageFromSummary", () => {
+    const record = usageFromSummary(
+      {
+        inputTokens: 100,
+        outputTokens: 50,
+        cachedInputTokens: 40,
+        cacheWriteTokens: 10,
+      },
+      {
+        at: "now",
+        model: "custom-model",
+        provider: "unknown-vendor",
+        latencyMs: 250,
+        costUsd: null,
+        costKnown: false,
+        costSource: "unknown",
+      },
+    );
+    expect(record).toMatchObject({
+      cacheReadTokens: 40,
+      cacheWriteTokens: 10,
+      costUsd: null,
+      costKnown: false,
+      costSource: "unknown",
+    });
+  });
 });

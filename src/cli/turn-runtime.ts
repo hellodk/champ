@@ -32,7 +32,7 @@ export interface TurnCostInfo {
   usd: number | null;
   known: boolean;
   pricingVersion: string;
-  source: string;
+  source: "local" | "table" | "unknown";
 }
 
 export interface TurnSummary {
@@ -66,10 +66,13 @@ export interface ToolCompletionEvent {
   durationMs?: number;
   approval?: "approved" | "denied" | "auto";
   error?: string;
+  fileEditDiff?: { path: string; oldContent: string; newContent: string };
+  testsSummary?: { passed: number; failed: number; skipped: number };
 }
 
 export interface TurnEvents {
   onText?: (chunk: string) => void;
+  onReasoning?: (chunk: string) => void;
   onTool?: (call: ToolCall) => void;
   onToolResult?: (result: ToolCompletionEvent) => void;
   onError?: (message: string) => void;
@@ -92,6 +95,8 @@ export interface ExecuteTurnOptions {
   /** Snapshot paths before mutating tools write. */
   onBeforeMutation?: (paths: string[]) => Promise<void>;
   correlation?: Partial<ExecutionCorrelation>;
+  /** Suppress synthetic "Using `tool`…" text deltas when structured activity UI is active. */
+  suppressToolNarration?: boolean;
 }
 
 /** Additive outcome classification; exit codes are derived from this. */
@@ -150,6 +155,7 @@ export async function executeTurn({
   onTurnEnd,
   onBeforeMutation,
   correlation: initialCorrelation,
+  suppressToolNarration,
 }: ExecuteTurnOptions): Promise<TurnOutcome> {
   const correlation = createExecutionCorrelation(initialCorrelation);
   let sawText = false;
@@ -164,6 +170,7 @@ export async function executeTurn({
   // tell the turn failed is by surfacing the delta here.
   let streamError: string | undefined;
   const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+  let latestContextUsed = 0;
   const abort = new AbortController();
   activeAbort = abort;
 
@@ -175,6 +182,8 @@ export async function executeTurn({
         if (delta.type === "text") {
           events.onText?.(delta.text);
           sawText = true;
+        } else {
+          events.onReasoning?.(delta.text);
         }
         break;
       case "tool_call_start":
@@ -186,15 +195,38 @@ export async function executeTurn({
         }
         break;
       case "tool_call_end": {
+        // Providers emit a bare tool_call_end (no toolResult/toolSuccess) when
+        // argument streaming finishes, before tool execution starts. Only
+        // surface actual tool execution completions here.
+        if (delta.toolSuccess === undefined && delta.toolResult === undefined) {
+          break;
+        }
+        let measuredDuration: number | undefined;
         if (delta.toolCallId && toolStartTimes.has(delta.toolCallId)) {
-          toolDurationMs += Date.now() - toolStartTimes.get(delta.toolCallId)!;
+          measuredDuration = Date.now() - toolStartTimes.get(delta.toolCallId)!;
           toolStartTimes.delete(delta.toolCallId);
+        }
+        const elapsed = delta.toolDurationMs ?? measuredDuration;
+        if (elapsed !== undefined) {
+          toolDurationMs += elapsed;
         }
         events.onToolResult?.({
           id: delta.toolCallId,
           name: delta.toolName,
           output: delta.toolResult ?? "",
           success: delta.toolSuccess ?? false,
+          ...(delta.toolDurationMs !== undefined
+            ? { durationMs: delta.toolDurationMs }
+            : {}),
+          ...(delta.exitCode !== undefined ? { exitCode: delta.exitCode } : {}),
+          ...(delta.stderr !== undefined ? { stderr: delta.stderr } : {}),
+          ...(delta.approval !== undefined ? { approval: delta.approval } : {}),
+          ...(delta.fileEditDiff !== undefined
+            ? { fileEditDiff: delta.fileEditDiff }
+            : {}),
+          ...(delta.testsSummary !== undefined
+            ? { testsSummary: delta.testsSummary }
+            : {}),
         });
         break;
       }
@@ -203,14 +235,27 @@ export async function executeTurn({
         events.onError?.(delta.error);
         break;
       case "done":
-        usage.inputTokens = delta.usage.inputTokens;
-        usage.outputTokens = delta.usage.outputTokens;
+        usage.inputTokens += delta.usage.inputTokens;
+        usage.outputTokens += delta.usage.outputTokens;
         if (delta.usage.cachedInputTokens !== undefined) {
-          usage.cachedInputTokens = delta.usage.cachedInputTokens;
+          usage.cachedInputTokens =
+            (usage.cachedInputTokens ?? 0) + delta.usage.cachedInputTokens;
         }
         if (delta.usage.reasoningTokens !== undefined) {
-          usage.reasoningTokens = delta.usage.reasoningTokens;
+          usage.reasoningTokens =
+            (usage.reasoningTokens ?? 0) + delta.usage.reasoningTokens;
         }
+        if (delta.usage.cacheReadTokens !== undefined) {
+          usage.cacheReadTokens =
+            (usage.cacheReadTokens ?? 0) + delta.usage.cacheReadTokens;
+        }
+        if (delta.usage.cacheWriteTokens !== undefined) {
+          usage.cacheWriteTokens =
+            (usage.cacheWriteTokens ?? 0) + delta.usage.cacheWriteTokens;
+        }
+        // Context window occupancy reflects the latest request, not the sum of
+        // all iterations in a multi-tool turn.
+        latestContextUsed = delta.usage.inputTokens + delta.usage.outputTokens;
         events.onUsage?.(delta.usage);
         break;
       default:
@@ -229,10 +274,12 @@ export async function executeTurn({
       permissionProfile,
       onBeforeMutation,
       correlation,
+      suppressToolNarration,
     } as import("../agent/agent-controller").ProcessMessageOptions);
     if (!sawText && result.text) events.onText?.(result.text);
 
-    // Extract provider and model metadata from controller if available
+    // Prefer actual executed provider/model metadata returned by processMessage
+    // (accurate under SmartRouter & failover), falling back to getProvider().
     const maybeController = controller as unknown as {
       getProvider?: () => {
         name: string;
@@ -244,12 +291,15 @@ export async function executeTurn({
       };
     };
     const providerObj = maybeController.getProvider?.();
-    const model = providerObj
-      ? (providerObj.modelInfo().id ?? providerObj.modelInfo().name)
-      : undefined;
-    const providerName = providerObj?.name;
-    const contextWindow = providerObj?.modelInfo().contextWindow ?? 0;
-    const contextUsed = usage.inputTokens + usage.outputTokens;
+    const model =
+      result.actualModel ??
+      (providerObj
+        ? (providerObj.modelInfo().id ?? providerObj.modelInfo().name)
+        : undefined);
+    const providerName = result.actualProvider ?? providerObj?.name;
+    const contextWindow =
+      result.contextWindow ?? providerObj?.modelInfo().contextWindow ?? 0;
+    const contextUsed = latestContextUsed;
     const contextRemaining = Math.max(0, contextWindow - contextUsed);
     const percentUsed =
       contextWindow > 0
@@ -263,7 +313,8 @@ export async function executeTurn({
         model,
         usage.inputTokens,
         usage.outputTokens,
-        usage.cachedInputTokens ?? 0,
+        usage.cacheReadTokens ?? usage.cachedInputTokens ?? 0,
+        usage.cacheWriteTokens ?? 0,
       );
       costInfo = {
         usd: quote.usd,
@@ -296,6 +347,12 @@ export async function executeTurn({
               percentUsed,
             }
           : undefined,
+      ...(result.fallbacks !== undefined
+        ? { fallbacks: result.fallbacks }
+        : {}),
+      ...(result.compactions !== undefined
+        ? { compactions: result.compactions }
+        : {}),
       runId: correlation.runId,
       sessionId: correlation.sessionId,
       turnId: correlation.turnId,

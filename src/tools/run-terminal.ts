@@ -170,6 +170,12 @@ export const runTerminalTool: Tool = {
     return {
       success: result.exitCode === 0 && !result.timedOut,
       output: sections.join("\n\n"),
+      metadata: {
+        ...(result.exitCode !== null && result.exitCode !== undefined
+          ? { exitCode: result.exitCode }
+          : {}),
+        ...(result.stderr.trim() ? { stderr: result.stderr.trim() } : {}),
+      },
     };
   },
 };
