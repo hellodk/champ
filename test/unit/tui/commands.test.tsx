@@ -57,6 +57,7 @@ describe("TUI slash commands", () => {
       "/tools",
       "/mcp",
       "/doctor",
+      "/verbosity",
     ]);
     for (const command of CHAT_COMMANDS) {
       expect(CHAT_COMMAND_HELP[command]).toBeTruthy();

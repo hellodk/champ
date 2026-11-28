@@ -81,6 +81,9 @@ export interface ToolResult {
     filesDeleted?: string[];
     fileEditDiff?: { path: string; oldContent: string; newContent: string };
     screenshot?: string; // Base64-encoded screenshot data
+    exitCode?: number;
+    stderr?: string;
+    testsSummary?: { passed: number; failed: number; skipped: number };
   };
 }
 

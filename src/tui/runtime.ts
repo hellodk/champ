@@ -7,13 +7,23 @@
  */
 import type { CommandSuggestion } from "../cli/commands";
 import type { TuiSelection } from "./endpoints";
+import type { TranscriptDisplayConfig, TranscriptVerbosity } from "./activity";
 import type { ContextSnapshot, UsageRecord } from "./insights";
 import type { McpServerStatus } from "./mcp";
 import type { PlanStepInput } from "./plan";
 import type { RecoverySnapshot } from "./recovery";
 import type { ThemeName } from "./theme";
-import type { ChatRole, EndpointSummary, TuiScreen } from "./state";
-import type { ToolResultEvent, ToolStartEvent } from "./tool-events";
+import type {
+  ChatRole,
+  EndpointSummary,
+  TranscriptTurn,
+  TuiScreen,
+} from "./state";
+import type {
+  ToolRecord,
+  ToolResultEvent,
+  ToolStartEvent,
+} from "./tool-events";
 import type { MetricsCollector } from "../observability/metrics-collector";
 import type { AgentAnalytics } from "../observability/agent-analytics";
 
@@ -38,6 +48,7 @@ export interface TuiTurnSummary {
   provider?: string;
   costUsd?: number | null;
   costKnown?: boolean;
+  costSource?: "local" | "table" | "unknown";
   pricingVersion?: string;
   contextUsed?: number;
   contextWindow?: number;
@@ -50,6 +61,7 @@ export interface TuiTurnSummary {
 
 export interface TuiTurnEvents {
   onText?: (chunk: string) => void;
+  onReasoning?: (chunk: string) => void;
   onTool?: (name: string, args: string) => void;
   onToolResult?: (name: string, output: string, success: boolean) => void;
   onError?: (message: string) => void;
@@ -71,6 +83,9 @@ export interface TuiTurnResult {
 export interface TuiResumedSession {
   summary: string;
   messages: Array<{ role: ChatRole; text: string }>;
+  /** Optional structured turns reconstructed from SessionLog history. */
+  turns?: TranscriptTurn[];
+  toolRecords?: Record<string, ToolRecord>;
 }
 
 export interface TuiAddEndpointInput {
@@ -115,6 +130,10 @@ export interface TuiRuntime {
   initialScreen?: TuiScreen;
   /** Palette forced by `--theme`; otherwise auto-detected in the TUI. */
   theme?: ThemeName;
+  /** Transcript presentation defaults loaded from `~/.champ/config.yaml`. */
+  transcriptConfig?: Partial<TranscriptDisplayConfig>;
+  /** Optional callback to persist verbosity changes if desired. */
+  onVerbosityChange?: (verbosity: TranscriptVerbosity) => void;
   /** Run a turn (or slash/skill command) through the shared agent runtime. */
   submit(
     text: string,

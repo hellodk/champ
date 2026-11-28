@@ -59,4 +59,31 @@ describe("context and usage", () => {
       appendUsage(recent, { ...record, at: "later" }, 2).map((item) => item.at),
     ).toEqual(["2026-01-01T00:00:00.000Z", "later"]);
   });
+
+  it("handles unknown nullable costs without fabricating zero", () => {
+    const unknownRecord: UsageRecord = {
+      ...record,
+      provider: "custom-cloud",
+      costUsd: null,
+      costKnown: false,
+      costSource: "unknown",
+    };
+    expect(usageLine(unknownRecord)).toContain("cost=unknown");
+    expect(usageLine(unknownRecord)).not.toContain("$0.0000");
+
+    const totals = usageTotals([record, unknownRecord]);
+    expect(totals.costKnown).toBe(false);
+    expect(totals.costUsd).toBeCloseTo(0.0012);
+  });
+
+  it("labels local zero-rate records as local instead of $0.0000", () => {
+    const localRecord: UsageRecord = {
+      ...record,
+      costUsd: 0,
+      costKnown: true,
+      costSource: "local",
+    };
+    expect(usageLine(localRecord)).toContain("local");
+    expect(usageLine(localRecord)).not.toContain("$0.0000");
+  });
 });

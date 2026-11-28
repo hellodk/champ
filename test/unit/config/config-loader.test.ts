@@ -244,6 +244,44 @@ providers:
 `;
       expect(() => ConfigLoader.parseYaml(yaml)).toThrow(/contextwindow/i);
     });
+
+    it("parses and validates tui.transcript settings (#212)", () => {
+      const config = ConfigLoader.parseYaml(`
+provider: ollama
+tui:
+  transcript:
+    verbosity: medium
+    showModel: true
+    showUsage: true
+    showContext: false
+    showCost: true
+`);
+      expect(config.tui?.transcript).toEqual({
+        verbosity: "medium",
+        showModel: true,
+        showUsage: true,
+        showContext: false,
+        showCost: true,
+      });
+
+      expect(() =>
+        ConfigLoader.parseYaml(`
+provider: ollama
+tui:
+  transcript:
+    verbosity: verbose
+`),
+      ).toThrow(/tui\.transcript\.verbosity/i);
+
+      expect(() =>
+        ConfigLoader.parseYaml(`
+provider: ollama
+tui:
+  transcript:
+    showCost: "yes"
+`),
+      ).toThrow(/tui\.transcript\.showCost/i);
+    });
   });
 
   describe("merge", () => {
@@ -374,6 +412,13 @@ providers:
       expect(filled.autocomplete?.enabled).toBe(true);
       expect(filled.autocomplete?.debounceMs).toBe(300);
       expect(filled.indexing?.enabled).toBe(true);
+      expect(filled.tui?.transcript).toEqual({
+        verbosity: "low",
+        showModel: true,
+        showUsage: true,
+        showContext: true,
+        showCost: true,
+      });
     });
 
     it("preserves user-supplied values when filling defaults", () => {

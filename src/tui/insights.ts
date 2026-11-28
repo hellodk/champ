@@ -41,7 +41,10 @@ export interface UsageRecord {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
-  costUsd: number;
+  /** Null when pricing for this provider/model is unknown (fail closed). */
+  costUsd: number | null;
+  costKnown?: boolean;
+  costSource?: "local" | "table" | "unknown";
   latencyMs: number;
 }
 
@@ -52,20 +55,27 @@ export interface UsageTotals {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   costUsd: number;
+  costKnown: boolean;
   latencyMs: number;
 }
 
 export function usageTotals(records: readonly UsageRecord[]): UsageTotals {
   return records.reduce<UsageTotals>(
-    (totals, record) => ({
-      turns: totals.turns + 1,
-      inputTokens: totals.inputTokens + record.inputTokens,
-      outputTokens: totals.outputTokens + record.outputTokens,
-      cacheReadTokens: totals.cacheReadTokens + record.cacheReadTokens,
-      cacheWriteTokens: totals.cacheWriteTokens + record.cacheWriteTokens,
-      costUsd: totals.costUsd + record.costUsd,
-      latencyMs: totals.latencyMs + record.latencyMs,
-    }),
+    (totals, record) => {
+      const known = record.costUsd !== null && record.costKnown !== false;
+      return {
+        turns: totals.turns + 1,
+        inputTokens: totals.inputTokens + record.inputTokens,
+        outputTokens: totals.outputTokens + record.outputTokens,
+        cacheReadTokens: totals.cacheReadTokens + record.cacheReadTokens,
+        cacheWriteTokens: totals.cacheWriteTokens + record.cacheWriteTokens,
+        costUsd:
+          totals.costUsd +
+          (known && record.costUsd !== null ? record.costUsd : 0),
+        costKnown: totals.costKnown && known,
+        latencyMs: totals.latencyMs + record.latencyMs,
+      };
+    },
     {
       turns: 0,
       inputTokens: 0,
@@ -73,18 +83,40 @@ export function usageTotals(records: readonly UsageRecord[]): UsageTotals {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       costUsd: 0,
+      costKnown: true,
       latencyMs: 0,
     },
   );
 }
 
+export function formatIstTimestamp(value: string | number | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return `${date.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  })} IST`;
+}
+
 export function usageLine(record: UsageRecord): string {
+  const costLabel =
+    record.costUsd === null || record.costKnown === false
+      ? "cost=unknown"
+      : record.costSource === "local"
+        ? "local"
+        : `$${record.costUsd.toFixed(4)}`;
   return [
     `${record.model}/${record.provider}`,
     `in=${record.inputTokens}`,
     `out=${record.outputTokens}`,
     `cache=${record.cacheReadTokens}/${record.cacheWriteTokens}`,
-    `$${record.costUsd.toFixed(4)}`,
+    costLabel,
     `${record.latencyMs}ms`,
   ].join(" · ");
 }

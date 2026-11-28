@@ -255,6 +255,15 @@ export const runTestsTool: Tool = {
     return {
       success: exitCode === 0,
       output: lines.join("\n"),
+      metadata: {
+        exitCode,
+        ...(stderr.trim() ? { stderr: stderr.trim() } : {}),
+        testsSummary: {
+          passed: parsed.passed,
+          failed: parsed.failed,
+          skipped: parsed.skipped,
+        },
+      },
     };
   },
 };

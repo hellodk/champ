@@ -98,39 +98,50 @@ export class OllamaProvider implements LLMProvider {
   private inThinkingBlock = false;
 
   /**
-   * Strip <think>...</think> blocks produced by Qwen3, DeepSeek-R1, and
-   * similar reasoning models. Tracks state across streaming chunks so that
-   * mid-block chunks (no tags, just reasoning text) are suppressed entirely.
-   * Must be called per-chunk in order; reset inThinkingBlock at chat() start.
+   * Separate <think>...</think> reasoning blocks produced by Qwen3, DeepSeek-R1,
+   * and similar reasoning models from visible answer text. Tracks state across
+   * streaming chunks so reasoning can be emitted as dedicated `reasoning`
+   * deltas without ever leaking into assistant prose.
    */
-  private stripThinkingTokens(text: string): string {
-    let out = text;
+  private splitThinkingTokens(chunk: string): {
+    text: string;
+    reasoning: string;
+  } {
+    let remaining = chunk;
+    let text = "";
+    let reasoning = "";
 
-    // Remove complete <think>...</think> blocks within this chunk.
-    out = out.replace(/<think>[\s\S]*?<\/think>/g, "");
-
-    // Closing tag — exit the thinking block, strip everything up to and including it.
-    if (out.includes("</think>")) {
-      this.inThinkingBlock = false;
-      out = out.replace(/[\s\S]*<\/think>/g, "");
+    while (remaining.length > 0) {
+      if (this.inThinkingBlock) {
+        const closeIdx = remaining.indexOf("</think>");
+        if (closeIdx === -1) {
+          reasoning += remaining;
+          remaining = "";
+        } else {
+          reasoning += remaining.slice(0, closeIdx);
+          remaining = remaining.slice(closeIdx + "</think>".length);
+          this.inThinkingBlock = false;
+        }
+      } else {
+        const openIdx = remaining.indexOf("<think>");
+        if (openIdx === -1) {
+          // Handle a stray closing tag safely if a provider skipped the opener.
+          const strayClose = remaining.indexOf("</think>");
+          if (strayClose !== -1) {
+            text += remaining.slice(strayClose + "</think>".length);
+          } else {
+            text += remaining;
+          }
+          remaining = "";
+        } else {
+          text += remaining.slice(0, openIdx);
+          remaining = remaining.slice(openIdx + "<think>".length);
+          this.inThinkingBlock = true;
+        }
+      }
     }
 
-    // Opening tag with no close — enter thinking block, strip from tag onward.
-    if (out.includes("<think>")) {
-      this.inThinkingBlock = true;
-      out = out.replace(/<think>[\s\S]*/g, "");
-    }
-
-    // Mid-block chunk — no tags, but we are inside a thinking block: suppress entirely.
-    if (
-      this.inThinkingBlock &&
-      !out.includes("<think>") &&
-      !out.includes("</think>")
-    ) {
-      return "";
-    }
-
-    return out;
+    return { text, reasoning };
   }
 
   modelInfo(): ModelInfo {
@@ -476,10 +487,12 @@ export class OllamaProvider implements LLMProvider {
             };
 
             if (json.message?.content) {
-              // Strip Qwen3 / DeepSeek thinking blocks before surfacing text.
-              // These models wrap internal reasoning in <think>...</think> tags
-              // that must not be shown to the user or sent back as conversation.
-              const cleaned = this.stripThinkingTokens(json.message.content);
+              // Separate Qwen3 / DeepSeek thinking blocks from visible prose
+              // and emit them as dedicated reasoning deltas.
+              const { text: cleaned, reasoning } = this.splitThinkingTokens(
+                json.message.content,
+              );
+              if (reasoning) yield { type: "reasoning", text: reasoning };
               if (cleaned) yield { type: "text", text: cleaned };
             }
 

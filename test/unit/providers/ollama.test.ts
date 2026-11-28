@@ -319,6 +319,39 @@ describe("stripThinkingTokens (streaming)", () => {
     expect(fullText).toContain("real answer");
   });
 
+  it("emits reasoning deltas for <think>...</think> blocks without leaking into text (#212)", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ model_info: {} }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        body: createMockStream([
+          { message: { content: "<think>step 1 " }, done: false },
+          { message: { content: "step 2</think>final answer" }, done: false },
+          {
+            message: { content: "" },
+            done: true,
+            prompt_eval_count: 5,
+            eval_count: 10,
+          },
+        ]),
+      });
+
+    const textChunks: string[] = [];
+    const reasoningChunks: string[] = [];
+    for await (const delta of provider.chat([
+      { role: "user", content: "test" },
+    ])) {
+      if (delta.type === "text") textChunks.push(delta.text);
+      if (delta.type === "reasoning") reasoningChunks.push(delta.text);
+    }
+
+    expect(textChunks.join("")).toBe("final answer");
+    expect(reasoningChunks.join("")).toBe("step 1 step 2");
+  });
+
   it("resets thinking state between separate chat calls", async () => {
     // First call — normal response
     mockFetch

@@ -151,6 +151,7 @@ import {
   toolResultFromCompletion,
   usageFromSummary,
 } from "./tui/runtime-mapping";
+import { reconstructTurnsFromHistory } from "./tui/session-resume";
 
 export const EXIT_OK = 0;
 export const EXIT_FAILURE = 1;
@@ -1008,6 +1009,11 @@ async function runRepl(
         case "/clear":
           controller.setHistory([]);
           process.stderr.write("[champ] conversation cleared\n");
+          break;
+        case "/verbosity":
+          process.stderr.write(
+            "[champ] /verbosity adjusts the interactive TUI transcript (set default via `champ config set tui.transcript.verbosity low|medium|high`)\n",
+          );
           break;
         case "/skills":
           process.stderr.write(`${formatSkillList(opts.registry)}\n`);
@@ -1924,9 +1930,11 @@ async function main(): Promise<number> {
           permissionProfile,
           onBeforeMutation,
           onTurnEnd,
+          suppressToolNarration: true,
         };
         const runEvents = {
           onText: events.onText,
+          onReasoning: events.onReasoning,
           onTool: (call: {
             id?: string;
             name: string;
@@ -1960,18 +1968,32 @@ async function main(): Promise<number> {
             );
           },
           onError: events.onError,
-          onUsage: (usage: TokenUsage) => {
-            const record = usageFromSummary(usage, {
-              at: new Date().toISOString(),
-              model: initialSelection.model || provider.config.model,
-              provider: String(registryChoice?.endpoint.provider ?? "config"),
-              latencyMs: Date.now() - turnStartedAt,
-              costUsd: 0,
-            });
-            usageHistory.push(record);
-            events.onUsage?.(record);
-          },
           onDone: (summary: TurnSummary) => {
+            const activeCtrl = liveController ?? controller;
+            const liveProvider = activeCtrl.getProvider();
+            const liveInfo = liveProvider.modelInfo();
+            const resolvedModel =
+              summary.model ??
+              liveInfo.id ??
+              liveInfo.name ??
+              initialSelection.model ??
+              provider.config.model;
+            const resolvedProvider =
+              summary.provider ??
+              liveProvider.name ??
+              String(registryChoice?.endpoint.provider ?? "config");
+            const usageRecord = usageFromSummary(summary.usage, {
+              at: new Date().toISOString(),
+              model: resolvedModel,
+              provider: resolvedProvider,
+              latencyMs: summary.durationMs ?? Date.now() - turnStartedAt,
+              costUsd: summary.cost ? summary.cost.usd : null,
+              costKnown: summary.cost ? summary.cost.known : false,
+              costSource: summary.cost ? summary.cost.source : "unknown",
+            });
+            usageHistory.push(usageRecord);
+            events.onUsage?.(usageRecord);
+
             events.onDone?.({
               tools: summary.tools,
               inputTokens: summary.usage.inputTokens,
@@ -1981,10 +2003,11 @@ async function main(): Promise<number> {
               durationMs: summary.durationMs,
               toolDurationMs: summary.toolDurationMs,
               firstTokenMs: summary.firstTokenMs,
-              model: summary.model,
-              provider: summary.provider,
+              model: resolvedModel,
+              provider: resolvedProvider,
               costUsd: summary.cost?.usd,
               costKnown: summary.cost?.known,
+              costSource: summary.cost?.source,
               pricingVersion: summary.cost?.pricingVersion,
               contextUsed: summary.context?.used,
               contextWindow: summary.context?.window,
@@ -1994,22 +2017,23 @@ async function main(): Promise<number> {
               fallbacks: summary.fallbacks,
               compactions: summary.compactions,
             });
+            const history = activeCtrl.getHistory();
+            const estimatedTokens = Math.ceil(
+              history.reduce(
+                (total, message) =>
+                  total +
+                  (typeof message.content === "string"
+                    ? message.content.length
+                    : message.content.length * 16),
+                0,
+              ) / 4,
+            );
             events.onContext?.({
-              usedTokens: Math.ceil(
-                (liveController ?? controller)
-                  .getHistory()
-                  .reduce(
-                    (total, message) =>
-                      total +
-                      (typeof message.content === "string"
-                        ? message.content.length
-                        : message.content.length * 16),
-                    0,
-                  ) / 4,
-              ),
-              limit: 128000,
-              model: initialSelection.model || provider.config.model,
-              messages: (liveController ?? controller).getHistory().length,
+              usedTokens: summary.context?.used ?? estimatedTokens,
+              limit:
+                summary.context?.window ?? liveInfo.contextWindow ?? 128000,
+              model: resolvedModel,
+              messages: history.length,
               compactions: sessionLog?.checkpoint
                 ? [
                     {
@@ -2075,6 +2099,7 @@ async function main(): Promise<number> {
         initialEndpoints,
         initialSelection,
         theme: flags.theme,
+        transcriptConfig: config.tui?.transcript,
         initialScreen: initialEndpoints.length === 0 ? "providers" : "chat",
         submit: submitFromTui,
         abort: () => {
@@ -2385,9 +2410,12 @@ async function main(): Promise<number> {
                       )
                       .join(" "),
             }));
+          const reconstructed = reconstructTurnsFromHistory(replay.messages);
           return {
             summary: `resumed ${id} — ${replay.messages.length} message(s) in context`,
             messages,
+            turns: reconstructed.turns,
+            toolRecords: reconstructed.toolRecords,
           };
         },
         renameSession: async (id, label) => {
@@ -2514,7 +2542,9 @@ async function main(): Promise<number> {
           return `rewound to ${checkpointId}`;
         },
         getContext: async () => {
-          const history = (liveController ?? controller).getHistory();
+          const activeCtrl = liveController ?? controller;
+          const liveInfo = activeCtrl.getProvider().modelInfo();
+          const history = activeCtrl.getHistory();
           const usedTokens = Math.ceil(
             history.reduce(
               (total, message) =>
@@ -2528,8 +2558,12 @@ async function main(): Promise<number> {
           const checkpoint = sessionLog?.checkpoint;
           return {
             usedTokens,
-            limit: 128000,
-            model: initialSelection.model || provider.config.model,
+            limit: liveInfo.contextWindow || 128000,
+            model:
+              liveInfo.id ??
+              liveInfo.name ??
+              initialSelection.model ??
+              provider.config.model,
             messages: history.length,
             compactions: checkpoint
               ? [

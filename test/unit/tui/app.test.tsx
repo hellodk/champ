@@ -202,7 +202,7 @@ describe("Ink TUI", () => {
     expect(view.lastFrame()).toContain("Session");
   });
 
-  it("renders tool execution and tool result in chat transcript", async () => {
+  it("renders tool execution as collapsed activity by default and expands with Ctrl-E (#212)", async () => {
     const adapter = runtime({
       submit: vi.fn(async (_text, events) => {
         events.onTool?.(
@@ -210,7 +210,21 @@ describe("Ink TUI", () => {
           JSON.stringify({ command: "hostname" }),
         );
         events.onToolResult?.("run_terminal", "my-host.local\n", true);
-        return { text: "Done", aborted: false };
+        events.onText?.("The host is my-host.local.");
+        events.onDone?.({
+          tools: 1,
+          inputTokens: 1200,
+          outputTokens: 300,
+          durationMs: 2400,
+          contextUsed: 1500,
+          contextWindow: 32768,
+          contextPercent: 5,
+          costUsd: 0,
+          costKnown: true,
+          costSource: "local",
+          model: "/home/dk/models/Qwen3-4B-Q4_K_M.gguf",
+        });
+        return { text: "The host is my-host.local.", aborted: false };
       }),
     });
     const view = render(<App runtime={adapter} />);
@@ -219,8 +233,53 @@ describe("Ink TUI", () => {
     view.stdin.write("\r");
     await vi.waitFor(() => {
       const frame = view.lastFrame() ?? "";
-      expect(frame).toContain("run_terminal");
-      expect(frame).toContain("✓ run_terminal → my-host.local");
+      expect(frame).toContain("Ran 1 command");
+      expect(frame).toContain("The host is my-host.local.");
+      expect(frame).toContain("Qwen3-4B-Q4_K_M");
+      expect(frame).not.toContain("/home/dk/models/");
+      expect(frame).not.toContain("[turn]");
+      expect(frame).not.toContain("SYSTEM");
+    });
+
+    // Expand activity group with Ctrl-E
+    view.stdin.write("\u0005");
+    await vi.waitFor(() => {
+      const frame = view.lastFrame() ?? "";
+      expect(frame).toContain("Run hostname");
+      expect(frame).toContain("Ctrl-E to collapse");
+    });
+
+    // Cycle verbosity low -> medium -> high with Ctrl-T
+    view.stdin.write("\u0014"); // medium
+    await vi.waitFor(() => {
+      expect(view.lastFrame()).toContain("verbosity: medium");
+    });
+    view.stdin.write("\u0014"); // high
+    await vi.waitFor(() => {
+      const frame = view.lastFrame() ?? "";
+      expect(frame).toContain("verbosity: high");
+      expect(frame).toContain("my-host.local");
+    });
+  });
+
+  it("changes transcript verbosity via /verbosity command", async () => {
+    const adapter = runtime();
+    const view = render(<App runtime={adapter} />);
+    await waitReady(view);
+    view.stdin.write("/verbosity high");
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      const frame = view.lastFrame() ?? "";
+      expect(frame).toContain("verbosity: high");
+      expect(frame).toContain("Verbosity: high");
+    });
+
+    view.stdin.write("/verbosity");
+    view.stdin.write("\r");
+    await vi.waitFor(() => {
+      expect(view.lastFrame()).toContain(
+        "Transcript verbosity: high (low | medium | high)",
+      );
     });
   });
 

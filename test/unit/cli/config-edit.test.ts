@@ -127,4 +127,36 @@ describe("headless config editing (#149)", () => {
     expect(text).toMatch(/^provider:\s*openai-compatible/m);
     expect(text).toContain("model: new-model-id");
   });
+
+  it("edits tui.transcript settings and validates verbosity values", async () => {
+    const configPath = join(
+      await mkdtemp(join(tmpdir(), "champ-config-")),
+      "config.yaml",
+    );
+    await setConfigValue({
+      configPath,
+      key: "tui.transcript.verbosity",
+      value: "medium",
+    });
+    await setConfigValue({
+      configPath,
+      key: "tui.transcript.showCost",
+      value: "false",
+    });
+
+    expect(
+      await getConfigValue({ configPath, key: "tui.transcript.verbosity" }),
+    ).toBe("medium");
+    expect(
+      await getConfigValue({ configPath, key: "tui.transcript.showCost" }),
+    ).toBe("false");
+
+    await expect(
+      setConfigValue({
+        configPath,
+        key: "tui.transcript.verbosity",
+        value: "verbose",
+      }),
+    ).rejects.toThrow();
+  });
 });

@@ -22,6 +22,7 @@ export const CHAT_COMMANDS = [
   "/tools",
   "/mcp",
   "/doctor",
+  "/verbosity",
 ] as const;
 
 /** MCP commands stay gated until the MCP lifecycle is safe to reload. */
@@ -116,10 +117,16 @@ export const CHAT_COMMAND_HELP: Record<ChatCommand, string> = {
   "/exit": "leave Champ",
   "/cost": "show token spend, pricing rates and budget limits",
   "/usage": "show token consumption, TTFT/latency histograms and tool stats",
-  "/context": "show context window usage, remaining capacity and compaction status",
-  "/route": "show smart router decisions, model candidates and circuit breakers",
-  "/tasks": "show active and completed agent task steps with duration and token usage",
-  "/tools": "show registered tools catalog with invocation counts and execution times",
+  "/context":
+    "show context window usage, remaining capacity and compaction status",
+  "/route":
+    "show smart router decisions, model candidates and circuit breakers",
+  "/tasks":
+    "show active and completed agent task steps with duration and token usage",
+  "/tools":
+    "show registered tools catalog with invocation counts and execution times",
   "/mcp": "show connected Model Context Protocol servers, tools and resources",
   "/doctor": "run environment, provider and workspace health diagnostics",
+  "/verbosity":
+    "show or change TUI transcript verbosity (`/verbosity low|medium|high`)",
 };

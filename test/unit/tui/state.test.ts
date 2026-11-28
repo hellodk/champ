@@ -187,3 +187,124 @@ describe("transcript backscroll (#191)", () => {
     expect(state.truncated).toBe(true);
   });
 });
+
+describe("turn-based transcript reducer (#212)", () => {
+  function start() {
+    return initialTuiState({
+      workspace: "/repo",
+      model: "Qwen3-4B",
+      endpoints: [],
+    });
+  }
+
+  it("preserves interleaved prose and activity groups within a single turn", () => {
+    let s = tuiReducer(start(), { type: "input/set", value: "Fix auth tests" });
+    s = tuiReducer(s, { type: "turn/start" });
+    s = tuiReducer(s, {
+      type: "message/stream",
+      role: "assistant",
+      text: "Inspecting auth module.",
+    });
+    s = tuiReducer(s, {
+      type: "tool/start",
+      event: { id: "t1", name: "read_file", args: '{"path":"src/auth.ts"}' },
+    });
+    s = tuiReducer(s, {
+      type: "tool/result",
+      event: {
+        id: "t1",
+        name: "read_file",
+        output: "ok",
+        success: true,
+        durationMs: 12,
+      },
+    });
+    s = tuiReducer(s, {
+      type: "tool/start",
+      event: { id: "t2", name: "edit_file", args: '{"path":"src/auth.ts"}' },
+    });
+    s = tuiReducer(s, {
+      type: "tool/result",
+      event: {
+        id: "t2",
+        name: "edit_file",
+        output: "ok",
+        success: true,
+        durationMs: 8,
+      },
+    });
+    s = tuiReducer(s, {
+      type: "message/stream",
+      role: "assistant",
+      text: "Fixed expired token check.",
+    });
+    s = tuiReducer(s, {
+      type: "turn/complete",
+      summary: {
+        tools: 2,
+        inputTokens: 3000,
+        outputTokens: 500,
+        durationMs: 4200,
+        model: "Qwen3-4B",
+      },
+    });
+
+    expect(s.turns).toHaveLength(1);
+    const turn = s.turns[0];
+    expect(turn.userMessage).toBe("Fix auth tests");
+    expect(turn.status).toBe("completed");
+    expect(turn.summary?.tools).toBe(2);
+    expect(turn.items.map((item) => item.kind)).toEqual([
+      "assistant_text",
+      "activity_group",
+      "assistant_text",
+    ]);
+    const groupItem = turn.items[1];
+    expect(groupItem.kind).toBe("activity_group");
+    if (groupItem.kind === "activity_group") {
+      expect(groupItem.group.entries).toHaveLength(2);
+      expect(groupItem.group.entries.every((e) => e.status === "done")).toBe(
+        true,
+      );
+    }
+  });
+
+  it("folds consecutive reasoning deltas into the active activity group", () => {
+    let s = tuiReducer(start(), { type: "input/set", value: "Explain" });
+    s = tuiReducer(s, { type: "turn/start" });
+    s = tuiReducer(s, { type: "reasoning/stream", text: "Step 1. " });
+    s = tuiReducer(s, { type: "reasoning/stream", text: "Step 2." });
+    s = tuiReducer(s, {
+      type: "tool/start",
+      event: { id: "t1", name: "read_file", args: '{"path":"a.ts"}' },
+    });
+    const groupItem = s.turns[0].items[0];
+    expect(groupItem.kind).toBe("activity_group");
+    if (groupItem.kind === "activity_group") {
+      expect(groupItem.group.entries).toHaveLength(2);
+      expect(groupItem.group.entries[0].kind).toBe("reasoning");
+      expect(groupItem.group.entries[0].reasoningText).toBe("Step 1. Step 2.");
+      expect(groupItem.group.entries[1].kind).toBe("tool");
+    }
+  });
+
+  it("toggles latest activity group expansion and cycles verbosity", () => {
+    let s = tuiReducer(start(), { type: "input/set", value: "Check" });
+    s = tuiReducer(s, { type: "turn/start" });
+    s = tuiReducer(s, {
+      type: "tool/start",
+      event: { id: "t1", name: "read_file", args: '{"path":"a.ts"}' },
+    });
+    expect(s.expandedActivityGroups).toHaveLength(0);
+    s = tuiReducer(s, { type: "activity/toggle-latest" });
+    expect(s.expandedActivityGroups).toHaveLength(1);
+    s = tuiReducer(s, { type: "activity/toggle-latest" });
+    expect(s.expandedActivityGroups).toHaveLength(0);
+
+    expect(s.transcriptConfig.verbosity).toBe("low");
+    s = tuiReducer(s, { type: "verbosity/cycle" });
+    expect(s.transcriptConfig.verbosity).toBe("medium");
+    s = tuiReducer(s, { type: "verbosity/set", verbosity: "high" });
+    expect(s.transcriptConfig.verbosity).toBe("high");
+  });
+});

@@ -55,28 +55,47 @@ export function toolResultFromCompletion(
       ? {}
       : { approval: completion.approval }),
     ...(error === undefined ? {} : { error }),
+    ...(completion.fileEditDiff === undefined
+      ? {}
+      : { fileEditDiff: completion.fileEditDiff }),
+    ...(completion.testsSummary === undefined
+      ? {}
+      : { testsSummary: completion.testsSummary }),
   };
 }
 
 export function usageFromSummary(
-  summary: { inputTokens: number; outputTokens: number },
+  summary: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  },
   meta: {
     at: string;
     model: string;
     provider: string;
     latencyMs: number;
-    costUsd: number;
+    costUsd: number | null;
+    costKnown?: boolean;
+    costSource?: "local" | "table" | "unknown";
   },
 ): UsageRecord {
+  const costKnown = meta.costKnown ?? meta.costUsd !== null;
   return {
     at: meta.at,
     model: meta.model,
     provider: meta.provider,
     inputTokens: summary.inputTokens,
     outputTokens: summary.outputTokens,
-    cacheReadTokens: 0,
-    cacheWriteTokens: 0,
+    cacheReadTokens: summary.cacheReadTokens ?? summary.cachedInputTokens ?? 0,
+    cacheWriteTokens: summary.cacheWriteTokens ?? 0,
     costUsd: meta.costUsd,
+    ...(meta.costKnown === undefined && meta.costUsd !== null
+      ? {}
+      : { costKnown }),
+    ...(meta.costSource === undefined ? {} : { costSource: meta.costSource }),
     latencyMs: meta.latencyMs,
   };
 }

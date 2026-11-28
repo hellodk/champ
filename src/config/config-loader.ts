@@ -256,6 +256,18 @@ export interface SSHConfig {
   defaults?: SSHDefaults;
 }
 
+export interface TuiTranscriptConfig {
+  verbosity?: "low" | "medium" | "high";
+  showModel?: boolean;
+  showUsage?: boolean;
+  showContext?: boolean;
+  showCost?: boolean;
+}
+
+export interface TuiConfig {
+  transcript?: TuiTranscriptConfig;
+}
+
 export interface ChampConfig {
   provider?: ProviderName;
   providers?: Partial<Record<ProviderName, ProviderConfig>>;
@@ -270,6 +282,7 @@ export interface ChampConfig {
   fallback?: FallbackConfig;
   rateLimit?: RateLimitConfig;
   ssh?: SSHConfig;
+  tui?: TuiConfig;
 }
 
 export const VALID_PROVIDERS: ProviderName[] = [
@@ -1346,6 +1359,62 @@ export class ConfigLoader {
       }
     }
 
+    // tui
+    if ("tui" in raw && raw.tui !== undefined && raw.tui !== null) {
+      if (typeof raw.tui !== "object" || Array.isArray(raw.tui)) {
+        pushError("`tui` must be an object");
+      } else {
+        const tuiRaw = raw.tui as Record<string, unknown>;
+        const out: TuiConfig = {};
+        if (
+          "transcript" in tuiRaw &&
+          tuiRaw.transcript !== undefined &&
+          tuiRaw.transcript !== null
+        ) {
+          if (
+            typeof tuiRaw.transcript !== "object" ||
+            Array.isArray(tuiRaw.transcript)
+          ) {
+            pushError("tui.transcript must be an object");
+          } else {
+            const tr = tuiRaw.transcript as Record<string, unknown>;
+            const tOut: TuiTranscriptConfig = {};
+            if ("verbosity" in tr) {
+              if (
+                tr.verbosity !== "low" &&
+                tr.verbosity !== "medium" &&
+                tr.verbosity !== "high"
+              ) {
+                pushError(
+                  'tui.transcript.verbosity must be "low", "medium", or "high"',
+                );
+              } else {
+                tOut.verbosity = tr.verbosity;
+              }
+            }
+            for (const boolKey of [
+              "showModel",
+              "showUsage",
+              "showContext",
+              "showCost",
+            ] as const) {
+              if (boolKey in tr) {
+                if (typeof tr[boolKey] !== "boolean") {
+                  pushError(`tui.transcript.${boolKey} must be a boolean`);
+                } else {
+                  tOut[boolKey] = tr[boolKey] as boolean;
+                }
+              }
+            }
+            out.transcript = tOut;
+          }
+        }
+        if (Object.keys(out).length > 0) {
+          result.tui = out;
+        }
+      }
+    }
+
     return { errors, config: result };
   }
 
@@ -1447,6 +1516,21 @@ export class ConfigLoader {
       result.ssh = mergedSsh;
     }
 
+    if (override.tui) {
+      result.tui = {
+        ...result.tui,
+        ...override.tui,
+        ...(override.tui.transcript || result.tui?.transcript
+          ? {
+              transcript: {
+                ...result.tui?.transcript,
+                ...override.tui.transcript,
+              },
+            }
+          : {}),
+      };
+    }
+
     return result;
   }
 
@@ -1510,6 +1594,17 @@ export class ConfigLoader {
       indexing: {
         enabled: true,
         ...config.indexing,
+      },
+      tui: {
+        ...config.tui,
+        transcript: {
+          verbosity: "low",
+          showModel: true,
+          showUsage: true,
+          showContext: true,
+          showCost: true,
+          ...config.tui?.transcript,
+        },
       },
     };
   }
